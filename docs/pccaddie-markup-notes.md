@@ -3,9 +3,15 @@
 Companion to [`../ROADMAP.md`](../ROADMAP.md)'s "Confirmed pc caddie markup reference" —
 that section has the narrative and the *why*; this file has concrete example snippets
 to write a parser and its tests against, so Phase 1 implementation doesn't need to
-re-derive them from scratch. All confirmed against the real site 2026-09-05 (club id
-0000001, "Musterhausen"). Snippets below are reconstructed to match the confirmed
-classes/structure — not raw copy-pasted HTML (which would carry session tokens).
+re-derive them from scratch. Primary source: the real site 2026-09-05 (club id 0000001,
+"Musterhausen"), cross-checked the same evening against 3 other real pc caddie clubs
+(Golf Club Segeberg, Golf Club Schloß Klingenburg, Green Eagle Golf Courses) to confirm
+`table.pcco-tt-timetable` and `seats-free-N`/`tt-grau` are platform markup, not
+Musterhausen-specific — see ROADMAP.md "Cross-club validation" for the full list of
+config differences found between clubs (course-selector layout, daylight-display
+accuracy, what `.tt-show-hcp` actually holds). Snippets below are reconstructed to
+match the confirmed classes/structure — not raw copy-pasted HTML (which would carry
+session tokens).
 
 ## URLs
 
@@ -55,7 +61,7 @@ regex — already implemented and tested (`tests/test_scraper.py`).
 Each of the (up to) 4 player cells that follow has a name span and a handicap span:
 
 ```html
-<!-- Anonymized member booking -->
+<!-- Anonymized member booking, logged in (not a friend) -->
 <td>
   <span class="tt-show-name tt-show-male">Occupied</span>
   <span class="tt-show-hcp">Member (16.3)</span>
@@ -65,6 +71,14 @@ Each of the (up to) 4 player cells that follow has a name span and a handicap sp
 <td>
   <span class="tt-show-name tt-show-female">Occupied</span>
   <span class="tt-show-hcp">Member (20.5)</span>
+</td>
+
+<!-- Anonymized, NOT logged in at all — a second, distinct anonymized-state text,
+     confirmed identical wording at every club checked (Musterhausen before login,
+     plus all 3 other clubs cross-checked). classify_booking_label() should treat
+     this the same as "Occupied": label = "anonymized". -->
+<td>
+  <span class="tt-show-name tt-show-male">Please login to see names</span>
 </td>
 
 <!-- Event/lesson/guest/sponsor block — the whole row's cells carry the label instead -->

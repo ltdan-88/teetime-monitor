@@ -51,8 +51,10 @@ DEFAULT_MODEL = "claude-opus-5"
 class BookingLabelClassification(BaseModel):
     """Structured-output shape for classify_booking_label().
 
-    "anonymized" is the literal "Occupied" placeholder (a member booking, name
-    withheld). "advance_booking_window" means the slot isn't real occupancy at all —
+    "anonymized" covers both confirmed anonymized-state texts: "Occupied" (logged in,
+    not a friend) and "Please login to see names" (not logged in at all) — both mean a
+    member booking, name withheld, confirmed identical wording across every pc caddie
+    club checked. "advance_booking_window" means the slot isn't real occupancy at all —
     just not open for booking yet (see ROADMAP.md "Known risks") — scraper.py should
     set Slot.block_reason, not count it toward `booked`. "event_or_lesson_block" and
     "guest_block" also set block_reason, using `raw_text` as the reason. "friend_name"

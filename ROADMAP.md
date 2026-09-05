@@ -133,6 +133,44 @@ pair automatically rather than rotating independently — 18-hole "Runde A+C" sh
 alongside 9-hole "Runde B" (the leftover loop) at the same time. One combo determines
 the other.
 
+**Cross-club validation (2026-09-05, same evening)**: checked 3 other real pc caddie
+clubs found via public search (Golf Club Segeberg, Golf Club Schloß Klingenburg, Green
+Eagle Golf Courses — different club ids, different branding) to see whether the markup
+above is Musterhausen-specific or platform-wide. Confirmed: `table.pcco-tt-timetable`
+and the `td.seats-free-N`/`tt-grau` pattern are byte-identical across all 4 clubs
+checked — this is pc caddie *platform* markup, not something Musterhausen customized,
+which is a real win for the multi-club feature: the deterministic parsing approach
+should generalize to any pc caddie club, needing only a different `club_id` and course
+alias codes (which do differ per club — re-derive `COURSE_ALIASES` per club, don't
+assume Musterhausen's `COUB`/`COU1`/`COU6` are universal).
+
+Differences observed between clubs (config, not platform, differences):
+- Course-selector presence varies — some clubs show one combined view with a per-slot
+  "9H"/"18H" tag instead of Musterhausen's separate dropdown-per-course-alias page.
+- The "Daylight" display is sometimes accurate, sometimes shows placeholder "XX:XX" for
+  a club that hasn't configured a location — further confirms the 2026-09-05 decision
+  not to rely on this for sunrise/sunset (see "Considered and dropped").
+- The `.tt-show-hcp` span isn't always a handicap — one club used it for a round-length
+  tag instead. Don't assume its content is always "Member (H.H)" — another point in
+  favor of `ai_assist.classify_booking_label()` handling the semantics, not a fixed
+  regex.
+- Anonymization has (at least) two text variants depending on login state: **"Please
+  login to see names"** when not logged in at all (confirmed identical wording at every
+  club checked, including Musterhausen before the user logged in earlier), vs.
+  **"Occupied"** once logged in but not a friend. `classify_booking_label()` should
+  treat both as `"anonymized"`.
+
+**Worth the user's own attention, not something explored further**: browsing Green
+Eagle's page showed the user's own account as logged in there too, despite them likely
+not being a member of that club — suggesting pc caddie sessions may be scoped
+platform-wide (`pccaddie.net`) rather than strictly per-club. Deliberately did not
+explore this further (no clicking into account-specific pages at a club the user isn't
+a member of) — flagging it rather than testing it, since it touches account/access
+boundaries that are the user's to understand, not something to probe unilaterally. If
+true, it could simplify Phase 0's per-club credential namespacing (one login might
+cover every club under the same pc caddie account) — worth the user confirming with pc
+caddie or their own knowledge before assuming either way.
+
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
 course you're even looking at has to be settled before any scraping happens, and the
