@@ -20,6 +20,7 @@ class WeatherPoint:
     precipitation_probability: float | None = None  # 0-100
     precipitation_mm: float | None = None
     wind_speed_kph: float | None = None
+    temperature_c: float | None = None
 
 
 @dataclass
@@ -35,3 +36,4 @@ class Schedule:
     slots: list[Slot] = field(default_factory=list)
     weather: list[WeatherPoint] = field(default_factory=list)
     sun_times: SunTimes | None = None
+    events: list[str] = field(default_factory=list)  # tournament/event notes, if any

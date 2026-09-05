@@ -14,11 +14,18 @@ with JSON would just mean migrating later for no benefit.
 - Manual login walkthrough + selector discovery first (no code) — real pc caddie CSS
   selectors are unknown until inspected by hand. See "Known risks" in the v1 spec. While
   doing this: also check whether player names for booked slots include friends (added as
-  friends in the pc caddie app) distinguishably from other players — this determines
-  whether Phase 3's "spot your friends" signal is possible at all.
+  friends in the pc caddie app) distinguishably from other players, and whether
+  tournaments/club events are shown on the tee sheet (confirmed: pc caddie does list
+  these) — both feed later phases below.
 - `scraper.py` — Playwright login + tee sheet scrape for one course/date, using a
-  `SELECTORS` dict discovered above
-- `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec)
+  `SELECTORS` dict discovered above. Also captures any tournament/event note shown for
+  the day, if one's on the sheet.
+- `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec), `Schedule` also gets an
+  `events: list[str]` field for tournament/event notes.
+- `config.yaml` gains an `identity` block: your own name and a list of friends' names, as
+  they appear on the tee sheet. Simple text-matching against scraped player names — no
+  dependence on pc caddie having a special "friend" marker in its own HTML. Powers both
+  Phase 3's friend-spotting and Phase 5's personal stats.
 - `storage.py` — SQLite-backed persistence. One `scrapes` table logging every scrape
   (course, date, time, booked, capacity, players, scraped_at). Loading "today's schedule"
   is a query for the latest scrape per slot; this same table is what Phase 5 analytics
@@ -34,6 +41,7 @@ with JSON would just mean migrating later for no benefit.
   - Hourly precipitation probability/amount, matched to each tee time slot and shown as
     an extra column or icon (e.g. a rain-drop indicator past a threshold).
   - Hourly wind speed, same treatment — windy rounds are miserable even without rain.
+  - Hourly temperature — freezing or scorching rounds matter too.
   - Daily sunrise/sunset (Open-Meteo returns these directly in the same `daily` response
     — no second API needed).
 - `playability.py` — pure time-arithmetic helper, no I/O: given a slot's start time, the
@@ -50,8 +58,9 @@ with JSON would just mean migrating later for no benefit.
   the table, score each slot against your own stated preferences and highlight the best
   one per day with a star.
 - `config.yaml` gains a `preferences` block, e.g. preferred time of day (morning/
-  afternoon/either), solo vs with-others, how much to weight rain/wind, and — if Phase 1
-  confirms it's possible — whether to boost slots where a friend is already booked.
+  afternoon/either), solo vs with-others, how much to weight rain/wind/temperature
+  comfort, and whether to boost slots where a friend (from the Phase 1 `identity` list)
+  is already booked.
 - `recommend.py` (new module) — combines Phase 1 occupancy, Phase 2 weather/playability,
   and (if available) friend-spotting into one score per slot, per your configured
   preferences. Pure scoring logic over already-scraped data, no new external calls.
@@ -60,14 +69,16 @@ with JSON would just mean migrating later for no benefit.
 
 ## Phase 4 — Multi-day overview (home screen)
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
-  column per day, condensed occupancy + rain/wind + playability summary, plus the Phase 3
-  recommended pick highlighted per day (not full per-slot detail).
+  column per day, condensed occupancy + rain/wind/temperature + playability summary,
+  plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days
+  with a tournament/event note (from Phase 1) get their own flag, so a weird-looking
+  sheet doesn't confuse you.
 - This becomes the app's **default/home screen**. Drilling into one day (e.g. pressing
   Enter on a day column) opens the Phase 1 single-day detail table.
 - Requires the scraper to pull multiple days in one run (loop over dates), still gated by
   the same course/config.
 
-## Phase 5 — Local-stats analytics ("best tee times" over time)
+## Phase 5 — Local-stats analytics & personal stats
 - `analytics.py` — pattern recognition over the accumulated SQLite history, no AI/LLM
   calls, no external API, no cost. E.g.: aggregate historical occupancy by weekday +
   time-of-day to answer "when is this course usually emptiest?", surfaced as a simple
@@ -75,6 +86,10 @@ with JSON would just mean migrating later for no benefit.
 - Needs a few weeks of accumulated scrapes to be useful — this phase's usefulness grows
   over time, not something to judge from day one. Complements Phase 3 (today's rules)
   with "what actually tends to be true here over time".
+- Also a small personal-stats view, using the Phase 1 `identity.my_name` to spot your own
+  bookings in the scraped history: days since you last played, total rounds logged, and
+  whatever else turns out to be fun/sensible once there's real data to look at — this
+  list is expected to grow once Phase 1 history actually exists, not fixed up front.
 
 ## Phase 6 — AI-assisted insights (later, opt-in)
 - Explicitly deferred, not blocking Phase 5. Once local-stats analytics exists and there's
@@ -86,6 +101,9 @@ with JSON would just mean migrating later for no benefit.
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
+- **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a
+  slot) — decided against (2026-09-05): booking always has to go through the pc caddie
+  app anyway, so this wouldn't save a step.
 
 ## Out of scope (all phases)
 Booking/auto-booking, notifications, multi-club support, packaging/distribution, mobile

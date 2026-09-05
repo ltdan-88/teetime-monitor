@@ -1,9 +1,10 @@
 """Rain + wind + sunrise/sunset client for the weather/daylight overlay (ROADMAP.md Phase 2).
 
 Uses Open-Meteo (https://open-meteo.com/) — free, no API key required. A single forecast
-call covers all three needs here: `hourly=precipitation_probability,precipitation,
-wind_speed_10m` for the rain/wind overlay, and `daily=sunrise,sunset` for playability
-(see playability.py) — no second API/service needed for sunrise/sunset.
+call covers everything here: `hourly=precipitation_probability,precipitation,
+wind_speed_10m,temperature_2m` for the rain/wind/temperature overlay, and
+`daily=sunrise,sunset` for playability (see playability.py) — no second API/service
+needed for sunrise/sunset.
 
 Club coordinates come from config.yaml's `location` block.
 

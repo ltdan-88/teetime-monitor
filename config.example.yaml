@@ -21,11 +21,19 @@ round_duration_minutes:
 # playable, so this pads the cutoff earlier.
 daylight_buffer_minutes: 30
 
+# Your own name and friends' names as they appear on the tee sheet, plain text match
+# against scraped player names. Powers friend-spotting (Phase 3) and personal stats
+# (Phase 5) — no dependence on pc caddie marking friends specially in its own HTML.
+identity:
+  my_name: ""
+  friends: []
+
 # Drives the "pick for me" recommended slot (Phase 3). Tune to how you actually golf.
 preferences:
   time_of_day: "either"       # "morning", "afternoon", or "either"
   group: "either"              # "solo", "with_others", or "either"
   avoid_rain: true
   avoid_wind: true
-  # Only meaningful if Phase 1 confirms friend names are scrapeable.
+  avoid_temp_below_c: 5
+  avoid_temp_above_c: 32
   prioritize_friends: true

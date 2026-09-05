@@ -1,7 +1,7 @@
 """SQLite-backed persistence for scraped tee sheets.
 
 Deliberately SQLite from the start rather than a flat JSON cache (contrast with the
-original docs/spec-v1.md) — Phase 4 analytics needs history to accumulate across scrapes,
+original docs/spec-v1.md) — Phase 5 analytics needs history to accumulate across scrapes,
 and every scrape is logged as its own row rather than overwritten, so "today's schedule"
 is just the latest scrape per slot and the full table is what analytics later reads from.
 

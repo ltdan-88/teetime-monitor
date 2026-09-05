@@ -16,12 +16,16 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   needed)
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on a configurable estimated round duration
-- Wind in the weather overlay too, not just rain
+- Wind and temperature in the weather overlay too, not just rain
+- Tournament/event days flagged, since pc caddie lists these on the tee sheet
 - A "pick for me" recommended slot per day, scored against your own preferences (time of
-  day, solo vs group, rain/wind tolerance, and friends if scraping confirms it's possible)
+  day, solo vs group, rain/wind/temperature tolerance, and friends if scraping confirms
+  it's possible)
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?") — no AI calls, no external cost
+- Personal stats (days since you last played, rounds logged, and more once there's real
+  history to look at)
 - An opt-in AI-assisted insights mode, later, once there's real history to analyze
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
