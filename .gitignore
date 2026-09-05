@@ -1,5 +1,6 @@
 .env
-config.yaml
+clubs/*.yaml
+!clubs/club.example.yaml
 __pycache__/
 *.pyc
 .venv/

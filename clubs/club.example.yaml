@@ -1,4 +1,14 @@
+# Copy this file to clubs/<your-club-id>.yaml — the filename (without ".yaml") is that
+# club's id, used both to pick it at startup and to namespace its credentials in .env.
+# See ROADMAP.md Phase 0 for the multi-club design. You can save as many of these as
+# you have clubs; if there's only one, the TUI skips the picker automatically.
+
 club_url: "https://online.pccaddie.net/<club-slug>"
+
+# A convenience default only — the real list of currently-available courses is
+# detected live from the site each run, since some clubs (like this one: 27 holes)
+# rotate which 9-hole loops combine into "the 18-hole course" week to week. See
+# ROADMAP.md Phase 0.
 default_course: ""
 default_date: "today"   # or YYYY-MM-DD
 
@@ -8,7 +18,21 @@ location:
   lat: 0.0
   lon: 0.0
 
-# How many days ahead the multi-day overview (Phase 3) pulls, including today.
+# Public holidays + school-vacation periods (Phase 2) — both tend to mean a busier
+# course, factored into the Phase 5 crowd heatmap and the avoid_predicted_crowd
+# preference below.
+calendar:
+  # ISO 3166-1 alpha-2 country code (e.g. "AT", "DE", "CH") — public holidays are
+  # fetched automatically via the free Nager.Date API (https://date.nager.at/), no key
+  # needed. Leave blank to skip public-holiday awareness.
+  country_code: ""
+  # No universal free API covers regional school-vacation calendars, so these are
+  # entered by hand — just the date ranges that tend to make this specific course busier.
+  vacation_ranges: []
+  # vacation_ranges:
+  #   - { start: "2026-07-04", end: "2026-09-15", label: "summer break" }
+
+# How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 
 # Estimated round duration, used to work out whether a tee time finishes before sunset
@@ -49,3 +73,5 @@ preferences:
   avoid_temp_below_c: 5
   avoid_temp_above_c: 32
   prioritize_friends: true
+  avoid_predicted_crowd: true   # steer away from the Phase 5 heatmap's busy windows,
+                                 # once there's enough history for it to say anything

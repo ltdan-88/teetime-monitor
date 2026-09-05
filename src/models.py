@@ -1,6 +1,7 @@
 """Core dataclasses shared across scraper, storage, weather, analytics, and TUI.
 
-See ROADMAP.md Phase 1 for `Slot`/`Schedule`, Phase 2 for `WeatherPoint`/`SunTimes`.
+See ROADMAP.md Phase 1 for `Slot`/`Schedule`, Phase 2 for `WeatherPoint`/`SunTimes`/
+`DateRange`.
 """
 
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ class Schedule:
     weather: list[WeatherPoint] = field(default_factory=list)
     sun_times: SunTimes | None = None
     events: list[str] = field(default_factory=list)  # tournament/event notes, if any
+    available_courses: list[str] = field(default_factory=list)  # this week's options
 
 
 @dataclass
@@ -54,6 +56,16 @@ class ConfirmedBooking:
     time: str | None  # None means "confirmed not playing that day"
     holes: int | None = None  # 9 or 18, if noted at confirmation time
     confirmed_at: str = ""  # ISO 8601 timestamp
+
+
+@dataclass
+class DateRange:
+    """A labeled span of dates — used for a club's manually-entered vacation periods
+    (ROADMAP.md Phase 2), since there's no universal free API for those."""
+
+    start: str  # YYYY-MM-DD
+    end: str  # YYYY-MM-DD
+    label: str = ""
 
 
 @dataclass

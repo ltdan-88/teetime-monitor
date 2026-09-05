@@ -6,7 +6,8 @@ wind_speed_10m,temperature_2m` for the rain/wind/temperature overlay, and
 `daily=sunrise,sunset` for playability (see playability.py) — no second API/service
 needed for sunrise/sunset.
 
-Club coordinates come from config.yaml's `location` block.
+Club coordinates come from the active club's YAML `location` block (see ROADMAP.md
+Phase 0 for multi-club config).
 
 NOT YET IMPLEMENTED.
 """

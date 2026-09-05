@@ -3,7 +3,7 @@
 Pure time arithmetic, no I/O — takes a slot's start time, the day's sunset (from
 weather.py's Open-Meteo call), an estimated round duration, and a safety buffer, and
 decides whether that round would finish before dark. Round duration is configurable per
-round length (9 vs 18 holes) in config.yaml, since pace varies by course/player.
+round length (9 vs 18 holes) in the active club's YAML, since pace varies by course/player.
 
 Unlike the other src/ modules, this one has no external dependency to wait on, so it's
 implemented (and tested) now rather than stubbed.

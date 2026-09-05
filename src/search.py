@@ -4,11 +4,11 @@ used two ways:
 - **Ad hoc**, via the TUI's search form: criteria typed in on the spot for a one-off
   need, e.g. "3 players, weekdays only, after 15:00, at least 20 minutes clear of any
   other flight."
-- **Default**, via recommend.py: the same SearchCriteria shape, but saved in
-  config.yaml's `availability` block and run automatically against every day in the
-  overview, so the week's recommended slots show up without typing anything. This is
-  what replaced the older, flatter idea of a single "preferences" block — same engine,
-  just two entry points (typed-in vs saved-as-default).
+- **Default**, via recommend.py: the same SearchCriteria shape, but saved in the active
+  club's `availability` block and run automatically against every day in the overview,
+  so the week's recommended slots show up without typing anything. This is what
+  replaced the older, flatter idea of a single "preferences" block — same engine, just
+  two entry points (typed-in vs saved-as-default).
 
 Reuses recommend.py's scoring approach (dry, calm, safely-before-sunset first) for
 ranking matches within whichever criteria produced them.
