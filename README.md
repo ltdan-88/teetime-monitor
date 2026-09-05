@@ -83,7 +83,8 @@ teetime-monitor/
 ├── clubs/
 │   └── club.example.yaml  # template — copy per real club (real ones are gitignored)
 ├── docs/
-│   └── spec-v1.md          # original single-session spec (historical)
+│   ├── spec-v1.md              # original single-session spec (historical)
+│   └── pccaddie-markup-notes.md # example HTML snippets for the real site's markup
 ├── src/
 │   ├── club_config.py      # multi-club: list/load clubs, resolve credentials (implemented)
 │   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (partly implemented)

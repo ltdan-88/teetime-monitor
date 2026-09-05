@@ -80,7 +80,9 @@ referenced from the phases below rather than repeated:
 ## Confirmed pc caddie markup reference (2026-09-05)
 Concrete technical detail from the walkthrough above — closer to implementation notes
 than roadmap prose, kept separate so the narrative above stays readable. Update this if
-the site changes.
+the site changes. See also
+[`docs/pccaddie-markup-notes.md`](docs/pccaddie-markup-notes.md) for illustrative HTML
+snippets to write a parser and its tests against.
 
 **Direct URL navigation** (no form/dropdown interaction needed):
 ```
