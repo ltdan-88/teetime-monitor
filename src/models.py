@@ -32,6 +32,26 @@ class WeatherPoint:
 
 
 @dataclass
+class RoundConditions:
+    """Worst-case weather across an entire round's duration, not a single point in
+    time — see weather.py's conditions_during_round(). Added 2026-09-05: a slot's
+    weather can't be judged from its tee-off hour alone once the round runs 2-4+ hours.
+
+    Precipitation and wind are one-sided (more is always worse), so those collapse to
+    a single max. Temperature is two-sided — too cold and too hot are both bad — so it
+    stays as a min/max pair rather than forcing it into one "worst" number; a caller
+    checks min against `avoid_temp_below_c` and max against `avoid_temp_above_c`
+    separately.
+    """
+
+    max_precipitation_probability: float | None = None  # 0-100
+    max_precipitation_mm: float | None = None
+    max_wind_speed_kph: float | None = None
+    min_temperature_c: float | None = None
+    max_temperature_c: float | None = None
+
+
+@dataclass
 class SunTimes:
     sunrise: str  # "HH:MM", local time
     sunset: str  # "HH:MM", local time

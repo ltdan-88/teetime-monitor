@@ -22,8 +22,11 @@ of it needs `ai_assist`:
   after 17:00, weekends after 10:00, always solo, etc.) — party size and time windows
 - `playability.py` (already implemented) — exclude slots that don't leave enough
   daylight to finish, using the club's sunset + round-duration config
-- A simple rain/wind threshold from Phase 2's Open-Meteo call — exclude or
-  de-prioritize slots forecast for bad weather
+- A rain/wind/temperature threshold from Phase 2's Open-Meteo call — but checked
+  across the *whole round's duration* via `weather.conditions_during_round()`
+  (implemented and tested 2026-09-05), not just the tee-off hour. Same underlying
+  point as `playability.py` already gets right for daylight: a slot's conditions can't
+  be judged from a single moment once the round runs 2-4+ hours.
 
 That combination — fits your schedule, enough daylight, decent weather — is the
 smallest version that's actually a *good* recommendation, and none of it requires AI.
@@ -300,12 +303,19 @@ would've built up in the meantime.
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
   required). Needs the club's lat/lon from its YAML (Phase 0). One call gets all of:
-  - Hourly precipitation probability/amount, matched to each tee time slot and shown as
-    an extra column or icon (e.g. a rain-drop indicator past a threshold).
-  - Hourly wind speed, same treatment — windy rounds are miserable even without rain.
-  - Hourly temperature — freezing or scorching rounds matter too.
+  - Hourly precipitation probability/amount, wind speed, and temperature for the whole
+    day, shown per slot in the day-detail table (e.g. a rain-drop indicator past a
+    threshold) as a quick visual, but see `conditions_during_round()` below for how
+    this actually feeds recommendations.
   - Daily sunrise/sunset (Open-Meteo returns these directly in the same `daily` response
     — no second API needed).
+  - `conditions_during_round()` (implemented and tested, 2026-09-05) — a slot's weather
+    can't be judged from its tee-off hour alone once a round runs 2-4+ hours. Given the
+    day's hourly forecast, a start time, and the round duration, returns the *worst*
+    reading across the whole window (max rain/wind; temperature as a min/max pair,
+    since cold and heat are both bad but in opposite directions — see `RoundConditions`
+    in models.py). Added after user feedback that checking only the tee-off hour misses
+    rain rolling in partway through a round.
 - `playability.py` — pure time-arithmetic helper, no I/O: given a slot's start time, the
   day's sunset, an estimated round duration, and a safety buffer, decide whether that
   round would finish before dark. Round duration is configurable per length (9 vs 18
