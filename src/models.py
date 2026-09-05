@@ -54,3 +54,19 @@ class ConfirmedBooking:
     time: str | None  # None means "confirmed not playing that day"
     holes: int | None = None  # 9 or 18, if noted at confirmation time
     confirmed_at: str = ""  # ISO 8601 timestamp
+
+
+@dataclass
+class SlotMatch:
+    """One scored candidate slot, returned by recommend.py or search.py.
+
+    `reasons` is a short list of plain-language tags for why it scored the way it did
+    (e.g. "dry", "calm", "3 open spots", "20 min clear of other flights") — meant to be
+    shown next to the slot in the TUI, not just a bare number.
+    """
+
+    date: str  # YYYY-MM-DD
+    course: str
+    slot: Slot
+    score: float
+    reasons: list[str] = field(default_factory=list)

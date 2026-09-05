@@ -84,7 +84,7 @@ would've built up in the meantime.
 - This is distinct from Phase 5's historical analytics: recommendations use *today's*
   data plus rules you set, not weeks of accumulated history.
 
-## Phase 4 — Multi-day overview (home screen)
+## Phase 4 — Multi-day overview & search (home screen)
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days
@@ -94,6 +94,18 @@ would've built up in the meantime.
   Enter on a day column) opens the Phase 1 single-day detail table.
 - Requires the scraper to pull multiple days in one run (loop over dates), still gated by
   the same course/config.
+- **Search** (new, 2026-09-05): instead of just eyeballing the grid, type in what you
+  actually need and get a ranked list back. E.g. "3 players, weekdays only, after 15:00,
+  at least 20 minutes clear of any other flight." New keybinding opens a small form; new
+  `search.py` module runs the query across every day already pulled for the overview:
+  - **Party size** — enough open spots in the slot for your group
+  - **Time window** — after/before a given time
+  - **Weekdays only** (or any day)
+  - **Buffer from other flights** — a minimum gap to the nearest other booked flight,
+    both before and after, so your group isn't squeezed between two other groups
+  - Results are ranked using the same scoring as Phase 3's "pick for me" (dry, calm,
+    safely before sunset first), just applied across many days and many criteria instead
+    of one fixed daily pick.
 
 ## Phase 5 — Local-stats analytics & personal stats
 - `analytics.py` — pattern recognition over the accumulated SQLite history, no AI/LLM

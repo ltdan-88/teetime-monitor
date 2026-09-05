@@ -26,6 +26,8 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   day, solo vs group, rain/wind/temperature tolerance, and friends if scraping confirms
   it's possible)
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
+- Search: type in "3 players, weekdays only, after 15:00, 20 min clear of other
+  flights" and get a ranked list of matching slots across every day pulled so far
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?") — no AI calls, no external cost
 - Personal stats (days since you last played, rounds logged, and more once there's real
@@ -60,7 +62,8 @@ teetime-monitor/
 │   ├── weather.py         # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── playability.py     # is a tee time playable before sunset? (implemented)
 │   ├── recommend.py       # "pick for me" — score today's slots against your prefs
-│   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking
+│   ├── search.py          # ad-hoc multi-day search (party size, time, buffer, ...)
+│   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch
 │   ├── storage.py         # SQLite persistence — scraped sheets + confirmed bookings
 │   ├── analytics.py       # local pattern-recognition + personal stats over history
 │   └── tui.py              # Textual app: multi-day overview + day detail + confirm
