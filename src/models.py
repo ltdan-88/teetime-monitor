@@ -19,6 +19,7 @@ class WeatherPoint:
     time: str  # matches a Slot's time
     precipitation_probability: float | None = None  # 0-100
     precipitation_mm: float | None = None
+    wind_speed_kph: float | None = None
 
 
 @dataclass

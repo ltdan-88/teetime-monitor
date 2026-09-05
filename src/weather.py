@@ -1,9 +1,9 @@
-"""Rain + sunrise/sunset client for the weather/daylight overlay (ROADMAP.md Phase 2).
+"""Rain + wind + sunrise/sunset client for the weather/daylight overlay (ROADMAP.md Phase 2).
 
 Uses Open-Meteo (https://open-meteo.com/) — free, no API key required. A single forecast
-call covers both needs here: `hourly=precipitation_probability,precipitation` for the
-rain overlay, and `daily=sunrise,sunset` for playability (see playability.py) — no
-second API/service needed for sunrise/sunset.
+call covers all three needs here: `hourly=precipitation_probability,precipitation,
+wind_speed_10m` for the rain/wind overlay, and `daily=sunrise,sunset` for playability
+(see playability.py) — no second API/service needed for sunrise/sunset.
 
 Club coordinates come from config.yaml's `location` block.
 
@@ -15,8 +15,8 @@ from .models import SunTimes, WeatherPoint
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
 
-def fetch_hourly_precipitation(lat: float, lon: float, date: str) -> list[WeatherPoint]:
-    """Fetch hourly precipitation probability/amount for one date, one location."""
+def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint]:
+    """Fetch hourly precipitation + wind speed for one date, one location."""
     raise NotImplementedError("weather.py is a stub — see ROADMAP.md Phase 2")
 
 

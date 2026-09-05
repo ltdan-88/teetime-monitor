@@ -20,3 +20,12 @@ round_duration_minutes:
 # Safety margin subtracted before sunset — a round "finishing at sunset" isn't really
 # playable, so this pads the cutoff earlier.
 daylight_buffer_minutes: 30
+
+# Drives the "pick for me" recommended slot (Phase 3). Tune to how you actually golf.
+preferences:
+  time_of_day: "either"       # "morning", "afternoon", or "either"
+  group: "either"              # "solo", "with_others", or "either"
+  avoid_rain: true
+  avoid_wind: true
+  # Only meaningful if Phase 1 confirms friend names are scrapeable.
+  prioritize_friends: true
