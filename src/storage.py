@@ -1,9 +1,18 @@
-"""SQLite-backed persistence for scraped tee sheets.
+"""SQLite-backed persistence for scraped tee sheets and confirmed bookings.
 
+Not just a cache — this is the only record of the past that will ever exist, since pc
+caddie itself hides past tee sheets and there's no way to look them up again later.
 Deliberately SQLite from the start rather than a flat JSON cache (contrast with the
-original docs/spec-v1.md) — Phase 5 analytics needs history to accumulate across scrapes,
-and every scrape is logged as its own row rather than overwritten, so "today's schedule"
-is just the latest scrape per slot and the full table is what analytics later reads from.
+original docs/spec-v1.md) — Phase 5 analytics needs history to accumulate across
+scrapes, and every scrape is logged as its own row rather than overwritten, so "today's
+schedule" is just the latest scrape per slot and the full table is what analytics later
+reads from.
+
+Two tables:
+- `scrapes` — what the tee sheet looked like, logged every time it's scraped.
+- `confirmed_bookings` — what *you* actually played, confirmed by hand via the TUI's
+  `c` keybinding (see ConfirmedBooking in models.py). Kept separate because it answers a
+  different question than scraped player-name matching can reliably answer on its own.
 
 NOT YET IMPLEMENTED — schema and functions sketched below per ROADMAP.md Phase 1.
 """
@@ -11,7 +20,7 @@ NOT YET IMPLEMENTED — schema and functions sketched below per ROADMAP.md Phase
 import sqlite3
 from pathlib import Path
 
-from .models import Schedule
+from .models import ConfirmedBooking, Schedule
 
 DEFAULT_DB_PATH = Path("teetime.db")
 
@@ -25,6 +34,15 @@ CREATE TABLE IF NOT EXISTS scrapes (
     capacity INTEGER NOT NULL,
     players TEXT NOT NULL,     -- JSON-encoded list[str]
     scraped_at TEXT NOT NULL   -- ISO 8601 timestamp
+);
+
+CREATE TABLE IF NOT EXISTS confirmed_bookings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course TEXT NOT NULL,
+    date TEXT NOT NULL,        -- YYYY-MM-DD
+    time TEXT,                 -- HH:MM, or NULL for "confirmed not playing"
+    holes INTEGER,             -- 9 or 18, if noted
+    confirmed_at TEXT NOT NULL -- ISO 8601 timestamp
 );
 """
 
@@ -41,4 +59,14 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> None:
 
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
     """Return the most recent scrape's slots for a course/date, or None if never scraped."""
+    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+
+
+def save_confirmed_booking(booking: ConfirmedBooking, path: Path = DEFAULT_DB_PATH) -> None:
+    """Record a confirmed booking (or a confirmed "not playing"). Never overwrite."""
+    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+
+
+def load_confirmed_booking(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> ConfirmedBooking | None:
+    """Return the confirmed booking for a course/date, or None if never confirmed."""
     raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")

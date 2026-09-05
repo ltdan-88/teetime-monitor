@@ -10,8 +10,12 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 
 ## Planned capabilities
 
-- Scrape the full tee sheet (all slots, booked and free) for a given course/date
+- Scrape the full tee sheet (all slots, booked and free) for a given course/date, with a
+  scheduled background scrape too — pc caddie hides past tee sheets, so history can't be
+  filled in later, and this keeps it building even on days you don't open the app
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio
+- A confirm-your-tee-time prompt (`c` in the TUI) — teetime-monitor never books for you,
+  but this is what actually gives the stats below something to work with
 - Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
   needed)
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
@@ -52,13 +56,14 @@ teetime-monitor/
 │   └── spec-v1.md        # original single-session spec (historical)
 ├── src/
 │   ├── scraper.py         # Playwright login + tee sheet scrape
+│   ├── scrape_once.py     # headless scrape for a cron/launchd schedule
 │   ├── weather.py         # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── playability.py     # is a tee time playable before sunset? (implemented)
 │   ├── recommend.py       # "pick for me" — score today's slots against your prefs
-│   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes dataclasses
-│   ├── storage.py         # SQLite persistence + history queries
-│   ├── analytics.py       # local pattern-recognition over history
-│   └── tui.py              # Textual app: multi-day overview + day detail
+│   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking
+│   ├── storage.py         # SQLite persistence — scraped sheets + confirmed bookings
+│   ├── analytics.py       # local pattern-recognition + personal stats over history
+│   └── tui.py              # Textual app: multi-day overview + day detail + confirm
 └── tests/
     └── test_models.py
 ```

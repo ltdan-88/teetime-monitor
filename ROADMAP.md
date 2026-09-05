@@ -7,9 +7,11 @@ overview, and pattern-recognition analytics. This doc reflects the actual, curre
 phased plan — treat `docs/spec-v1.md` as historical background, not the build order.
 
 ## Phase 1 — Core scraper + storage + day-detail view
-The original v1 scope, with one change: storage is **SQLite from the start**, not a flat
-JSON cache. Phase 5 analytics needs history to accumulate across scrapes, and starting
-with JSON would just mean migrating later for no benefit.
+The original v1 scope, with a few changes driven by one key fact: **pc caddie doesn't let
+you look up past tee times.** Once a day is gone, it's gone — there's no backfilling it
+later. That makes storage and confirmed bookings a day-one concern, not something to add
+once the rest of the app exists, because waiting would just mean losing whatever history
+would've built up in the meantime.
 
 - Manual login walkthrough + selector discovery first (no code) — real pc caddie CSS
   selectors are unknown until inspected by hand. See "Known risks" in the v1 spec. While
@@ -26,14 +28,29 @@ with JSON would just mean migrating later for no benefit.
   they appear on the tee sheet. Simple text-matching against scraped player names — no
   dependence on pc caddie having a special "friend" marker in its own HTML. Powers both
   Phase 3's friend-spotting and Phase 5's personal stats.
-- `storage.py` — SQLite-backed persistence. One `scrapes` table logging every scrape
-  (course, date, time, booked, capacity, players, scraped_at). Loading "today's schedule"
-  is a query for the latest scrape per slot; this same table is what Phase 5 analytics
-  reads from later.
+- `storage.py` — SQLite-backed persistence, **not just a cache**: it's the only record of
+  the past that will ever exist, since pc caddie itself won't show it later. Two tables:
+  - `scrapes` — every scrape logged as its own row (course, date, time, booked, capacity,
+    players, scraped_at). Loading "today's schedule" is a query for the latest scrape per
+    slot; this same table is what Phase 5 analytics reads from later.
+  - `confirmed_bookings` — see below. Kept separate from `scrapes` because it answers a
+    different question ("did *I* actually play, and when") that scraped player-name
+    matching can't always answer reliably on its own (name visibility can vary, or you
+    might book without your name showing).
+- **A confirm-your-tee-time prompt.** We're not booking through teetime-monitor, but
+  without some record of which slot was actually yours, Phase 5's stats would have
+  nothing to work with. New keybinding `c` in the TUI: pick the slot you're playing today
+  (or mark "not playing"), which writes a row to `confirmed_bookings`. This exists from
+  Phase 1 onward, precisely because it can't be reconstructed retroactively later.
 - `tui.py` — Textual app, single-day detail screen: Time | Occupancy | Players, colored
-  by fill ratio. `r` = refresh, `q` = quit.
+  by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit.
 - Config via `.env` (`PCC_USER` / `PCC_PASS`) + `config.yaml` (club URL, default course,
   default date range)
+- A small standalone scrape-and-store script (no TUI), runnable on a schedule (e.g. a
+  daily cron/launchd job) so history keeps accumulating even on days you don't open the
+  app yourself. Confirmed 2026-09-05: manual-only runs would leave permanent gaps given
+  pc caddie's no-history limitation, so this is worth having from the start rather than
+  bolted on later.
 
 ## Phase 2 — Weather + daylight overlay (rain, wind, sunrise/sunset, playability)
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
@@ -86,8 +103,9 @@ with JSON would just mean migrating later for no benefit.
 - Needs a few weeks of accumulated scrapes to be useful — this phase's usefulness grows
   over time, not something to judge from day one. Complements Phase 3 (today's rules)
   with "what actually tends to be true here over time".
-- Also a small personal-stats view, using the Phase 1 `identity.my_name` to spot your own
-  bookings in the scraped history: days since you last played, total rounds logged, and
+- Also a small personal-stats view, built primarily from Phase 1's `confirmed_bookings`
+  table (the reliable source), optionally cross-checked against `identity.my_name`
+  matches in scraped player names: days since you last played, total rounds logged, and
   whatever else turns out to be fun/sensible once there's real data to look at — this
   list is expected to grow once Phase 1 history actually exists, not fixed up front.
 
@@ -104,6 +122,15 @@ with JSON would just mean migrating later for no benefit.
 - **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a
   slot) — decided against (2026-09-05): booking always has to go through the pc caddie
   app anyway, so this wouldn't save a step.
+
+## Known risks
+- pc caddie's real CSS selectors are unverified until inspected by hand, and the tee
+  sheet may sit inside an iframe (see `docs/spec-v1.md` for detail) — the original v1
+  risks, still true.
+- **History can't be backfilled.** pc caddie hides past tee sheets, so any day that's
+  neither scraped nor confirmed via the Phase 1 prompt is a permanent gap — not
+  something a later phase can go back and fix. The scheduled scrape script exists
+  specifically to minimize this.
 
 ## Out of scope (all phases)
 Booking/auto-booking, notifications, multi-club support, packaging/distribution, mobile
