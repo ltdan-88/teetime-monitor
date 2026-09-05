@@ -1,18 +1,29 @@
 """Turn your saved default availability into the week's recommended slots, automatically
 (ROADMAP.md Phase 3).
 
-Two-step wrapper, deterministic filter then AI ranking:
+Three-step wrapper — two deterministic, one AI, in that order:
 1. Builds a SearchCriteria from the active club's `availability` block (your standing
    rules — e.g. "workdays after 17:00, weekends after 10:00, always alone") and runs it
    via search.py across every day in the overview — exact, no AI involved.
-2. Hands the filtered (but unranked) candidates plus the club's `preferences` block
-   (avoid_rain, avoid_wind, temperature comfort, prioritize_friends, and
+2. `exclude_unplayable()` drops candidates that fail a deterministic sanity check:
+   not enough daylight left to finish (playability.py) or weather past the club's
+   `preferences` thresholds (avoid_rain/avoid_wind/avoid_temp_*). Revised 2026-09-05
+   after user feedback: a recommendation that's raining or too dark to finish isn't
+   actually a good one, so this has to happen before anything gets called "recommended"
+   — it's not an AI-ranking nicety, it's part of the baseline. Still no AI needed; these
+   are plain threshold checks against already-fetched weather/playability data.
+3. Hands what's left plus the club's `preferences` block (prioritize_friends, and
    avoid_predicted_crowd once analytics.py's crowd_heatmap exists) to
-   `ai_assist.rank_slots()`, which does the actual weighing and writes `reasons`.
+   `ai_assist.rank_slots()`, which weighs the remaining nuanced trade-offs (e.g.
+   "slightly more rain but much emptier") and writes plain-language `reasons`. This step
+   is a genuine improvement, not a prerequisite — steps 1+2 alone already turn "scan the
+   tee sheet by hand" into a short, sane list; this makes picking among that list easier
+   too, but the list is already useful without it.
 
-The TUI's ad hoc search form (also search.py + ai_assist.rank_slots, same two steps) is
-for the one-off exceptions — e.g. a week you're playing with friends instead of alone —
-that don't match your usual defaults. Same engine, different criteria in.
+The TUI's ad hoc search form (search.py + exclude_unplayable + ai_assist.rank_slots,
+same three steps) is for the one-off exceptions — e.g. a week you're playing with
+friends instead of alone — that don't match your usual defaults. Same engine, different
+criteria in.
 
 NOT YET IMPLEMENTED.
 """
@@ -27,11 +38,20 @@ def default_criteria_from_config(config: dict) -> SearchCriteria:
     raise NotImplementedError("recommend.py is a stub — see ROADMAP.md Phase 3")
 
 
+def exclude_unplayable(candidates: list[SlotMatch], preferences: dict) -> list[SlotMatch]:
+    """Drop candidates with too little daylight to finish, or weather past the club's
+    preference thresholds. Deterministic — no AI involved. Run this before
+    ai_assist.rank_slots(), not after: a slot that fails this check was never a good
+    recommendation regardless of how it'd otherwise rank."""
+    raise NotImplementedError("recommend.py is a stub — see ROADMAP.md Phase 3")
+
+
 def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
     """Best-ranked matches for the week, using your saved default availability.
 
     criteria = default_criteria_from_config(config)
-    candidates = search(schedules, criteria)                    # exact filter
-    return ai_assist.rank_slots(candidates, context={...}, preferences=config["preferences"])
+    candidates = search(schedules, criteria)                       # exact filter
+    playable = exclude_unplayable(candidates, config["preferences"])  # deterministic sanity check
+    return ai_assist.rank_slots(playable, context={...}, preferences=config["preferences"])
     """
     raise NotImplementedError("recommend.py is a stub — see ROADMAP.md Phase 3")
