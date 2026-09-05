@@ -7,6 +7,20 @@ overview, multi-club/multi-course support, calendar-aware crowd prediction, and
 pattern-recognition analytics. This doc reflects the actual, current phased plan — treat
 `docs/spec-v1.md` as historical background, not the build order.
 
+**Build priority (2026-09-05, user feedback):** the actual core value of this tool is
+answering "when should I book" quickly — the user explicitly named manually scanning
+the tee sheet for a good slot as the time-consuming part, not just *seeing* the tee
+sheet. That reprioritizes the phases below: the fastest path to real value is Phase 1
+(real scraper) plus **only the deterministic half of Phase 3** — `search.py`'s hard
+filtering against the user's own `availability` rules (workdays after 17:00, weekends
+after 10:00, always solo, etc.), with no AI and no weather involved yet. That alone
+turns "scan 5 days × 3 courses by hand" into "here are the 3 slots that actually fit
+your rules" — which is the real fix for the stated pain point. `ai_assist.rank_slots()`
+(weather/crowd-aware ranking with plain-language reasons) is a genuine improvement on
+top of that, not a prerequisite for it — build and use the plain filtered list first,
+add AI ranking once that baseline is proven useful. Phase 2 (weather/calendar), Phase 4's
+overview screen, and Phase 5 (heatmap/analytics) can all follow after, not before.
+
 **AI placement (revised 2026-09-05):** wherever a step is genuinely fuzzy judgment —
 parsing messy/varying HTML into structured data, weighing several soft signals into a
 ranked list with a plain-language reason, or making a reasonable call from sparse/noisy
@@ -330,6 +344,12 @@ would've built up in the meantime.
   originally sketched as hand-tuned scoring math (`SlotMatch.score: float`); an LLM
   given the same facts in plain language does this more naturally and produces the
   human-readable `reasons` directly, instead of a formula that needs constant retuning.
+- **Build this so the filtered list alone is already useful** (see "Build priority"
+  above): `weekly_picks()` should work — sorted by something simple and deterministic,
+  e.g. earliest or emptiest — even before `ai_assist.rank_slots()` exists or Phase 2's
+  weather/playability data is wired in. The AI-ranked version is a real upgrade, but the
+  filtered list on its own already answers "when should I book" faster than scanning
+  the tee sheet by hand, which is the actual problem being solved here.
 - This is distinct from Phase 5's historical analytics: recommendations use *today's/
   this week's* already-scraped data plus rules you set, not weeks of accumulated history.
 
