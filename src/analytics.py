@@ -1,17 +1,21 @@
 """Local pattern-recognition, crowd heatmap, and personal stats over accumulated scrape
 history (ROADMAP.md Phase 5).
 
-No AI/LLM calls, no external API, no cost — pure aggregation over the `scrapes` table
-in storage.py. Needs a few weeks of accumulated history to be useful.
+Raw aggregation (`crowd_heatmap`, `best_times_by_weekday`, the fixed personal-stats
+numbers) is plain SQL/code, no AI involved — grouping rows by day-type and hour is an
+exact `GROUP BY`, not a judgment call, and it needs to produce real numbers to color a
+heatmap grid. Interpreting *sparse or noisy* results (how much to trust a handful of
+"public holiday" data points, or open-ended personal-stats commentary) goes through
+`ai_assist.summarize_history()` instead — see ROADMAP.md's "AI placement" note.
 
-An opt-in AI-assisted mode (sending aggregated history to an LLM for natural-language
-recommendations) is deliberately deferred to Phase 6 — see ROADMAP.md.
+Needs a few weeks of accumulated history to be useful.
 
 NOT YET IMPLEMENTED.
 """
 
 from pathlib import Path
 
+from . import ai_assist
 from .storage import DEFAULT_DB_PATH
 
 
@@ -23,8 +27,10 @@ def best_times_by_weekday(course: str, path: Path = DEFAULT_DB_PATH) -> dict[str
 def personal_stats(my_name: str, path: Path = DEFAULT_DB_PATH) -> dict:
     """Fun/useful numbers about your own play, spotted via `my_name` in scraped players.
 
-    Starting point: days since you last played, total rounds logged. Expected to grow
-    once there's real history to look at — see ROADMAP.md Phase 5.
+    Fixed numbers (days since you last played, total rounds logged) are plain queries.
+    Anything more open-ended — "say something interesting about my play history" — goes
+    through ai_assist.summarize_history() on the raw rows, rather than growing this into
+    an ever-longer list of hand-written queries.
     """
     raise NotImplementedError("analytics.py is a stub — see ROADMAP.md Phase 5")
 
@@ -37,6 +43,7 @@ def crowd_heatmap(course: str, path: Path = DEFAULT_DB_PATH) -> dict:
     break isn't "a Monday," it's a vacation-day, and should be compared against other
     vacation-days. This is also what lets a *future* day (with no scrape history of its
     own) get a crowd estimate at all — classify it, then look up its day-type's pattern.
+    Plain aggregation — no AI here, just exact grouping/averaging.
     """
     raise NotImplementedError("analytics.py is a stub — see ROADMAP.md Phase 5")
 
@@ -44,7 +51,10 @@ def crowd_heatmap(course: str, path: Path = DEFAULT_DB_PATH) -> dict:
 def predict_crowding(day_type: str, time: str, heatmap: dict) -> float | None:
     """Estimated occupancy (0-1) for a day-type + time, from a crowd_heatmap() result.
 
-    None if there's not enough history for that day-type yet — rarer types like
-    "public_holiday" will be thin for a while, and that's fine, not an error.
+    This is where it stops being simple aggregation: judging how much to trust a thin
+    or noisy pattern for a rarer day-type (a handful of "public_holiday" rows vs
+    hundreds of "workday" ones) is handed to ai_assist.summarize_history() rather than
+    hand-coded confidence thresholds. Returns None only if summarize_history judges
+    there's not enough history to say anything useful yet.
     """
     raise NotImplementedError("analytics.py is a stub — see ROADMAP.md Phase 5")

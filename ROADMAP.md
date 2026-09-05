@@ -7,6 +7,19 @@ overview, multi-club/multi-course support, calendar-aware crowd prediction, and
 pattern-recognition analytics. This doc reflects the actual, current phased plan — treat
 `docs/spec-v1.md` as historical background, not the build order.
 
+**AI placement (revised 2026-09-05):** wherever a step is genuinely fuzzy judgment —
+parsing messy/varying HTML into structured data, weighing several soft signals into a
+ranked list with a plain-language reason, or making a reasonable call from sparse/noisy
+history — an LLM call replaces hand-rolled logic for it, pulled into the phase where
+that step lives rather than bolted on as a deferred "AI mode" later. What stays plain
+code: browser automation itself (login/navigation), the database, simple time
+arithmetic, external API calls, and *hard* filters (party size, time windows) — none of
+that benefits from a model call, and a couple (arithmetic, hard filters) get *less*
+reliable if you hand them to one. This replaced an earlier plan (a stubbed
+`analytics.py`/`recommend.py` doing everything in hand-written scoring code, with "AI
+insights" as an opt-in Phase 6 bolted on once there was enough history to bother) —
+see `ai_assist.py` below, and the per-phase notes it touches.
+
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
 course you're even looking at has to be settled before any scraping happens, and the
@@ -43,16 +56,22 @@ later. That makes storage and confirmed bookings a day-one concern, not somethin
 once the rest of the app exists, because waiting would just mean losing whatever history
 would've built up in the meantime.
 
-- Manual login walkthrough + selector discovery first (no code) — real pc caddie CSS
-  selectors are unknown until inspected by hand. See "Known risks" in the v1 spec. While
-  doing this: also check whether player names for booked slots include friends (added as
-  friends in the pc caddie app) distinguishably from other players, whether
-  tournaments/club events are shown on the tee sheet (confirmed: pc caddie does list
-  these), and — per Phase 0 — whether/how the site exposes a course-selector for the
-  27-hole rotation.
-- `scraper.py` — Playwright login + tee sheet scrape for one course/date, using a
-  `SELECTORS` dict discovered above. Also captures any tournament/event note shown for
-  the day, and the list of currently-available courses (Phase 0), if one's on the sheet.
+- Manual login walkthrough first (no code) — the login form and how to navigate to the
+  tee sheet are still unknown until inspected by hand. See "Known risks" in the v1 spec.
+  This no longer means hand-mapping the *entire* booking table's markup, though — see
+  `ai_assist.py` below.
+- `scraper.py` — Playwright login + navigation for one course/date, using a small
+  `SELECTORS` dict (login fields, the course-selector control, and whatever container
+  holds the tee sheet — just enough to log in and scope down what gets read next).
+  Parsing the actual booking table — slot times, occupancy, player names, any
+  tournament/event note, the list of currently-available courses (Phase 0) — is handed
+  to `ai_assist.extract_schedule()` instead of a hand-mapped `slot_row`/`slot_time`/
+  `slot_players` selector set. Revised 2026-09-05: hand-mapping selectors for a table
+  whose exact markup, cell merging, and booked-vs-free rendering are all unknown until
+  inspected is exactly the kind of messy-HTML-to-structured-data step an LLM is good at
+  and hand-rolled parsing is fragile at — one club-site redesign used to mean re-deriving
+  a selector dict; now it mostly self-adjusts. Playwright still does the login/navigation
+  itself (stable, simple, and not something you'd want a model driving turn-by-turn).
 - `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec), `Schedule` also gets an
   `events: list[str]` field for tournament/event notes and an `available_courses:
   list[str]` field for Phase 0's course picker.
@@ -133,9 +152,14 @@ would've built up in the meantime.
     (once Phase 5's heatmap exists) whether to steer away from historically/
     calendar-predicted crowded windows (`avoid_predicted_crowd`).
 - `recommend.py` (new module) — a thin wrapper: builds a `SearchCriteria` from
-  `availability`, runs it via `search.py` across every day in the overview, ranks
-  results using the `preferences` weights. Pure logic over already-scraped data, no new
-  external calls.
+  `availability`, runs it via `search.py` across every day in the overview to get the
+  hard-filtered candidates (deterministic — party size and time windows are exact
+  checks, not judgment calls), then hands those candidates plus the `preferences`
+  weights to `ai_assist.rank_slots()` for the actual ranking + reasons. Revised
+  2026-09-05: weighing rain vs wind vs friends vs crowd-prediction into one score was
+  originally sketched as hand-tuned scoring math (`SlotMatch.score: float`); an LLM
+  given the same facts in plain language does this more naturally and produces the
+  human-readable `reasons` directly, instead of a formula that needs constant retuning.
 - This is distinct from Phase 5's historical analytics: recommendations use *today's/
   this week's* already-scraped data plus rules you set, not weeks of accumulated history.
 
@@ -160,15 +184,16 @@ would've built up in the meantime.
   - **Buffer from other flights** (`buffer_minutes`) — a minimum gap to the nearest
     other booked flight, both before and after, so your group isn't squeezed between
     two other groups
-  - Results are ranked using the same `preferences` scoring weights as Phase 3's
-    automatic weekly picks (dry, calm, safely before sunset first) — same engine, just
-    typed-in criteria instead of saved defaults.
+  - Hard filters run as plain deterministic code (`search.py`), same as Phase 3; the
+    matches are then ranked by the same `ai_assist.rank_slots()` call Phase 3 uses, with
+    the typed-in criteria's candidates in place of the saved-default ones — same engine,
+    different input.
 
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
-- `analytics.py` — pattern recognition over the accumulated SQLite history, no AI/LLM
-  calls, no external API, no cost. E.g.: aggregate historical occupancy by weekday +
-  time-of-day to answer "when is this course usually emptiest?", surfaced as a simple
-  ranked list or heatmap-style view in the TUI.
+- `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
+  to produce actual numbers to color a heatmap grid, and grouping rows by day-type and
+  hour is a simple, exact `GROUP BY`, not a judgment call. E.g.: aggregate historical
+  occupancy by weekday + time-of-day to answer "when is this course usually emptiest?".
 - Needs a few weeks of accumulated scrapes to be useful — this phase's usefulness grows
   over time, not something to judge from day one. Complements Phase 3 (today's rules)
   with "what actually tends to be true here over time".
@@ -177,26 +202,46 @@ would've built up in the meantime.
   hour-of-day, rather than just plain weekday x hour — a Monday during summer break
   isn't "a Monday," it's a vacation-day, and should be compared against other
   vacation-days, not typical Mondays. Rendered as a real colored heatmap screen in the
-  TUI (new keybinding), and also read by `predict_crowding()` to estimate expected
-  occupancy for a *future* date it hasn't scraped yet: classify the date's day-type
-  (Phase 2), look up that day-type's historical pattern. This is what
-  `avoid_predicted_crowd` (Phase 3/4 preferences) actually uses to steer the automatic
-  weekly picks and search results away from likely-overbooked windows.
-- Like the rest of this phase, the heatmap starts out thin (little/no history for rarer
-  day-types like "public holiday") and gets more useful the longer Phase 1's scraping
-  and confirmed-bookings have been running.
-- Also a small personal-stats view, built primarily from Phase 1's `confirmed_bookings`
-  table (the reliable source), optionally cross-checked against `identity.my_name`
-  matches in scraped player names: days since you last played, total rounds logged, and
-  whatever else turns out to be fun/sensible once there's real data to look at — this
-  list is expected to grow once Phase 1 history actually exists, not fixed up front.
+  TUI (new keybinding).
+- `predict_crowding()` — this is where it stops being simple aggregation: guessing a
+  *future* date's crowding means classifying its day-type (Phase 2), then judging how
+  much to trust a thin or noisy historical pattern for that day-type (a handful of
+  "public holiday" data points vs hundreds of "workday" ones). Revised 2026-09-05: that
+  judgment call is handed to `ai_assist.summarize_history()` rather than hand-coded
+  confidence rules — the raw aggregated rows go in, a trust-weighted estimate (or "not
+  enough data yet") comes out. This is what `avoid_predicted_crowd` (Phase 3/4
+  preferences) uses to steer the automatic weekly picks and search results.
+- Personal stats, built primarily from Phase 1's `confirmed_bookings` table (the
+  reliable source): days since you last played, total rounds logged, and whatever else
+  turns out fun/sensible from the raw numbers. The fixed stats are plain code; anything
+  more open-ended ("say something interesting about my play history") also goes through
+  `ai_assist.summarize_history()` rather than growing into a longer and longer list of
+  bespoke queries by hand.
 
-## Phase 6 — AI-assisted insights (later, opt-in)
-- Explicitly deferred, not blocking Phase 5. Once local-stats analytics exists and there's
-  real accumulated history, consider an opt-in mode that sends the aggregated (not raw)
-  history to an LLM for natural-language recommendations ("book Tuesday afternoons, avoid
-  weekend mornings") — richer than fixed local heuristics, but costs per call and means
-  data leaves the machine, hence opt-in and last phase, not earlier.
+*(An earlier version of this roadmap had a separate, deferred "Phase 6 — AI-assisted
+insights, opt-in, later" here. Revised 2026-09-05: once AI is the mechanism for
+ranking/parsing/interpretation from Phase 1 onward, there's nothing left to defer — see
+the "AI placement" note at the top of this doc.)*
+
+## `ai_assist.py` (new module, spans Phases 1/3/4/5)
+One shared module wrapping the Claude API (Anthropic SDK), used by whichever phase
+needs a judgment call rather than exact logic:
+- `extract_schedule()` (Phase 1) — turns the scraped tee-sheet HTML into structured
+  `Slot`/`Schedule` data (structured output, so the result validates against the
+  dataclass shape rather than needing a hand-parsed response)
+- `rank_slots()` (Phases 3/4) — ranks already-hard-filtered candidate slots and writes
+  the plain-language `SlotMatch.reasons`
+- `summarize_history()` (Phase 5) — crowd-prediction confidence for sparse day-types,
+  and open-ended personal-stats commentary
+- Each club's YAML gets a small `ai_assist` block (`enabled`, `model`) — off by default
+  isn't the plan here (this is the actual implementation mechanism, not a bonus mode),
+  but which model to spend on which call is a cost/quality tradeoff that's yours to set,
+  not something to hardcode. `ANTHROPIC_API_KEY` goes in `.env` (global, not
+  per-club — one Anthropic account covers every saved club).
+- Worth being upfront about, same as the retired Phase 6 already noted: every call
+  costs money and sends the relevant data (tee-sheet contents, your preferences,
+  aggregated history) to Anthropic's API. That trade now starts from Phase 1 instead of
+  being deferred — a deliberate choice, not an oversight.
 
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
@@ -206,9 +251,16 @@ would've built up in the meantime.
   app anyway, so this wouldn't save a step.
 
 ## Known risks
-- pc caddie's real CSS selectors are unverified until inspected by hand, and the tee
-  sheet may sit inside an iframe (see `docs/spec-v1.md` for detail) — the original v1
-  risks, still true.
+- pc caddie's real login form is unverified until inspected by hand, and the tee sheet
+  may sit inside an iframe (see `docs/spec-v1.md` for detail) — the original v1 risks,
+  narrower now that table parsing itself is `ai_assist.extract_schedule()`'s job rather
+  than a hand-mapped selector set, but the login/navigation selectors are still real.
+- **AI calls cost money and send data to Anthropic's API, starting from Phase 1** —
+  not deferred/opt-in the way an earlier draft of this roadmap had it. Tee-sheet
+  contents (including other members' names, if visible), your availability/preference
+  settings, and aggregated history all pass through `ai_assist.py` calls. Model choice
+  per call is configurable specifically so cost is a dial you control, not a decision
+  made for you.
 - **History can't be backfilled.** pc caddie hides past tee sheets, so any day that's
   neither scraped nor confirmed via the Phase 1 prompt is a permanent gap — not
   something a later phase can go back and fix. The scheduled scrape script exists

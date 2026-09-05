@@ -17,7 +17,10 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   hardcoded
 - Scrape the full tee sheet (all slots, booked and free) for a given course/date, with a
   scheduled background scrape too — pc caddie hides past tee sheets, so history can't be
-  filled in later, and this keeps it building even on days you don't open the app
+  filled in later, and this keeps it building even on days you don't open the app.
+  Parsing the messy tee-sheet HTML into structured data is an AI call
+  ([Claude](https://www.anthropic.com/claude)), not a hand-mapped selector set that
+  breaks on the next site redesign
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio
 - A confirm-your-tee-time prompt (`c` in the TUI) — teetime-monitor never books for you,
   but this is what actually gives the stats below something to work with
@@ -34,17 +37,20 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   no need to search every time
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
 - Search for the one-off exceptions: type in "3 players, weekdays only, after 15:00,
-  20 min clear of other flights" and get a ranked list for that specific case, using
-  the same rain/wind/temperature/friends scoring as your default weekly picks
+  20 min clear of other flights" and get a ranked list for that specific case. Party
+  size and time windows are checked exactly (plain code); weighing rain/wind/
+  temperature/friends into a ranking with plain-language reasons is the same AI call
+  behind the automatic weekly picks
 - A crowd heatmap — historical occupancy grouped by day type (workday, weekend, public
   holiday, vacation, tournament), so a future vacation-week Monday gets compared
-  against other vacation days, not typical Mondays. Also what steers the automatic
-  picks and search results away from likely-overbooked windows
+  against other vacation days, not typical Mondays. The raw numbers are plain
+  aggregation; judging how much to trust a thin history for a rarer day type is an AI
+  call, and that's what steers the automatic picks and search away from
+  likely-overbooked windows
 - Local pattern-recognition analytics over accumulated history ("when is this course
-  usually emptiest?") — no AI calls, no external cost
-- Personal stats (days since you last played, rounds logged, and more once there's real
-  history to look at)
-- An opt-in AI-assisted insights mode, later, once there's real history to analyze
+  usually emptiest?")
+- Personal stats (days since you last played, rounds logged, and open-ended commentary
+  once there's real history to look at)
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
@@ -53,7 +59,7 @@ See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 ```bash
 pip install -e .
 playwright install chromium
-cp .env.example .env                              # fill in PCC_USER / PCC_PASS
+cp .env.example .env                              # fill in PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
 cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club URL, coordinates, etc.
                                                     # repeat for each club you want saved
 ```
@@ -72,16 +78,17 @@ teetime-monitor/
 │   └── spec-v1.md          # original single-session spec (historical)
 ├── src/
 │   ├── club_config.py      # multi-club: list/load clubs, resolve credentials (implemented)
-│   ├── scraper.py          # Playwright login + tee sheet scrape
+│   ├── scraper.py          # Playwright login + navigation only (parsing is ai_assist's job)
 │   ├── scrape_once.py      # headless scrape for a cron/launchd schedule
+│   ├── ai_assist.py        # Claude API: tee-sheet parsing, ranking, history summarization
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
-│   ├── recommend.py        # auto weekly picks from your saved default availability
-│   ├── search.py           # shared search engine — ad hoc form + recommend.py's defaults
+│   ├── recommend.py        # filters via search.py, ranks via ai_assist.rank_slots
+│   ├── search.py           # exact hard-filtering — party size, time windows, buffer
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
 │   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings
-│   ├── analytics.py        # pattern-recognition + crowd heatmap + personal stats
+│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation
 │   └── tui.py               # Textual app: club/course pickers, overview, day detail, search
 └── tests/
     ├── test_models.py
@@ -91,9 +98,11 @@ teetime-monitor/
 ## Notes
 
 Credentials are never hardcoded — read from `.env`, which is gitignored (see
-`.env.example` for the single-club vs multi-club namespacing). Club config files under
-`clubs/` are gitignored too, aside from the tracked `club.example.yaml` template. This is
-a personal tool built against one real club's actual portal; the pc caddie CSS selectors
-(and how it exposes the 27-hole course rotation) are unverified until inspected by hand
-(see "Known risks" in `ROADMAP.md`) — that's the first real implementation step, before
-any scraper code is written.
+`.env.example` for the single-club vs multi-club namespacing, and for
+`ANTHROPIC_API_KEY`). Club config files under `clubs/` are gitignored too, aside from
+the tracked `club.example.yaml` template. This is a personal tool built against one real
+club's actual portal; the pc caddie login form (and how it exposes the 27-hole course
+rotation) are unverified until inspected by hand (see "Known risks" in `ROADMAP.md`) —
+that's the first real implementation step, before any scraper code is written. Note that
+every AI call (tee-sheet parsing, ranking, history summarization) sends data to
+Anthropic's API and costs a small amount per call — see the same "Known risks" section.

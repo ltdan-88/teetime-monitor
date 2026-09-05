@@ -75,3 +75,13 @@ preferences:
   prioritize_friends: true
   avoid_predicted_crowd: true   # steer away from the Phase 5 heatmap's busy windows,
                                  # once there's enough history for it to say anything
+
+# ai_assist.py (see ROADMAP.md "AI placement" note) — this is the actual mechanism
+# behind tee-sheet parsing, recommendation ranking, and history summarization, not an
+# optional bonus mode, so `enabled: false` means those features don't work, not just
+# "less smart." `model` is yours to tune per club: a pricier model for a club whose
+# ranking calls really matter to you, a cheaper one to keep the frequent parsing calls
+# (every scrape, including the scheduled one) cheap. ANTHROPIC_API_KEY lives in .env.
+ai_assist:
+  enabled: true
+  model: "claude-opus-5"

@@ -10,8 +10,12 @@ used two ways:
   replaced the older, flatter idea of a single "preferences" block — same engine, just
   two entry points (typed-in vs saved-as-default).
 
-Reuses recommend.py's scoring approach (dry, calm, safely-before-sunset first) for
-ranking matches within whichever criteria produced them.
+This module does the *hard* filtering only — party size and time windows are exact
+checks, not judgment calls, so plain code (not AI) is both simpler and more reliable
+here. Ranking the results (dry, calm, safely-before-sunset first, with plain-language
+reasons) is a separate step via `ai_assist.rank_slots()`, called by recommend.py for the
+saved-default path and by the TUI's ad hoc search handler for the typed-in path — see
+ROADMAP.md's "AI placement" note for why that split exists.
 
 NOT YET IMPLEMENTED.
 """
@@ -35,5 +39,6 @@ class SearchCriteria:
 
 
 def search(schedules: list[Schedule], criteria: SearchCriteria) -> list[SlotMatch]:
-    """Return matching slots across all given days, best-ranked first."""
+    """Return matching slots across all given days — filtered, not yet ranked
+    (`score`/`reasons` unset). Pass the result to `ai_assist.rank_slots()` for that."""
     raise NotImplementedError("search.py is a stub — see ROADMAP.md Phase 4")
