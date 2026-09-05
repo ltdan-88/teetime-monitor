@@ -107,9 +107,11 @@ teetime-monitor/
 
 ## Notes
 
-Credentials are never hardcoded — read from `.env`, which is gitignored (see
-`.env.example` for the single-club vs multi-club namespacing, and for
-`ANTHROPIC_API_KEY`). Club config files under `clubs/` are gitignored too, aside from
+Credentials are never hardcoded — read from `.env`, which is gitignored. One pc caddie
+login covers every saved club (confirmed 2026-09-05), so plain `PCC_USER`/`PCC_PASS` is
+normally all you need even with several clubs configured — see `.env.example` for the
+rarer per-club override, and for `ANTHROPIC_API_KEY`. Club config files under `clubs/`
+are gitignored too, aside from
 the tracked `club.example.yaml` template. This is a personal tool built against one real
 club's actual portal — a live walkthrough (2026-09-05, see `ROADMAP.md` "Live site
 findings" and "Confirmed pc caddie markup reference") already confirmed the tee sheet

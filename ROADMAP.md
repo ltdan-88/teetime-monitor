@@ -160,16 +160,15 @@ Differences observed between clubs (config, not platform, differences):
   **"Occupied"** once logged in but not a friend. `classify_booking_label()` should
   treat both as `"anonymized"`.
 
-**Worth the user's own attention, not something explored further**: browsing Green
-Eagle's page showed the user's own account as logged in there too, despite them likely
-not being a member of that club — suggesting pc caddie sessions may be scoped
-platform-wide (`pccaddie.net`) rather than strictly per-club. Deliberately did not
-explore this further (no clicking into account-specific pages at a club the user isn't
-a member of) — flagging it rather than testing it, since it touches account/access
-boundaries that are the user's to understand, not something to probe unilaterally. If
-true, it could simplify Phase 0's per-club credential namespacing (one login might
-cover every club under the same pc caddie account) — worth the user confirming with pc
-caddie or their own knowledge before assuming either way.
+**Confirmed by the user (2026-09-05)**: one pc caddie login genuinely does work across
+multiple clubs — not a session-scoping quirk, an actual platform feature. They also
+believe guest reservations at other clubs are possible through that same account, not
+just viewing. This flips Phase 0's credential framing (see below): namespaced per-club
+credentials become the edge case, not the default. It also raises an open question worth
+checking once Phase 1 implementation starts, not assumed either way: does "My
+Reservations" (`cat=reservations`) return bookings scoped to just the club it's viewed
+from, or every club under the account? Matters for how `scrape_my_reservations()`
+should be called across multiple saved clubs.
 
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
@@ -186,9 +185,13 @@ user's club plays 27 holes with the 9-hole loops rotating which pair makes up "t
   automatically if only one exists. In the spirit of `brew-launcher`'s fzf-style
   pickers, given this project's stated inspiration.
 - Credentials stay out of the YAML files (kept in `.env`, per the original spec's
-  security principle), namespaced per club id: `PCC_USER__<club-id>` /
-  `PCC_PASS__<club-id>`, falling back to plain `PCC_USER`/`PCC_PASS` for the common
-  single-club case so that setup doesn't get more complicated than it needs to.
+  security principle). Revised 2026-09-05: the user confirmed one pc caddie login
+  works across multiple clubs, not just the club it was issued for — so plain
+  `PCC_USER`/`PCC_PASS` is now expected to be the normal path for *every* saved club,
+  not a single-club fallback. Namespaced overrides (`PCC_USER__<club-id>` /
+  `PCC_PASS__<club-id>`) remain available in `resolve_credentials()` for the genuine
+  edge case — a club that actually needs separate credentials — but aren't the
+  expected default the way this was first designed.
 - `club_config.py` (new module) — `list_clubs`, `load_club_config`,
   `resolve_credentials`. Pure local file/env I/O, no site access needed, so unlike most
   of Phase 1 this is genuinely implementable (and tested) now rather than stubbed.

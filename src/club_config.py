@@ -35,9 +35,11 @@ def load_club_config(club_id: str, clubs_dir: Path = CLUBS_DIR) -> dict:
 def resolve_credentials(club_id: str) -> tuple[str, str]:
     """(username, password) for a club.
 
-    Namespaced env vars (PCC_USER__<club_id> / PCC_PASS__<club_id>) take priority, then
-    falls back to the plain PCC_USER/PCC_PASS — so a single-club setup never needs to
-    bother with namespacing at all.
+    Confirmed 2026-09-05: one pc caddie login works across multiple clubs under the
+    same account, so plain PCC_USER/PCC_PASS is the expected path even with several
+    clubs saved — not just a single-club shortcut. Namespaced env vars
+    (PCC_USER__<club_id> / PCC_PASS__<club_id>), checked first, exist only for the
+    genuine edge case: a specific club that actually needs different credentials.
     """
     user = os.environ.get(f"PCC_USER__{club_id}") or os.environ.get("PCC_USER", "")
     password = os.environ.get(f"PCC_PASS__{club_id}") or os.environ.get("PCC_PASS", "")
