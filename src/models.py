@@ -1,6 +1,6 @@
 """Core dataclasses shared across scraper, storage, weather, analytics, and TUI.
 
-See ROADMAP.md Phase 1 for `Slot`/`Schedule`, Phase 2 for `WeatherPoint`.
+See ROADMAP.md Phase 1 for `Slot`/`Schedule`, Phase 2 for `WeatherPoint`/`SunTimes`.
 """
 
 from dataclasses import dataclass, field
@@ -22,8 +22,15 @@ class WeatherPoint:
 
 
 @dataclass
+class SunTimes:
+    sunrise: str  # "HH:MM", local time
+    sunset: str  # "HH:MM", local time
+
+
+@dataclass
 class Schedule:
     date: str  # YYYY-MM-DD
     course: str
     slots: list[Slot] = field(default_factory=list)
     weather: list[WeatherPoint] = field(default_factory=list)
+    sun_times: SunTimes | None = None

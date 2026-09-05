@@ -25,16 +25,28 @@ with JSON would just mean migrating later for no benefit.
 - Config via `.env` (`PCC_USER` / `PCC_PASS`) + `config.yaml` (club URL, default course,
   default date range)
 
-## Phase 2 — Weather overlay (rain focus)
+## Phase 2 — Weather + daylight overlay (rain, sunrise/sunset, playability)
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
-  required, good hourly precipitation data). Needs the club's lat/lon in `config.yaml`.
-- Fetch hourly precipitation probability/amount for the scraped date, match to each tee
-  time slot, surface as an extra column or icon in the day-detail table (e.g. a rain-drop
-  indicator when precipitation probability crosses a threshold).
+  required). Needs the club's lat/lon in `config.yaml`. One call gets both:
+  - Hourly precipitation probability/amount, matched to each tee time slot and shown as
+    an extra column or icon (e.g. a rain-drop indicator past a threshold).
+  - Daily sunrise/sunset (Open-Meteo returns these directly in the same `daily` response
+    — no second API needed).
+- `playability.py` — pure time-arithmetic helper, no I/O: given a slot's start time, the
+  day's sunset, an estimated round duration, and a safety buffer, decide whether that
+  round would finish before dark. Round duration is configurable per length (9 vs 18
+  holes) in `config.yaml`, since pace varies by course/player.
+- This feeds a "playable" highlight (e.g. dim/strike out tee times too late to finish a
+  9- or 18-hole round before sunset) surfaced in **both** the Phase 1 day-detail table and
+  the Phase 3 overview — it's not just a weather footnote, it's meant to answer "is this
+  tee time even usable" at a glance.
 
 ## Phase 3 — Multi-day overview (home screen)
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
-  column per day, condensed occupancy + rain summary per day (not full per-slot detail).
+  column per day, condensed occupancy + rain + playability summary per day (not full
+  per-slot detail). Tee times that can't finish before sunset (see Phase 2) are visually
+  de-emphasized so the readable-at-a-glance view isn't cluttered with slots that don't
+  matter.
 - This becomes the app's **default/home screen**. Drilling into one day (e.g. pressing
   Enter on a day column) opens the Phase 1 single-day detail table.
 - Requires the scraper to pull multiple days in one run (loop over dates), still gated by

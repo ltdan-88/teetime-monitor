@@ -14,6 +14,8 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio
 - Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
   needed)
+- Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
+  9- or 18-hole round before dark, based on a configurable estimated round duration
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?") — no AI calls, no external cost
@@ -43,8 +45,9 @@ teetime-monitor/
 │   └── spec-v1.md        # original single-session spec (historical)
 ├── src/
 │   ├── scraper.py         # Playwright login + tee sheet scrape
-│   ├── weather.py         # Open-Meteo rain forecast client
-│   ├── models.py          # Slot / Schedule / WeatherPoint dataclasses
+│   ├── weather.py         # Open-Meteo rain + sunrise/sunset client
+│   ├── playability.py     # is a tee time playable before sunset? (implemented)
+│   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes dataclasses
 │   ├── storage.py         # SQLite persistence + history queries
 │   ├── analytics.py       # local pattern-recognition over history
 │   └── tui.py              # Textual app: multi-day overview + day detail
