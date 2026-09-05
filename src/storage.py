@@ -10,9 +10,13 @@ reads from.
 
 Two tables:
 - `scrapes` — what the tee sheet looked like, logged every time it's scraped.
-- `confirmed_bookings` — what *you* actually played, confirmed by hand via the TUI's
-  `c` keybinding (see ConfirmedBooking in models.py). Kept separate because it answers a
-  different question than scraped player-name matching can reliably answer on its own.
+- `confirmed_bookings` — what *you* actually played (see ConfirmedBooking in
+  models.py). Revised 2026-09-05: populated automatically each scrape from pc caddie's
+  own "My Reservations" page (scraper.scrape_my_reservations), not primarily by hand —
+  the TUI's `c` keybinding remains as a fallback for the same-day-booking timing gap
+  described in ROADMAP.md Phase 1, not the main path. Kept as its own table because it
+  answers a different question than scraped player-name matching can reliably answer on
+  its own (most players show as anonymized "Member (H.H)", not by name).
 
 NOT YET IMPLEMENTED — schema and functions sketched below per ROADMAP.md Phase 1.
 """
@@ -42,6 +46,7 @@ CREATE TABLE IF NOT EXISTS confirmed_bookings (
     date TEXT NOT NULL,        -- YYYY-MM-DD
     time TEXT,                 -- HH:MM, or NULL for "confirmed not playing"
     holes INTEGER,             -- 9 or 18, if noted
+    source TEXT NOT NULL,      -- "my_reservations" (automatic) or "manual" (TUI `c`)
     confirmed_at TEXT NOT NULL -- ISO 8601 timestamp
 );
 """

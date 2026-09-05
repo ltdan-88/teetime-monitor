@@ -12,24 +12,30 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 
 - Save more than one club (`clubs/`), picking which one at startup — skipped
   automatically if you've only saved one
-- Course picker for clubs that rotate which 9-hole loops make up "the 18-hole course"
-  week to week (this one plays 27 holes) — detected live from the site each run, not
-  hardcoded
+- Course picker for the 27-hole club's fixed options ("18 Loch Tee 1" / "9 Loch Tee 1" /
+  "6 Loch Platz") — the actual weekly A/B/C loop combination just shows as an
+  informational banner, confirmed by checking the real site rather than assumed
 - Scrape the full tee sheet (all slots, booked and free) for a given course/date, with a
   scheduled background scrape too — pc caddie hides past tee sheets, so history can't be
   filled in later, and this keeps it building even on days you don't open the app.
   Parsing the messy tee-sheet HTML into structured data is an AI call
   ([Claude](https://www.anthropic.com/claude)), not a hand-mapped selector set that
   breaks on the next site redesign
-- Terminal table view: time slot, occupancy, player names, colored by fill ratio
-- A confirm-your-tee-time prompt (`c` in the TUI) — teetime-monitor never books for you,
-  but this is what actually gives the stats below something to work with
+- Terminal table view: time slot, occupancy, player names, colored by fill ratio.
+  Real names only show for people on your pc caddie friends list (a native pc caddie
+  feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
+  real site
+- Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
+  teetime-monitor never books for you, but this is what actually gives the stats below
+  something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
+  for the rare same-day-booking timing gap
 - Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
   needed)
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on a configurable estimated round duration
 - Wind and temperature in the weather overlay too, not just rain
-- Tournament/event days flagged, since pc caddie lists these on the tee sheet
+- Tournament/event days flagged, sourced from pc caddie's dedicated events calendar
+  (confirmed to exist as its own page, separate from the tee sheet)
 - Public holidays and school-vacation periods factored in too, since both tend to mean
   a busier course
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
@@ -60,7 +66,7 @@ See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 pip install -e .
 playwright install chromium
 cp .env.example .env                              # fill in PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
-cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club URL, coordinates, etc.
+cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinates, etc.
                                                     # repeat for each club you want saved
 ```
 
@@ -101,8 +107,10 @@ Credentials are never hardcoded — read from `.env`, which is gitignored (see
 `.env.example` for the single-club vs multi-club namespacing, and for
 `ANTHROPIC_API_KEY`). Club config files under `clubs/` are gitignored too, aside from
 the tracked `club.example.yaml` template. This is a personal tool built against one real
-club's actual portal; the pc caddie login form (and how it exposes the 27-hole course
-rotation) are unverified until inspected by hand (see "Known risks" in `ROADMAP.md`) —
-that's the first real implementation step, before any scraper code is written. Note that
-every AI call (tee-sheet parsing, ranking, history summarization) sends data to
-Anthropic's API and costs a small amount per call — see the same "Known risks" section.
+club's actual portal — a live walkthrough (2026-09-05, see `ROADMAP.md` "Live site
+findings") already confirmed the tee sheet needs no login, how course selection works,
+and more; the login form itself and a few page-specific selectors are still the
+remaining unverified piece, first real implementation step before any scraper code is
+written. Note that every AI call (tee-sheet parsing, ranking, history summarization)
+sends data to Anthropic's API and costs a small amount per call — see "Known risks" in
+`ROADMAP.md`.

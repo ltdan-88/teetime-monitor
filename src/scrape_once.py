@@ -1,25 +1,28 @@
 """Headless, no-TUI scrape-and-store — meant to run on a schedule (cron/launchd).
 
 Exists because pc caddie hides past tee sheets: any day nobody opens the TUI is a gap in
-history that can never be filled in later. Running this once a day (or however often
-makes sense) keeps the `scrapes` table current without relying on you remembering to
-open the app. See ROADMAP.md Phase 1 "Known risks".
+history that can never be filled in later. Run this **more than once a day** (e.g.
+morning and evening), not just daily — see ROADMAP.md Phase 1 "confirmed bookings,
+automatic first, manual as fallback" for why once-daily leaves a same-day-booking gap.
 
-This does NOT confirm a booking on your behalf — confirmed_bookings is still a manual,
-TUI-only action (src/tui.py), since only you know which slot was actually yours.
+Also reads "My Reservations" (via scraper.scrape_my_reservations) to populate
+confirmed_bookings automatically — revised 2026-09-05 once the real site turned out to
+have a dedicated page for this. The TUI's manual `c` keybinding stays as a fallback
+safety net for whatever timing gap this automatic read still misses, not removed.
 
-Example cron entry (once implemented, adjust paths):
-    0 6 * * * cd /path/to/teetime-monitor && .venv/bin/python -m src.scrape_once
+Example cron entries (once implemented, adjust paths):
+    0 6,18 * * * cd /path/to/teetime-monitor && .venv/bin/python -m src.scrape_once
 
 NOT YET IMPLEMENTED.
 """
 
 from . import storage
-from .scraper import scrape_schedule
+from .scraper import scrape_my_reservations, scrape_schedule
 
 
-def run(course: str, date: str) -> None:
-    """Scrape one course/date and persist it. Intended to be called by cron/launchd."""
+def run(club_id: str, course: str, date: str) -> None:
+    """Scrape one club/course/date's schedule and "My Reservations", persisting both.
+    Intended to be called by cron/launchd."""
     raise NotImplementedError("scrape_once.py is a stub — see ROADMAP.md Phase 1")
 
 

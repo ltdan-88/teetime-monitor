@@ -3,12 +3,16 @@
 # See ROADMAP.md Phase 0 for the multi-club design. You can save as many of these as
 # you have clubs; if there's only one, the TUI skips the picker automatically.
 
-club_url: "https://online.pccaddie.net/<club-slug>"
+# Your club's pc caddie numeric id — confirmed 2026-09-05 (see ROADMAP.md "Live site
+# findings") that the tee sheet lives directly at a stable, no-login-needed URL built
+# from this: https://www.pccaddie.net/clubs/<club_id>/app.php?cat=tt_timetable_course
+# Find it by locating that URL for your own club (e.g. via its "book a tee time" link).
+club_id: "<club_id>"
 
-# A convenience default only — the real list of currently-available courses is
-# detected live from the site each run, since some clubs (like this one: 27 holes)
-# rotate which 9-hole loops combine into "the 18-hole course" week to week. See
-# ROADMAP.md Phase 0.
+# A convenience default only. Course selection turned out to be a fixed short list
+# (e.g. "18 Loch Tee 1" / "9 Loch Tee 1" / "6 Loch Platz" for a 27-hole club like this
+# one), not a rotating dropdown — the weekly A/B/C loop combination shows as a separate
+# on-page banner instead of changing what's selectable. See ROADMAP.md Phase 0.
 default_course: ""
 default_date: "today"   # or YYYY-MM-DD
 
@@ -45,9 +49,11 @@ round_duration_minutes:
 # playable, so this pads the cutoff earlier.
 daylight_buffer_minutes: 30
 
-# Your own name and friends' names as they appear on the tee sheet, plain text match
-# against scraped player names. Powers friend-spotting (Phase 3) and personal stats
-# (Phase 5) — no dependence on pc caddie marking friends specially in its own HTML.
+# Your own name, used for personal stats (Phase 5). `friends` may turn out to be
+# unnecessary — pc caddie has its own native friends list (manage it in the site itself,
+# under My Account), and shows friends' real names while anonymizing everyone else as
+# "Member (handicap)". If "any real name in the scraped data = a friend" holds up (see
+# ROADMAP.md "Live site findings" — not yet confirmed), this field can be dropped.
 identity:
   my_name: ""
   friends: []

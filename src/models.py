@@ -43,18 +43,21 @@ class Schedule:
 
 @dataclass
 class ConfirmedBooking:
-    """Your own tee time, confirmed by hand via the TUI's `c` keybinding.
+    """Your own tee time.
 
-    Not booking data pulled from pc caddie — a manual record, because scraped
-    player-name matching can't always be trusted to tell us which slot was ours, and
-    pc caddie hides past tee sheets so there's no way to reconstruct this later. See
-    ROADMAP.md Phase 1.
+    Populated automatically each scrape from pc caddie's own "My Reservations" page
+    (source="my_reservations") — revised 2026-09-05 once that page turned out to exist.
+    The TUI's `c` keybinding (source="manual") remains as a fallback for the same-day
+    booking timing gap: pc caddie hides past tee sheets, so if a same-day booking is
+    made and played between two scheduled scrapes, there's no way to reconstruct it
+    later without the manual record. See ROADMAP.md Phase 1.
     """
 
     date: str  # YYYY-MM-DD
     course: str
     time: str | None  # None means "confirmed not playing that day"
     holes: int | None = None  # 9 or 18, if noted at confirmation time
+    source: str = "manual"  # "my_reservations" or "manual"
     confirmed_at: str = ""  # ISO 8601 timestamp
 
 
