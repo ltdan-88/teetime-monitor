@@ -57,6 +57,12 @@ class ConfirmedBooking:
 
 
 @dataclass
+class TimeWindow:
+    after: str | None = None  # "HH:MM"
+    before: str | None = None  # "HH:MM"
+
+
+@dataclass
 class SlotMatch:
     """One scored candidate slot, returned by recommend.py or search.py.
 

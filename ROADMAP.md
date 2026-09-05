@@ -70,19 +70,28 @@ would've built up in the meantime.
   the Phase 4 overview — it's not just a weather footnote, it's meant to answer "is this
   tee time even usable" at a glance.
 
-## Phase 3 — Preference-based recommendations ("pick for me")
+## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
-  the table, score each slot against your own stated preferences and highlight the best
-  one per day with a star.
-- `config.yaml` gains a `preferences` block, e.g. preferred time of day (morning/
-  afternoon/either), solo vs with-others, how much to weight rain/wind/temperature
-  comfort, and whether to boost slots where a friend (from the Phase 1 `identity` list)
-  is already booked.
-- `recommend.py` (new module) — combines Phase 1 occupancy, Phase 2 weather/playability,
-  and (if available) friend-spotting into one score per slot, per your configured
-  preferences. Pure scoring logic over already-scraped data, no new external calls.
-- This is distinct from Phase 5's historical analytics: recommendations use *today's*
-  data plus rules you set, not weeks of accumulated history.
+  the table, score each slot against your own standing rules and highlight the best
+  match per day with a star, automatically, no typing required.
+- One shared engine with Phase 4's search, `search.py`'s `SearchCriteria` (see below) —
+  Phase 3 is just that same shape, saved as your defaults and run automatically instead
+  of typed in on demand. Revised 2026-09-05 from an earlier, flatter "time of
+  day"/"solo vs group" idea once it became clear the two features are the same thing.
+- `config.yaml` gains two blocks:
+  - `availability` — your standing hard rules, e.g. "workdays only after 17:00,
+    weekends only after 10:00, always solo, need 20 minutes clear of other flights."
+    Different windows for workdays vs weekends, since that's genuinely how availability
+    tends to work.
+  - `preferences` — soft scoring weights layered on top of whatever passes the hard
+    availability filter: how much to weight rain/wind/temperature comfort, and whether
+    to boost slots where a friend (from the Phase 1 `identity` list) is already booked.
+- `recommend.py` (new module) — a thin wrapper: builds a `SearchCriteria` from
+  `availability`, runs it via `search.py` across every day in the overview, ranks
+  results using the `preferences` weights. Pure logic over already-scraped data, no new
+  external calls.
+- This is distinct from Phase 5's historical analytics: recommendations use *today's/
+  this week's* already-scraped data plus rules you set, not weeks of accumulated history.
 
 ## Phase 4 — Multi-day overview & search (home screen)
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
@@ -94,18 +103,20 @@ would've built up in the meantime.
   Enter on a day column) opens the Phase 1 single-day detail table.
 - Requires the scraper to pull multiple days in one run (loop over dates), still gated by
   the same course/config.
-- **Search** (new, 2026-09-05): instead of just eyeballing the grid, type in what you
-  actually need and get a ranked list back. E.g. "3 players, weekdays only, after 15:00,
-  at least 20 minutes clear of any other flight." New keybinding opens a small form; new
-  `search.py` module runs the query across every day already pulled for the overview:
-  - **Party size** — enough open spots in the slot for your group
-  - **Time window** — after/before a given time
-  - **Weekdays only** (or any day)
-  - **Buffer from other flights** — a minimum gap to the nearest other booked flight,
-    both before and after, so your group isn't squeezed between two other groups
-  - Results are ranked using the same scoring as Phase 3's "pick for me" (dry, calm,
-    safely before sunset first), just applied across many days and many criteria instead
-    of one fixed daily pick.
+- **Search**: for the one-off cases that don't match your saved `availability` defaults
+  — e.g. "just this once, 3 players, weekdays only, after 15:00, 20 minutes clear of any
+  other flight." New keybinding opens a small form; `search.py`'s `SearchCriteria`
+  covers:
+  - **Party size** (`min_open_spots`) — enough open spots in the slot for your group
+  - **Separate workday/weekend time windows** (`weekday_window` / `weekend_window`) —
+    a day type with no window set is skipped entirely, so leaving one out means "only
+    the other day type"
+  - **Buffer from other flights** (`buffer_minutes`) — a minimum gap to the nearest
+    other booked flight, both before and after, so your group isn't squeezed between
+    two other groups
+  - Results are ranked using the same `preferences` scoring weights as Phase 3's
+    automatic weekly picks (dry, calm, safely before sunset first) — same engine, just
+    typed-in criteria instead of saved defaults.
 
 ## Phase 5 — Local-stats analytics & personal stats
 - `analytics.py` — pattern recognition over the accumulated SQLite history, no AI/LLM

@@ -22,12 +22,13 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   9- or 18-hole round before dark, based on a configurable estimated round duration
 - Wind and temperature in the weather overlay too, not just rain
 - Tournament/event days flagged, since pc caddie lists these on the tee sheet
-- A "pick for me" recommended slot per day, scored against your own preferences (time of
-  day, solo vs group, rain/wind/temperature tolerance, and friends if scraping confirms
-  it's possible)
+- Set your standing availability once (e.g. "workdays after 17:00, weekends after
+  10:00, always solo") and the week's matching slots are highlighted automatically —
+  no need to search every time
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
-- Search: type in "3 players, weekdays only, after 15:00, 20 min clear of other
-  flights" and get a ranked list of matching slots across every day pulled so far
+- Search for the one-off exceptions: type in "3 players, weekdays only, after 15:00,
+  20 min clear of other flights" and get a ranked list for that specific case, using
+  the same rain/wind/temperature/friends scoring as your default weekly picks
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?") — no AI calls, no external cost
 - Personal stats (days since you last played, rounds logged, and more once there's real
@@ -61,8 +62,8 @@ teetime-monitor/
 │   ├── scrape_once.py     # headless scrape for a cron/launchd schedule
 │   ├── weather.py         # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── playability.py     # is a tee time playable before sunset? (implemented)
-│   ├── recommend.py       # "pick for me" — score today's slots against your prefs
-│   ├── search.py          # ad-hoc multi-day search (party size, time, buffer, ...)
+│   ├── recommend.py       # auto weekly picks from your saved default availability
+│   ├── search.py          # shared search engine — ad hoc form + recommend.py's defaults
 │   ├── models.py          # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch
 │   ├── storage.py         # SQLite persistence — scraped sheets + confirmed bookings
 │   ├── analytics.py       # local pattern-recognition + personal stats over history

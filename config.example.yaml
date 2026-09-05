@@ -28,10 +28,22 @@ identity:
   my_name: ""
   friends: []
 
-# Drives the "pick for me" recommended slot (Phase 3). Tune to how you actually golf.
+# Your standing availability rules (Phase 3) — hard filters, applied automatically to
+# every day in the overview so the week's recommended slots show up without you typing
+# a search. Same shape as the ad hoc search form (Phase 4), just saved as your default.
+# Example below: workdays only after 17:00, weekends only after 10:00, always solo.
+# Leave a window out entirely (e.g. delete weekend_window) to skip that day type.
+availability:
+  min_open_spots: 1            # 1 = "always play alone"
+  weekday_window:
+    after: "17:00"
+  weekend_window:
+    after: "10:00"
+  buffer_minutes: 20            # min gap to the nearest other booked flight
+
+# Soft scoring weights (Phase 3 + 4) — how to rank slots that already pass the hard
+# availability filter above. Shared by both the automatic weekly picks and ad hoc search.
 preferences:
-  time_of_day: "either"       # "morning", "afternoon", or "either"
-  group: "either"              # "solo", "with_others", or "either"
   avoid_rain: true
   avoid_wind: true
   avoid_temp_below_c: 5
