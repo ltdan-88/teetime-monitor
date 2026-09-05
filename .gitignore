@@ -1,0 +1,12 @@
+.env
+config.yaml
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+cache/
+*.db
+*.sqlite3
+.DS_Store

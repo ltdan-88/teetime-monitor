@@ -1,0 +1,12 @@
+club_url: "https://online.pccaddie.net/<club-slug>"
+default_course: ""
+default_date: "today"   # or YYYY-MM-DD
+
+# Used for the weather overlay (Phase 2) — Open-Meteo needs plain coordinates,
+# no API key. Look up your club's coordinates once and hardcode them here.
+location:
+  lat: 0.0
+  lon: 0.0
+
+# How many days ahead the multi-day overview (Phase 3) pulls, including today.
+overview_days: 5
