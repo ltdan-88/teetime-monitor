@@ -12,7 +12,14 @@ class Slot:
     time: str  # e.g. "09:10"
     booked: int
     capacity: int
-    players: list[str] = field(default_factory=list)
+    players: list[str] = field(default_factory=list)  # real names only (pc caddie
+    # friends); anonymized "Occupied" placeholders are counted in `booked`, not stored
+    # here as fake player names — see ROADMAP.md "Confirmed pc caddie markup reference"
+    block_reason: str | None = None  # None = genuine member occupancy (or fully open).
+    # Otherwise the label pc caddie showed: an event/lesson/guest/sponsor name, or an
+    # advance-booking-window notice. The latter isn't real occupancy at all — just "not
+    # bookable yet" — so callers (recommend.py, analytics.py) should treat a slot with
+    # block_reason as unknown/blocked, not automatically as "crowded."
 
 
 @dataclass

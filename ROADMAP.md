@@ -40,17 +40,34 @@ referenced from the phases below rather than repeated:
   your pc caddie friends list, in which case their real name shows. Friends are a
   native pc caddie feature (My Account → "My friends"), not something to fake with a
   config file — see Phase 3.
-- **Working theory, not yet confirmed**: since anonymous bookings always show the
-  `Member (H.H)` pattern, any name that *doesn't* match that pattern should mean "this
-  is a friend" — which would mean the scraper needs no separate friends list at all,
-  just "is this text a real name or the anonymized pattern." Unconfirmed because none
-  of the slots checked during this walkthrough had an actual friend's booking to look
-  at yet — confirm once one does.
+- **Friend detection, refined not confirmed** (see "Confirmed pc caddie markup
+  reference" below for the full technical detail): the original "any non-anonymized
+  name = friend" theory turned out too naive. A systematic scan of all 5 available days
+  across all 3 courses found zero real friend names, but *did* turn up several
+  non-name labels sharing the same span (event names, lesson names, "Gäste" for guest
+  reservations, advance-booking-window notices) that a naive "not literally 'Occupied'"
+  check would have wrongly treated as friends. Positively recognizing a real name —
+  not just "this text is unfamiliar" — is now the actual job, and it's a small, cheap
+  classification rather than the "parse the whole table" job originally planned.
 - **"My Reservations" page** (`cat=reservations`) lists your own upcoming bookings
   directly — see Phase 1's confirmed-bookings design below.
 - **Tournaments/events have their own dedicated calendar page** (`cat=ts_calendar`),
-  separate from the tee sheet, listing date, which "Runde" it affects, holes, and
-  availability — a cleaner source than detecting an icon in the booking table.
+  separate from the tee sheet — but also show up directly *in* the tee sheet as a
+  blocked row carrying the event's name (confirmed examples: "FC 110 After Work (E)",
+  "5. Best Agers"). The calendar page remains useful for looking further ahead than the
+  5-day tee-sheet window reaches; the tee-sheet row is what a scrape sees in the moment.
+- There's a separate lesson/course calendar too (`cat=ts_calendar_course`, "Golfkurs
+  buchen") — distinct from the tournament calendar, and the source of "Golf Beginner
+  Kurs"-style blocks on the tee sheet.
+- **A third slot state neither of us had considered**: some "not free" slots aren't
+  occupied by anyone at all — they're not yet *openable* for booking, due to an
+  advance-booking-window rule (e.g. "members can book 4 days ahead, from 8pm"). Treating
+  this the same as genuine crowding would be misleading for the crowd heatmap and
+  recommendations — see the markup reference below.
+- **"Overview Areas" page** (`cat=tt_timetable_course_alias`) shows all 3 courses side
+  by side for one date, aggregate free/occupied seat icons only, no names — one
+  lightweight request instead of three, and a strong fit for Phase 4's multi-day
+  overview. The per-course tee sheet remains necessary for actual slot detail.
 - The date picker only ever offers 5 days ahead — matches the planned `overview_days: 5`
   default exactly.
 - Sunrise/sunset and a `*` holiday marker are shown on the site itself too. **Decided
@@ -59,6 +76,60 @@ referenced from the phases below rather than repeated:
   reliability as scraped values is unverified, and there's no efficiency win anyway
   since the weather call happens regardless. Could still be a nice-to-have cross-check
   later, not a replacement.
+
+## Confirmed pc caddie markup reference (2026-09-05)
+Concrete technical detail from the walkthrough above — closer to implementation notes
+than roadmap prose, kept separate so the narrative above stays readable. Update this if
+the site changes.
+
+**Direct URL navigation** (no form/dropdown interaction needed):
+```
+https://www.pccaddie.net/clubs/<club_id>/app.php?cat=tt_timetable_course&date=DAY|<YYYY-MM-DD>&alias=ALIAS|<course_code>
+```
+Confirmed working as a plain GET — including via same-origin `fetch()` from the page
+console, meaning this is server-rendered HTML, not a JS single-page app, for at least
+the anonymous view. Worth reconsidering during real Phase 1 implementation whether
+Playwright is needed for anything beyond the login step itself: log in once with
+Playwright to obtain session cookies, then use a lighter HTTP client (`httpx`) for the
+repeated scheduled scrapes — likely faster and cheaper than a full browser per scrape.
+
+**Per-course tee sheet** (`cat=tt_timetable_course`):
+- Table: `table.pcco-tt-timetable`; one row per time, `tr.pcco-tt-time-person`.
+- Time cell: `td.seats-free-N` where N (0-4) is the free-seat count, directly in the
+  class name — fully deterministic, no parsing judgment needed. `tt-grau` = normal row,
+  `tt-rot` = blocked for an event.
+- Each of the 4 player cells: `<span class="tt-show-name tt-show-male|female">` +
+  `<span class="tt-show-hcp">`. Confirmed content patterns for `tt-show-name`:
+  - Literal `"Occupied"` — an anonymized member booking (not a friend); `tt-show-hcp`
+    then reads "Member (H.H)".
+  - An event/lesson/guest/sponsor label — the slot is blocked, not player-occupied.
+    Confirmed real examples: tournament names straight from `ts_calendar` ("FC 110
+    After Work (E)", "5. Best Agers", "7. Damengolf Afterwork"), lesson names from
+    `ts_calendar_course` ("Golf Beginner Kurs"), "Gäste" (guest reservation), sponsor
+    bookings ("Stadler Business Golf").
+  - An advance-booking-window notice ("Mitglieder 4 Tage im voraus ab 20 Uhr buchbar")
+    — **not occupancy at all**, just "not bookable yet." `recommend.py`/`analytics.py`
+    should treat this as unknown, not as crowding — counting it as "busy" would be
+    actively misleading for the heatmap and recommendations.
+  - Presumably an actual friend's real name — not yet observed. A systematic scan of
+    all 5 available days × all 3 courses on 2026-09-05 found only the labels above, no
+    real names. This is now a narrow, cheap classification task (one short string in,
+    one label out) worth an `ai_assist` call, not the "parse the whole messy table" job
+    originally planned — most of the table turned out to be cleanly structured once
+    actually inspected, which is exactly the kind of update the "AI placement" note
+    above expects: use AI for what's genuinely ambiguous, plain code for what isn't,
+    and revise the split once you actually know which is which.
+
+**"Overview Areas" page** (`cat=tt_timetable_course_alias`): all 3 courses side by side
+for one date. Aggregate seat icons only, no names: `i.fa-ban.occupied` (booked) /
+`i.fa-circle-o.bookable` (free) per seat. One lightweight request covers all 3 courses
+for a date — good primary source for Phase 4's overview; the per-course page above
+remains necessary for real slot detail.
+
+**Confirmed rotation mechanic**: with 3 loops (A/B/C), the 18-hole and 9-hole options
+pair automatically rather than rotating independently — 18-hole "Runde A+C" shows
+alongside 9-hole "Runde B" (the leftover loop) at the same time. One combo determines
+the other.
 
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
@@ -100,22 +171,24 @@ would've built up in the meantime.
   tee sheet are still unknown until inspected by hand. See "Known risks" in the v1 spec.
   This no longer means hand-mapping the *entire* booking table's markup, though — see
   `ai_assist.py` below.
-- `scraper.py` — Playwright, navigating straight to the pc caddie booking page (see
-  "Live site findings" — no need to fight the club marketing site's iframe). The tee
-  sheet itself needs no login; a separate authenticated pass handles player names, "My
-  Reservations," and the events calendar. Uses a small `SELECTORS` dict (course/date
-  controls, login fields, whatever container holds each page's content — just enough to
-  scope down what gets read next). Parsing the actual booking table — slot times,
-  occupancy, player names, the list of currently-available courses (Phase 0) — is
-  handed to `ai_assist.extract_schedule()` instead of a hand-mapped `slot_row`/
-  `slot_time`/`slot_players` selector set. Tournament/event data comes from the separate
-  events calendar page, not the tee sheet. Revised 2026-09-05: hand-mapping selectors
-  for a table whose exact markup, cell merging, and booked-vs-free rendering are all
-  unknown until inspected is exactly the kind of messy-HTML-to-structured-data step an
-  LLM is good at and hand-rolled parsing is fragile at — one club-site redesign used to
-  mean re-deriving a selector dict; now it mostly self-adjusts. Playwright still does
-  the login/navigation itself (stable, simple, and not something you'd want a model
-  driving turn-by-turn).
+- `scraper.py` — navigates straight to the pc caddie booking page via direct URL (see
+  "Confirmed pc caddie markup reference" — no need to fight the club marketing site's
+  iframe, or even simulate dropdown clicks: date/course selection is a plain query
+  string). The tee sheet itself needs no login; a separate authenticated pass handles
+  player names, "My Reservations," and confirms bookings. Twice-revised 2026-09-05:
+  first assumed the booking table's markup was unknown and messy enough to need
+  `ai_assist.extract_schedule()` for the whole thing; turned out, once actually
+  inspected, that occupancy (`seats-free-N` class), time, and blocked-vs-normal
+  (`tt-grau`/`tt-rot`) are all cleanly deterministic — plain code parses these directly,
+  no AI involved, which is both cheaper and more reliable per the "AI placement" note's
+  own logic once the real structure was known. The one piece still handed to AI is
+  `ai_assist.classify_booking_label()` — telling an anonymized booking, an event/lesson/
+  guest block, an advance-booking-window notice, and an actual friend's name apart,
+  since new label wording could appear that hasn't been seen yet. A small `SELECTORS`
+  dict remains for the login form itself (still genuinely unverified). Whether
+  Playwright is needed at all beyond that login step is worth reconsidering once
+  implementation starts — the pages are server-rendered HTML, not a JS app, so a
+  lighter authenticated HTTP client could handle the repeated scheduled scrapes.
 - `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec), `Schedule` also gets an
   `events: list[str]` field for tournament/event notes and an `available_courses:
   list[str]` field for Phase 0's course picker.
@@ -227,8 +300,12 @@ would've built up in the meantime.
   since it directly lists date, affected course "Runde," and holes.
 - This becomes the app's **default/home screen**. Drilling into one day (e.g. pressing
   Enter on a day column) opens the Phase 1 single-day detail table.
-- Requires the scraper to pull multiple days in one run (loop over dates), still gated by
-  the same course/config.
+- Requires the scraper to pull multiple days in one run. Revised 2026-09-05: pc caddie's
+  "Overview Areas" page (`cat=tt_timetable_course_alias`, see "Confirmed pc caddie
+  markup reference") shows all 3 courses' aggregate free/occupied counts for one date in
+  a single request, rather than needing to loop over each course separately — a better
+  primary source for this screen's condensed view than assembling it from the per-course
+  detail pages, which are still what the Phase 1 drill-down uses.
 - **Search**: for the one-off cases that don't match your saved `availability` defaults
   — e.g. "just this once, 3 players, weekdays only, after 15:00, 20 minutes clear of any
   other flight." New keybinding opens a small form; `search.py`'s `SearchCriteria`
@@ -282,9 +359,12 @@ the "AI placement" note at the top of this doc.)*
 ## `ai_assist.py` (new module, spans Phases 1/3/4/5)
 One shared module wrapping the Claude API (Anthropic SDK), used by whichever phase
 needs a judgment call rather than exact logic:
-- `extract_schedule()` (Phase 1) — turns the scraped tee-sheet HTML into structured
-  `Slot`/`Schedule` data (structured output, so the result validates against the
-  dataclass shape rather than needing a hand-parsed response)
+- `classify_booking_label()` (Phase 1) — classifies one booking cell's text as
+  anonymized / event-or-lesson-block / guest-block / advance-booking-window-notice /
+  friend-name (structured output). Narrower than originally planned — see "Confirmed pc
+  caddie markup reference": most of the tee sheet turned out deterministic once
+  actually inspected, so plain code in scraper.py handles occupancy/time/blocking
+  directly, and this is the one piece still genuinely ambiguous.
 - `rank_slots()` (Phases 3/4) — ranks already-hard-filtered candidate slots and writes
   the plain-language `SlotMatch.reasons`
 - `summarize_history()` (Phase 5) — crowd-prediction confidence for sparse day-types,
@@ -313,8 +393,9 @@ needs a judgment call rather than exact logic:
 ## Known risks
 - pc caddie's real login form is unverified until inspected by hand, and the tee sheet
   may sit inside an iframe (see `docs/spec-v1.md` for detail) — the original v1 risks,
-  narrower now that table parsing itself is `ai_assist.extract_schedule()`'s job rather
-  than a hand-mapped selector set, but the login/navigation selectors are still real.
+  much narrower now that table parsing itself turned out deterministic (see "Confirmed
+  pc caddie markup reference") rather than needing a hand-mapped selector set, but the
+  login form itself is still genuinely unverified.
   Resolved 2026-09-05: the tee sheet itself is a *separate*, non-iframed pc caddie page
   reachable directly, and needs no login at all — see "Live site findings."
 - **AI calls cost money and send data to Anthropic's API, starting from Phase 1** —
@@ -331,9 +412,17 @@ needs a judgment call rather than exact logic:
 - **Public-holiday API coverage varies by country**, and there's no universal free
   school-vacation API at all — `calendar.country_code` and `vacation_ranges` may need
   more manual upkeep than the rest of the config, depending on the club's region.
-- **Unconfirmed: whether "any non-anonymized name = friend" holds up.** See "Live site
-  findings" — the theory that scraped names need no separate friends-list config is
-  promising but untested against an actual friend's booking.
+- **Advance-booking-window notices could get miscounted as crowding if not handled.**
+  See "Confirmed pc caddie markup reference" — a slot that's just not open for booking
+  yet reads identically to a genuinely full slot unless the scraper specifically checks
+  for this label. Getting this wrong would quietly bias the crowd heatmap and
+  recommendations toward avoiding perfectly good, simply-not-yet-bookable times.
+- **Still unconfirmed: what an actual friend's booking looks like.** See "Confirmed pc
+  caddie markup reference" — a systematic scan across every available day/course found
+  the anonymized pattern and several non-name system labels, but no real name, since
+  none of this account's friends had a booking during the walkthrough. The
+  classification approach (positively recognize a name, don't just flag "unfamiliar
+  text") should hold up, but is unverified against the actual case it exists for.
 
 ~~How the 27-hole rotation is actually presented on the site is unverified~~ — resolved
 2026-09-05, see "Live site findings": it's a fixed 3-option course picker plus a

@@ -18,9 +18,11 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 - Scrape the full tee sheet (all slots, booked and free) for a given course/date, with a
   scheduled background scrape too — pc caddie hides past tee sheets, so history can't be
   filled in later, and this keeps it building even on days you don't open the app.
-  Parsing the messy tee-sheet HTML into structured data is an AI call
-  ([Claude](https://www.anthropic.com/claude)), not a hand-mapped selector set that
-  breaks on the next site redesign
+  Occupancy and timing parse deterministically once inspected (plain code, no AI cost);
+  the one genuinely ambiguous bit — telling an anonymized booking, an event/lesson
+  block, and an actual friend's name apart — is a small
+  [Claude](https://www.anthropic.com/claude) classification call, not a whole-page
+  parse
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio.
   Real names only show for people on your pc caddie friends list (a native pc caddie
   feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
@@ -84,9 +86,9 @@ teetime-monitor/
 │   └── spec-v1.md          # original single-session spec (historical)
 ├── src/
 │   ├── club_config.py      # multi-club: list/load clubs, resolve credentials (implemented)
-│   ├── scraper.py          # Playwright login + navigation only (parsing is ai_assist's job)
+│   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (partly implemented)
 │   ├── scrape_once.py      # headless scrape for a cron/launchd schedule
-│   ├── ai_assist.py        # Claude API: tee-sheet parsing, ranking, history summarization
+│   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
@@ -98,7 +100,8 @@ teetime-monitor/
 │   └── tui.py               # Textual app: club/course pickers, overview, day detail, search
 └── tests/
     ├── test_models.py
-    └── test_club_config.py
+    ├── test_club_config.py
+    └── test_scraper.py
 ```
 
 ## Notes
@@ -108,9 +111,9 @@ Credentials are never hardcoded — read from `.env`, which is gitignored (see
 `ANTHROPIC_API_KEY`). Club config files under `clubs/` are gitignored too, aside from
 the tracked `club.example.yaml` template. This is a personal tool built against one real
 club's actual portal — a live walkthrough (2026-09-05, see `ROADMAP.md` "Live site
-findings") already confirmed the tee sheet needs no login, how course selection works,
-and more; the login form itself and a few page-specific selectors are still the
-remaining unverified piece, first real implementation step before any scraper code is
-written. Note that every AI call (tee-sheet parsing, ranking, history summarization)
-sends data to Anthropic's API and costs a small amount per call — see "Known risks" in
-`ROADMAP.md`.
+findings" and "Confirmed pc caddie markup reference") already confirmed the tee sheet
+needs no login, real CSS classes for occupancy/blocking, and more; the login form
+itself is the main remaining unverified piece, first real implementation step before
+scraper.py's stub functions can be filled in. Note that every AI call (booking-label
+classification, ranking, history summarization) sends data to Anthropic's API and costs
+a small amount per call — see "Known risks" in `ROADMAP.md`.
