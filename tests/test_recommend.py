@@ -1,0 +1,223 @@
+from src.models import Schedule, Slot, SlotMatch, SunTimes, TimeWindow, WeatherPoint
+from src.recommend import (
+    default_criteria_from_config,
+    exclude_unplayable,
+    weekly_picks,
+)
+from src.search import SearchCriteria
+
+
+def test_default_criteria_from_config_reads_availability_block():
+    config = {
+        "availability": {
+            "min_open_spots": 3,
+            "weekday_window": {"after": "17:00"},
+            "weekend_window": {"after": "10:00"},
+            "buffer_minutes": 20,
+        }
+    }
+
+    criteria = default_criteria_from_config(config)
+
+    assert criteria == SearchCriteria(
+        min_open_spots=3,
+        weekday_window=TimeWindow(after="17:00"),
+        weekend_window=TimeWindow(after="10:00"),
+        buffer_minutes=20,
+    )
+
+
+def test_default_criteria_from_config_defaults_when_missing():
+    criteria = default_criteria_from_config({})
+    assert criteria == SearchCriteria()
+
+
+def test_exclude_unplayable_drops_slot_that_finishes_after_dark():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="17:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="06:30", sunset="19:47"),
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "daylight_buffer_minutes": 30}
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+
+
+def test_exclude_unplayable_keeps_slot_that_finishes_before_dark():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="06:30", sunset="19:47"),
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "daylight_buffer_minutes": 30}
+
+    result = exclude_unplayable([candidate], [schedule], config)
+    assert result == [candidate]
+
+
+def test_exclude_unplayable_skips_daylight_check_without_sun_times():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="17:00", booked=0, capacity=4)],
+        sun_times=None,
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "daylight_buffer_minutes": 30}
+
+    # No sun_times to check against -- treated as unknown, not excluded.
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_drops_slot_with_heavy_rain():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", precipitation_probability=90.0, precipitation_mm=5.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_rain": True}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+
+
+def test_exclude_unplayable_keeps_slot_with_light_rain_under_threshold():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", precipitation_probability=10.0, precipitation_mm=0.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_rain": True}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_ignores_rain_when_avoid_rain_is_false():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", precipitation_probability=90.0, precipitation_mm=10.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_rain": False}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_respects_custom_rain_threshold():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", precipitation_probability=60.0, precipitation_mm=0.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {
+        "round_duration_minutes": {"eighteen": 240},
+        "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 80},
+    }
+
+    # 60% is under this club's custom 80% cutoff -- kept, even though it'd fail the
+    # default 50% threshold.
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_drops_slot_with_high_wind():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", wind_speed_kph=45.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_wind": True}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+
+
+def test_exclude_unplayable_drops_slot_too_cold():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", temperature_c=2.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_temp_below_c": 5}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+
+
+def test_exclude_unplayable_drops_slot_too_hot():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", temperature_c=38.0)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_temp_above_c": 32}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+
+
+def test_exclude_unplayable_skips_weather_check_without_forecast():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[],  # forecast doesn't reach this far
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "preferences": {"avoid_rain": True}}
+
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_uses_nine_hole_duration_for_a_6_hole_course():
+    # "6 Loch Platz" has no dedicated duration bucket -- should fall back to "nine",
+    # not "eighteen" (which would over-estimate and wrongly exclude a playable slot).
+    schedule = Schedule(
+        date="2026-09-06",
+        course="6 Loch Platz",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="06:30", sunset="19:47"),
+    )
+    candidate = SlotMatch(date="2026-09-06", course="6 Loch Platz", slot=schedule.slots[0], score=0.0)
+    config = {
+        "round_duration_minutes": {"nine": 90, "eighteen": 240},
+        "daylight_buffer_minutes": 0,
+    }
+
+    # 18:00 + 90 min (nine-hole bucket) = 19:30, before sunset -- playable.
+    # 18:00 + 240 min (eighteen-hole bucket) would finish at 22:00 -- would wrongly fail.
+    assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_exclude_unplayable_passes_through_candidate_with_no_matching_schedule():
+    candidate = SlotMatch(
+        date="2026-09-06", course="18 Loch Tee 1", slot=Slot(time="08:00", booked=0, capacity=4), score=0.0
+    )
+    assert exclude_unplayable([candidate], [], {}) == [candidate]
+
+
+def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_not_implemented():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+    )
+    config = {"availability": {"weekday_window": {"after": "17:00"}}}
+
+    picks = weekly_picks([schedule], config)
+
+    assert len(picks) == 1
+    assert picks[0].slot.time == "18:00"

@@ -73,6 +73,16 @@ availability:
 
 # Soft scoring weights (Phase 3 + 4) — how to rank slots that already pass the hard
 # availability filter above. Shared by both the automatic weekly picks and ad hoc search.
+#
+# avoid_rain/avoid_wind are just on/off switches here, but recommend.py's
+# exclude_unplayable() (the deterministic *hard* filter, not the AI ranking step) needs
+# an actual number to compare against once one of them is true. Found as a genuine gap
+# while implementing that function 2026-09-06 -- resolved with sensible defaults
+# (50% rain probability, 1mm rain, 30kph wind) rather than blocking on it, but override
+# them here if those aren't right for you:
+# avoid_rain_probability_percent: 50
+# avoid_rain_mm: 1.0
+# avoid_wind_kph: 30
 preferences:
   avoid_rain: true
   avoid_wind: true

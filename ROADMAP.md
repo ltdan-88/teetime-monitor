@@ -439,6 +439,20 @@ would've built up in the meantime.
 - This is distinct from Phase 5's historical analytics: recommendations use *today's/
   this week's* already-scraped data plus rules you set, not weeks of accumulated history.
 
+**Implemented 2026-09-06**: `search.py`'s `search()` and `recommend.py`'s
+`default_criteria_from_config()`/`exclude_unplayable()`/`weekly_picks()` are all real
+and tested (36 tests across `tests/test_search.py` and `tests/test_recommend.py`) —
+the deterministic baseline this phase actually promised. `weekly_picks()` falls back to
+the filtered-but-unranked list while `ai_assist.rank_slots()` is still a stub, rather
+than raising, matching the "the filtered list alone is already useful" note above. One
+gap found and resolved while implementing `exclude_unplayable()`: `preferences.
+avoid_rain`/`avoid_wind` are booleans, with no numeric cutoff for a hard filter to
+actually compare against (unlike `avoid_temp_below_c`/`above_c`, already numbers) — see
+`recommend.py`'s module docstring and the new optional `avoid_rain_probability_percent`/
+`avoid_rain_mm`/`avoid_wind_kph` keys in `clubs/club.example.yaml` for how that's
+resolved (sensible defaults, overridable per club) pending the user's own sign-off on
+the actual numbers.
+
 ## Phase 4 — Multi-day overview & search (home screen)
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,

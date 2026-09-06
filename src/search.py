@@ -17,12 +17,19 @@ reasons) is a separate step via `ai_assist.rank_slots()`, called by recommend.py
 saved-default path and by the TUI's ad hoc search handler for the typed-in path — see
 ROADMAP.md's "AI placement" note for why that split exists.
 
-NOT YET IMPLEMENTED.
+Implemented and tested 2026-09-06, as the first of the two deterministic steps behind
+`recommend.py`'s `weekly_picks()` (the other being `exclude_unplayable()`) — together
+these are the actual MVP per the "Build priority" note in ROADMAP.md: a short, sane
+list of bookable slots, with no AI call required to get that far.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
-from .models import Schedule, SlotMatch, TimeWindow
+from .models import Schedule, Slot, SlotMatch, TimeWindow
+
+_DATE_FMT = "%Y-%m-%d"
+_TIME_FMT = "%H:%M"
 
 
 @dataclass
@@ -38,7 +45,58 @@ class SearchCriteria:
     buffer_minutes: int = 0  # min gap to the nearest other booked flight, either side
 
 
+def _window_for_date(date: str, criteria: SearchCriteria) -> TimeWindow | None:
+    is_weekend = datetime.strptime(date, _DATE_FMT).weekday() >= 5  # Sat=5, Sun=6
+    return criteria.weekend_window if is_weekend else criteria.weekday_window
+
+
+def _within_window(time: str, window: TimeWindow) -> bool:
+    if window.after is not None and time < window.after:
+        return False
+    if window.before is not None and time > window.before:
+        return False
+    return True
+
+
+def _is_another_flight(slot: Slot) -> bool:
+    """Whether a slot represents something happening nearby that a buffer check should
+    care about — real players booked, or a block (event/lesson/guest/advance-booking
+    notice all count, same as booking_watch.py's neighbor-crowding logic treats them).
+    A fully open slot isn't "another flight" and doesn't count against the buffer."""
+    return slot.booked > 0 or slot.block_reason is not None
+
+
+def _has_buffer_clearance(slot: Slot, other_slots: list[Slot], buffer_minutes: int) -> bool:
+    if buffer_minutes <= 0:
+        return True
+    slot_time = datetime.strptime(slot.time, _TIME_FMT)
+    for other in other_slots:
+        if other is slot or not _is_another_flight(other):
+            continue
+        other_time = datetime.strptime(other.time, _TIME_FMT)
+        gap_minutes = abs((other_time - slot_time).total_seconds()) / 60
+        if gap_minutes < buffer_minutes:
+            return False
+    return True
+
+
 def search(schedules: list[Schedule], criteria: SearchCriteria) -> list[SlotMatch]:
     """Return matching slots across all given days — filtered, not yet ranked
     (`score`/`reasons` unset). Pass the result to `ai_assist.rank_slots()` for that."""
-    raise NotImplementedError("search.py is a stub — see ROADMAP.md Phase 4")
+    matches: list[SlotMatch] = []
+    for schedule in schedules:
+        window = _window_for_date(schedule.date, criteria)
+        if window is None:
+            continue  # this day type (weekday/weekend) has no configured window at all
+
+        for slot in schedule.slots:
+            if slot.block_reason is not None:
+                continue  # can't book a blocked slot
+            if slot.capacity - slot.booked < criteria.min_open_spots:
+                continue
+            if not _within_window(slot.time, window):
+                continue
+            if not _has_buffer_clearance(slot, schedule.slots, criteria.buffer_minutes):
+                continue
+            matches.append(SlotMatch(date=schedule.date, course=schedule.course, slot=slot, score=0.0))
+    return matches
