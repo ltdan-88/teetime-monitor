@@ -1,4 +1,4 @@
-from src.club_config import list_clubs, load_club_config, resolve_credentials
+from src.club_config import list_clubs, load_club_config, resolve_credentials, save_club_config
 
 
 def test_list_clubs_excludes_example_template(tmp_path):
@@ -37,3 +37,23 @@ def test_resolve_credentials_falls_back_to_plain(monkeypatch):
     monkeypatch.setenv("PCC_PASS", "plain-pass")
 
     assert resolve_credentials("guest-club") == ("plain-user", "plain-pass")
+
+
+def test_save_club_config_round_trips(tmp_path):
+    config = {
+        "club_id": "0000001",
+        "availability": {"min_open_spots": 1, "buffer_minutes": 20},
+        "preferences": {"avoid_rain": True, "avoid_temp_below_c": 5},
+    }
+
+    save_club_config("home-club", config, tmp_path)
+    loaded = load_club_config("home-club", tmp_path)
+
+    assert loaded == config
+
+
+def test_save_club_config_overwrites_existing_file(tmp_path):
+    save_club_config("home-club", {"club_id": "old"}, tmp_path)
+    save_club_config("home-club", {"club_id": "new"}, tmp_path)
+
+    assert load_club_config("home-club", tmp_path) == {"club_id": "new"}

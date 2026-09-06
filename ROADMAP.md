@@ -464,7 +464,19 @@ actually compare against (unlike `avoid_temp_below_c`/`above_c`, already numbers
 resolved (sensible defaults, overridable per club) pending the user's own sign-off on
 the actual numbers.
 
-## Phase 4 — Multi-day overview & search (home screen)
+**Settings screen, added 2026-09-06 — built ahead of Phase 4's TUI, per direct
+feedback that preferences needed to be editable from the UI, not just by hand-editing
+YAML.** `src/settings_screen.py` is a standalone Textual screen (`python -m
+src.settings_screen <club-id>`) for the `availability`/`preferences` blocks above plus
+the scrape interval — the settings that actually came up in that feedback, not a
+general club-config editor (things like `club_id`/`location`/`identity` are set-once
+values, still hand-edited). `club_config.save_club_config()` is the underlying
+write-back — implemented and tested alongside it, with one accepted limitation: it
+rewrites the whole YAML file, so hand-written comments in a club's own copy don't
+survive a save (the checked-in `club.example.yaml` template is never touched, so it
+stays available as reference either way). This is genuinely a separate screen from the
+eventual tui.py home screen, not a preview of it — no club/course picker, no tee-sheet
+view, just the settings form.
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

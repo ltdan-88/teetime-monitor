@@ -32,6 +32,22 @@ def load_club_config(club_id: str, clubs_dir: Path = CLUBS_DIR) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) -> None:
+    """Write a club's config back to its YAML file — the mechanism behind the
+    settings_screen.py TUI (added 2026-09-06, per direct feedback that preferences
+    needed to be editable from the UI, not just by hand-editing YAML).
+
+    Known limitation: this rewrites the whole file via `yaml.safe_dump`, so any
+    comments in the existing file (including every explanatory comment copied over
+    from club.example.yaml when the file was first created) are lost on save. Accepted
+    for now rather than pulling in a round-trip-preserving YAML library — the
+    checked-in `club.example.yaml` template stays fully commented as the reference
+    either way, and this only affects a club's own gitignored copy."""
+    path = clubs_dir / f"{club_id}.yaml"
+    with path.open("w") as f:
+        yaml.safe_dump(config, f, sort_keys=False)
+
+
 def resolve_credentials(club_id: str) -> tuple[str, str]:
     """(username, password) for a club.
 

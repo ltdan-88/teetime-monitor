@@ -5,8 +5,12 @@ a live-refreshing terminal grid — a faster, leaner alternative to the club's o
 view, for personal use. In the spirit of [`brew-launcher`](https://github.com/) (fzf-based
 CLI tooling).
 
-Status: **early scaffolding** — no scraper or TUI code yet. See [`ROADMAP.md`](ROADMAP.md)
-for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
+Status: the scraper, storage, scheduled-scrape script, and deterministic recommendation
+engine are real and tested against the live site — see "Project structure" below for
+which modules are implemented vs. still stubs. The main tee-sheet TUI itself isn't
+built yet; a standalone settings screen for adjusting preferences is. See
+[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+[`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
@@ -23,6 +27,10 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   block, and an actual friend's name apart — is a small
   [Claude](https://www.anthropic.com/claude) classification call, not a whole-page
   parse
+- The scheduled scrape's interval is adjustable per club, and automatically tightens
+  once a date has a confirmed booking on it — e.g. every 6 hours normally, every hour
+  once you've actually booked that date, since freshness matters more once there's
+  something to protect
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio.
   Real names only show for people on your pc caddie friends list (a native pc caddie
   feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
@@ -47,6 +55,10 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
   10:00, always solo") and the week's matching slots are highlighted automatically —
   no need to search every time
+- A standalone settings screen for adjusting availability/weather preferences and the
+  scrape interval without hand-editing YAML — run it with
+  `python -m src.settings_screen <club-id>`. Built ahead of the main tee-sheet TUI,
+  since these are the dials you'd actually want to reach for day to day
 - A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
 - Search for the one-off exceptions: type in "3 players, weekdays only, after 15:00,
   20 min clear of other flights" and get a ranked list for that specific case. Party
@@ -66,7 +78,7 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
-## Setup (once Phase 0/1 land)
+## Setup
 
 ```bash
 pip install -e .
@@ -74,7 +86,13 @@ playwright install chromium
 cp .env.example .env                              # fill in PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
 cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinates, etc.
                                                     # repeat for each club you want saved
+
+python -m src.settings_screen my-club              # adjust availability/weather preferences + scrape interval
+python -m src.scrape_once                          # one-off scrape of every saved club's overview window
 ```
+
+The main tee-sheet TUI (`python -m src.tui`) isn't built yet — see "Project structure"
+above for what's real today versus still a stub.
 
 ## Project structure
 
@@ -90,24 +108,32 @@ teetime-monitor/
 │   ├── spec-v1.md              # original single-session spec (historical)
 │   └── pccaddie-markup-notes.md # example HTML snippets for the real site's markup
 ├── src/
-│   ├── club_config.py      # multi-club: list/load clubs, resolve credentials (implemented)
-│   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (partly implemented)
-│   ├── scrape_once.py      # headless scrape for a cron/launchd schedule
-│   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it?
-│   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization
-│   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client
-│   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag
+│   ├── club_config.py      # multi-club: list/load/save clubs, resolve credentials (implemented)
+│   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (implemented, verified live)
+│   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings (implemented)
+│   ├── scrape_once.py      # headless scheduled scrape, adjustable per-club interval (implemented)
+│   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
+│   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
+│   ├── settings_screen.py  # standalone Textual screen: edit preferences/interval (implemented)
+│   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it? (stub)
+│   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (stub)
+│   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client (partly implemented)
+│   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (stub)
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
-│   ├── recommend.py        # filters via search.py, ranks via ai_assist.rank_slots
-│   ├── search.py           # exact hard-filtering — party size, time windows, buffer
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
-│   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings
-│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation
-│   └── tui.py               # Textual app: club/course pickers, overview, day detail, search
+│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (stub)
+│   └── tui.py               # main Textual app: club/course pickers, overview, day detail, search (stub)
 └── tests/
     ├── test_models.py
     ├── test_club_config.py
-    └── test_scraper.py
+    ├── test_scraper.py
+    ├── test_storage.py
+    ├── test_scrape_once.py
+    ├── test_search.py
+    ├── test_recommend.py
+    ├── test_settings_screen.py
+    ├── test_playability.py
+    └── test_weather.py
 ```
 
 ## Notes
@@ -116,12 +142,17 @@ Credentials are never hardcoded — read from `.env`, which is gitignored. One p
 login covers every saved club (confirmed 2026-09-05), so plain `PCC_USER`/`PCC_PASS` is
 normally all you need even with several clubs configured — see `.env.example` for the
 rarer per-club override, and for `ANTHROPIC_API_KEY`. Club config files under `clubs/`
-are gitignored too, aside from
-the tracked `club.example.yaml` template. This is a personal tool built against one real
-club's actual portal — a live walkthrough (2026-09-05, see `ROADMAP.md` "Live site
-findings" and "Confirmed pc caddie markup reference") already confirmed the tee sheet
-needs no login, real CSS classes for occupancy/blocking, and more; the login form
-itself is the main remaining unverified piece, first real implementation step before
-scraper.py's stub functions can be filled in. Note that every AI call (booking-label
-classification, ranking, history summarization) sends data to Anthropic's API and costs
-a small amount per call — see "Known risks" in `ROADMAP.md`.
+are gitignored too, aside from the tracked `club.example.yaml` template. This is a
+personal tool built against one real club's actual portal — a live walkthrough
+(2026-09-05, see `ROADMAP.md` "Live site findings" and "Confirmed pc caddie markup
+reference") confirmed the tee sheet needs no login, and `scraper.py`'s tee-sheet
+scraping is now verified against the live site (2026-09-06). The real login form is
+still the main unverified piece, needed for "My Reservations" and any future booking
+feature — first real implementation step whenever that's tackled. Note that every AI
+call (booking-label classification, ranking, history summarization) sends data to
+Anthropic's API and costs a small amount per call — see "Known risks" in `ROADMAP.md`.
+Also note: `settings_screen.py` saves a club's whole config file on every save, so any
+hand-written comments in that club's own `clubs/*.yaml` (e.g. ones copied over from
+`club.example.yaml` when it was first created) won't survive — the checked-in
+`club.example.yaml` template itself is never touched, so it stays available as
+reference regardless.
