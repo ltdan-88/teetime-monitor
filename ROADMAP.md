@@ -297,11 +297,19 @@ would've built up in the meantime.
   theory is confirmed, this config field can likely be dropped rather than kept as a
   second, redundant source of truth.
 - `storage.py` — SQLite-backed persistence, **not just a cache**: it's the only record of
-  the past that will ever exist, since pc caddie itself won't show it later. Two tables:
-  - `scrapes` — every scrape logged as its own row (course, date, time, booked, capacity,
-    players, scraped_at). Loading "today's schedule" is a query for the latest scrape per
-    slot; this same table is what Phase 5 analytics reads from later.
+  the past that will ever exist, since pc caddie itself won't show it later. Implemented
+  and tested 2026-09-06 (`tests/test_storage.py`, 9 tests). Three tables, one database
+  file per club rather than a `club_id` column — `path` already separates clubs:
+  - `scrapes` — one row per scrape *event* (course, date, scraped_at) — a batch header.
+  - `slots` and `weather_points` — each scrape's actual data, split out since weather is
+    a separate axis from occupancy (`booking_watch.py` needs to diff just the weather
+    side between two scrapes without caring about player names). `load_latest_schedule()`
+    reconstructs a `Schedule` from the latest scrape's rows; `sun_times` and
+    `available_courses` aren't persisted, left for a caller to add back if needed.
   - `confirmed_bookings` — see below.
+  Not yet covered: looking up a *specific* historical scrape by timestamp (only "the
+  latest" exists so far) — may be needed once `scrape_once.py`/`booking_watch.py` are
+  wired together for real.
 - **Confirmed bookings, automatic first, manual as fallback.** Revised 2026-09-05:
   pc caddie's own "My Reservations" page (`cat=reservations`, see "Live site findings")
   lists your upcoming bookings directly, so the scraper reads that automatically on

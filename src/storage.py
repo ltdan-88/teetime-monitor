@@ -8,8 +8,18 @@ scrapes, and every scrape is logged as its own row rather than overwritten, so "
 schedule" is just the latest scrape per slot and the full table is what analytics later
 reads from.
 
-Two tables:
-- `scrapes` — what the tee sheet looked like, logged every time it's scraped.
+One database file per club, not a `club_id` column — `path` already does the per-club
+separation (e.g. `data/<club_slug>.db`, one per `clubs/*.yaml`), matching how
+club_config.py already treats each club as its own file. Keeps every function's
+signature here identical to what a single-club tool would need.
+
+Three tables:
+- `scrapes` — one row per scrape *event* (course/date/timestamp) — a batch header.
+- `slots` and `weather_points` — the actual per-time-slot data for one scrape, each row
+  pointing back at its `scrapes.id`. Split out (rather than one wide flat table) because
+  weather is a separate axis from occupancy — a slot can be re-scraped for occupancy
+  independent of a weather refresh, and booking_watch.py needs to diff *just* the
+  weather side between two scrapes without caring about player names.
 - `confirmed_bookings` — what *you* actually played (see ConfirmedBooking in
   models.py). Revised 2026-09-05: populated automatically each scrape from pc caddie's
   own "My Reservations" page (scraper.scrape_my_reservations), not primarily by hand —
@@ -18,13 +28,20 @@ Two tables:
   answers a different question than scraped player-name matching can reliably answer on
   its own (most players show as anonymized "Member (H.H)", not by name).
 
-NOT YET IMPLEMENTED — schema and functions sketched below per ROADMAP.md Phase 1.
+Implemented and tested 2026-09-06. Not yet covered here: a lookup for a *specific*
+historical scrape (e.g. "the schedule as of when this booking was confirmed") — only
+"give me the latest" exists so far. booking_watch.py's baseline/latest diffing can use
+`load_latest_schedule()` twice, once before and once after a new scrape lands; a
+by-timestamp lookup can be added if that turns out not to be precise enough once
+scrape_once.py is wired up.
 """
 
+import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import ConfirmedBooking, Schedule
+from .models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 
 DEFAULT_DB_PATH = Path("teetime.db")
 
@@ -33,11 +50,25 @@ CREATE TABLE IF NOT EXISTS scrapes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     course TEXT NOT NULL,
     date TEXT NOT NULL,        -- YYYY-MM-DD
+    scraped_at TEXT NOT NULL   -- ISO 8601 timestamp
+);
+
+CREATE TABLE IF NOT EXISTS slots (
+    scrape_id INTEGER NOT NULL REFERENCES scrapes(id),
     time TEXT NOT NULL,        -- HH:MM
     booked INTEGER NOT NULL,
     capacity INTEGER NOT NULL,
     players TEXT NOT NULL,     -- JSON-encoded list[str]
-    scraped_at TEXT NOT NULL   -- ISO 8601 timestamp
+    block_reason TEXT          -- NULL = real occupancy (or fully open)
+);
+
+CREATE TABLE IF NOT EXISTS weather_points (
+    scrape_id INTEGER NOT NULL REFERENCES scrapes(id),
+    time TEXT NOT NULL,                    -- matches a slot's time
+    precipitation_probability REAL,
+    precipitation_mm REAL,
+    wind_speed_kph REAL,
+    temperature_c REAL
 );
 
 CREATE TABLE IF NOT EXISTS confirmed_bookings (
@@ -54,24 +85,141 @@ CREATE TABLE IF NOT EXISTS confirmed_bookings (
 
 def init_db(path: Path = DEFAULT_DB_PATH) -> None:
     with sqlite3.connect(path) as conn:
-        conn.execute(SCHEMA)
+        conn.executescript(SCHEMA)
 
 
-def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> None:
-    """Append one scrape's slots as new rows (never overwrite — history matters)."""
-    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
+    """Log one scrape's slots (and weather, if present) as a new batch — never
+    overwrite, history matters. Returns the new scrape's row id."""
+    init_db(path)
+    scraped_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(path) as conn:
+        cursor = conn.execute(
+            "INSERT INTO scrapes (course, date, scraped_at) VALUES (?, ?, ?)",
+            (schedule.course, schedule.date, scraped_at),
+        )
+        scrape_id = cursor.lastrowid
+        conn.executemany(
+            "INSERT INTO slots (scrape_id, time, booked, capacity, players, block_reason) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    scrape_id,
+                    slot.time,
+                    slot.booked,
+                    slot.capacity,
+                    json.dumps(slot.players),
+                    slot.block_reason,
+                )
+                for slot in schedule.slots
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO weather_points "
+            "(scrape_id, time, precipitation_probability, precipitation_mm, "
+            "wind_speed_kph, temperature_c) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    scrape_id,
+                    point.time,
+                    point.precipitation_probability,
+                    point.precipitation_mm,
+                    point.wind_speed_kph,
+                    point.temperature_c,
+                )
+                for point in schedule.weather
+            ],
+        )
+        return scrape_id
 
 
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
-    """Return the most recent scrape's slots for a course/date, or None if never scraped."""
-    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+    """Return the most recent scrape's slots (+ weather, if any was saved) for a
+    course/date, or None if never scraped. `sun_times` and `available_courses` aren't
+    persisted here (see module docstring) — a caller that needs them fills those in
+    separately after loading."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT id FROM scrapes WHERE course = ? AND date = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (course, date),
+        ).fetchone()
+        if row is None:
+            return None
+        scrape_id = row[0]
+
+        slot_rows = conn.execute(
+            "SELECT time, booked, capacity, players, block_reason FROM slots "
+            "WHERE scrape_id = ? ORDER BY time",
+            (scrape_id,),
+        ).fetchall()
+        slots = [
+            Slot(
+                time=time,
+                booked=booked,
+                capacity=capacity,
+                players=json.loads(players),
+                block_reason=block_reason,
+            )
+            for time, booked, capacity, players, block_reason in slot_rows
+        ]
+
+        weather_rows = conn.execute(
+            "SELECT time, precipitation_probability, precipitation_mm, wind_speed_kph, "
+            "temperature_c FROM weather_points WHERE scrape_id = ? ORDER BY time",
+            (scrape_id,),
+        ).fetchall()
+        weather = [
+            WeatherPoint(
+                time=time,
+                precipitation_probability=precipitation_probability,
+                precipitation_mm=precipitation_mm,
+                wind_speed_kph=wind_speed_kph,
+                temperature_c=temperature_c,
+            )
+            for time, precipitation_probability, precipitation_mm, wind_speed_kph, temperature_c in weather_rows
+        ]
+
+    events = sorted({slot.block_reason for slot in slots if slot.block_reason})
+    return Schedule(date=date, course=course, slots=slots, weather=weather, events=events)
 
 
 def save_confirmed_booking(booking: ConfirmedBooking, path: Path = DEFAULT_DB_PATH) -> None:
-    """Record a confirmed booking (or a confirmed "not playing"). Never overwrite."""
-    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+    """Record a confirmed booking (or a confirmed "not playing"). Never overwrite —
+    each confirmation (including a re-confirmation) is its own row, matching how
+    scrapes are never overwritten either."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO confirmed_bookings "
+            "(course, date, time, holes, source, confirmed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                booking.course,
+                booking.date,
+                booking.time,
+                booking.holes,
+                booking.source,
+                booking.confirmed_at,
+            ),
+        )
 
 
 def load_confirmed_booking(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> ConfirmedBooking | None:
-    """Return the confirmed booking for a course/date, or None if never confirmed."""
-    raise NotImplementedError("storage.py is a stub — see ROADMAP.md Phase 1")
+    """Return the most recently confirmed booking for a course/date, or None if never
+    confirmed. If confirmed more than once (e.g. an automatic "my_reservations" read
+    following an earlier manual `c` confirmation), the latest row wins."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT course, date, time, holes, source, confirmed_at "
+            "FROM confirmed_bookings WHERE course = ? AND date = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (course, date),
+        ).fetchone()
+    if row is None:
+        return None
+    course_, date_, time, holes, source, confirmed_at = row
+    return ConfirmedBooking(
+        date=date_, course=course_, time=time, holes=holes, source=source, confirmed_at=confirmed_at
+    )
