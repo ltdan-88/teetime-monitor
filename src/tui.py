@@ -14,9 +14,13 @@ Startup flow:
    under `clubs/*.yaml` (or none: exits with a clear message instead of crashing).
 2. Course picker (`CoursePickerScreen`) — skipped if the club's YAML sets a valid
    `default_course`, or if there's only one course to choose from at all.
-3. `DayDetailScreen` — the actual tee sheet for today, one row per slot: Time |
-   Occupancy | Players (or a block reason in place of both, for an event/lesson/
-   advance-booking-window row). `r` re-scrapes live (scraper.scrape_schedule() +
+3. `DayDetailScreen` — the actual tee sheet, opening on today's date unless
+   `_initial_date()` finds today's own cached schedule already fully in the past
+   (see that function's docstring — direct feedback 2026-09-07: showing "today" once
+   the course has closed for the day isn't useful), in which case it opens on
+   tomorrow instead. One row per slot: Time | Occupancy | Players (or a block reason
+   in place of both, for an event/lesson/advance-booking-window row). `r` re-scrapes
+   live (scraper.scrape_schedule() +
    storage.save_schedule()) rather than always hitting the real site on open — opening
    the app should be instant, using whatever was last scraped (by hand or by
    scrape_once.py's schedule). `n`/`p` move a day forward/back within the loaded data.
@@ -85,6 +89,32 @@ from .scraper import COURSE_ALIASES, scrape_schedule
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
+_NOW_HHMM = lambda: datetime.now().strftime("%H:%M")  # noqa: E731 — same reasoning, for _initial_date()
+
+
+def _initial_date(club_id: str, course: str) -> str:
+    """Pick today, unless today's own cached schedule shows every slot's time has
+    already passed — direct user feedback (2026-09-07, first real end-to-end test):
+    opening the app late in the evening and landing on "today," where the course has
+    closed and every remaining slot is already history, isn't useful; tomorrow is
+    what you'd actually want to look at then. Falls back to today if there's no
+    cached schedule to check against yet (a genuinely first-ever open, or one that
+    hasn't been scraped since) — nothing lost, since there'd be no data to show for
+    either date until 'r' is pressed regardless.
+
+    Deliberately reads whatever's already cached (storage.load_latest_schedule())
+    rather than triggering a live scrape here — opening the app should stay instant,
+    per this module's own docstring, and course hours vary by club/season anyway, so
+    the schedule's own last real slot is a better signal than any fixed clock cutoff
+    would be."""
+    today = _TODAY()
+    schedule = storage.load_latest_schedule(course, today, path=_db_path(club_id))
+    if schedule is None or not schedule.slots:
+        return today
+    now = _NOW_HHMM()
+    if all(slot.time < now for slot in schedule.slots):
+        return (date_cls.fromisoformat(today) + timedelta(days=1)).isoformat()
+    return today
 
 
 def _fill_style(booked: int, capacity: int) -> str:
@@ -392,7 +422,7 @@ class TeetimeApp(App[None]):
         else:
             course = await self.push_screen_wait(CoursePickerScreen(courses))
 
-        await self.push_screen(DayDetailScreen(club_id, slug, course, _TODAY()))
+        await self.push_screen(DayDetailScreen(club_id, slug, course, _initial_date(club_id, course)))
 
 
 def main() -> None:

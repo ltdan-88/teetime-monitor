@@ -47,6 +47,49 @@ def _day_detail(club_id="0000001", club_slug="musterhausen", course="18 Loch Tee
     return tui.DayDetailScreen(club_id, club_slug, course, date)
 
 
+# --- _initial_date -- opens on tomorrow instead of today once today's own cached
+# schedule shows every slot has already passed (direct feedback 2026-09-07: showing
+# "today" once the course has closed for the day isn't useful) ------------------------
+
+
+def test_initial_date_returns_today_when_no_cached_schedule(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+
+
+def test_initial_date_returns_today_when_a_slot_is_still_upcoming(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "14:00")
+    schedule = Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="15:00", booked=0, capacity=4)])
+    storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
+
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+
+
+def test_initial_date_returns_tomorrow_when_every_slot_has_passed(tmp_path, monkeypatch):
+    from datetime import date as date_cls
+    from datetime import timedelta
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
+    schedule = Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
+    storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
+
+    expected = (date_cls.fromisoformat(tui._TODAY()) + timedelta(days=1)).isoformat()
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == expected
+
+
+def test_initial_date_ignores_a_different_course(tmp_path, monkeypatch):
+    # Every slot passed, but for a different course -- today's own course has no
+    # cached schedule yet, so this should still return today, not tomorrow.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
+    schedule = Schedule(date=tui._TODAY(), course="9 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
+    storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
+
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+
+
 # --- DayDetailScreen ------------------------------------------------------------------
 
 
