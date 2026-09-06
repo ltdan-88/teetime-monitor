@@ -133,6 +133,22 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
         return scrape_id
 
 
+def last_scraped_at(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> str | None:
+    """The ISO 8601 timestamp of the most recent scrape for a course/date, or None if
+    never scraped. Added 2026-09-06 so scrape_once.py can decide whether a course/date
+    is actually *due* for a re-scrape yet, rather than always re-scraping on every
+    run — the mechanism behind the adjustable scrape interval (see ROADMAP.md Phase 1,
+    "Adjustable scrape interval")."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT scraped_at FROM scrapes WHERE course = ? AND date = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (course, date),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
     """Return the most recent scrape's slots (+ weather, if any was saved) for a
     course/date, or None if never scraped. `sun_times` and `available_courses` aren't

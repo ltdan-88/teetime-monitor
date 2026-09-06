@@ -1,5 +1,6 @@
 from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 from src.storage import (
+    last_scraped_at,
     load_confirmed_booking,
     load_latest_schedule,
     save_confirmed_booking,
@@ -10,6 +11,25 @@ from src.storage import (
 def test_load_latest_schedule_returns_none_when_never_scraped(tmp_path):
     db = tmp_path / "teetime.db"
     assert load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db) is None
+
+
+def test_last_scraped_at_returns_none_when_never_scraped(tmp_path):
+    db = tmp_path / "teetime.db"
+    assert last_scraped_at("18 Loch Tee 1", "2026-09-06", path=db) is None
+
+
+def test_last_scraped_at_returns_timestamp_of_most_recent_scrape(tmp_path):
+    db = tmp_path / "teetime.db"
+    schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[])
+
+    save_schedule(schedule, path=db)
+    first = last_scraped_at("18 Loch Tee 1", "2026-09-06", path=db)
+    assert first is not None
+
+    save_schedule(schedule, path=db)
+    second = last_scraped_at("18 Loch Tee 1", "2026-09-06", path=db)
+    assert second is not None
+    assert second >= first  # ISO 8601 strings sort chronologically
 
 
 def test_save_and_load_schedule_round_trips_slots(tmp_path):

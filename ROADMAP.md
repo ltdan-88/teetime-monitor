@@ -307,6 +307,9 @@ would've built up in the meantime.
     reconstructs a `Schedule` from the latest scrape's rows; `sun_times` and
     `available_courses` aren't persisted, left for a caller to add back if needed.
   - `confirmed_bookings` — see below.
+  `last_scraped_at()` (added 2026-09-06) returns just the timestamp of the latest
+  scrape for a course/date, without loading the whole `Schedule` — the mechanism behind
+  the adjustable scrape interval below.
   Not yet covered: looking up a *specific* historical scrape by timestamp (only "the
   latest" exists so far) — may be needed once `scrape_once.py`/`booking_watch.py` are
   wired together for real.
@@ -350,16 +353,24 @@ would've built up in the meantime.
   cron/launchd job) so history keeps accumulating even on days you don't open the app
   yourself. Confirmed 2026-09-05: manual-only runs would leave permanent gaps given
   pc caddie's no-history limitation, so this is worth having from the start rather than
-  bolted on later. Run it **more than once a day** (e.g. morning and evening), not just
-  daily — see the confirmed-bookings note above for why once-daily leaves a same-day
-  booking gap. `scrape_once.py`'s `run()` is real as of 2026-09-06 for the login-free
+  bolted on later. `scrape_once.py`'s `run()` is real as of 2026-09-06 for the login-free
   half (scrape + save via storage.py); the login-dependent half (`scrape_my_reservations`,
   then `booking_watch.check_for_changes`) degrades gracefully — caught and skipped, not
   fatal — until the real login form exists, so one club's missing login doesn't stop an
   unattended run scraping every other club/course/date it covers. `main()` loops every
-  saved club and its `overview_days` window with no arguments needed, matching the cron
-  example above — not actually installed as a cron/launchd job by this session, since
-  that's a standing persistent change and stays the user's call.
+  saved club and its `overview_days` window with no arguments needed — not actually
+  installed as a cron/launchd job by this session, since that's a standing persistent
+  change and stays the user's call.
+- **Adjustable scrape interval (added 2026-09-06, after feedback that once/twice-daily
+  was too infrequent, especially for a date already booked)**: the fixed "twice a day"
+  cadence above is gone. Each club's YAML now has `scrape_interval_minutes` (default 6
+  hours) and a shorter `scrape_interval_minutes_booked` (default 1 hour, applied once a
+  confirmed booking exists for that date — freshness matters more once there's
+  something to protect than for the general far-future browsing window).
+  `scrape_once._should_scrape()` checks `storage.last_scraped_at()` against whichever
+  interval applies before re-scraping a course/date, so the *cron job itself* can now
+  fire often (e.g. every 15-30 min) and the script self-throttles per course/date,
+  rather than needing the cron schedule itself tuned to match the desired interval.
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key

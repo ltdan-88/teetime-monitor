@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
 from src import scrape_once
-from src.models import Schedule, Slot
+from src.models import ConfirmedBooking, Schedule, Slot
 
 
 def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
@@ -69,8 +71,6 @@ def test_run_skips_booking_watch_when_check_for_changes_not_implemented(tmp_path
     # against yet.
     scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
 
-    from src.models import ConfirmedBooking
-
     scrape_once.storage.save_confirmed_booking(
         ConfirmedBooking(
             date="2026-09-06",
@@ -88,3 +88,81 @@ def test_run_skips_booking_watch_when_check_for_changes_not_implemented(tmp_path
     # propagate it.
     changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
     assert changes == []
+
+
+def test_should_scrape_true_when_never_scraped(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", {}) is True
+
+
+def test_should_scrape_false_within_normal_interval(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
+    monkeypatch.setattr(scrape_once.storage, "load_confirmed_booking", lambda course, date, path: None)
+
+    config = {"scrape_interval_minutes": 360}
+    assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is False
+
+
+def test_should_scrape_true_once_normal_interval_elapsed(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    old = (datetime.now(timezone.utc) - timedelta(minutes=400)).isoformat()
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: old)
+    monkeypatch.setattr(scrape_once.storage, "load_confirmed_booking", lambda course, date, path: None)
+
+    config = {"scrape_interval_minutes": 360}
+    assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is True
+
+
+def test_should_scrape_uses_shorter_interval_once_booked(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    # 90 minutes ago -- past the 60-min "booked" interval, but well within the 360-min
+    # normal one, so this only returns True because a confirmed booking exists.
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=90)).isoformat()
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
+    monkeypatch.setattr(
+        scrape_once.storage,
+        "load_confirmed_booking",
+        lambda course, date, path: ConfirmedBooking(
+            date=date, course=course, time="14:00", source="manual", confirmed_at="t1"
+        ),
+    )
+
+    config = {"scrape_interval_minutes": 360, "scrape_interval_minutes_booked": 60}
+    assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is True
+
+
+def test_should_scrape_ignores_a_confirmed_not_playing_booking(tmp_path, monkeypatch):
+    # A ConfirmedBooking with time=None means "confirmed not playing that day" -- not a
+    # real booking to protect, so the normal (longer) interval should still apply.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    recent = (datetime.now(timezone.utc) - timedelta(minutes=90)).isoformat()
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
+    monkeypatch.setattr(
+        scrape_once.storage,
+        "load_confirmed_booking",
+        lambda course, date, path: ConfirmedBooking(
+            date=date, course=course, time=None, source="manual", confirmed_at="t1"
+        ),
+    )
+
+    config = {"scrape_interval_minutes": 360, "scrape_interval_minutes_booked": 60}
+    assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is False
+
+
+def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
+    monkeypatch.setattr(
+        scrape_once.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "overview_days": 1},
+    )
+    calls = []
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: False)
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date: calls.append((course, date)))
+
+    scrape_once.main()
+
+    assert calls == []

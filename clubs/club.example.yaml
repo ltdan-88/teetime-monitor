@@ -39,6 +39,17 @@ calendar:
 # How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 
+# How often scrape_once.py's scheduled run actually re-scrapes a given course/date, in
+# minutes — it can run as often as your cron/launchd job fires, but skips a
+# course/date that isn't due yet, so firing that job frequently doesn't mean hammering
+# the site every time. scrape_interval_minutes_booked applies once a date has a
+# confirmed booking on it: freshness matters much more once you actually have
+# something to protect (see booking_watch.py) than for the general far-future browsing
+# window. Added 2026-09-06 after feedback that once-or-twice-a-day was too infrequent,
+# especially for dates you've actually booked.
+scrape_interval_minutes: 360          # 6 hours, for dates with no confirmed booking
+scrape_interval_minutes_booked: 60    # 1 hour, once you have a confirmed booking
+
 # Estimated round duration, used to work out whether a tee time finishes before sunset
 # (Phase 2 playability highlight). Tune to your own/your group's typical pace.
 round_duration_minutes:
