@@ -209,7 +209,9 @@ def test_exclude_unplayable_passes_through_candidate_with_no_matching_schedule()
     assert exclude_unplayable([candidate], [], {}) == [candidate]
 
 
-def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_not_implemented():
+def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
+    # No "ai_assist" block at all -- defaults to disabled, so this must never call
+    # ai_assist.rank_slots() (which would otherwise need a real API key).
     schedule = Schedule(
         date="2026-09-07",  # Monday
         course="18 Loch Tee 1",
@@ -221,3 +223,61 @@ def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_not_implemented
 
     assert len(picks) == 1
     assert picks[0].slot.time == "18:00"
+
+
+def test_weekly_picks_uses_ai_assist_rank_slots_when_enabled(monkeypatch):
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "ai_assist": {"enabled": True, "model": "claude-haiku-4-5"},
+    }
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, model):
+        calls.append({"candidates": candidates, "context": context, "model": model})
+        for candidate in candidates:
+            candidate.score = 99.0
+            candidate.reasons = ["dry and empty"]
+        return candidates
+
+    import src.recommend as recommend_module
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
+
+    picks = weekly_picks([schedule], config)
+
+    assert len(calls) == 1
+    assert calls[0]["model"] == "claude-haiku-4-5"
+    assert ("2026-09-07", "18 Loch Tee 1") in calls[0]["context"]["schedules"]
+    assert picks[0].score == 99.0
+    assert picks[0].reasons == ["dry and empty"]
+
+
+def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_call_fails(monkeypatch):
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "ai_assist": {"enabled": True},
+    }
+
+    import src.recommend as recommend_module
+
+    def broken_rank_slots(*args, **kwargs):
+        raise RuntimeError("no API key configured")
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", broken_rank_slots)
+
+    picks = weekly_picks([schedule], config)
+
+    assert len(picks) == 1
+    assert picks[0].slot.time == "18:00"
+    assert picks[0].score == 0.0  # untouched -- never actually ranked

@@ -22,7 +22,11 @@ Three-step wrapper — two deterministic, one AI, in that order:
    "slightly more rain but much emptier") and writes plain-language `reasons`. This step
    is a genuine improvement, not a prerequisite — steps 1+2 alone already turn "scan the
    tee sheet by hand" into a short, sane list; this makes picking among that list easier
-   too, but the list is already useful without it.
+   too, but the list is already useful without it. Gated on the club's
+   `ai_assist.enabled` flag (now that ai_assist.py is real and each call actually costs
+   money) and any failure of the call itself — `weekly_picks()` falls back to the
+   plain filtered list either way, rather than the whole recommendation failing over a
+   step that was always meant to be optional.
 
 The TUI's ad hoc search form (search.py + exclude_unplayable + ai_assist.rank_slots,
 same three steps) is for the one-off exceptions — e.g. a week you're playing with
@@ -189,14 +193,31 @@ def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
 
     Steps 1+2 (search + exclude_unplayable) are the deterministic baseline and always
     run for real. Step 3 (ai_assist.rank_slots) is a genuine improvement, not a
-    prerequisite (see module docstring) — while it's still a stub, this falls back to
-    returning the filtered list as-is (unranked, no `reasons`) rather than raising,
-    since a short sane list beats no list at all.
+    prerequisite (see module docstring): skipped entirely if the club's
+    `ai_assist.enabled` is false (now that ai_assist.py is real and actually costs
+    money per call, this flag needs to actually be checked, not just documented), and
+    any failure calling it (no API key configured yet, a network hiccup, a rate limit)
+    falls back to returning the filtered list as-is (unranked, no `reasons`) rather
+    than raising — a short sane list beats no list at all.
     """
     criteria = default_criteria_from_config(config)
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
+
+    ai_config = config.get("ai_assist", {})
+    if not ai_config.get("enabled", False):
+        return playable
+
+    context = {
+        "schedules": {(schedule.date, schedule.course): schedule for schedule in schedules},
+        "config": config,
+    }
     try:
-        return ai_assist.rank_slots(playable, context={"config": config}, preferences=config.get("preferences", {}))
-    except NotImplementedError:
+        return ai_assist.rank_slots(
+            playable,
+            context=context,
+            preferences=config.get("preferences", {}),
+            model=ai_config.get("model", ai_assist.DEFAULT_MODEL),
+        )
+    except Exception:
         return playable

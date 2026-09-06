@@ -598,6 +598,23 @@ needs a judgment call rather than exact logic:
   aggregated history) to Anthropic's API. That trade now starts from Phase 1 instead of
   being deferred — a deliberate choice, not an oversight.
 
+**Implemented 2026-09-06** (11 tests, `tests/test_ai_assist.py`, all against a mocked
+`anthropic.Anthropic` client — these calls genuinely cost money and need a real API
+key, neither of which a unit test should depend on): `classify_booking_label()` and
+`rank_slots()` use `client.messages.parse()` with a Pydantic `output_format` exactly as
+originally sketched; `summarize_history()` uses plain `client.messages.create()`
+instead, since open-ended commentary has no fixed schema to hold it to.
+`recommend.weekly_picks()` (Phase 3) now actually checks a club's `ai_assist.enabled`
+flag before calling `rank_slots()` at all — previously nothing read that flag, since
+there was no real call yet for it to gate. Any failure calling `rank_slots()` (no key
+configured, a network hiccup, a rate limit) falls back to the plain filtered list
+rather than raising, matching the "a short sane list beats no list at all" design
+already documented for that function. `rank_slots()`'s prompt optionally includes each
+candidate's weather (via `context["schedules"]`, keyed by `(date, course)`) — the
+worst conditions across the round's duration, same as `exclude_unplayable()` already
+computes, so Claude can weigh genuinely close trade-offs like "slightly more rain but
+much emptier" instead of ranking blind.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
