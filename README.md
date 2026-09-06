@@ -7,12 +7,14 @@ CLI tooling).
 
 Status: every backend piece is real and tested now — scraper, storage, scheduled
 scrape, weather, holidays/vacations, the "did my booking's situation change" watcher,
-the deterministic recommendation engine, the three Claude API calls, and local-history
-analytics/crowd-heatmap. The TUI's single-day detail screen (club/course picker, the
-tee sheet itself, confirming a booking, and the booking-watch banners) is real too —
-see "Project structure" below. Still to come: the multi-day overview, ad hoc search,
-and crowd-heatmap screens, and the real pc caddie login form. See
-[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+the deterministic recommendation engine, the three Claude API calls, local-history
+analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
+inspecting the real site — no browser automation needed for it either). The TUI's
+single-day detail screen (club/course picker, the tee sheet itself, confirming a
+booking, and the booking-watch banners) is real too — see "Project structure" below.
+Still to come: the multi-day overview, ad hoc search, and crowd-heatmap screens, and
+parsing an actual populated "My Reservations" list (only the empty state is confirmed
+so far). See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -121,7 +123,7 @@ teetime-monitor/
 │   └── pccaddie-markup-notes.md # example HTML snippets for the real site's markup
 ├── src/
 │   ├── club_config.py      # multi-club: list/load/save clubs, resolve credentials (implemented)
-│   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (implemented, verified live)
+│   ├── scraper.py          # direct-URL fetch, login, parsing (implemented, verified live)
 │   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings (implemented)
 │   ├── scrape_once.py      # headless scheduled scrape, adjustable per-club interval (implemented)
 │   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
@@ -170,9 +172,13 @@ are gitignored too, aside from the tracked `club.example.yaml` template. This is
 personal tool built against one real club's actual portal — a live walkthrough
 (2026-09-05, see `ROADMAP.md` "Live site findings" and "Confirmed pc caddie markup
 reference") confirmed the tee sheet needs no login, and `scraper.py`'s tee-sheet
-scraping is now verified against the live site (2026-09-06). The real login form is
-still the main unverified piece, needed for "My Reservations" and any future booking
-feature — first real implementation step whenever that's tackled. Note that every AI
+scraping is now verified against the live site (2026-09-06). Login is implemented too
+(2026-09-06) — the user logged into the real site themselves and Claude inspected the
+resulting form's HTML directly, never entering or seeing the actual password; it
+turned out to be a plain POST, no JavaScript, no CSRF token. `scrape_my_reservations()`
+uses it, though it only confirms the empty "no bookings" state so far — the real row
+markup for an actual booking is still unconfirmed and will need a follow-up once
+there's one to look at. Note that every AI
 call (booking-label classification, ranking, history summarization) sends data to
 Anthropic's API and costs a small amount per call — see "Known risks" in `ROADMAP.md`.
 Also note: `settings_screen.py` saves a club's whole config file on every save, so any

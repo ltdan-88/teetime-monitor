@@ -1,14 +1,19 @@
 from bs4 import BeautifulSoup
 
+from src import scraper as scraper_module
 from src.scraper import (
     STATUS_BLOCK_TIME,
     STATUS_BOOKABLE,
     STATUS_DISABLE_TIME,
     STATUS_OCCUPIED,
+    LoginError,
+    _parse_my_reservations_html,
     _parse_slot_row,
     club_url,
+    login,
     parse_schedule_html,
     parse_seats_free,
+    scrape_my_reservations,
 )
 
 
@@ -230,3 +235,114 @@ def test_parse_schedule_html_missing_table_returns_empty_schedule():
     schedule = parse_schedule_html("<html><body>no table here</body></html>", date="2026-09-06", course="18 Loch Tee 1")
     assert schedule.slots == []
     assert schedule.events == []
+
+
+# ---------------------------------------------------------------------------
+# login() / scrape_my_reservations() -- tested against a fake httpx.Client, never a
+# real network call or a real password. The real login form's field names
+# (service / rq[login] / rq[password]) and POST target were confirmed 2026-09-06 by
+# inspecting the live, already-authenticated-by-the-user session's login form directly
+# — Claude never entered or saw a real password to get this.
+
+
+class _FakeResponse:
+    def __init__(self, text: str, status_code: int = 200):
+        self.text = text
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class _FakeClient:
+    """Records calls and returns canned responses — stands in for httpx.Client."""
+
+    def __init__(self, post_response_text: str = "", get_response_text: str = ""):
+        self.post_calls: list[tuple[str, dict]] = []
+        self.get_calls: list[str] = []
+        self.closed = False
+        self._post_response_text = post_response_text
+        self._get_response_text = get_response_text
+
+    def post(self, url, data=None):
+        self.post_calls.append((url, data))
+        return _FakeResponse(self._post_response_text)
+
+    def get(self, url):
+        self.get_calls.append(url)
+        return _FakeResponse(self._get_response_text)
+
+    def close(self):
+        self.closed = True
+
+
+def test_login_posts_the_confirmed_field_names(monkeypatch):
+    fake_client = _FakeClient(post_response_text="<html>Welcome back</html>")
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    client = login("0000001", "user@example.com", "hunter2")
+
+    assert client is fake_client
+    url, data = fake_client.post_calls[0]
+    assert url == "https://www.pccaddie.net/clubs/0000001/app.php?cat=start"
+    assert data == {"service": "login", "rq[login]": "user@example.com", "rq[password]": "hunter2"}
+
+
+def test_login_raises_when_response_still_shows_the_login_form(monkeypatch):
+    fake_client = _FakeClient(post_response_text='<input type="password" name="rq[password]">')
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    try:
+        login("0000001", "user@example.com", "wrong-password")
+        assert False, "expected LoginError"
+    except LoginError:
+        pass
+
+    assert fake_client.closed  # doesn't leak a client for a session that never authenticated
+
+
+def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(monkeypatch):
+    fake_client = _FakeClient(
+        post_response_text="<html>Welcome back</html>",
+        get_response_text="<html>No bookings found.</html>",
+    )
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    result = scrape_my_reservations("0000001", "user@example.com", "hunter2")
+
+    assert result == []
+    assert fake_client.closed
+    assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=reservations"
+
+
+def test_scrape_my_reservations_raises_for_unconfirmed_populated_markup(monkeypatch):
+    fake_client = _FakeClient(
+        post_response_text="<html>Welcome back</html>",
+        get_response_text="<html><table><tr><td>14:00</td></tr></table></html>",
+    )
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    try:
+        scrape_my_reservations("0000001", "user@example.com", "hunter2")
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass
+
+    assert fake_client.closed  # cleaned up even though parsing raised
+
+
+def test_parse_my_reservations_html_empty_state_english():
+    assert _parse_my_reservations_html("<html>No bookings found.</html>") == []
+
+
+def test_parse_my_reservations_html_empty_state_german():
+    assert _parse_my_reservations_html("<html>Keine Buchungen gefunden.</html>") == []
+
+
+def test_parse_my_reservations_html_raises_for_unrecognized_markup():
+    try:
+        _parse_my_reservations_html("<html><table><tr><td>14:00</td></tr></table></html>")
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass

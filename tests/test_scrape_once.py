@@ -27,9 +27,9 @@ def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
     assert loaded.slots[0].booked == 1
 
 
-def test_run_skips_my_reservations_when_not_implemented(tmp_path, monkeypatch):
-    # scrape_my_reservations() is a genuine NotImplementedError stub (login form not
-    # yet built) — run() must not let that take down the whole scrape.
+def test_run_skips_my_reservations_when_no_credentials_configured(tmp_path, monkeypatch):
+    # No slug/credentials resolved for this club (see _sync_my_reservations) --
+    # run() must not let that take down the whole scrape.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(
         scrape_once,
@@ -172,7 +172,9 @@ def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
     )
     calls = []
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: False)
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config: calls.append((course, date)))
+    monkeypatch.setattr(
+        scrape_once, "run", lambda club_id, course, date, config, slug: calls.append((course, date))
+    )
 
     scrape_once.main()
 
@@ -189,11 +191,82 @@ def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
 
     seen_configs = []
+    seen_slugs = []
     monkeypatch.setattr(
-        scrape_once, "run", lambda club_id, course, date, config: seen_configs.append(config)
+        scrape_once,
+        "run",
+        lambda club_id, course, date, config, slug: (seen_configs.append(config), seen_slugs.append(slug)),
     )
 
     scrape_once.main()
 
     assert seen_configs
     assert all(config is club_config_dict for config in seen_configs)
+    assert all(slug == "musterhausen" for slug in seen_slugs)
+
+
+# --- _sync_my_reservations() (real login, added 2026-09-06) --------------------------
+
+
+def test_sync_my_reservations_skips_without_a_slug(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    called = []
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: called.append(True))
+
+    scrape_once._sync_my_reservations("0000001", None, scrape_once._db_path("0000001"))
+
+    assert called == []
+
+
+def test_sync_my_reservations_skips_without_credentials_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("", ""))
+    called = []
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: called.append(True))
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", scrape_once._db_path("0000001"))
+
+    assert called == []
+
+
+def test_sync_my_reservations_catches_login_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "wrong-password"))
+
+    def broken(club_id, username, password):
+        raise scrape_once.LoginError("bad credentials")
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", broken)
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", scrape_once._db_path("0000001"))
+
+    assert "login failed" in capsys.readouterr().out
+
+
+def test_sync_my_reservations_catches_not_implemented(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+
+    def not_yet(club_id, username, password):
+        raise NotImplementedError("real booking, unseen row markup")
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", not_yet)
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", scrape_once._db_path("0000001"))
+    # must not raise -- that's the entire point of this test
+
+
+def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+
+    booking = ConfirmedBooking(
+        date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"
+    )
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [booking])
+
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db_path)
+    assert saved == booking

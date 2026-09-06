@@ -268,7 +268,7 @@ would've built up in the meantime.
 - Manual login walkthrough first (no code) — the login form and how to navigate to the
   tee sheet are still unknown until inspected by hand. See "Known risks" in the v1 spec.
   This no longer means hand-mapping the *entire* booking table's markup, though — see
-  `ai_assist.py` below.
+  `ai_assist.py` below. **Done 2026-09-06** — see the login note further down.
 - `scraper.py` — navigates straight to the pc caddie booking page via direct URL (see
   "Confirmed pc caddie markup reference" — no need to fight the club marketing site's
   iframe, or even simulate dropdown clicks: date/course selection is a plain query
@@ -282,11 +282,27 @@ would've built up in the meantime.
   own logic once the real structure was known. The one piece still handed to AI is
   `ai_assist.classify_booking_label()` — telling an anonymized booking, an event/lesson/
   guest block, an advance-booking-window notice, and an actual friend's name apart,
-  since new label wording could appear that hasn't been seen yet. A small `SELECTORS`
-  dict remains for the login form itself (still genuinely unverified). Whether
-  Playwright is needed at all beyond that login step is worth reconsidering once
-  implementation starts — the pages are server-rendered HTML, not a JS app, so a
-  lighter authenticated HTTP client could handle the repeated scheduled scrapes.
+  since new label wording could appear that hasn't been seen yet.
+
+**Login implemented 2026-09-06**, once the user logged into the real site themselves
+and Claude inspected the resulting form's HTML directly (never entering or seeing the
+actual password — see "Instruction source boundary" for why that's a hard rule
+regardless of authorization). The real form turned out to be a plain HTML `POST`, no
+JavaScript, no CSRF token: `POST .../app.php?cat=start` with `service=login&
+rq[login]=<username>&rq[password]=<password>` sets a session cookie. So the
+"Playwright vs. lighter HTTP client" question above is answered the same way
+`scrape_schedule()` already answered it — a plain `httpx.Client` (its cookie jar
+carries the session) is all login needs too; no browser automation anywhere in the
+shipped tool. `scraper.login()` returns that authenticated client;
+`scrape_my_reservations()` uses it to read "My Reservations," parsing only the
+confirmed empty state so far ("No bookings found" — this account had nothing booked
+during the walkthrough) and raising `NotImplementedError` for anything else, rather
+than guessing at a real booking row's markup sight unseen. `scrape_once.run()` now
+actually calls this (`_sync_my_reservations()`), resolving `PCC_USER`/`PCC_PASS` via
+`club_config.resolve_credentials()` and treating every failure mode (no slug, no
+credentials configured, wrong credentials, or the still-unconfirmed populated-list
+case) as best-effort, not fatal — matching the same "one club's login trouble
+shouldn't stop an unattended run" principle already used for weather.
 - `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec), `Schedule` also gets an
   `events: list[str]` field for tournament/event notes and an `available_courses:
   list[str]` field for Phase 0's course picker.
@@ -498,9 +514,11 @@ new `params` column round-tripping). 240 tests passing (was 224).
   yourself. Confirmed 2026-09-05: manual-only runs would leave permanent gaps given
   pc caddie's no-history limitation, so this is worth having from the start rather than
   bolted on later. `scrape_once.py`'s `run()` is real as of 2026-09-06 for the login-free
-  half (scrape + save via storage.py); the login-dependent half (`scrape_my_reservations`,
-  then `booking_watch.check_for_changes`) degrades gracefully — caught and skipped, not
-  fatal — until the real login form exists, so one club's missing login doesn't stop an
+  half (scrape + save via storage.py); the login-dependent half now actually logs in
+  too (`_sync_my_reservations()`, once `scraper.login()` was implemented the same day)
+  and still degrades gracefully — no slug/credentials configured, a `LoginError`, or
+  a `NotImplementedError` from the still-unconfirmed populated-reservations markup are
+  all caught and skipped, not fatal, so one club's login trouble doesn't stop an
   unattended run scraping every other club/course/date it covers. `main()` loops every
   saved club and its `overview_days` window with no arguments needed — not actually
   installed as a cron/launchd job by this session, since that's a standing persistent
@@ -776,13 +794,19 @@ much emptier" instead of ranking blind.
   needed for rain/wind/temperature regardless. See "Live site findings."
 
 ## Known risks
-- pc caddie's real login form is unverified until inspected by hand, and the tee sheet
-  may sit inside an iframe (see `docs/spec-v1.md` for detail) — the original v1 risks,
-  much narrower now that table parsing itself turned out deterministic (see "Confirmed
-  pc caddie markup reference") rather than needing a hand-mapped selector set, but the
-  login form itself is still genuinely unverified.
-  Resolved 2026-09-05: the tee sheet itself is a *separate*, non-iframed pc caddie page
-  reachable directly, and needs no login at all — see "Live site findings."
+- pc caddie's real login form and whether the tee sheet sits inside an iframe (see
+  `docs/spec-v1.md` for detail) — the original v1 risks. Both resolved: the tee sheet
+  is a separate, non-iframed page reachable directly and needs no login at all (found
+  2026-09-05, see "Live site findings"); the login form itself turned out to be a
+  plain HTML POST, no JS, no CSRF token, inspected live 2026-09-06 (see `scraper.py`'s
+  `login()`) — Claude never entered or saw the actual password to confirm this; the
+  user logged in themselves and Claude inspected the resulting form's HTML.
+- `scrape_my_reservations()`'s parsing only covers the confirmed empty state so far
+  ("No bookings found") — the real row markup for an actual populated reservation
+  list is still unconfirmed, since this account had nothing booked during the
+  walkthrough. Raises `NotImplementedError` rather than guessing, so a real booking
+  won't silently get dropped or mis-parsed once one exists — worth revisiting once
+  there's an actual booking to inspect.
 - **AI calls cost money and send data to Anthropic's API, starting from Phase 1** —
   not deferred/opt-in the way an earlier draft of this roadmap had it. Tee-sheet
   contents (including other members' names, if visible), your availability/preference

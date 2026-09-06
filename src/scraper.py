@@ -47,11 +47,20 @@ tested code, verified against the live site:
   aggregate occupied/free counts for one date in a single request — a better source for
   the Phase 4 multi-day overview than looping the per-course page 3x.
 
-Still unverified: the real login form. If the tee sheet renders inside an iframe
-elsewhere (unlikely, given the above), use `page.frame_locator(...)` instead of
-top-level page selectors. Confirmed 2026-09-06: a full Playwright browser is not needed
-for `scrape_schedule()` at all — plain `httpx` handles it. Playwright (or an equivalent)
-is still expected for the login-dependent pieces below (`scrape_my_reservations`).
+The real login form, walked through live 2026-09-06 (the user logging in themselves —
+Claude never sees or handles the password; see `login()` below): a plain HTML form,
+no JavaScript, no CSRF token. `POST` to `.../app.php?cat=start` with
+`service=login&rq[login]=<username>&rq[password]=<password>` sets a session cookie;
+an `httpx.Client` (its own cookie jar carries that session across requests) is all
+that's needed — **no Playwright/browser required for login either**, same conclusion
+as `scrape_schedule()` already reached. `SELECTORS` (a Playwright selector dict) is
+gone — there was never a need for it once the form turned out this simple.
+
+`scrape_my_reservations()` is implemented for the confirmed empty state ("No bookings
+found") — this account had nothing booked during the walkthrough, so the actual row
+markup for a populated reservations list is still unconfirmed. Deliberately raises
+`NotImplementedError` for anything else rather than guessing at unseen markup and
+silently parsing a real booking wrong (or dropping it) — see `_parse_my_reservations_html()`.
 """
 
 import re
@@ -180,13 +189,54 @@ def parse_schedule_html(html: str, date: str, course: str) -> Schedule:
     )
 
 
-# Fill in once the real login form is found by manual inspection — still genuinely
-# unverified, unlike the rest of this module.
-SELECTORS: dict[str, str] = {
-    # "login_username": "",
-    # "login_password": "",
-    # "login_submit": "",
-}
+class LoginError(Exception):
+    """Raised when login() can't establish an authenticated session — wrong
+    credentials, or the site's response no longer looks like the confirmed form."""
+
+
+# The exact field name from the real login form (see module docstring) — specific
+# enough that its presence in a response means "still showing the login form," i.e.
+# login didn't succeed. Doubling as the login POST's own field name below.
+_PASSWORD_FIELD = "rq[password]"
+
+
+def login(club_id: str, username: str, password: str) -> httpx.Client:
+    """Log in and return an authenticated httpx.Client — its cookie jar carries the
+    session for every subsequent request made with it (pass it to scrape_my_reservations()
+    and friends, or use it directly). Confirmed 2026-09-06 by inspecting the real login
+    form live (see module docstring): a plain POST, no JS, no CSRF token.
+
+    Raises LoginError if the response still looks like the login form afterward. This
+    project's own rule: Claude never enters or handles a real password itself — this
+    function exists so the *user's own* running instance of the tool can log in with
+    credentials *they* put in `.env` (see club_config.resolve_credentials()), not
+    something invoked with real credentials during development.
+    """
+    client = httpx.Client(timeout=15, follow_redirects=True)
+    url = club_url(club_id, "start")
+    response = client.post(url, data={"service": "login", "rq[login]": username, _PASSWORD_FIELD: password})
+    response.raise_for_status()
+    if _PASSWORD_FIELD in response.text:
+        client.close()
+        raise LoginError(f"Login failed for club {club_id} — check PCC_USER/PCC_PASS in .env.")
+    return client
+
+
+def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
+    """Parse "My Reservations" into ConfirmedBooking rows. Confirmed empty-state
+    handling only (2026-09-06 walkthrough saw "No bookings found" / nothing booked) —
+    the actual row markup for a populated list is still unconfirmed, since this
+    account had no bookings to inspect during the walkthrough. Raises
+    NotImplementedError for anything else so a real booking doesn't silently get
+    dropped or mis-parsed once one actually exists — better to fail loudly and get
+    fixed once there's a real row to look at than guess at unseen markup."""
+    if "No bookings found" in html or "Keine Buchungen gefunden" in html:
+        return []
+    raise NotImplementedError(
+        "scrape_my_reservations() only confirmed the empty state so far — the real "
+        "row markup for an actual booking hasn't been seen yet. See scraper.py's "
+        "module docstring."
+    )
 
 
 def scrape_schedule(club_id: str, course: str, date: str) -> Schedule:
@@ -213,13 +263,23 @@ def scrape_overview_areas(club_id: str, date: str) -> dict[str, tuple[int, int]]
     )
 
 
-def scrape_my_reservations(club_id: str) -> list[ConfirmedBooking]:
+def scrape_my_reservations(club_id: str, username: str, password: str) -> list[ConfirmedBooking]:
     """Log in and read "My Reservations" — the automatic primary source for
     confirmed_bookings (ROADMAP.md Phase 1). Needs login, unlike scrape_schedule().
+
+    Implemented 2026-09-06 — see login() and _parse_my_reservations_html() for what's
+    actually confirmed vs. still unconfirmed. `username`/`password` are the caller's
+    responsibility to resolve (club_config.resolve_credentials()) — this function
+    doesn't read `.env` itself, keeping it decoupled from local config file layout.
     """
-    raise NotImplementedError(
-        "scraper.py is a stub — see the module docstring and ROADMAP.md Phase 1"
-    )
+    client = login(club_id, username, password)
+    try:
+        url = club_url(club_id, MY_RESERVATIONS_CATEGORY)
+        response = client.get(url)
+        response.raise_for_status()
+        return _parse_my_reservations_html(response.text)
+    finally:
+        client.close()
 
 
 def scrape_events_calendar(club_id: str, year: int) -> list[str]:

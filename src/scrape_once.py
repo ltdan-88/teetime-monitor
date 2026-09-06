@@ -3,20 +3,17 @@
 Exists because pc caddie hides past tee sheets: any day nobody opens the TUI is a gap in
 history that can never be filled in later.
 
-`run()` is real as of 2026-09-06 for the part that doesn't need login: scrape one
-club/course/date's tee sheet and save it via storage.py. The login-dependent half —
-reading "My Reservations" to populate confirmed_bookings automatically, and then
-running booking_watch.check_for_changes() against a confirmed booking — degrades
-gracefully instead of crashing the whole run: both are wrapped so a still-
-NotImplementedError call (scrape_my_reservations, the real login form itself, is
-explicitly deferred until the user can walk through it live) is caught and skipped,
-not fatal. This matters specifically because `main()` below is meant to run
-unattended — one club's login step not existing yet shouldn't stop every other
-club/course/date in the same run from being scraped and saved.
+`run()` scrapes one club/course/date's tee sheet and saves it via storage.py — always
+real, no login needed for this part.
 
-Once scrape_my_reservations() is real, the graceful-skip paths below start doing
-real work with no further changes needed here — that's the point of catching
-NotImplementedError specifically rather than a bare `except Exception`.
+**Login (real as of 2026-09-06, once the actual form was inspected live — see
+scraper.py's `login()`)**: `run()` also logs in and syncs "My Reservations" into
+`confirmed_bookings`, via `_sync_my_reservations()` below. Every failure mode there is
+best-effort, not fatal, since this must not stop an unattended run over one club:
+no slug resolved for this `club_id` (can't look up credentials without it), no
+`PCC_USER`/`PCC_PASS` configured yet, a `scraper.LoginError` (wrong credentials), or a
+`NotImplementedError` from `scrape_my_reservations()` itself (a real booking exists
+but its row markup isn't parseable yet — see that function's own docstring for why).
 
 **Weather (added 2026-09-06, alongside making weather.py's fetch calls real)**: `run()`
 also fetches the day's hourly forecast and sun times, using the club's YAML `location`
@@ -55,7 +52,7 @@ from pathlib import Path
 
 from . import booking_watch, club_config, storage
 from . import weather as weather_module
-from .scraper import COURSE_ALIASES, scrape_my_reservations, scrape_schedule
+from .scraper import COURSE_ALIASES, LoginError, scrape_my_reservations, scrape_schedule
 
 DATA_DIR = Path("data")
 
@@ -86,9 +83,11 @@ def _attach_weather(schedule, config: dict, club_id: str, course: str, date: str
         print(f"[scrape_once] weather fetch failed for {club_id}/{course}/{date}: {exc}")
 
 
-def run(club_id: str, course: str, date: str, config: dict | None = None) -> list[booking_watch.BookingChange]:
+def run(
+    club_id: str, course: str, date: str, config: dict | None = None, slug: str | None = None
+) -> list[booking_watch.BookingChange]:
     """Scrape one club/course/date's schedule (plus its weather overlay) and persist
-    it, best-effort persisting "My Reservations" too, then check any confirmed booking
+    it, best-effort syncing "My Reservations" too, then check any confirmed booking
     for that date against what changed since the previous scrape. Intended to be
     called by cron/launchd — returns whatever BookingChanges were detected, and also
     persists each one via `storage.save_booking_change()` (added 2026-09-06 alongside
@@ -96,20 +95,21 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
     change needs to survive somewhere for the TUI's home screen to read on next open,
     not just exist as an in-memory return value nothing else reads.
 
-    `config` is optional — `main()` already has each club's config loaded from its
-    loop over `club_config.list_clubs()` and passes it straight through, rather than
-    having `run()` redundantly re-read it via `_club_config_for_id()`. A caller (or
-    test) with no config handy can omit it and `run()` looks it up itself the same way.
-
-    `config` is optional — `main()` already has each club's config loaded from its
-    loop over `club_config.list_clubs()` and passes it straight through, rather than
-    having `run()` redundantly re-read it via `_club_config_for_id()`. A caller (or
-    test) with no config handy can omit it and `run()` looks it up itself the same way.
+    `config`/`slug` are optional — `main()` already has each club's config and local
+    clubs/*.yaml slug loaded from its own loop over `club_config.list_clubs()` and
+    passes both straight through, rather than having `run()` redundantly re-derive
+    them via `_club_config_and_slug_for_id()`. A caller (or test) with neither handy
+    can omit both and `run()` looks them up itself the same way. `slug` specifically
+    is what `_sync_my_reservations()` needs to resolve this club's credentials
+    (`club_config.resolve_credentials()` is keyed by slug, not the numeric `club_id`
+    used everywhere else here).
     """
     DATA_DIR.mkdir(exist_ok=True)
     db_path = _db_path(club_id)
-    if config is None:
-        config = _club_config_for_id(club_id)
+    if config is None or slug is None:
+        resolved_config, resolved_slug = _club_config_and_slug_for_id(club_id)
+        config = config if config is not None else resolved_config
+        slug = slug if slug is not None else resolved_slug
 
     # The schedule as of the *previous* scrape, if any — needed as booking_watch's
     # "baseline" before this new scrape becomes "latest". None on the very first scrape
@@ -120,14 +120,7 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
     _attach_weather(latest, config, club_id, course, date)
     storage.save_schedule(latest, path=db_path)
 
-    # Needs login — not yet implemented (the real login form is still genuinely
-    # unverified, see scraper.py's SELECTORS). Caught specifically so this one
-    # still-stubbed piece doesn't take down the whole scheduled run.
-    try:
-        for booking in scrape_my_reservations(club_id):
-            storage.save_confirmed_booking(booking, path=db_path)
-    except NotImplementedError:
-        pass
+    _sync_my_reservations(club_id, slug, db_path)
 
     changes: list[booking_watch.BookingChange] = []
     if baseline is not None:
@@ -154,17 +147,38 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
     return changes
 
 
-def _club_config_for_id(club_id: str) -> dict:
+def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None:
+    """Best-effort: log in and save any confirmed bookings pc caddie shows for this
+    account. Every failure mode here is deliberately swallowed, not propagated — see
+    the module docstring's "Login" note for the full list of why. This is the
+    login-dependent counterpart to the always-runs schedule scrape above."""
+    if not slug:
+        return  # can't resolve credentials (keyed by slug) without knowing it
+    username, password = club_config.resolve_credentials(slug)
+    if not username or not password:
+        return  # PCC_USER/PCC_PASS not configured yet for this club
+    try:
+        for booking in scrape_my_reservations(club_id, username, password):
+            storage.save_confirmed_booking(booking, path=db_path)
+    except LoginError as exc:
+        print(f"[scrape_once] login failed for {club_id}: {exc}")
+    except NotImplementedError:
+        pass  # a real booking exists but scraper.py can't parse its row markup yet
+
+
+def _club_config_and_slug_for_id(club_id: str) -> tuple[dict, str | None]:
     """club_config.py keys clubs by their local clubs/*.yaml filename slug, not the pc
     caddie numeric club_id run() otherwise uses throughout — this bridges the two by
-    matching on the config's own `club_id:` field. Returns {} (falling back to run()'s
-    hardcoded defaults above) if no saved club's config matches, which can legitimately
-    happen in a test that calls run() directly without a real clubs/*.yaml on disk."""
+    matching on the config's own `club_id:` field, returning both the config and the
+    slug (needed to resolve credentials via club_config.resolve_credentials(), itself
+    keyed by slug). Returns ({}, None) if no saved club's config matches, which can
+    legitimately happen in a test that calls run() directly without a real
+    clubs/*.yaml on disk."""
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
         if config.get("club_id") == club_id:
-            return config
-    return {}
+            return config, slug
+    return {}, None
 
 
 def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
@@ -204,7 +218,7 @@ def main() -> None:
                 if not _should_scrape(club_id, course, target_date, config):
                     continue
                 try:
-                    run(club_id, course, target_date, config)
+                    run(club_id, course, target_date, config, slug)
                 except Exception as exc:  # noqa: BLE001 — one bad course/date/club
                     # must not stop every other one in an unattended run.
                     print(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
