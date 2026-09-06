@@ -1,6 +1,8 @@
 from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 from src.storage import (
+    distinct_scraped_dates,
     last_scraped_at,
+    load_all_confirmed_bookings,
     load_confirmed_booking,
     load_latest_schedule,
     save_confirmed_booking,
@@ -186,3 +188,62 @@ def test_confirmed_booking_not_playing_has_none_time(tmp_path):
     )
     loaded = load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db)
     assert loaded.time is None
+
+
+def test_distinct_scraped_dates_empty_when_never_scraped(tmp_path):
+    db = tmp_path / "teetime.db"
+    assert distinct_scraped_dates("18 Loch Tee 1", path=db) == []
+
+
+def test_distinct_scraped_dates_returns_sorted_unique_dates(tmp_path):
+    db = tmp_path / "teetime.db"
+    for date in ["2026-09-08", "2026-09-06", "2026-09-06", "2026-09-07"]:
+        save_schedule(Schedule(date=date, course="18 Loch Tee 1", slots=[]), path=db)
+
+    assert distinct_scraped_dates("18 Loch Tee 1", path=db) == ["2026-09-06", "2026-09-07", "2026-09-08"]
+
+
+def test_distinct_scraped_dates_only_returns_matching_course(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_schedule(Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[]), path=db)
+    save_schedule(Schedule(date="2026-09-06", course="9 Loch Tee 1", slots=[]), path=db)
+
+    assert distinct_scraped_dates("9 Loch Tee 1", path=db) == ["2026-09-06"]
+
+
+def test_load_all_confirmed_bookings_empty_when_none_confirmed(tmp_path):
+    db = tmp_path / "teetime.db"
+    assert load_all_confirmed_bookings(path=db) == []
+
+
+def test_load_all_confirmed_bookings_spans_every_course(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=db,
+    )
+    save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-08", course="9 Loch Tee 1", time="09:00", source="manual", confirmed_at="t2"),
+        path=db,
+    )
+
+    bookings = load_all_confirmed_bookings(path=db)
+    assert [(b.date, b.course) for b in bookings] == [("2026-09-06", "18 Loch Tee 1"), ("2026-09-08", "9 Loch Tee 1")]
+
+
+def test_load_all_confirmed_bookings_uses_latest_confirmation_per_course_date(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=db,
+    )
+    save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t2"
+        ),
+        path=db,
+    )
+
+    bookings = load_all_confirmed_bookings(path=db)
+    assert len(bookings) == 1
+    assert bookings[0].source == "my_reservations"

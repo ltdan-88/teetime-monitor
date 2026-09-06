@@ -570,6 +570,21 @@ view, just the settings form.
   `ai_assist.summarize_history()` rather than growing into a longer and longer list of
   bespoke queries by hand.
 
+**Implemented 2026-09-06** (12 tests, `tests/test_analytics.py`): `best_times_by_weekday()`,
+`personal_stats()`, `crowd_heatmap()`, and `predict_crowding()` are all real, plain
+aggregation over `storage.py`'s two new read helpers (`distinct_scraped_dates()`,
+`load_all_confirmed_bookings()`, added alongside this). One thing revised during
+implementation, not just assumed: `predict_crowding()`'s "hand confidence to
+`ai_assist.summarize_history()`" plan (described above) doesn't actually fit —
+`summarize_history()` returns prose commentary, not a number usable as a
+machine-checkable confidence score. Replaced with a plain minimum-sample-size floor
+(`MIN_SAMPLES_FOR_PREDICTION = 3`) instead: `crowd_heatmap()`'s returned shape now
+carries a sample count alongside each average (`{"average": 0.9, "samples": 4}`, not a
+bare float as the earlier sketch above showed), and `predict_crowding()` returns `None`
+for a bucket with too few samples rather than a number that looks confident but isn't.
+`ai_assist.summarize_history()` remains exactly right for the genuinely open-ended
+half — personal-stats commentary — just not this specific numeric-confidence problem.
+
 *(An earlier version of this roadmap had a separate, deferred "Phase 6 — AI-assisted
 insights, opt-in, later" here. Revised 2026-09-05: once AI is the mechanism for
 ranking/parsing/interpretation from Phase 1 onward, there's nothing left to defer — see

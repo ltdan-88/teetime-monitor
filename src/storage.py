@@ -149,6 +149,20 @@ def last_scraped_at(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> str
     return row[0] if row else None
 
 
+def distinct_scraped_dates(course: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
+    """Every date this course has ever been scraped for, oldest first. Added
+    2026-09-06 for analytics.py — it needs to walk every historical date to build the
+    crowd heatmap, one `load_latest_schedule()` call per date (see that module for why
+    the *latest* scrape per date, not every scrape ever made for it, is what a
+    historical heatmap should count)."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM scrapes WHERE course = ? ORDER BY date", (course,)
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
     """Return the most recent scrape's slots (+ weather, if any was saved) for a
     course/date, or None if never scraped. `sun_times` and `available_courses` aren't
@@ -239,3 +253,22 @@ def load_confirmed_booking(course: str, date: str, path: Path = DEFAULT_DB_PATH)
     return ConfirmedBooking(
         date=date_, course=course_, time=time, holes=holes, source=source, confirmed_at=confirmed_at
     )
+
+
+def load_all_confirmed_bookings(path: Path = DEFAULT_DB_PATH) -> list[ConfirmedBooking]:
+    """Every course/date that's ever had a confirmed booking in this club's database,
+    latest confirmation per course/date (same "latest wins" rule as
+    load_confirmed_booking()), oldest date first. Added 2026-09-06 for analytics.py's
+    personal_stats() — that spans every course at a club, not just one, so it needs
+    this instead of looping load_confirmed_booking() over guessed course/date pairs."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT course, date, time, holes, source, confirmed_at FROM confirmed_bookings "
+            "WHERE id IN (SELECT MAX(id) FROM confirmed_bookings GROUP BY course, date) "
+            "ORDER BY date"
+        ).fetchall()
+    return [
+        ConfirmedBooking(date=date, course=course, time=time, holes=holes, source=source, confirmed_at=confirmed_at)
+        for course, date, time, holes, source, confirmed_at in rows
+    ]

@@ -5,12 +5,12 @@ a live-refreshing terminal grid — a faster, leaner alternative to the club's o
 view, for personal use. In the spirit of [`brew-launcher`](https://github.com/) (fzf-based
 CLI tooling).
 
-Status: the scraper, storage, scheduled-scrape script, weather overlay, deterministic
-recommendation engine, and "did my booking's situation change" watcher are all real
-and tested against the live site — see "Project structure" below for which modules are
-implemented vs. still stubs. The main tee-sheet TUI itself isn't built yet; a
-standalone settings screen for adjusting preferences is. See
-[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+Status: every backend piece is real and tested now — scraper, storage, scheduled
+scrape, weather, holidays/vacations, the "did my booking's situation change" watcher,
+the deterministic recommendation engine, the three Claude API calls, and local-history
+analytics/crowd-heatmap. See "Project structure" below for the (short) remaining stub
+list. The main tee-sheet TUI itself isn't built yet; a standalone settings screen for
+adjusting preferences is. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -122,7 +122,7 @@ teetime-monitor/
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (implemented)
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (implemented)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
-│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (stub)
+│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (implemented)
 │   └── tui.py               # main Textual app: club/course pickers, overview, day detail, search (stub)
 └── tests/
     ├── test_models.py
@@ -137,6 +137,7 @@ teetime-monitor/
     ├── test_booking_watch.py
     ├── test_calendar_context.py
     ├── test_ai_assist.py
+    ├── test_analytics.py
     └── test_playability.py
 ```
 
