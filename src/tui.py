@@ -100,7 +100,7 @@ from . import i18n
 from . import theme as theme_module
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
-from .scraper import COURSE_ALIASES, scrape_schedule
+from .scraper import COURSE_ALIASES, _holes_from_course_label, scrape_schedule
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 # How often the running app rechecks whether anything's due for a background
@@ -192,22 +192,45 @@ class CoursePickerScreen(Screen[str]):
 class ConfirmBookingScreen(Screen[bool]):
     """Manual confirm-your-tee-time form — the fallback for the same-day-booking timing
     gap (ROADMAP.md Phase 1), not the primary source (scrape_my_reservations() is,
-    once the login form exists)."""
+    once the login form exists).
 
-    def __init__(self, club_id: str, course: str, date: str) -> None:
+    `default_time`/`default_holes` (added 2026-09-07, direct feedback: "I already
+    selected a specific time, and the TUI should know on which course I'm currently
+    focused" — why was this ever re-typed by hand?) pre-fill both fields as real
+    values, not just placeholder hints: `DayDetailScreen.action_confirm()` reads the
+    currently highlighted row's own time off the table, and holes come from the
+    course itself (`_holes_from_course_label()` — the same derivation
+    scraper.py's own reservation parsing already uses, since a course category like
+    "18 Loch Tee 1" only ever means one hole count). Both stay editable — pre-filled,
+    not forced — for the rare case either guess is wrong."""
+
+    def __init__(
+        self,
+        club_id: str,
+        course: str,
+        date: str,
+        default_time: str | None = None,
+        default_holes: int | None = None,
+    ) -> None:
         super().__init__()
         self.club_id = club_id
         self.course = course
         self.date = date
+        self.default_time = default_time
+        self.default_holes = default_holes
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="confirm-form"):
             yield Label(i18n.t("confirm.title", date=self.date))
             yield Label(i18n.t("confirm.time_label"))
-            yield Input(placeholder="14:00", id="time")
+            yield Input(value=self.default_time or "", placeholder="14:00", id="time")
             yield Label(i18n.t("confirm.holes_label"))
-            yield Input(placeholder="18", id="holes")
+            yield Input(
+                value=str(self.default_holes) if self.default_holes else "",
+                placeholder="18",
+                id="holes",
+            )
             yield Static("", id="confirm-status")
             with Horizontal():
                 yield Button(i18n.t("button.save"), id="save", variant="success")
@@ -250,6 +273,7 @@ class DayDetailScreen(Screen[None]):
         ("c", "confirm", "Confirm tee time"),
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
+        ("s", "switch", "Switch club/course"),
         ("x", "dismiss_banners", "Dismiss banners"),
         ("t", "command_palette", "Commands"),
         ("q", "quit", "Quit"),
@@ -260,6 +284,7 @@ class DayDetailScreen(Screen[None]):
         ("c", "binding.confirm"),
         ("n", "binding.next_day"),
         ("p", "binding.prev_day"),
+        ("s", "binding.switch"),
         ("x", "binding.dismiss_banners"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
@@ -344,7 +369,23 @@ class DayDetailScreen(Screen[None]):
             if confirmed:
                 self.load_schedule()
 
-        self.app.push_screen(ConfirmBookingScreen(self.club_id, self.course, self.date), on_result)
+        default_time = self._selected_slot_time()
+        default_holes = _holes_from_course_label(self.course)
+        self.app.push_screen(
+            ConfirmBookingScreen(self.club_id, self.course, self.date, default_time, default_holes),
+            on_result,
+        )
+
+    def _selected_slot_time(self) -> str | None:
+        """The currently highlighted row's own time, if a real slot is selected —
+        direct feedback 2026-09-07: confirming a tee time shouldn't require
+        re-typing what you already picked by moving the cursor there. None for the
+        "no data yet" placeholder row (time "—") or an empty table."""
+        table = self.query_one(DataTable)
+        if table.row_count == 0 or not table.is_valid_row_index(table.cursor_row):
+            return None
+        time = str(table.get_row_at(table.cursor_row)[0])
+        return time if time and time != "—" else None
 
     def action_next_day(self) -> None:
         self.date = (date_cls.fromisoformat(self.date) + timedelta(days=1)).isoformat()
@@ -363,6 +404,13 @@ class DayDetailScreen(Screen[None]):
 
     def action_quit(self) -> None:
         self.app.exit()
+
+    def action_switch(self) -> None:
+        # Delegates to the App (same shape as action_command_palette below) since
+        # re-opening the club/course pickers needs push_screen_wait(), which lives on
+        # TeetimeApp already — see TeetimeApp.action_switch_club_or_course()'s own
+        # docstring.
+        self.app.action_switch_club_or_course()
 
     def action_command_palette(self) -> None:
         # The command palette's own ctrl+p binding isn't a normal bubbling action
@@ -421,13 +469,16 @@ class TeetimeApp(App[None]):
             self.pop_screen()
             self.push_screen(replacement)
 
+    async def _pick_club(self, slugs: list[str]) -> str:
+        return slugs[0] if len(slugs) == 1 else await self.push_screen_wait(ClubPickerScreen(slugs))
+
     async def _start(self) -> None:
         slugs = club_config.list_clubs()
         if not slugs:
             self.exit(message=i18n.t("app.no_clubs"))
             return
 
-        slug = slugs[0] if len(slugs) == 1 else await self.push_screen_wait(ClubPickerScreen(slugs))
+        slug = await self._pick_club(slugs)
 
         config = club_config.load_club_config(slug)
         club_id = config.get("club_id")
@@ -452,6 +503,48 @@ class TeetimeApp(App[None]):
         self._periodic_scrape()
         self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
 
+    def action_switch_club_or_course(self) -> None:
+        """Re-open the club/course pickers on demand — direct feedback 2026-09-07:
+        "how can i switch to a different course from the time schedule menu? It is
+        somehow not possible to return to the previous menus like choosing the
+        course or login." Bound to `s` on `DayDetailScreen` (see that class's own
+        `action_switch()`, which delegates here since the actual work needs
+        `push_screen_wait()`, which lives on the App).
+
+        Runs the real work in its own worker (`run_worker(..., exclusive=True)`,
+        same as `_start()`) rather than directly here — `push_screen_wait()` requires
+        an active Textual worker context to await from (confirmed empirically: a
+        plain `async def` action method dispatched straight from a keybinding isn't
+        one, and raises `NoActiveWorker` the moment it's awaited)."""
+        self.run_worker(self._do_switch_club_or_course(), exclusive=True, group="switch")
+
+    async def _do_switch_club_or_course(self) -> None:
+        """The actual picker flow for `action_switch_club_or_course()` above.
+        Deliberately does *not* reuse `_start()`'s own skip-shortcuts: that's the
+        right behavior for a fast, mostly-automatic launch, but an explicit request
+        to switch means actively choosing is the point — so this always shows the
+        club picker (if more than one club is saved) and always shows the course
+        picker (ignoring `default_course`, though a club with only one course still
+        skips it — there's nothing to choose there either way)."""
+        slugs = club_config.list_clubs()
+        if not slugs:
+            return
+        slug = await self._pick_club(slugs)
+        config = club_config.load_club_config(slug)
+        club_id = config.get("club_id")
+        if not club_id:
+            return
+
+        courses = list(COURSE_ALIASES)
+        course = courses[0] if len(courses) == 1 else await self.push_screen_wait(CoursePickerScreen(courses))
+
+        self._club_slug = slug
+        self._club_config = config
+        replacement = DayDetailScreen(club_id, slug, course, _initial_date(club_id, course))
+        self.pop_screen()
+        await self.push_screen(replacement)
+        self._periodic_scrape()
+
     def _periodic_scrape(self) -> None:
         """Best-effort background scrape of this club's whole overview window — direct
         feedback 2026-09-07: "I think hitting 'r' makes only sense as a manual
@@ -468,10 +561,23 @@ class TeetimeApp(App[None]):
         deliberate, one-off user action. `_should_scrape()` still throttles what's
         actually fetched each pass, same as the standalone scheduled job. Skips
         starting a new pass if a previous one is still running, so a slow network
-        can't pile up overlapping scrapes."""
+        can't pile up overlapping scrapes.
+
+        Shows "Refreshing…" in the status line while a pass is running, and
+        "Refreshed." once it lands (added 2026-09-07, direct feedback: "I noticed a
+        slight delay between the auto-refresh and seeing the updated schedule.
+        Wouldn't it be better if the tool had a loading screen?") — a full loading
+        *screen* would defeat the point of running this in a thread in the first
+        place (staying usable while it scrapes), so a status-line message explains
+        the delay without blocking anything. The delay itself was never partial data
+        either: each course/date is saved as one complete `Schedule` per scrape (see
+        storage.py's module docstring), so `DayDetailScreen` only ever shows either
+        the previous complete scrape or the new one, never a mix."""
         if self._periodic_scrape_running:
             return
         self._periodic_scrape_running = True
+        if isinstance(self.screen, DayDetailScreen):
+            self.screen.query_one("#status", Static).update(i18n.t("status.refreshing"))
 
         def scrape_then_reload() -> None:
             try:
@@ -486,6 +592,7 @@ class TeetimeApp(App[None]):
         if isinstance(self.screen, DayDetailScreen):
             self.screen.load_schedule()
             self.screen.refresh_banners()
+            self.screen.query_one("#status", Static).update(i18n.t("status.refreshed"))
 
 
 def main() -> None:

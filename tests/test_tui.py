@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 import pytest
 from textual.app import App
@@ -321,6 +322,87 @@ def test_confirm_booking_cancel_dismisses_without_saving(tmp_path, monkeypatch):
     assert booking is None
 
 
+# --- Pre-filled confirm form (2026-09-07, direct feedback: "I already selected a
+# specific time, and the TUI should know on which course I'm currently focused") -----
+
+
+def test_confirm_booking_screen_prefills_time_and_holes_when_given():
+    async def scenario():
+        app = _HostApp(
+            tui.ConfirmBookingScreen(
+                "0000001", "18 Loch Tee 1", "2026-09-06", default_time="14:00", default_holes=18
+            )
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#time", Input).value == "14:00"
+            assert app.screen.query_one("#holes", Input).value == "18"
+
+    _run(scenario())
+
+
+def test_confirm_booking_screen_leaves_fields_blank_with_no_defaults():
+    async def scenario():
+        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#time", Input).value == ""
+            assert app.screen.query_one("#holes", Input).value == ""
+
+    _run(scenario())
+
+
+def test_day_detail_action_confirm_prefills_time_from_the_selected_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="14:00", booked=1, capacity=4)],
+    )
+    storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one(DataTable).move_cursor(row=1)  # the "14:00" row
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.screen.query_one("#time", Input).value == "14:00"
+            # "18 Loch Tee 1" -> 18 holes, derived from the course itself.
+            assert app.screen.query_one("#holes", Input).value == "18"
+
+    _run(scenario())
+
+
+def test_day_detail_action_confirm_leaves_time_blank_with_no_data_scraped_yet(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()  # only the "no data yet" placeholder row exists
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.screen.query_one("#time", Input).value == ""
+
+    _run(scenario())
+
+
+def test_day_detail_action_confirm_derives_holes_from_a_nine_hole_course(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail(course="9 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.screen.query_one("#holes", Input).value == "9"
+
+    _run(scenario())
+
+
 # --- ClubPickerScreen / CoursePickerScreen ---------------------------------------------
 
 
@@ -473,6 +555,126 @@ def test_periodic_scrape_skips_a_new_pass_while_one_is_already_running(tmp_path,
             app._periodic_scrape()
             await pilot.pause(0.1)
             assert calls == [1]
+
+    _run(scenario())
+
+
+def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-07: "I noticed a slight delay between the auto-refresh
+    # and seeing the updated schedule. Wouldn't it be better if the tool had a
+    # loading screen?" -- a status-line message instead, so the delay is explained
+    # without blocking the UI (the whole point of running this in a thread).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+    proceed = threading.Event()
+    started = threading.Event()
+
+    def fake_scrape(slug, config):
+        started.set()
+        proceed.wait(timeout=2)
+        return []
+
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", fake_scrape)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await asyncio.get_event_loop().run_in_executor(None, started.wait, 2)
+            await pilot.pause()
+            assert "Refreshing" in str(app.screen.query_one("#status", Static).content)
+
+            proceed.set()
+            for _ in range(20):
+                if "Refreshed" in str(app.screen.query_one("#status", Static).content):
+                    break
+                await pilot.pause(0.05)
+            assert "Refreshed" in str(app.screen.query_one("#status", Static).content)
+
+    _run(scenario())
+
+
+# --- Switching club/course from the day-detail screen (2026-09-07, direct feedback:
+# "how can i switch to a different course from the time schedule menu? It is somehow
+# not possible to return to the previous menus like choosing the course or login") --
+
+
+def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.course == "9 Loch Tee 1"  # the usual startup shortcut
+
+            await pilot.press("s")
+            await pilot.pause()
+            # Explicitly switching always shows the picker, even though
+            # default_course would otherwise skip it.
+            assert isinstance(app.screen, tui.CoursePickerScreen)
+
+            app.screen.dismiss("18 Loch Tee 1")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.course == "18 Loch Tee 1"
+            assert app.screen.club_id == "0000001"
+
+    _run(scenario())
+
+
+def test_switch_action_shows_club_picker_when_multiple_clubs_saved(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club", "guest-club"])
+    configs = {
+        "home-club": {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        "guest-club": {"club_id": "0352001", "default_course": "18 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug: configs[slug])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubPickerScreen)  # more than one saved
+            app.screen.dismiss("home-club")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.club_id == "0000001"
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubPickerScreen)
+
+            app.screen.dismiss("guest-club")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CoursePickerScreen)  # ignores default_course too
+
+            app.screen.dismiss("6 Loch Platz")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.club_id == "0352001"
+            assert app.screen.club_slug == "guest-club"
+            assert app.screen.course == "6 Loch Platz"
 
     _run(scenario())
 

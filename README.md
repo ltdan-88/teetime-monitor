@@ -57,7 +57,10 @@ for the phased build plan and
 - Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
-  for the rare same-day-booking timing gap
+  for the rare same-day-booking timing gap — pre-filled from whatever row is
+  highlighted and the course you're already viewing, not re-typed by hand
+- Switch club or course at any time from the tee sheet itself (`s`) — not just at
+  startup
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —

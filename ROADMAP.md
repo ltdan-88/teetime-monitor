@@ -666,6 +666,50 @@ new `params` column round-tripping). 240 tests passing (was 224).
   new tests (3 in `test_tui.py` for the auto-refresh wiring itself, 3 in
   `test_scrape_once.py` for the extracted `scrape_due_for_club()`) — 308 tests
   passing (was 302, per the entry just above).
+- **Second round of real feedback, same day, from a screenshot of the confirm-booking
+  form**: three fixes.
+  - **Pre-filled confirm form** ("I already selected a specific time, and the TUI
+    should know on which course I'm currently focused"): `ConfirmBookingScreen`
+    gained `default_time`/`default_holes`, both shown as real Input *values* (not
+    just placeholder hints) but left editable. `DayDetailScreen.action_confirm()`
+    reads the currently highlighted row's own time straight off the `DataTable`
+    (`_selected_slot_time()` — `None` for the "no data yet" placeholder row or an
+    empty table) and derives holes from the course itself via
+    `scraper._holes_from_course_label()` — the exact same derivation
+    `_parse_my_reservations_html()` already uses, since a course category like "18
+    Loch Tee 1" only ever means one hole count.
+  - **Switch club/course from the tee sheet** ("how can i switch to a different
+    course from the time schedule menu? It is somehow not possible to return to the
+    previous menus like choosing the course or login"): new `s` binding on
+    `DayDetailScreen`, delegating to `TeetimeApp.action_switch_club_or_course()`.
+    `_start()`'s own club/course-selection logic was factored into a shared
+    `_pick_club()` helper; the switch action deliberately does *not* reuse
+    `_start()`'s skip-shortcuts (default_course, single-club auto-pick past the
+    picker) — an explicit request to switch means actively choosing is the point,
+    so it always shows the course picker and the club picker (if more than one club
+    is saved). A real bug surfaced writing this: an `async def` action method
+    dispatched straight from a keybinding isn't running inside a Textual worker
+    context, and `push_screen_wait()` requires one (`NoActiveWorker` otherwise,
+    confirmed empirically) — fixed by having the plain, non-async
+    `action_switch_club_or_course()` kick off the actual picker flow via
+    `run_worker(..., exclusive=True)`, same shape as `_start()` itself.
+  - **A status-line message during auto-refresh** ("I noticed a slight delay between
+    the auto-refresh and seeing the updated schedule. Wouldn't it be better if the
+    tool had a loading screen?"): `_periodic_scrape()` now shows "Refreshing…" in
+    the status line the moment a background pass starts, and "Refreshed." once it
+    lands. Deliberately not a full loading *screen* — that would defeat the point of
+    running the scrape in a thread in the first place (staying usable while it
+    scrapes). Also worth noting: the delay was never partial data becoming visible
+    either — each course/date is saved as one complete `Schedule` per scrape (see
+    storage.py's own module docstring), so the table only ever shows the previous
+    complete scrape or the new one, never a mix.
+
+  Verified live in headless tmux against a seeded schedule and fake club/course
+  config: selecting a row and pressing `c` correctly pre-filled both fields;
+  pressing `s` showed the course picker even with `default_course` set, and picking
+  a different course actually swapped the screen and re-scraped. 8 new tests (5 for
+  the confirm pre-fill, 2 for the switch action, 1 for the status message) — 316
+  tests passing (was 308).
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
