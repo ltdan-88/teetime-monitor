@@ -466,3 +466,60 @@ def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_pa
     # action_switch_language() actually persisted the change, not just applied it live.
     assert i18n.load_saved_language(tmp_path / "not-used-unless-a-test-wants-it") == "de"
 
+
+def test_day_detail_footer_renders_translated_hints_in_english(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            footer = app.screen.query_one(tui.TranslatedFooter)
+            text = footer.render()
+            assert "Refresh" in text
+            assert "Confirm tee time" in text
+            assert "Quit" in text
+
+    _run(scenario())
+
+
+def test_day_detail_footer_renders_translated_hints_in_german(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            footer = app.screen.query_one(tui.TranslatedFooter)
+            text = footer.render()
+            assert "Aktualisieren" in text
+            assert "Tee-Zeit bestätigen" in text
+            assert "Beenden" in text
+
+    _run(scenario())
+
+
+def test_day_detail_banner_renders_localized_from_params(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_booking_change(
+        course="18 Loch Tee 1",
+        date="2026-09-06",
+        time="14:00",
+        kind="party_grew",
+        message="2 more players joined your 14:00 tee time since you booked",
+        params={"count": 2, "time": "14:00"},
+        path=scrape_once._db_path("0000001"),
+    )
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            banner = app.screen.query_one("#banners", Static)
+            assert "weitere Spieler sind" in str(banner.content)
+            assert "14:00" in str(banner.content)
+
+    _run(scenario())
+

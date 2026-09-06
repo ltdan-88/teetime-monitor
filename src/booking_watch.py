@@ -23,9 +23,21 @@ optional parameter, not required — the rain/wind thresholds it drives are the 
 ones `recommend.exclude_unplayable()` already resolves (booleans gating whether to
 check at all, numeric cutoffs with the same defaults) — see that module's docstring
 for why those cutoffs exist and aren't just the plain avoid_rain/avoid_wind booleans.
+
+Revised the same day, once the user spotted that a screenshot's banner text was still
+English-only after i18n.py landed: `BookingChange` now carries `params` (a plain dict
+of the values used to build `message`) alongside the already-rendered English
+`message` — `message` stays English (kept for any non-TUI/backward-compat consumer,
+and it's what every existing test here checks), but `kind` + `params` together are
+what `i18n.py`'s `render_booking_change()` uses to re-render the same change in
+whatever language is current *at display time*, not whatever language happened to be
+active when this ran (a separate headless process, hours or days earlier). Weather
+reasons are keyed (`"rain_chance"`/`"rain_amount"`/`"wind"`), not the English words
+themselves, so they can be translated too — `_EN_REASON_LABELS` below is only what
+builds the English `message` string, not what gets persisted for later rendering.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from . import weather as weather_module
@@ -47,11 +59,19 @@ WEATHER_WORSENED = "weather_worsened"  # rain/wind across the round's duration g
 
 @dataclass
 class BookingChange:
-    """One detected change for a confirmed booking, ready to show as an in-app banner."""
+    """One detected change for a confirmed booking, ready to show as an in-app banner.
+
+    `message` is always English — kept for any non-TUI/backward-compat consumer, and
+    what every test in this file checks. `params` is what a display layer (tui.py, via
+    i18n.render_booking_change()) actually uses to show the change in the current
+    language, since `message` was rendered once, at scrape time, possibly hours or
+    days before anyone sees it.
+    """
 
     booking: ConfirmedBooking
     kind: str  # one of the constants above
     message: str  # plain language, e.g. "1 more player joined your 14:00 since you booked"
+    params: dict = field(default_factory=dict)
 
 
 def _find_slot(schedule: Schedule, time: str) -> Slot | None:
@@ -73,6 +93,7 @@ def _party_grew_change(booking: ConfirmedBooking, baseline_slot: Slot | None, la
         booking=booking,
         kind=PARTY_GREW,
         message=f"{joined} more player{plural} joined your {booking.time} tee time since you booked",
+        params={"count": joined, "time": booking.time},
     )
 
 
@@ -104,6 +125,7 @@ def _neighbor_changes(booking: ConfirmedBooking, baseline: Schedule, latest: Sch
                         f"The {latest_slot.time} slot near your {booking.time} tee time "
                         "is no longer clear"
                     ),
+                    params={"time": booking.time, "neighbor_time": latest_slot.time},
                 )
             )
         elif was_flight and is_flight and latest_slot.booked > baseline_slot.booked:
@@ -115,6 +137,7 @@ def _neighbor_changes(booking: ConfirmedBooking, baseline: Schedule, latest: Sch
                         f"The {latest_slot.time} flight near your {booking.time} tee time "
                         "picked up more players"
                     ),
+                    params={"time": booking.time, "neighbor_time": latest_slot.time},
                 )
             )
 
@@ -130,6 +153,18 @@ def _crossed_threshold(baseline_value: float | None, latest_value: float | None,
     return latest_value > limit and latest_value > baseline_value
 
 
+REASON_RAIN_CHANCE = "rain_chance"
+REASON_RAIN_AMOUNT = "rain_amount"
+REASON_WIND = "wind"
+# English labels, used only to build the English `message` string above -- the
+# persisted/translatable form is the reason *keys* themselves (see module docstring).
+_EN_REASON_LABELS = {
+    REASON_RAIN_CHANCE: "rain chance",
+    REASON_RAIN_AMOUNT: "rain amount",
+    REASON_WIND: "wind",
+}
+
+
 def _weather_change(
     booking: ConfirmedBooking, baseline: Schedule, latest: Schedule, round_duration_minutes: int, preferences: dict
 ) -> BookingChange | None:
@@ -138,7 +173,7 @@ def _weather_change(
     if baseline_conditions is None or latest_conditions is None:
         return None  # no forecast to compare on one side or the other
 
-    reasons = []
+    reason_keys = []
 
     if preferences.get("avoid_rain"):
         prob_limit = preferences.get("avoid_rain_probability_percent", DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT)
@@ -146,22 +181,24 @@ def _weather_change(
         if _crossed_threshold(
             baseline_conditions.max_precipitation_probability, latest_conditions.max_precipitation_probability, prob_limit
         ):
-            reasons.append("rain chance")
+            reason_keys.append(REASON_RAIN_CHANCE)
         if _crossed_threshold(baseline_conditions.max_precipitation_mm, latest_conditions.max_precipitation_mm, mm_limit):
-            reasons.append("rain amount")
+            reason_keys.append(REASON_RAIN_AMOUNT)
 
     if preferences.get("avoid_wind"):
         wind_limit = preferences.get("avoid_wind_kph", DEFAULT_AVOID_WIND_KPH)
         if _crossed_threshold(baseline_conditions.max_wind_speed_kph, latest_conditions.max_wind_speed_kph, wind_limit):
-            reasons.append("wind")
+            reason_keys.append(REASON_WIND)
 
-    if not reasons:
+    if not reason_keys:
         return None
 
+    en_reasons = [_EN_REASON_LABELS[key] for key in reason_keys]
     return BookingChange(
         booking=booking,
         kind=WEATHER_WORSENED,
-        message=f"The forecast for your {booking.time} tee time got worse ({', '.join(reasons)})",
+        message=f"The forecast for your {booking.time} tee time got worse ({', '.join(en_reasons)})",
+        params={"time": booking.time, "reason_keys": reason_keys},
     )
 
 

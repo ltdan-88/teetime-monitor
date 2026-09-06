@@ -273,6 +273,23 @@ def test_save_and_load_booking_change_round_trips(tmp_path):
     assert changes[0]["course"] == "18 Loch Tee 1"
     assert changes[0]["kind"] == "party_grew"
     assert "1 more player" in changes[0]["message"]
+    assert changes[0]["params"] == {}  # not passed -- defaults to empty, not an error
+
+
+def test_save_booking_change_round_trips_params(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_booking_change(
+        course="18 Loch Tee 1",
+        date="2026-09-06",
+        time="14:00",
+        kind="party_grew",
+        message="2 more players joined your 14:00 tee time since you booked",
+        params={"count": 2, "time": "14:00"},
+        path=db,
+    )
+
+    changes = load_unacknowledged_booking_changes(path=db)
+    assert changes[0]["params"] == {"count": 2, "time": "14:00"}
 
 
 def test_acknowledge_booking_changes_hides_them(tmp_path):

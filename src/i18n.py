@@ -65,6 +65,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.theme": "Theme",
         "binding.quit": "Quit",
         "binding.language": "Language",
+        "binding.commands": "Commands",
         "command.language_title": "Language: switch to {other}",
         "command.language_description": "Currently {current} — switch the UI language",
         "settings.field.min_open_spots": "Min open spots (party size)",
@@ -85,6 +86,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.field.daylight_buffer": "Daylight safety buffer (minutes)",
         "settings.field.scrape_interval_normal": "Scrape interval — normal (minutes)",
         "settings.field.scrape_interval_booked": "Scrape interval — once booked (minutes)",
+        "watch.party_grew.singular": "{count} more player joined your {time} tee time since you booked",
+        "watch.party_grew.plural": "{count} more players joined your {time} tee time since you booked",
+        "watch.buffer_shrunk": "The {neighbor_time} slot near your {time} tee time is no longer clear",
+        "watch.neighbor_crowded": "The {neighbor_time} flight near your {time} tee time picked up more players",
+        "watch.weather_worsened": "The forecast for your {time} tee time got worse ({reasons})",
+        "watch.reason.rain_chance": "rain chance",
+        "watch.reason.rain_amount": "rain amount",
+        "watch.reason.wind": "wind",
     },
     "de": {
         "picker.club_title": "Welcher Club?",
@@ -116,6 +125,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.theme": "Design",
         "binding.quit": "Beenden",
         "binding.language": "Sprache",
+        "binding.commands": "Befehle",
         "command.language_title": "Sprache: zu {other} wechseln",
         "command.language_description": "Aktuell {current} — Sprache der Oberfläche wechseln",
         "settings.field.min_open_spots": "Min. freie Plätze (Gruppengröße)",
@@ -136,6 +146,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.field.daylight_buffer": "Sicherheitspuffer Tageslicht (Minuten)",
         "settings.field.scrape_interval_normal": "Abrufintervall — normal (Minuten)",
         "settings.field.scrape_interval_booked": "Abrufintervall — nach Buchung (Minuten)",
+        "watch.party_grew.singular": "{count} weiterer Spieler ist Ihrer Tee-Zeit um {time} Uhr beigetreten, seit Sie gebucht haben",
+        "watch.party_grew.plural": "{count} weitere Spieler sind Ihrer Tee-Zeit um {time} Uhr beigetreten, seit Sie gebucht haben",
+        "watch.buffer_shrunk": "Die Zeit {neighbor_time} in der Nähe Ihrer Tee-Zeit um {time} Uhr ist nicht mehr frei",
+        "watch.neighbor_crowded": "Der Flight um {neighbor_time} in der Nähe Ihrer Tee-Zeit um {time} Uhr hat weitere Spieler bekommen",
+        "watch.weather_worsened": "Die Vorhersage für Ihre Tee-Zeit um {time} Uhr hat sich verschlechtert ({reasons})",
+        "watch.reason.rain_chance": "Regenwahrscheinlichkeit",
+        "watch.reason.rain_amount": "Regenmenge",
+        "watch.reason.wind": "Wind",
     },
 }
 
@@ -224,3 +242,33 @@ def apply_language(config_file: Path | None = None) -> str:
     if _current_language is None:
         _current_language = resolve_language_name(config_file=config_file)
     return _current_language
+
+
+# kind -> the i18n key(s) needed to re-render a booking_watch.BookingChange from its
+# `kind` + `params` (see that module's docstring for why `message` alone, rendered
+# once at scrape time, can't be localized after the fact).
+_PARTY_GREW = "party_grew"
+_BUFFER_SHRUNK = "buffer_shrunk"
+_NEIGHBOR_CROWDED = "neighbor_crowded"
+_WEATHER_WORSENED = "weather_worsened"
+
+
+def render_booking_change(kind: str, params: dict) -> str | None:
+    """Re-render one booking_watch.BookingChange in the current language. Returns
+    None for a `kind` this doesn't recognize, so a caller (tui.py) can fall back to
+    the change's own stored English `message` rather than showing nothing."""
+    if kind == _PARTY_GREW:
+        count = params.get("count", 1)
+        key = "watch.party_grew.singular" if count == 1 else "watch.party_grew.plural"
+        return t(key, count=count, time=params.get("time", ""))
+    if kind == _BUFFER_SHRUNK:
+        return t("watch.buffer_shrunk", time=params.get("time", ""), neighbor_time=params.get("neighbor_time", ""))
+    if kind == _NEIGHBOR_CROWDED:
+        return t(
+            "watch.neighbor_crowded", time=params.get("time", ""), neighbor_time=params.get("neighbor_time", "")
+        )
+    if kind == _WEATHER_WORSENED:
+        reason_keys = params.get("reason_keys", [])
+        reasons = ", ".join(t(f"watch.reason.{key}") for key in reason_keys)
+        return t("watch.weather_worsened", time=params.get("time", ""), reasons=reasons)
+    return None

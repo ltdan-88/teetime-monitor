@@ -43,13 +43,28 @@ it will be used in Germany"): see i18n.py for the English/German string table an
 it resolves/persists — same shape as theme.py's resolution, sharing the same config
 file. Switching is a command-palette entry ("Language: switch to Deutsch"/"...to
 English"), which also rebuilds the current `DayDetailScreen` in place so every label,
-table header, and status message updates immediately, not just on next launch. One
-deliberate scope boundary: the Footer's key-hint text (from each Screen's `BINDINGS`,
-a class-level attribute fixed at import time) stays English always — Textual's static
-binding descriptions aren't a good fit for a runtime language switch, and they're a
-minor navigational aid next to a single letter key, not primary content. Every label,
-button, table header, status/error message, and picker title a person actually reads
-while using the app is fully bilingual.
+table header, and status message updates immediately, not just on next launch.
+
+Revised the same day, after the user spotted two things still in English in a
+screenshot: the Footer's key-hint text does translate now too, via `TranslatedFooter`
+below — Textual's built-in `Footer` derives its text from each Screen's `BINDINGS`
+(a class-level attribute fixed at import time) with no public API found to override a
+binding's displayed description at render time (confirmed empirically: `bind()` isn't
+exposed on `Screen` in this Textual version, and the only paths that worked touched
+private internals), so this renders its own translated hints from i18n.py instead,
+independent of `BINDINGS`'s own (English, dispatch-only) description strings — the key
+bindings themselves are unaffected, only what's displayed at the bottom of the screen.
+`booking_watch.py`'s banner messages are now bilingual too — see that module and
+storage.py's `booking_changes` table for the structured (kind + params) redesign that
+replaced storing pre-rendered English prose.
+
+One remaining, disclosed gap: Textual's own built-in command-palette entries (the
+default "Theme"/"Quit"/"Keys"/"Screenshot"/"Maximize" system commands, from
+`App.get_system_commands()`'s own base implementation) stay in whatever language
+Textual itself ships them in — English. Overriding those specifically would mean
+re-implementing that base method's own logic to swap in translated strings, not
+covered here since the user's own report was specifically about the footer and the
+banner text, not the command palette's built-in entries.
 """
 
 from datetime import date as date_cls
@@ -69,6 +84,33 @@ from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, scrape_schedule
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
+
+
+class TranslatedFooter(Static):
+    """A minimal stand-in for Textual's built-in `Footer` — see module docstring's
+    "Revised the same day" note for why: that widget's key-hint text comes from each
+    Screen's class-level `BINDINGS` descriptions (fixed at import time, English), and
+    no public API was found to override a binding's displayed text at render time.
+    Renders the same key hints from i18n.py instead — `bindings` is `[(key,
+    i18n_key), ...]` in display order; the actual key dispatch still goes through the
+    Screen's own `BINDINGS`/`action_*` methods, this widget only controls what's shown."""
+
+    DEFAULT_CSS = """
+    TranslatedFooter {
+        dock: bottom;
+        height: 1;
+        background: $panel;
+        color: $text;
+    }
+    """
+
+    def __init__(self, bindings: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._key_bindings = bindings
+
+    def render(self) -> str:
+        parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
+        return "  ".join(parts)
 
 
 def _fill_style(booked: int, capacity: int) -> str:
@@ -183,8 +225,18 @@ class DayDetailScreen(Screen[None]):
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
         ("x", "dismiss_banners", "Dismiss banners"),
-        ("t", "command_palette", "Theme"),
+        ("t", "command_palette", "Commands"),
         ("q", "quit", "Quit"),
+    ]
+
+    _FOOTER_BINDINGS = [
+        ("r", "binding.refresh"),
+        ("c", "binding.confirm"),
+        ("n", "binding.next_day"),
+        ("p", "binding.prev_day"),
+        ("x", "binding.dismiss_banners"),
+        ("t", "binding.commands"),
+        ("q", "binding.quit"),
     ]
 
     def __init__(self, club_id: str, club_slug: str, course: str, date: str) -> None:
@@ -199,7 +251,7 @@ class DayDetailScreen(Screen[None]):
         yield Static("", id="banners")
         yield Static("", id="status")
         yield DataTable(id="table")
-        yield Footer()
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
@@ -238,7 +290,13 @@ class DayDetailScreen(Screen[None]):
         if not changes:
             banner.update("")
             return
-        lines = [f"⚠ {change['message']}" for change in changes]
+        # render_booking_change() re-renders kind+params in the current language;
+        # falls back to the stored (English) message for a row saved before that
+        # existed, or an unrecognized kind, rather than showing nothing.
+        lines = [
+            f"⚠ {i18n.render_booking_change(change['kind'], change['params']) or change['message']}"
+            for change in changes
+        ]
         banner.update("\n".join(lines))
 
     def action_refresh(self) -> None:

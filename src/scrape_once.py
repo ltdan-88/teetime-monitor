@@ -147,6 +147,7 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
                     time=confirmed.time,
                     kind=change.kind,
                     message=change.message,
+                    params=change.params,
                     path=db_path,
                 )
 

@@ -231,3 +231,19 @@ def test_settings_screen_german_status_messages(tmp_path):
             assert str(app.query_one("#status", Static).content) == "Gespeichert."
 
     asyncio.run(scenario())
+
+
+def test_settings_screen_footer_renders_translated_hint(tmp_path):
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    i18n.set_language("de")
+
+    async def scenario():
+        from src.settings_screen import TranslatedFooter
+
+        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            footer = app.query_one(TranslatedFooter)
+            assert "Beenden" in footer.render()
+
+    asyncio.run(scenario())

@@ -33,7 +33,13 @@ Four tables:
   the TUI to pick up next time it opens, rather than only ever existing as an in-memory
   return value that nothing reads. Flattened rather than storing a serialized
   `BookingChange` — just enough fields to show a banner — and `acknowledged` lets the
-  TUI mark a banner as seen without deleting the historical record.
+  TUI mark a banner as seen without deleting the historical record. `params` (added
+  the same day, once the bilingual UI work revealed `message` alone can't be
+  localized after the fact — it was already rendered in whatever language was active
+  at scrape time) is the structured (JSON) form of the same fact `kind` + `message`
+  represent; `i18n.render_booking_change()` uses `kind` + `params` to show the change
+  in whatever language is current when the TUI actually displays it, not whatever was
+  current hours or days earlier when the scheduled scrape ran.
 
 Implemented and tested 2026-09-06. Not yet covered here: a lookup for a *specific*
 historical scrape (e.g. "the schedule as of when this booking was confirmed") — only
@@ -94,7 +100,11 @@ CREATE TABLE IF NOT EXISTS booking_changes (
     date TEXT NOT NULL,
     time TEXT,                 -- the booking's own time, for display
     kind TEXT NOT NULL,        -- one of booking_watch.py's change-kind constants
-    message TEXT NOT NULL,     -- plain-language, ready to show as-is
+    message TEXT NOT NULL,     -- plain-language English, kept as a fallback/for any
+                                -- non-TUI consumer -- the TUI itself re-renders from
+                                -- kind + params in the current language instead (see
+                                -- i18n.py's render_booking_change(), added 2026-09-06)
+    params TEXT NOT NULL DEFAULT '{}', -- JSON-encoded dict, e.g. {"count": 2, "time": "14:00"}
     detected_at TEXT NOT NULL, -- ISO 8601 timestamp
     acknowledged INTEGER NOT NULL DEFAULT 0
 );
@@ -293,31 +303,39 @@ def load_all_confirmed_bookings(path: Path = DEFAULT_DB_PATH) -> list[ConfirmedB
 
 
 def save_booking_change(
-    course: str, date: str, time: str | None, kind: str, message: str, path: Path = DEFAULT_DB_PATH
+    course: str,
+    date: str,
+    time: str | None,
+    kind: str,
+    message: str,
+    params: dict | None = None,
+    path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Persist one detected booking_watch.BookingChange so the TUI can show it as a
     banner next time it opens — see the module docstring's `booking_changes` note.
     Takes plain fields rather than a BookingChange object so storage.py doesn't need to
-    import booking_watch.py just for a dataclass shape."""
+    import booking_watch.py just for a dataclass shape. `params` is JSON-encoded —
+    `{}` if not given, so old-style callers that only pass `message` still work."""
     init_db(path)
     detected_at = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(path) as conn:
         conn.execute(
-            "INSERT INTO booking_changes (course, date, time, kind, message, detected_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (course, date, time, kind, message, detected_at),
+            "INSERT INTO booking_changes (course, date, time, kind, message, params, detected_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (course, date, time, kind, message, json.dumps(params or {}), detected_at),
         )
 
 
 def load_unacknowledged_booking_changes(path: Path = DEFAULT_DB_PATH) -> list[dict]:
     """Every not-yet-seen booking change, oldest first — what the TUI's home screen
-    shows as banners. Returns plain dicts (id/course/date/time/kind/message/detected_at)
-    rather than reconstructing a full BookingChange (which would need a full
-    ConfirmedBooking round-tripped back out too) — display only needs these fields."""
+    shows as banners. Returns plain dicts
+    (id/course/date/time/kind/message/params/detected_at) rather than reconstructing a
+    full BookingChange (which would need a full ConfirmedBooking round-tripped back
+    out too) — display only needs these fields."""
     init_db(path)
     with sqlite3.connect(path) as conn:
         rows = conn.execute(
-            "SELECT id, course, date, time, kind, message, detected_at FROM booking_changes "
+            "SELECT id, course, date, time, kind, message, params, detected_at FROM booking_changes "
             "WHERE acknowledged = 0 ORDER BY id"
         ).fetchall()
     return [
@@ -328,7 +346,8 @@ def load_unacknowledged_booking_changes(path: Path = DEFAULT_DB_PATH) -> list[di
             "time": row[3],
             "kind": row[4],
             "message": row[5],
-            "detected_at": row[6],
+            "params": json.loads(row[6]) if row[6] else {},
+            "detected_at": row[7],
         }
         for row in rows
     ]

@@ -26,7 +26,11 @@ as `python -m src.settings_screen`, not a Screen pushed into TeetimeApp), so it 
 its own `apply_theme()`/`apply_language()` calls rather than inheriting TeetimeApp's.
 No in-app language-switch command here, unlike tui.py — switch language from the main
 TUI (persists to the shared config file) and this screen picks it up next time it's
-run.
+run. Its footer's key hint ("q Quit") is rendered by a small `TranslatedFooter`
+duplicated from tui.py's own — see that module's docstring for why Textual's built-in
+`Footer` can't be translated at render time; duplicated rather than imported so this
+module doesn't pull in tui.py's much heavier dependency chain (scraper, storage,
+booking_watch) just for one small widget.
 """
 
 import copy
@@ -37,7 +41,7 @@ from typing import Any, Callable
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Button, Footer, Header, Input, Label, Static, Switch
+from textual.widgets import Button, Header, Input, Label, Static, Switch
 
 from . import club_config, i18n
 from . import theme as theme_module
@@ -183,6 +187,28 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
     return updated
 
 
+class TranslatedFooter(Static):
+    """Duplicated from tui.py's own — see this module's docstring and tui.py's for why.
+    `bindings` is `[(key, i18n_key), ...]` in display order."""
+
+    DEFAULT_CSS = """
+    TranslatedFooter {
+        dock: bottom;
+        height: 1;
+        background: $panel;
+        color: $text;
+    }
+    """
+
+    def __init__(self, bindings: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._key_bindings = bindings
+
+    def render(self) -> str:
+        parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
+        return "  ".join(parts)
+
+
 class SettingsScreen(App[None]):
     """Edit one club's availability/preferences/scrape-interval settings and save them
     back to its YAML file."""
@@ -213,6 +239,7 @@ class SettingsScreen(App[None]):
     """
 
     BINDINGS = [("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("q", "binding.quit")]
 
     def __init__(
         self,
@@ -246,7 +273,7 @@ class SettingsScreen(App[None]):
         with Horizontal(id="buttons"):
             yield Button(i18n.t("button.save"), id="save", variant="success")
             yield Button(i18n.t("button.quit"), id="quit")
-        yield Footer()
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def _read_widget_values(self) -> dict[str, Any]:
         widget_values: dict[str, Any] = {}

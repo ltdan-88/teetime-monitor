@@ -126,3 +126,55 @@ def test_apply_language_resolves_and_sets_current_language(tmp_path):
     applied = i18n.apply_language(config_file=config_file)
     assert applied == "de"
     assert i18n.get_language() == "de"
+
+
+# --- render_booking_change() ----------------------------------------------------------
+
+
+def test_render_booking_change_party_grew_singular_english():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("party_grew", {"count": 1, "time": "14:00"})
+    assert text == "1 more player joined your 14:00 tee time since you booked"
+
+
+def test_render_booking_change_party_grew_plural_english():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("party_grew", {"count": 2, "time": "14:00"})
+    assert text == "2 more players joined your 14:00 tee time since you booked"
+
+
+def test_render_booking_change_party_grew_german_uses_correct_plural_form():
+    i18n.set_language("de")
+    singular = i18n.render_booking_change("party_grew", {"count": 1, "time": "14:00"})
+    plural = i18n.render_booking_change("party_grew", {"count": 2, "time": "14:00"})
+    assert "weiterer Spieler ist" in singular
+    assert "weitere Spieler sind" in plural
+
+
+def test_render_booking_change_buffer_shrunk():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("buffer_shrunk", {"time": "14:00", "neighbor_time": "14:10"})
+    assert text == "The 14:10 slot near your 14:00 tee time is no longer clear"
+
+
+def test_render_booking_change_neighbor_crowded():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("neighbor_crowded", {"time": "14:00", "neighbor_time": "14:10"})
+    assert text == "The 14:10 flight near your 14:00 tee time picked up more players"
+
+
+def test_render_booking_change_weather_worsened_translates_each_reason():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("weather_worsened", {"time": "14:00", "reason_keys": ["rain_chance", "wind"]})
+    assert text == "The forecast for your 14:00 tee time got worse (rain chance, wind)"
+
+
+def test_render_booking_change_weather_worsened_german_reasons():
+    i18n.set_language("de")
+    text = i18n.render_booking_change("weather_worsened", {"time": "14:00", "reason_keys": ["wind"]})
+    assert "Wind" in text
+    assert "Vorhersage" in text
+
+
+def test_render_booking_change_returns_none_for_unknown_kind():
+    assert i18n.render_booking_change("something_new", {}) is None

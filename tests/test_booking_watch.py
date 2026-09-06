@@ -279,3 +279,54 @@ def test_multiple_changes_reported_together():
 
     kinds = {change.kind for change in changes}
     assert kinds == {PARTY_GREW, BUFFER_SHRUNK, WEATHER_WORSENED}
+
+
+# --- params (used by i18n.render_booking_change() to re-render in any language) ------
+
+
+def test_party_grew_params():
+    baseline = _schedule([Slot(time="14:00", booked=1, capacity=4)])
+    latest = _schedule([Slot(time="14:00", booked=3, capacity=4)])
+
+    changes = check_for_changes(BOOKING, baseline, latest, buffer_minutes=20, round_duration_minutes=240)
+
+    assert changes[0].params == {"count": 2, "time": "14:00"}
+
+
+def test_buffer_shrunk_params():
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4), Slot(time="14:10", booked=0, capacity=4)]
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4), Slot(time="14:10", booked=2, capacity=4)]
+    )
+
+    changes = check_for_changes(BOOKING, baseline, latest, buffer_minutes=20, round_duration_minutes=240)
+
+    assert changes[0].params == {"time": "14:00", "neighbor_time": "14:10"}
+
+
+def test_weather_worsened_params_use_keys_not_english_words():
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=10, wind_speed_kph=5)],
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=90, wind_speed_kph=50)],
+    )
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_minutes=20,
+        round_duration_minutes=240,
+        preferences={"avoid_rain": True, "avoid_wind": True},
+    )
+
+    assert changes[0].params == {"time": "14:00", "reason_keys": ["rain_chance", "wind"]}
+    # message stays the human-readable English form -- params is the separate,
+    # translatable representation of the same fact.
+    assert "rain chance" in changes[0].message
+    assert "wind" in changes[0].message

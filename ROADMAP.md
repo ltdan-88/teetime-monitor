@@ -432,17 +432,7 @@ message updates immediately, not just on next launch.
 Covers every label, button, table header, and status/error message across
 `tui.py` and `settings_screen.py` — both club/course pickers, the confirm-booking
 form, the day-detail table (including the "no data yet" placeholder), and every
-settings-screen field label. Two deliberate scope boundaries, documented rather than
-silently missed:
-- `booking_watch.py`'s banner messages stay English-only. Those are generated once at
-  scrape time by a separate headless process (`scrape_once.py`) and stored as
-  already-rendered plain text in `storage.py`'s `booking_changes` table — translating
-  them properly means storing structured (kind, params) instead of prose and
-  re-rendering at display time, a real schema change, not something to fold in here.
-- Each `Screen`'s `BINDINGS` (the Footer's key-hint text) stays English always —
-  it's a class-level attribute fixed at import time, and Textual's static binding
-  descriptions aren't a good fit for a runtime language switch. A minor navigational
-  aid next to a single letter key, not primary content.
+settings-screen field label.
 
 Caught one real bug while wiring this up, not just a test artifact: `apply_language()`
 originally re-resolved (env var > saved config > default) and overwrote the current
@@ -459,6 +449,47 @@ back to English live via the command palette, and confirmed both `THEME=` and `L
 persisted correctly side by side in the same config file. 28 new tests across
 `tests/test_user_config.py`, `tests/test_i18n.py`, and additions to
 `tests/test_tui.py`/`tests/test_settings_screen.py`.
+
+**Two remaining gaps closed the same day, once the user actually saw a screenshot**
+(the Footer key hints and the booking-watch banner were still English — flagged
+directly, not left unnoticed):
+- **Footer key hints**: Textual's built-in `Footer` derives its text from each
+  Screen's `BINDINGS` (a class-level attribute fixed at import time), and no public
+  API was found to override a binding's displayed description at render time —
+  confirmed empirically (`Screen.bind()` isn't exposed in this Textual version, and
+  the only paths that worked touched private internals like `_bindings`). Fixed with
+  `TranslatedFooter`, a small custom widget (duplicated once, in `tui.py` and
+  `settings_screen.py`, rather than cross-importing and pulling `tui.py`'s much
+  heavier dependency chain into the standalone settings screen) that renders its own
+  key hints from `i18n.py` — `BINDINGS` itself is untouched and still drives actual key
+  dispatch, only the *displayed* text changed.
+- **`booking_watch.py`'s banner messages**: previously English-only because they're
+  rendered once, at scrape time, by a separate headless process, and stored as
+  already-rendered prose. Resolved with the schema change flagged (not silently
+  skipped) when this was first built: `BookingChange` now carries `params` (the plain
+  values used to build `message`) alongside the English `message` itself; a new
+  `params` column on `storage.py`'s `booking_changes` table persists it (JSON-encoded,
+  defaulting to `{}` for old rows); and `i18n.render_booking_change(kind, params)`
+  re-renders the same change fresh in whatever language is current *when the TUI
+  displays it* — falling back to the stored English `message` for a kind it doesn't
+  recognize or an old row with no `params`. Weather reasons are keyed
+  (`"rain_chance"`/`"rain_amount"`/`"wind"`) rather than stored as English words, so
+  they translate too. `message` itself is kept, unchanged, for any non-TUI consumer
+  and for the existing tests that already checked it.
+
+One disclosed gap remains, out of scope for this round: Textual's own built-in
+command-palette entries ("Theme"/"Quit"/"Keys"/"Screenshot"/"Maximize", from
+`App.get_system_commands()`'s base implementation) stay in whatever language Textual
+itself ships them in. Overriding those means re-implementing that base method's own
+logic to swap in translated strings — not covered here since the user's own report was
+specifically about the footer and the banner text, not the command palette's built-in
+entries. Verified live again after both fixes: the same `LANG=de_DE.UTF-8` tmux
+session now shows a fully German footer and a fully German banner together. 16 more
+new tests: 8 in `tests/test_i18n.py` for `render_booking_change()`, 3 in
+`tests/test_booking_watch.py` for `params`, 3 in `tests/test_tui.py` (the translated
+footer, and the banner rendering from real params), 1 in
+`tests/test_settings_screen.py` (its own footer), 1 in `tests/test_storage.py` (the
+new `params` column round-tripping). 240 tests passing (was 224).
 
 - Config via `.env` (see Phase 0's namespaced credentials) + the active club's YAML
   (club URL, default course, default date range)

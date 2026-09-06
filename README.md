@@ -187,7 +187,9 @@ look" preference, not a per-club fact — and lives in its own file,
 file. Set `TEETIME_MONITOR_THEME=<name>` to override it for one run without changing
 the saved default. Language works the same way, sharing that same file
 (`TEETIME_MONITOR_LANG=en` or `=de` to override for one run) — English and German are
-supported, defaulting to German if your system locale looks German. Two things stay
-English-only regardless of language: the passive banners `booking_watch.py` writes for
-a booking whose situation changed (see `ROADMAP.md`'s bilingual-UI note for why), and
-each screen's key-hint text in the footer.
+supported, defaulting to German if your system locale looks German — and covers
+everything in both screens, including the footer's key hints and the passive banners
+`booking_watch.py` writes for a booking whose situation changed. One thing stays
+English-only regardless of language: Textual's own built-in command-palette entries
+("Theme"/"Quit"/"Keys"/"Screenshot"/"Maximize") — see `ROADMAP.md`'s bilingual-UI note
+for why.
