@@ -8,9 +8,11 @@ CLI tooling).
 Status: every backend piece is real and tested now — scraper, storage, scheduled
 scrape, weather, holidays/vacations, the "did my booking's situation change" watcher,
 the deterministic recommendation engine, the three Claude API calls, and local-history
-analytics/crowd-heatmap. See "Project structure" below for the (short) remaining stub
-list. The main tee-sheet TUI itself isn't built yet; a standalone settings screen for
-adjusting preferences is. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+analytics/crowd-heatmap. The TUI's single-day detail screen (club/course picker, the
+tee sheet itself, confirming a booking, and the booking-watch banners) is real too —
+see "Project structure" below. Still to come: the multi-day overview, ad hoc search,
+and crowd-heatmap screens, and the real pc caddie login form. See
+[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -90,10 +92,11 @@ cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinate
 
 python -m src.settings_screen my-club              # adjust availability/weather preferences + scrape interval
 python -m src.scrape_once                          # one-off scrape of every saved club's overview window
+python -m src.tui                                  # the tee sheet itself, single-day detail view
 ```
 
-The main tee-sheet TUI (`python -m src.tui`) isn't built yet — see "Project structure"
-above for what's real today versus still a stub.
+`tui.py`'s multi-day overview, ad hoc search, and crowd-heatmap screens aren't built
+yet — see "Project structure" above for what's real today versus still a stub.
 
 ## Project structure
 
@@ -123,7 +126,8 @@ teetime-monitor/
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (implemented)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
 │   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (implemented)
-│   └── tui.py               # main Textual app: club/course pickers, overview, day detail, search (stub)
+│   └── tui.py               # main Textual app: club/course pickers, day detail (implemented);
+│                            #   multi-day overview, search, heatmap screens (not yet built)
 └── tests/
     ├── test_models.py
     ├── test_club_config.py
@@ -138,6 +142,7 @@ teetime-monitor/
     ├── test_calendar_context.py
     ├── test_ai_assist.py
     ├── test_analytics.py
+    ├── test_tui.py
     └── test_playability.py
 ```
 

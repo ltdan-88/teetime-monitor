@@ -357,6 +357,24 @@ would've built up in the meantime.
 - `tui.py` — Textual app, single-day detail screen: Time | Occupancy | Players, colored
   by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit. The Home screen
   also shows a `booking_watch.py` banner when it has something to report.
+  **Implemented 2026-09-06** (14 tests, `tests/test_tui.py`, run headlessly via
+  Textual's own `run_test()`/pilot harness — no real terminal window needed — plus a
+  live smoke test in a headless tmux session against real seeded data): club picker
+  (skipped if only one club is saved), course picker (skipped if the club's YAML sets a
+  valid `default_course` or there's only one option), then `DayDetailScreen`. Also adds
+  `n`/`p` to move a day forward/back within already-scraped data — not in the original
+  bullet list above, but a near-free addition once `load_latest_schedule()` already
+  takes a date. `r`'s live re-scrape is wrapped so a real network failure shows a
+  status message instead of crashing the whole app. Any
+  `storage.load_unacknowledged_booking_changes()` rows show as banners on open, with
+  `x` to dismiss them — this is what actually delivers the "warn me if my booking's
+  situation changes" feature end to end (see the new `booking_changes` table in
+  `storage.py`'s Phase 1 note above). Deliberately stops here rather than also building
+  the Phase 4 multi-day overview / search / Phase 5 heatmap screens in the same pass —
+  those depend on `scraper.scrape_overview_areas()` and `ai_assist.rank_slots()` /
+  `analytics.crowd_heatmap()` being wired into an actual layout, not just unit-tested
+  in isolation, and are worth checking against the already-agreed mockups before
+  building further rather than guessing blind at three more screens' worth of layout.
 - Config via `.env` (see Phase 0's namespaced credentials) + the active club's YAML
   (club URL, default course, default date range)
 - A small standalone scrape-and-store script (no TUI), runnable on a schedule (e.g. a
