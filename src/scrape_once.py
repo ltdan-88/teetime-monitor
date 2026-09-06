@@ -18,6 +18,16 @@ Once scrape_my_reservations() is real, the graceful-skip paths below start doing
 real work with no further changes needed here — that's the point of catching
 NotImplementedError specifically rather than a bare `except Exception`.
 
+**Weather (added 2026-09-06, alongside making weather.py's fetch calls real)**: `run()`
+also fetches the day's hourly forecast and sun times, using the club's YAML `location`
+block, and attaches them to the schedule before it's saved — this is what actually
+makes `recommend.exclude_unplayable()` and `booking_watch.check_for_changes()`'s
+weather checks see real data instead of always getting `None` back. Skipped
+(not fatal) if `location` isn't filled in yet (still the `0.0, 0.0` placeholder from
+club.example.yaml — "null island," not a real course) or the request itself fails —
+occupancy is still the primary thing this scrape is for, and a missing/late weather
+overlay for one course/date shouldn't take that down.
+
 **Adjustable scrape interval (added 2026-09-06, after feedback that once/twice-daily
 was too infrequent, especially for a date you've actually booked)**: `main()` now
 checks `_should_scrape()` before re-scraping a given course/date, using each club's
@@ -44,6 +54,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import booking_watch, club_config, storage
+from . import weather as weather_module
 from .scraper import COURSE_ALIASES, scrape_my_reservations, scrape_schedule
 
 DATA_DIR = Path("data")
@@ -61,16 +72,36 @@ def _db_path(club_id: str) -> Path:
     return DATA_DIR / f"{club_id}.db"
 
 
-def run(club_id: str, course: str, date: str) -> list[booking_watch.BookingChange]:
-    """Scrape one club/course/date's schedule and persist it, best-effort persisting
-    "My Reservations" too, then check any confirmed booking for that date against what
-    changed since the previous scrape. Intended to be called by cron/launchd — returns
-    whatever BookingChanges were detected (currently always empty until
-    booking_watch.check_for_changes() itself is implemented) so a caller/test can
-    inspect what happened without needing separate storage for it yet.
+def _attach_weather(schedule, config: dict, club_id: str, course: str, date: str) -> None:
+    """Fetch the day's forecast + sun times and attach them to `schedule` in place —
+    see the module docstring's "Weather" note for why this is best-effort, not fatal."""
+    location = config.get("location", {})
+    lat, lon = location.get("lat"), location.get("lon")
+    if not lat or not lon:
+        return  # still the club.example.yaml placeholder (0.0, 0.0) -- not configured
+    try:
+        schedule.weather = weather_module.fetch_hourly_weather(lat, lon, date)
+        schedule.sun_times = weather_module.fetch_sun_times(lat, lon, date)
+    except Exception as exc:  # noqa: BLE001 — a weather hiccup shouldn't sink the scrape
+        print(f"[scrape_once] weather fetch failed for {club_id}/{course}/{date}: {exc}")
+
+
+def run(club_id: str, course: str, date: str, config: dict | None = None) -> list[booking_watch.BookingChange]:
+    """Scrape one club/course/date's schedule (plus its weather overlay) and persist
+    it, best-effort persisting "My Reservations" too, then check any confirmed booking
+    for that date against what changed since the previous scrape. Intended to be
+    called by cron/launchd — returns whatever BookingChanges were detected so a
+    caller/test can inspect what happened without needing separate storage for it yet.
+
+    `config` is optional — `main()` already has each club's config loaded from its
+    loop over `club_config.list_clubs()` and passes it straight through, rather than
+    having `run()` redundantly re-read it via `_club_config_for_id()`. A caller (or
+    test) with no config handy can omit it and `run()` looks it up itself the same way.
     """
     DATA_DIR.mkdir(exist_ok=True)
     db_path = _db_path(club_id)
+    if config is None:
+        config = _club_config_for_id(club_id)
 
     # The schedule as of the *previous* scrape, if any — needed as booking_watch's
     # "baseline" before this new scrape becomes "latest". None on the very first scrape
@@ -78,6 +109,7 @@ def run(club_id: str, course: str, date: str) -> list[booking_watch.BookingChang
     baseline = storage.load_latest_schedule(course, date, path=db_path)
 
     latest = scrape_schedule(club_id, course, date)
+    _attach_weather(latest, config, club_id, course, date)
     storage.save_schedule(latest, path=db_path)
 
     # Needs login — not yet implemented (the real login form is still genuinely
@@ -93,16 +125,13 @@ def run(club_id: str, course: str, date: str) -> list[booking_watch.BookingChang
     if baseline is not None:
         confirmed = storage.load_confirmed_booking(course, date, path=db_path)
         if confirmed is not None and confirmed.time is not None:
-            config = _club_config_for_id(club_id)
             buffer_minutes = config.get("availability", {}).get("buffer_minutes", 20)
             holes_key = "eighteen" if confirmed.holes == 18 else "nine"
             round_duration = config.get("round_duration_minutes", {}).get(holes_key, 240)
-            try:
-                changes = booking_watch.check_for_changes(
-                    confirmed, baseline, latest, buffer_minutes, round_duration
-                )
-            except NotImplementedError:
-                pass
+            preferences = config.get("preferences", {})
+            changes = booking_watch.check_for_changes(
+                confirmed, baseline, latest, buffer_minutes, round_duration, preferences
+            )
 
     return changes
 
@@ -157,7 +186,7 @@ def main() -> None:
                 if not _should_scrape(club_id, course, target_date, config):
                     continue
                 try:
-                    run(club_id, course, target_date)
+                    run(club_id, course, target_date, config)
                 except Exception as exc:  # noqa: BLE001 — one bad course/date/club
                     # must not stop every other one in an unattended run.
                     print(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")

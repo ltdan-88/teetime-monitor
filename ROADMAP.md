@@ -344,6 +344,16 @@ would've built up in the meantime.
   something you already committed to, not surfacing something new — but a passive
   banner still respects the same "no active pings" preference, so that's the version
   built. An active notification remains a possible later upgrade, not today's scope.
+  **Implemented and tested 2026-09-06** (19 tests, `tests/test_booking_watch.py`):
+  `NEIGHBOR_CROWDED` vs. `BUFFER_SHRUNK` turned out to be the same underlying check —
+  a neighbor within `buffer_minutes` that flips from "not another flight" to "is one"
+  is `BUFFER_SHRUNK`; one that was already a flight and just got bigger is
+  `NEIGHBOR_CROWDED` — rather than two independent checks. `WEATHER_WORSENED` takes an
+  optional `preferences` dict (the same `avoid_rain`/`avoid_wind` block and thresholds
+  `recommend.exclude_unplayable()` already resolves) and only fires on a value that's
+  both past the threshold *and* risen since the baseline — already-bad-and-staying-bad
+  isn't a new development worth a banner for. `scrape_once.run()` now passes the
+  club's real `preferences` through instead of the check being a no-op.
 - `tui.py` — Textual app, single-day detail screen: Time | Occupancy | Players, colored
   by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit. The Home screen
   also shows a `booking_watch.py` banner when it has something to report.
@@ -408,6 +418,19 @@ would've built up in the meantime.
     weekend > workday) — this is what Phase 5's crowd heatmap groups history by, and
     what lets a *future* day (with no scrape history of its own yet) get a crowd
     estimate at all.
+
+**Implemented 2026-09-06**: `weather.py`'s `fetch_hourly_weather()` and
+`fetch_sun_times()` are real (each an independent Open-Meteo request — see the
+module's own docstring for why not one combined call), tested against mocked
+responses (9 tests, `tests/test_weather.py`) rather than the live API on every test
+run. `scrape_once.run()` now calls both and attaches the results to the `Schedule`
+before saving, using the club's YAML `location` — this is what actually makes
+`recommend.exclude_unplayable()` and `booking_watch.check_for_changes()`'s weather
+checks see real numbers instead of always getting `None` back (both already had the
+logic; they just had nothing real to look at yet). Best-effort: skipped if `location`
+is still the `0.0, 0.0` placeholder, and any request failure is caught and logged
+rather than sinking the whole scrape — occupancy is still the primary thing a scrape
+is for. `calendar_context.py` is still a stub.
 
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan

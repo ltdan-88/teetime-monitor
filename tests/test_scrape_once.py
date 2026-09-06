@@ -14,7 +14,11 @@ def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date: fake_schedule)
 
-    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
+    # config={} keeps this isolated from whatever real clubs/*.yaml the developer
+    # running these tests happens to have on disk locally (see _attach_weather --
+    # a real club config with real coordinates would otherwise make a real network
+    # call to Open-Meteo from inside a unit test).
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
 
     assert changes == []  # nothing to compare against yet — no prior scrape
     loaded = scrape_once.storage.load_latest_schedule(
@@ -33,7 +37,7 @@ def test_run_skips_my_reservations_when_not_implemented(tmp_path, monkeypatch):
         lambda club_id, course, date: Schedule(date=date, course=course, slots=[]),
     )
 
-    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
 
     assert changes == []
 
@@ -49,15 +53,15 @@ def test_run_uses_previous_scrape_as_baseline_on_second_call(tmp_path, monkeypat
     )
     monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date: next(schedules))
 
-    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
     # Second call now has a real baseline in storage — but no confirmed booking exists
     # for this course/date, so booking_watch.check_for_changes() is never even
     # attempted (see test below for that case). Still expect a clean empty list.
-    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
     assert changes == []
 
 
-def test_run_skips_booking_watch_when_check_for_changes_not_implemented(tmp_path, monkeypatch):
+def test_run_reports_booking_watch_changes_when_a_booking_exists(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     schedules = iter(
         [
@@ -69,7 +73,7 @@ def test_run_skips_booking_watch_when_check_for_changes_not_implemented(tmp_path
 
     # First call establishes a baseline scrape (schedules[0]) with nothing to compare
     # against yet.
-    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
 
     scrape_once.storage.save_confirmed_booking(
         ConfirmedBooking(
@@ -84,10 +88,10 @@ def test_run_skips_booking_watch_when_check_for_changes_not_implemented(tmp_path
 
     # Second call: a real baseline (schedules[0], now in storage) and a real confirmed
     # booking both exist, so run() actually reaches booking_watch.check_for_changes() —
-    # which itself still raises NotImplementedError. run() must catch that, not
-    # propagate it.
-    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06")
-    assert changes == []
+    # which is real now, and should report the party growing from 1 to 2.
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
+    assert len(changes) == 1
+    assert changes[0].kind == "party_grew"
 
 
 def test_should_scrape_true_when_never_scraped(tmp_path, monkeypatch):
@@ -161,8 +165,28 @@ def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
     )
     calls = []
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: False)
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date: calls.append((course, date)))
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config: calls.append((course, date)))
 
     scrape_once.main()
 
     assert calls == []
+
+
+def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
+    # main() already loads each club's config to check _should_scrape() -- it should
+    # pass that same config straight to run() rather than making run() re-read it.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
+    club_config_dict = {"club_id": "0000001", "overview_days": 1}
+    monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda slug: club_config_dict)
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
+
+    seen_configs = []
+    monkeypatch.setattr(
+        scrape_once, "run", lambda club_id, course, date, config: seen_configs.append(config)
+    )
+
+    scrape_once.main()
+
+    assert seen_configs
+    assert all(config is club_config_dict for config in seen_configs)

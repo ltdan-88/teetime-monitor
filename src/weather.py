@@ -1,18 +1,27 @@
 """Rain + wind + sunrise/sunset client for the weather/daylight overlay (ROADMAP.md Phase 2).
 
-Uses Open-Meteo (https://open-meteo.com/) — free, no API key required. A single forecast
-call covers everything here: `hourly=precipitation_probability,precipitation,
-wind_speed_10m,temperature_2m` for the rain/wind/temperature overlay, and
-`daily=sunrise,sunset` for playability (see playability.py) — no second API/service
-needed for sunrise/sunset.
+Uses Open-Meteo (https://open-meteo.com/) — free, no API key required, forecasts up to
+16 days out (comfortably past this project's 5-day overview window). `timezone=auto`
+tells Open-Meteo to return timestamps in the location's own local time, matching the
+plain "HH:MM" used throughout (Slot.time, WeatherPoint.time, SunTimes) with no manual
+timezone math needed on this end.
 
 Club coordinates come from the active club's YAML `location` block (see ROADMAP.md
 Phase 0 for multi-club config).
 
-NOT YET IMPLEMENTED, except `conditions_during_round()` — see its docstring.
+`fetch_hourly_weather()` and `fetch_sun_times()` are real as of 2026-09-06, each making
+its own independent request (`hourly=...` / `daily=...` respectively) rather than one
+combined call for both — simpler to test and reason about independently, and one
+failing (e.g. a transient daily-data gap) doesn't take the other down with it. A
+combined single-request version is a plausible future optimization if API call volume
+ever actually matters for a personal tool scraping a handful of times a day, but isn't
+worth the added complexity now. `conditions_during_round()` (below) was already
+implemented and tested earlier — see its own docstring.
 """
 
 from datetime import datetime, timedelta
+
+import httpx
 
 from .models import RoundConditions, SunTimes, WeatherPoint
 
@@ -21,9 +30,49 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _TIME_FMT = "%H:%M"
 
 
+def _hhmm(iso_timestamp: str) -> str:
+    """"2026-09-06T14:00" -> "14:00" (Open-Meteo's ISO 8601 hourly/daily timestamps,
+    confirmed 2026-09-05 in ROADMAP.md's "Live site findings" for the daily variant)."""
+    return iso_timestamp[-5:]
+
+
 def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint]:
-    """Fetch hourly precipitation + wind speed for one date, one location."""
-    raise NotImplementedError("weather.py is a stub — see ROADMAP.md Phase 2")
+    """Fetch hourly precipitation (probability + amount), wind speed, and temperature
+    for one date, one location."""
+    response = httpx.get(
+        OPEN_METEO_URL,
+        params={
+            "latitude": lat,
+            "longitude": lon,
+            "start_date": date,
+            "end_date": date,
+            "hourly": "precipitation_probability,precipitation,wind_speed_10m,temperature_2m",
+            "timezone": "auto",
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    hourly = response.json().get("hourly", {})
+
+    times = hourly.get("time", [])
+    probabilities = hourly.get("precipitation_probability", [])
+    amounts = hourly.get("precipitation", [])
+    wind_speeds = hourly.get("wind_speed_10m", [])
+    temperatures = hourly.get("temperature_2m", [])
+
+    def at(values: list, index: int):
+        return values[index] if index < len(values) else None
+
+    return [
+        WeatherPoint(
+            time=_hhmm(timestamp),
+            precipitation_probability=at(probabilities, i),
+            precipitation_mm=at(amounts, i),
+            wind_speed_kph=at(wind_speeds, i),
+            temperature_c=at(temperatures, i),
+        )
+        for i, timestamp in enumerate(times)
+    ]
 
 
 def fetch_sun_times(lat: float, lon: float, date: str) -> SunTimes:
@@ -32,7 +81,26 @@ def fetch_sun_times(lat: float, lon: float, date: str) -> SunTimes:
     Open-Meteo's `daily` response returns these as ISO 8601 timestamps
     (e.g. "2026-09-05T19:47") — convert to "HH:MM" to match SunTimes/Slot.time.
     """
-    raise NotImplementedError("weather.py is a stub — see ROADMAP.md Phase 2")
+    response = httpx.get(
+        OPEN_METEO_URL,
+        params={
+            "latitude": lat,
+            "longitude": lon,
+            "start_date": date,
+            "end_date": date,
+            "daily": "sunrise,sunset",
+            "timezone": "auto",
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+    daily = response.json().get("daily", {})
+    sunrises = daily.get("sunrise", [])
+    sunsets = daily.get("sunset", [])
+    return SunTimes(
+        sunrise=_hhmm(sunrises[0]) if sunrises else "",
+        sunset=_hhmm(sunsets[0]) if sunsets else "",
+    )
 
 
 def conditions_during_round(
