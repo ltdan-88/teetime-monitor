@@ -352,7 +352,14 @@ would've built up in the meantime.
   pc caddie's no-history limitation, so this is worth having from the start rather than
   bolted on later. Run it **more than once a day** (e.g. morning and evening), not just
   daily — see the confirmed-bookings note above for why once-daily leaves a same-day
-  booking gap.
+  booking gap. `scrape_once.py`'s `run()` is real as of 2026-09-06 for the login-free
+  half (scrape + save via storage.py); the login-dependent half (`scrape_my_reservations`,
+  then `booking_watch.check_for_changes`) degrades gracefully — caught and skipped, not
+  fatal — until the real login form exists, so one club's missing login doesn't stop an
+  unattended run scraping every other club/course/date it covers. `main()` loops every
+  saved club and its `overview_days` window with no arguments needed, matching the cron
+  example above — not actually installed as a cron/launchd job by this session, since
+  that's a standing persistent change and stays the user's call.
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
