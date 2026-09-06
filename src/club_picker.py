@@ -13,6 +13,11 @@ its numeric id found by hand (see clubs/club.example.yaml's own instructions); t
 screen is for the ones after that, matching what actually prompted it: a home club
 plus a few others visited occasionally.
 
+If PCC_USER/PCC_PASS aren't set yet for that club, this pushes `credentials_screen.py`
+automatically (added 2026-09-07, same session — "I want to setup credentials from UI.
+It should be user friendly") so they can be filled in right here instead of hand-
+editing `.env`, then retries the fetch once saved.
+
 Run directly: `python -m src.club_picker <existing-club-slug>` (the clubs/*.yaml
 filename slug, not the pc caddie numeric id) — or with no argument if exactly one
 club is already saved, matching the "skip the picker" convention used elsewhere in
@@ -27,9 +32,8 @@ Saving writes only `club_config.new_club_stub(club_id)` — see that function's
 docstring for why everything besides `club_id` is left for the user to fill in by
 hand or via settings_screen.py.
 
-Bilingual like every other screen in this project (i18n.py); shares the same
-`TranslatedFooter` approach as settings_screen.py, duplicated rather than imported so
-this standalone script doesn't pull in tui.py's much heavier dependency chain.
+Bilingual like every other screen in this project (i18n.py); uses the shared
+`TranslatedFooter` from translated_footer.py, same as every other screen.
 """
 
 import re
@@ -43,9 +47,11 @@ from textual.widgets import Button, Header, Input, Static
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from . import club_config, i18n
+from . import club_config, env_file, i18n
 from . import theme as theme_module
+from .credentials_screen import CredentialsScreen
 from .scraper import fetch_club_directory
+from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 
 def search_club_directory(directory: list[tuple[str, str]], query: str) -> list[tuple[str, str]]:
@@ -73,29 +79,6 @@ def slugify(name: str) -> str:
         normalized = normalized.replace(umlaut, plain)
     slug = _SLUG_INVALID_CHARS.sub("-", normalized).strip("-")
     return slug or "club"
-
-
-class TranslatedFooter(Static):
-    """Duplicated from settings_screen.py/tui.py's own — see either module's docstring
-    for why Textual's built-in `Footer` can't be translated at render time.
-    `bindings` is `[(key, i18n_key), ...]` in display order."""
-
-    DEFAULT_CSS = """
-    TranslatedFooter {
-        dock: bottom;
-        height: 1;
-        background: $panel;
-        color: $text;
-    }
-    """
-
-    def __init__(self, bindings: list[tuple[str, str]]) -> None:
-        super().__init__()
-        self._key_bindings = bindings
-
-    def render(self) -> str:
-        parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
-        return "  ".join(parts)
 
 
 class ClubPickerApp(App[None]):
@@ -134,11 +117,17 @@ class ClubPickerApp(App[None]):
         existing_slug: str,
         clubs_dir: Path = club_config.CLUBS_DIR,
         on_saved: Callable[[str], None] | None = None,
+        env_path: Path | None = None,
+        template_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.existing_slug = existing_slug
         self.clubs_dir = clubs_dir
         self._on_saved = on_saved
+        # Resolved at call time, not bound as a literal default -- see env_file.py's
+        # module docstring for the frozen-default gotcha this avoids.
+        self.env_path = env_path if env_path is not None else env_file.ENV_FILE
+        self.template_path = template_path if template_path is not None else env_file.ENV_EXAMPLE_FILE
         self.directory: list[tuple[str, str]] = []
         self.selected: tuple[str, str] | None = None
         self._match_names: dict[str, str] = {}
@@ -162,14 +151,27 @@ class ClubPickerApp(App[None]):
         """Best-effort, not fatal to the whole screen — a missing/wrong credential or
         a live fetch failure just disables search with a clear status message, rather
         than crashing (same "fail visibly, not loudly" stance used everywhere else
-        network calls happen in this project)."""
+        network calls happen in this project). Specifically missing PCC_USER/PCC_PASS
+        (as opposed to a broken/missing club_id, which a credentials screen can't
+        fix) pushes CredentialsScreen right here — added 2026-09-07, direct follow-up
+        to the picker itself: "I want to setup credentials from UI. It should be
+        user friendly" — so a first-time user hits this and can fill them in on the
+        spot, without leaving to hand-edit .env, before retrying automatically."""
         status = self.query_one("#status", Static)
+        search = self.query_one("#search", Input)
         config = club_config.load_club_config(self.existing_slug, self.clubs_dir)
         existing_club_id = config.get("club_id")
         username, password = club_config.resolve_credentials(self.existing_slug)
-        if not existing_club_id or not username or not password:
+        if not existing_club_id:
             status.update(i18n.t("club_picker.no_credentials"))
-            self.query_one("#search", Input).disabled = True
+            search.disabled = True
+            return
+        if not username or not password:
+            status.update(i18n.t("club_picker.no_credentials"))
+            search.disabled = True
+            self.push_screen(
+                CredentialsScreen(self.env_path, self.template_path), self._on_credentials_screen_dismissed
+            )
             return
         status.update(i18n.t("club_picker.fetching"))
         try:
@@ -178,9 +180,14 @@ class ClubPickerApp(App[None]):
             # (wrong/expired credentials, no network, site down) and shouldn't crash
             # the screen over it.
             status.update(i18n.t("club_picker.fetch_failed", error=exc))
-            self.query_one("#search", Input).disabled = True
+            search.disabled = True
             return
+        search.disabled = False
         status.update(i18n.t("club_picker.select_prompt"))
+
+    def _on_credentials_screen_dismissed(self, saved: bool) -> None:
+        if saved:
+            self._load_directory()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "search":

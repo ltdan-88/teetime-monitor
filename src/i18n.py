@@ -110,6 +110,17 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Saved clubs/{slug}.yaml — edit it to add location, calendar, and preferences "
             "(see club.example.yaml)."
         ),
+        "credentials.title": "pc caddie login",
+        "credentials.intro": (
+            "One pc caddie login covers every saved club. Stored in .env, on this machine only."
+        ),
+        "credentials.username_label": "Username / email",
+        "credentials.password_label": "Password",
+        "credentials.password_hint_unset": "(not set yet)",
+        "credentials.password_hint_set": "(already set — leave blank to keep it)",
+        "credentials.username_required": "Enter a username first.",
+        "credentials.password_required": "Enter a password first.",
+        "credentials.saved": "Saved to .env.",
     },
     "de": {
         "picker.club_title": "Welcher Club?",
@@ -186,6 +197,17 @@ _STRINGS: dict[str, dict[str, str]] = {
             "clubs/{slug}.yaml gespeichert — Standort, Kalender und Einstellungen bitte "
             "ergänzen (siehe club.example.yaml)."
         ),
+        "credentials.title": "pc caddie Anmeldung",
+        "credentials.intro": (
+            "Eine pc caddie Anmeldung gilt für alle gespeicherten Clubs. Wird nur lokal in .env gespeichert."
+        ),
+        "credentials.username_label": "Benutzername / E-Mail",
+        "credentials.password_label": "Passwort",
+        "credentials.password_hint_unset": "(noch nicht gesetzt)",
+        "credentials.password_hint_set": "(bereits gesetzt — leer lassen, um es zu behalten)",
+        "credentials.username_required": "Bitte zuerst einen Benutzernamen eingeben.",
+        "credentials.password_required": "Bitte zuerst ein Passwort eingeben.",
+        "credentials.saved": "In .env gespeichert.",
     },
 }
 

@@ -14,9 +14,10 @@ Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
 booking. The TUI's single-day detail screen (club/course picker, the tee sheet itself,
 confirming a booking, and the booking-watch banners) is real too, and so is a
 standalone searchable club picker (`club_picker.py`, added 2026-09-07) for adding
-clubs beyond your first one — see "Project structure" below. Still to come: the
-multi-day overview, ad hoc search, and crowd-heatmap screens. See
-[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+clubs beyond your first one, plus a credentials setup screen (`credentials_screen.py`)
+it opens automatically the moment it needs a login and none is configured yet — see
+"Project structure" below. Still to come: the multi-day overview, ad hoc search, and
+crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -101,12 +102,16 @@ See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 ```bash
 pip install -e .
 playwright install chromium
-cp .env.example .env                              # fill in PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
 cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinates, etc.
                                                     # (your first club only -- see club_picker.py below
                                                     # for adding the rest by searching, not hand-typing)
 
-python -m src.club_picker my-club                  # search pc caddie's directory to add another club
+python -m src.credentials_screen                   # set PCC_USER/PCC_PASS from the UI -- creates .env
+                                                    # for you if it doesn't exist yet (still add
+                                                    # ANTHROPIC_API_KEY to it by hand afterward)
+python -m src.club_picker my-club                   # search pc caddie's directory to add another club --
+                                                    # opens the credentials screen above automatically
+                                                    # first if you skipped it
 python -m src.settings_screen my-club              # adjust availability/weather preferences + scrape interval
 python -m src.scrape_once                          # one-off scrape of every saved club's overview window
 python -m src.tui                                  # the tee sheet itself, single-day detail view
@@ -137,6 +142,9 @@ teetime-monitor/
 │   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
 │   ├── settings_screen.py  # standalone Textual screen: edit preferences/interval (implemented)
 │   ├── club_picker.py      # standalone Textual screen: search pc caddie's directory, add a club (implemented)
+│   ├── credentials_screen.py # Textual screen (standalone or pushed): set PCC_USER/PCC_PASS (implemented)
+│   ├── env_file.py         # read/write .env KEY=value pairs in place (implemented)
+│   ├── translated_footer.py # shared bilingual footer widget, used by every screen (implemented)
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client (implemented)
 │   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it? (implemented)
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
@@ -159,6 +167,8 @@ teetime-monitor/
     ├── test_recommend.py
     ├── test_settings_screen.py
     ├── test_club_picker.py
+    ├── test_credentials_screen.py
+    ├── test_env_file.py
     ├── test_weather.py
     ├── test_booking_watch.py
     ├── test_calendar_context.py
@@ -176,8 +186,16 @@ teetime-monitor/
 Credentials are never hardcoded — read from `.env`, which is gitignored. One pc caddie
 login covers every saved club (confirmed 2026-09-05), so plain `PCC_USER`/`PCC_PASS` is
 normally all you need even with several clubs configured — see `.env.example` for the
-rarer per-club override, and for `ANTHROPIC_API_KEY`. Club config files under `clubs/`
-are gitignored too, aside from the tracked `club.example.yaml` template. This is a
+rarer per-club override, and for `ANTHROPIC_API_KEY`. Set `PCC_USER`/`PCC_PASS` via
+`python -m src.credentials_screen` (or club_picker.py, which opens the same screen
+automatically the moment it needs a login it doesn't have) rather than hand-editing
+`.env` — Claude never sees, types, or handles the value either way, this just saves
+opening a text editor. Fixed 2026-09-07, found while building that screen: `.env` is
+now actually loaded into the environment (`club_config.py` calls `python-dotenv`'s
+`load_dotenv()`) — a real, easy-to-miss gap before this, since a `.env` file sitting
+there doing nothing looks identical to one that was never created. Club config files
+under `clubs/` are gitignored too, aside from the tracked `club.example.yaml`
+template. This is a
 personal tool built against one real club's actual portal — a live walkthrough
 (2026-09-05, see `ROADMAP.md` "Live site findings" and "Confirmed pc caddie markup
 reference") confirmed the tee sheet needs no login, and `scraper.py`'s tee-sheet

@@ -1,3 +1,8 @@
+import importlib
+
+import dotenv
+
+from src import club_config as club_config_module
 from src.club_config import (
     list_clubs,
     load_club_config,
@@ -75,3 +80,19 @@ def test_new_club_stub_fills_only_club_id():
 def test_new_club_stub_is_saveable_and_loadable(tmp_path):
     save_club_config("guest-club", new_club_stub("0352001"), tmp_path)
     assert load_club_config("guest-club", tmp_path)["club_id"] == "0352001"
+
+
+def test_module_import_loads_dotenv(monkeypatch):
+    # Regression test for a real bug found 2026-09-07: python-dotenv was a listed
+    # dependency from day one, but nothing ever actually called load_dotenv() -- a
+    # .env file only ever did anything if something else had already loaded it into
+    # the environment first. Fixed by calling it at module import time (see
+    # club_config.py's module docstring for why import time, not lazily inside
+    # resolve_credentials()). Verified here by monkeypatching the underlying
+    # dotenv.load_dotenv (not club_config's own reference to it, which gets rebound
+    # by the `from dotenv import load_dotenv` line every reload) and reloading the
+    # module -- a real call happening at import is what this regression actually is.
+    calls = []
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: calls.append((a, k)))
+    importlib.reload(club_config_module)
+    assert len(calls) == 1

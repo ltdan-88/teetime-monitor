@@ -7,12 +7,37 @@ startup and to namespace its credentials in .env.
 
 Unlike most of Phase 0/1, this module needs no pc caddie site access — just local
 files and env vars — so it's implemented (and tested) now rather than stubbed.
+
+Found and fixed 2026-09-07, while wiring up credentials_screen.py: `python-dotenv`
+has been a listed dependency since the very first commit, but nothing in this
+codebase ever actually called `load_dotenv()` — a `.env` file sitting next to the
+project only ever did anything if something *else* (a shell profile, `direnv`,
+manually running `export $(cat .env)`) had already loaded it into the environment
+first. Silent and easy to miss, since `resolve_credentials()` degrading to `("", "")`
+looks identical whether `.env` is missing, misspelled, or just never loaded —
+genuinely surfaced only once a screen existed whose entire point is "fill in `.env`
+and have it work right away."
+
+Fixed at import time, here, rather than lazily inside `resolve_credentials()` itself:
+every real entry point (`tui.py`, `scrape_once.py`, `settings_screen.py`,
+`club_picker.py`) already imports this module before doing anything else, including
+before `ai_assist.py` ever constructs an `anthropic.Anthropic()` client (which reads
+`ANTHROPIC_API_KEY` from the environment internally, on its own, with no call into
+this module at all) — an import-time call is what actually guarantees `.env` is
+loaded before *any* of that runs, regardless of which function happens to be called
+first. `load_dotenv()`'s own default behavior of never overriding an already-set
+environment variable is exactly right here, so an env var set some other way still
+wins; its default upward directory search from this file's own location finds the
+project root's `.env` regardless of the caller's current working directory.
 """
 
 import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()
 
 CLUBS_DIR = Path("clubs")
 EXAMPLE_FILENAME = "club.example.yaml"

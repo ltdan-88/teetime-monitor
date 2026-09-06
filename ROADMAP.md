@@ -267,6 +267,44 @@ the ones after it. 21 new tests (4 in `test_scraper.py`, 2 in `test_club_config.
 15 in `test_club_picker.py`, the latter a real headless Textual `run_test()` app same
 as `test_settings_screen.py`) — 276 tests passing (was 255).
 
+**Credentials setup screen, same day, direct follow-up ("I want to setup credentials
+from UI. It should be user friendly")**: new `credentials_screen.py` — a Textual
+`Screen[bool]`, not its own standalone `App` like the others, specifically so
+`club_picker.py` can *push* it the moment it discovers no PCC_USER/PCC_PASS are
+configured, let the user fill them in without leaving the picker, and retry the
+directory fetch automatically once saved (still runnable on its own too, via a thin
+`CredentialsApp` wrapper: `python -m src.credentials_screen`). Username field
+pre-fills from the current `.env`; password field uses Textual's own masked input and
+is never pre-filled — leaving it blank on save means "keep the existing one," so
+there's never a reason to display or retype a password that already works. New
+`env_file.py` reads/writes `.env` KEY=value pairs in place, preserving every other
+line (comments, unrelated keys, per-club overrides) — starts from `.env.example`'s
+own structure if `.env` doesn't exist yet at all.
+
+Real, previously-unnoticed bug found and fixed while wiring this up:
+`python-dotenv` has been a listed dependency since the very first commit, but
+nothing anywhere in this codebase ever actually called `load_dotenv()` — a `.env`
+file sitting next to the project only ever did anything if something *else* (a shell
+profile, `direnv`, manually exporting it) had already loaded it into the
+environment first. Completely silent, since `resolve_credentials()` degrading to
+`("", "")` looks identical whether `.env` is missing, misspelled, or just never
+loaded — every "fill in `.env`" instruction in this README up to today only ever
+worked by accident, if it worked at all. Fixed at `club_config.py`'s import time
+(every real entry point already imports it before doing anything else, including
+before `ai_assist.py` constructs its own `anthropic.Anthropic()` client, which reads
+`ANTHROPIC_API_KEY` from the environment with no call into this module at all) —
+see that module's own docstring for why import time, not lazily inside
+`resolve_credentials()` itself.
+
+Also factored the small `TranslatedFooter` widget (previously duplicated three times
+across `tui.py`/`settings_screen.py`/`club_picker.py`) into its own
+`translated_footer.py`, once this 4th screen needed the identical thing — each
+module now re-exports it (`from .translated_footer import TranslatedFooter`) so
+existing imports/tests keep working unchanged. 21 more new tests (9 in
+`test_credentials_screen.py`, 10 in `test_env_file.py`, 2 more in `test_club_picker.py`
+for the auto-push/retry flow, 1 more in `test_club_config.py` regression-testing the
+dotenv fix) — 297 tests passing (was 276).
+
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
 course you're even looking at has to be settled before any scraping happens, and the

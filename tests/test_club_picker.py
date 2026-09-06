@@ -68,18 +68,71 @@ def _fake_fetch_ok(monkeypatch):
     monkeypatch.setattr(club_picker, "fetch_club_directory", lambda club_id, user, password: _DIRECTORY)
 
 
-def test_club_picker_shows_no_credentials_message(tmp_path):
+def test_club_picker_pushes_credentials_screen_when_none_configured(tmp_path, monkeypatch):
+    # Added 2026-09-07: missing credentials now open CredentialsScreen right there
+    # instead of just printing a message and leaving the user to go hand-edit .env --
+    # see club_picker.py's own module docstring.
     (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.delenv("PCC_USER", raising=False)
+    monkeypatch.delenv("PCC_PASS", raising=False)
 
     async def scenario():
-        from textual.widgets import Static
+        from src.credentials_screen import CredentialsScreen
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = ClubPickerApp(
+            "home-club",
+            clubs_dir=tmp_path,
+            env_path=tmp_path / ".env",
+            template_path=tmp_path / ".env.example",
+        )
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert "PCC_USER" in str(app.query_one("#status", Static).content)
+            assert isinstance(app.screen, CredentialsScreen)
 
     asyncio.run(scenario())
+
+
+def test_club_picker_retries_directory_fetch_after_credentials_saved(monkeypatch, tmp_path):
+    # The full happy path: no credentials yet -> CredentialsScreen pops up
+    # automatically -> user fills it in -> dismissing with a save retries the fetch
+    # that originally failed, without the user having to do anything else.
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.delenv("PCC_USER", raising=False)
+    monkeypatch.delenv("PCC_PASS", raising=False)
+    _fake_fetch_ok(monkeypatch)
+
+    async def scenario():
+        from textual.widgets import OptionList
+
+        app = ClubPickerApp(
+            "home-club",
+            clubs_dir=tmp_path,
+            env_path=tmp_path / ".env",
+            template_path=tmp_path / ".env.example",
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            await pilot.click("#quit")
+            await pilot.pause()
+            # Back on ClubPickerApp's own screen now, with a real directory loaded.
+            app.query_one("#search").value = "leipzig"
+            await pilot.pause()
+            assert app.query_one("#results", OptionList).option_count == 1
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        # CredentialsScreen writes directly to os.environ (see its own docstring for
+        # why), bypassing monkeypatch's tracking -- clean up explicitly so this
+        # doesn't leak into later tests in the same process.
+        import os
+
+        os.environ.pop("PCC_USER", None)
+        os.environ.pop("PCC_PASS", None)
 
 
 def test_club_picker_fetches_directory_and_filters_on_search(monkeypatch, tmp_path):

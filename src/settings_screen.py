@@ -26,11 +26,12 @@ as `python -m src.settings_screen`, not a Screen pushed into TeetimeApp), so it 
 its own `apply_theme()`/`apply_language()` calls rather than inheriting TeetimeApp's.
 No in-app language-switch command here, unlike tui.py — switch language from the main
 TUI (persists to the shared config file) and this screen picks it up next time it's
-run. Its footer's key hint ("q Quit") is rendered by a small `TranslatedFooter`
-duplicated from tui.py's own — see that module's docstring for why Textual's built-in
-`Footer` can't be translated at render time; duplicated rather than imported so this
-module doesn't pull in tui.py's much heavier dependency chain (scraper, storage,
-booking_watch) just for one small widget.
+run. Its footer's key hint ("q Quit") is rendered by a small `TranslatedFooter` — see
+translated_footer.py's docstring for why Textual's built-in `Footer` can't be
+translated at render time. Factored into its own tiny module (2026-09-07, once a
+fourth screen needed it) specifically so it stays import-light — no need to pull in
+tui.py's much heavier dependency chain (scraper, storage, booking_watch) just for one
+small widget.
 """
 
 import copy
@@ -54,6 +55,7 @@ from .scrape_once import (
     DEFAULT_SCRAPE_INTERVAL_MINUTES,
     DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
 )
+from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 
 def _get_path(config: dict, path: tuple[str, ...], default: Any = None) -> Any:
@@ -185,28 +187,6 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
             del updated["availability"][window_key]
 
     return updated
-
-
-class TranslatedFooter(Static):
-    """Duplicated from tui.py's own — see this module's docstring and tui.py's for why.
-    `bindings` is `[(key, i18n_key), ...]` in display order."""
-
-    DEFAULT_CSS = """
-    TranslatedFooter {
-        dock: bottom;
-        height: 1;
-        background: $panel;
-        color: $text;
-    }
-    """
-
-    def __init__(self, bindings: list[tuple[str, str]]) -> None:
-        super().__init__()
-        self._key_bindings = bindings
-
-    def render(self) -> str:
-        parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
-        return "  ".join(parts)
 
 
 class SettingsScreen(App[None]):

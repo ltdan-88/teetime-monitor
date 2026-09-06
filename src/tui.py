@@ -82,35 +82,9 @@ from . import theme as theme_module
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, scrape_schedule
+from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
-
-
-class TranslatedFooter(Static):
-    """A minimal stand-in for Textual's built-in `Footer` — see module docstring's
-    "Revised the same day" note for why: that widget's key-hint text comes from each
-    Screen's class-level `BINDINGS` descriptions (fixed at import time, English), and
-    no public API was found to override a binding's displayed text at render time.
-    Renders the same key hints from i18n.py instead — `bindings` is `[(key,
-    i18n_key), ...]` in display order; the actual key dispatch still goes through the
-    Screen's own `BINDINGS`/`action_*` methods, this widget only controls what's shown."""
-
-    DEFAULT_CSS = """
-    TranslatedFooter {
-        dock: bottom;
-        height: 1;
-        background: $panel;
-        color: $text;
-    }
-    """
-
-    def __init__(self, bindings: list[tuple[str, str]]) -> None:
-        super().__init__()
-        self._key_bindings = bindings
-
-    def render(self) -> str:
-        parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
-        return "  ".join(parts)
 
 
 def _fill_style(booked: int, capacity: int) -> str:
