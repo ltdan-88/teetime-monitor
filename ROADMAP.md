@@ -375,6 +375,46 @@ would've built up in the meantime.
   `analytics.crowd_heatmap()` being wired into an actual layout, not just unit-tested
   in isolation, and are worth checking against the already-agreed mockups before
   building further rather than guessing blind at three more screens' worth of layout.
+
+**Color themes, added 2026-09-06 ("I'd like color themes like in brew launcher").**
+New `src/theme.py`: the same 10 named themes as `brew-launcher`'s own theme system —
+catppuccin (default), gruvbox, tokyonight, nord, dracula, green, amber, solarized-dark,
+solarized-light, red-sands — resolved the same way (`TEETIME_MONITOR_THEME` env var >
+a saved config file > default), persisted the same way (a flat `KEY=value` text file,
+`~/.config/teetime-monitor/config`, never sourced as code — the same safety property
+brew-launcher's own config file has, just a separate file since a color preference
+isn't a per-club fact). Seven of the ten are Textual's own built-in themes (sourced
+from the same published palettes brew-launcher's own comments cite — Catppuccin,
+Gruvbox, Tokyo Night, Nord, Dracula, Solarized) rather than redefined from scratch;
+only the three brew-launcher has that Textual doesn't — the monochrome green/amber
+CRT-phosphor palettes and Red Sands (from iTerm2-Color-Schemes) — are registered as
+custom `Theme` objects, using brew-launcher's own exact hex values mapped onto
+Textual's semantic fields (primary/secondary/accent/foreground/background/etc.),
+documented per-theme in `theme.py` since fzf's 15-key vocabulary and Textual's don't
+line up 1:1.
+
+Deliberately *not* a hand-built theme-picker screen, unlike this project's other
+pickers: Textual's own command palette (`ctrl+p`, or `t` on the day-detail screen)
+already provides a searchable, live-preview theme picker covering every registered
+theme for free, and applies changes immediately — a genuine improvement over
+brew-launcher's own version, which needs a full process relaunch since fzf's colors
+are baked in at subprocess-spawn time. `TeetimeApp.watch_theme()` persists whatever
+gets picked, including a native Textual theme with no brew-launcher name (e.g.
+"monokai") — stored under its own raw name in that case, not forced into the 10.
+
+One real gotcha caught while wiring this up, the same one already caught once this
+session in `club_config.save_club_config()`: `theme.py`'s functions originally took
+`config_file: Path = CONFIG_FILE` as a plain default — frozen at import time, so
+monkeypatching `theme.CONFIG_FILE` in a test would have silently done nothing, and a
+test instantiating the real `TeetimeApp` would write straight to the developer's
+actual `~/.config/teetime-monitor/config` — confirmed happening before the fix (a
+stray `THEME=catppuccin` line briefly appeared on disk from a test run, cleaned up
+once caught). Fixed by resolving `config_file` at call time (`config_file or CONFIG_FILE`
+inside the function body) instead of a bound default, and verified live in a headless
+tmux session end to end: picked "green" via the command palette, confirmed it applied
+immediately, confirmed the exact RGB(51,255,102) = #33ff66 hex value in the raw
+terminal output, quit, relaunched, and confirmed it came back up already green.
+
 - Config via `.env` (see Phase 0's namespaced credentials) + the active club's YAML
   (club URL, default course, default date range)
 - A small standalone scrape-and-store script (no TUI), runnable on a schedule (e.g. a

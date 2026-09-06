@@ -78,6 +78,10 @@ and crowd-heatmap screens, and the real pc caddie login form. See
   usually emptiest?")
 - Personal stats (days since you last played, rounds logged, and open-ended commentary
   once there's real history to look at)
+- Color themes, the same 10 named ones [`brew-launcher`](https://github.com/) uses
+  (catppuccin, gruvbox, tokyonight, nord, dracula, green, amber, solarized-dark,
+  solarized-light, red-sands) — switch via `ctrl+p` or the `t` key, applied
+  immediately and remembered next time you open the app
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
@@ -126,6 +130,7 @@ teetime-monitor/
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (implemented)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
 │   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (implemented)
+│   ├── theme.py            # 10 color themes, same set as brew-launcher (implemented)
 │   └── tui.py               # main Textual app: club/course pickers, day detail (implemented);
 │                            #   multi-day overview, search, heatmap screens (not yet built)
 └── tests/
@@ -142,6 +147,7 @@ teetime-monitor/
     ├── test_calendar_context.py
     ├── test_ai_assist.py
     ├── test_analytics.py
+    ├── test_theme.py
     ├── test_tui.py
     └── test_playability.py
 ```
@@ -166,3 +172,9 @@ hand-written comments in that club's own `clubs/*.yaml` (e.g. ones copied over f
 `club.example.yaml` when it was first created) won't survive — the checked-in
 `club.example.yaml` template itself is never touched, so it stays available as
 reference regardless.
+
+Theme choice is separate from any club's YAML — it's a "how do I like my terminal to
+look" preference, not a per-club fact — and lives in its own file,
+`~/.config/teetime-monitor/config`, in the same spirit as `brew-launcher`'s own config
+file. Set `TEETIME_MONITOR_THEME=<name>` to override it for one run without changing
+the saved default.

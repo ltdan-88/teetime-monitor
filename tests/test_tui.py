@@ -3,7 +3,7 @@ import asyncio
 from textual.app import App
 from textual.widgets import DataTable, Input, OptionList, Static
 
-from src import scrape_once, storage, tui
+from src import scrape_once, storage, theme, tui
 from src.models import Schedule, Slot
 
 
@@ -284,6 +284,9 @@ def test_course_picker_dismisses_with_selected_course():
 
 def test_app_skips_pickers_with_one_club_and_default_course(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    # TeetimeApp.on_mount() applies a theme, which persists to disk -- redirect it
+    # away from the real ~/.config/teetime-monitor/config for the duration of the test.
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
@@ -304,7 +307,8 @@ def test_app_skips_pickers_with_one_club_and_default_course(tmp_path, monkeypatc
     _run(scenario())
 
 
-def test_app_exits_cleanly_with_no_clubs_saved(monkeypatch):
+def test_app_exits_cleanly_with_no_clubs_saved(tmp_path, monkeypatch):
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
 
     async def scenario():
@@ -312,5 +316,70 @@ def test_app_exits_cleanly_with_no_clubs_saved(monkeypatch):
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.pause()
+
+    _run(scenario())
+
+
+# --- Themes -------------------------------------------------------------------------
+
+
+def test_app_applies_resolved_theme_on_startup(tmp_path, monkeypatch):
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    theme.save_theme("nord", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.theme == "nord"
+
+    _run(scenario())
+
+
+def test_app_persists_theme_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.theme = "green"
+            await pilot.pause()
+
+    _run(scenario())
+
+    assert theme.load_saved_theme(tmp_path / "theme-config") == "green"
+
+
+def test_app_persists_a_native_textual_theme_with_no_brew_launcher_equivalent(tmp_path, monkeypatch):
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.theme = "monokai"  # a real Textual theme, not one of the 10 named here
+            await pilot.pause()
+
+    _run(scenario())
+
+    assert theme.load_saved_theme(tmp_path / "theme-config") == "monokai"
+
+
+def test_day_detail_t_binding_opens_command_palette(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+            from textual.command import CommandPalette
+
+            assert any(isinstance(screen, CommandPalette) for screen in app.screen_stack)
 
     _run(scenario())

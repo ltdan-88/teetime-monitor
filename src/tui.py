@@ -29,6 +29,14 @@ Any unacknowledged `storage.load_unacknowledged_booking_changes()` rows show as 
 at the top of the day-detail screen on open — this is what actually delivers the
 "warn me if my booking's situation changes" feature end to end: scrape_once.py detects
 and persists a change, this screen is what a person actually sees it in.
+
+Color themes (added 2026-09-06, "I'd like color themes like in brew launcher"): see
+theme.py for the 10 named themes and how they resolve/persist. Applied once at
+startup (`TeetimeApp.on_mount`); switching afterward is Textual's own command palette
+(`ctrl+p`, or `t` on the day-detail screen — searchable, live preview, no relaunch
+needed, unlike brew-launcher's own version) rather than a hand-built picker screen —
+`watch_theme()` persists whatever the command palette picks, including a native
+Textual theme with no brew-launcher equivalent.
 """
 
 from datetime import date as date_cls
@@ -41,6 +49,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Opt
 from textual.widgets.option_list import Option
 
 from . import club_config, storage
+from . import theme as theme_module
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, scrape_schedule
@@ -160,6 +169,7 @@ class DayDetailScreen(Screen[None]):
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
         ("x", "dismiss_banners", "Dismiss banners"),
+        ("t", "command_palette", "Theme"),
         ("q", "quit", "Quit"),
     ]
 
@@ -256,6 +266,13 @@ class DayDetailScreen(Screen[None]):
     def action_quit(self) -> None:
         self.app.exit()
 
+    def action_command_palette(self) -> None:
+        # The command palette's own ctrl+p binding isn't a normal bubbling action
+        # (found empirically — it's not even in App.BINDINGS), so `t` needs its own
+        # action here that calls App.action_command_palette() directly rather than
+        # relying on the binding name alone reaching the App.
+        self.app.action_command_palette()
+
 
 class TeetimeApp(App[None]):
     """Club/course selection, then the day-detail screen. See module docstring."""
@@ -263,7 +280,16 @@ class TeetimeApp(App[None]):
     TITLE = "teetime-monitor"
 
     def on_mount(self) -> None:
+        theme_module.apply_theme(self)
         self.run_worker(self._start(), exclusive=True)
+
+    def watch_theme(self, theme_name: str) -> None:
+        """Persist whenever the theme changes — via the command palette, or the `t`
+        binding that opens it — so the choice survives to the next launch. Reactive
+        watch method, called by Textual itself on every `self.theme` change,
+        including the initial one from `apply_theme()` above; harmless to
+        re-persist the same value on startup."""
+        theme_module.save_theme(theme_module.to_logical_name(theme_name))
 
     async def _start(self) -> None:
         slugs = club_config.list_clubs()
