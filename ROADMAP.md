@@ -293,16 +293,20 @@ would've built up in the meantime.
   watching for that. Since every scrape is kept forever, not overwritten (the whole
   reason for that design in the first place), comparing a confirmed booking's slot in
   the latest scrape against an earlier one is pure deterministic diffing — no AI, no
-  new scraping. Three things it watches for: your own slot's player count going up
+  new scraping. Four things it watches for: your own slot's player count going up
   (someone joined your flight), a neighboring slot that was empty at booking time
-  becoming booked (your buffer eroding), and general crowding nearby. Runs as part of
-  the scheduled scrape (below); surfaces as a plain in-app banner next time you open
-  the TUI — **not** a push notification. Explicitly decided 2026-09-06: this is
-  different from the "notify me of a new opportunity" alerts already ruled out earlier
-  — it's protecting something you already committed to, not surfacing something new —
-  but a passive banner still respects the same "no active pings" preference, so that's
-  the version built. An active notification remains a possible later upgrade, not
-  today's scope.
+  becoming booked (your buffer eroding), general crowding nearby, and — added the same
+  day, same reasoning — the weather forecast for the round itself getting worse since
+  you booked (a forecast a week out is less reliable than one the day before; reuses
+  `weather.conditions_during_round()` against both scrapes, no new API calls). Sunset
+  doesn't need this treatment — it's astronomical fact, not a forecast that gets
+  revised, so daylight cushion isn't part of this check. Runs as part of the scheduled
+  scrape (below); surfaces as a plain in-app banner next time you open the TUI — **not**
+  a push notification. Explicitly decided 2026-09-06: this is different from the
+  "notify me of a new opportunity" alerts already ruled out earlier — it's protecting
+  something you already committed to, not surfacing something new — but a passive
+  banner still respects the same "no active pings" preference, so that's the version
+  built. An active notification remains a possible later upgrade, not today's scope.
 - `tui.py` — Textual app, single-day detail screen: Time | Occupancy | Players, colored
   by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit. The Home screen
   also shows a `booking_watch.py` banner when it has something to report.

@@ -32,8 +32,9 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
   for the rare same-day-booking timing gap
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
-  flight or a neighboring slot fills in and shrinks your buffer, a plain banner shows
-  up next time you open the app — no push notifications, just visible when you check
+  flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
+  for the round itself gets worse, a plain banner shows up next time you open the app —
+  no push notifications, just visible when you check
 - Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
   needed)
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a

@@ -12,10 +12,11 @@ safety net for whatever timing gap this automatic read still misses, not removed
 
 Runs booking_watch.check_for_changes() for every upcoming confirmed booking after each
 scrape (added 2026-09-06) — comparing this scrape against the previous one for that
-slot, so someone joining your flight or your buffer eroding gets caught as soon as the
-next scheduled scrape sees it, not just whenever you happen to reopen the app. Any
-detected BookingChange is stored for the TUI's home screen to show as a banner next
-time it opens — this script itself never pushes a notification anywhere.
+slot, so someone joining your flight, your buffer eroding, or the weather forecast for
+the round simply getting worse all get caught as soon as the next scheduled scrape sees
+them, not just whenever you happen to reopen the app. Any detected BookingChange is
+stored for the TUI's home screen to show as a banner next time it opens — this script
+itself never pushes a notification anywhere.
 
 Example cron entries (once implemented, adjust paths):
     0 6,18 * * * cd /path/to/teetime-monitor && .venv/bin/python -m src.scrape_once
