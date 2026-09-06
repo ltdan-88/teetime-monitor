@@ -189,6 +189,32 @@ Differences observed between clubs (config, not platform, differences):
   **"Occupied"** once logged in but not a friend. `classify_booking_label()` should
   treat both as `"anonymized"`.
 
+**Implementation pass confirmed the parser against the live site (2026-09-06)**:
+writing and actually running `src/scraper.py` (not just reading the markup in a
+browser) surfaced a more precise, more robust picture than the walkthrough above —
+`docs/pccaddie-markup-notes.md` has the full detail, summarized here:
+
+- Each `tr.pcco-tt-time-person` carries clean `data-*` attributes — `data-time`,
+  `data-status`, `data-seat_bookable` — a better source than parsing `seats-free-N`
+  off the time cell's class (kept only as a fallback now).
+- `data-status` has **four** values, not the two implied above: `bookable`,
+  `occupied`, `block-time` (an event/lesson/guest block), and a fourth found live this
+  pass, `disable-time` — the advance-booking-window notice. Both `block-time` and
+  `disable-time` are handled identically (neither is real occupancy).
+- Free/empty seats aren't individually rendered — they're merged into one trailing
+  `<td colspan="N">` with an empty `.tt-show-name` span; skipping blank spans handles
+  this with no colspan arithmetic.
+- The anonymized-placeholder text has (at least) **four** confirmed variants, not two
+  — German short form "Belegt" and German long form "Namensanzeige nach dem Login" (the
+  server's default locale) join the two EN variants already found. "Belegt" was only
+  caught via an actual end-to-end scrape (it briefly slipped through as a false-
+  positive "player name" before being added).
+- Verified via a full sweep of every date/course the live site offered that day (5
+  dates x 3 courses, 1092 slots): zero false-positive player names, all 7 real
+  block/event reasons correctly categorized. `scrape_schedule()` and
+  `parse_schedule_html()` are now real, tested code (fixture-based unit tests in
+  `tests/test_scraper.py`), not stubs.
+
 **Confirmed by the user (2026-09-05)**: one pc caddie login genuinely does work across
 multiple clubs — not a session-scoping quirk, an actual platform feature. They also
 believe guest reservations at other clubs are possible through that same account, not
