@@ -288,8 +288,24 @@ would've built up in the meantime.
   kept: the scheduled scrape (below) should run more than once a day (e.g. morning and
   evening) to shrink that window, and the manual `c` keybinding stays as a fallback
   safety net for whatever still slips through, rather than being removed.
+- **`booking_watch.py` (new module, 2026-09-06)** — a confirmed booking isn't a fire-
+  and-forget event: the situation around it can change afterward, and nothing was
+  watching for that. Since every scrape is kept forever, not overwritten (the whole
+  reason for that design in the first place), comparing a confirmed booking's slot in
+  the latest scrape against an earlier one is pure deterministic diffing — no AI, no
+  new scraping. Three things it watches for: your own slot's player count going up
+  (someone joined your flight), a neighboring slot that was empty at booking time
+  becoming booked (your buffer eroding), and general crowding nearby. Runs as part of
+  the scheduled scrape (below); surfaces as a plain in-app banner next time you open
+  the TUI — **not** a push notification. Explicitly decided 2026-09-06: this is
+  different from the "notify me of a new opportunity" alerts already ruled out earlier
+  — it's protecting something you already committed to, not surfacing something new —
+  but a passive banner still respects the same "no active pings" preference, so that's
+  the version built. An active notification remains a possible later upgrade, not
+  today's scope.
 - `tui.py` — Textual app, single-day detail screen: Time | Occupancy | Players, colored
-  by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit.
+  by fill ratio. `r` = refresh, `c` = confirm your tee time, `q` = quit. The Home screen
+  also shows a `booking_watch.py` banner when it has something to report.
 - Config via `.env` (see Phase 0's namespaced credentials) + the active club's YAML
   (club URL, default course, default date range)
 - A small standalone scrape-and-store script (no TUI), runnable on a schedule (e.g. a

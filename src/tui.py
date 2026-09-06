@@ -19,6 +19,11 @@ search keybinding that opens a small form (party size, time window, weekday/week
 windows, buffer from other flights) and shows results via search.py. Phase 5 adds a
 keybinding for the crowd heatmap screen (analytics.py).
 
+Home screen also shows a `booking_watch.py` banner (added 2026-09-06) when an upcoming
+confirmed booking has changed since it was made — e.g. someone joined your flight, or a
+neighboring slot filled in and shrank your buffer. Purely passive: computed during the
+scheduled scrape, just displayed here, never a push notification.
+
 NOT YET IMPLEMENTED.
 """
 

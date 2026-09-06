@@ -31,6 +31,9 @@ for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the origi
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
   for the rare same-day-booking timing gap
+- A booking doesn't stop being watched once it's confirmed: if someone joins your
+  flight or a neighboring slot fills in and shrinks your buffer, a plain banner shows
+  up next time you open the app — no push notifications, just visible when you check
 - Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
   needed)
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
@@ -89,6 +92,7 @@ teetime-monitor/
 │   ├── club_config.py      # multi-club: list/load clubs, resolve credentials (implemented)
 │   ├── scraper.py          # direct-URL fetch + mostly-deterministic parsing (partly implemented)
 │   ├── scrape_once.py      # headless scrape for a cron/launchd schedule
+│   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it?
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag
