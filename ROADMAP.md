@@ -225,6 +225,26 @@ Reservations" (`cat=reservations`) return bookings scoped to just the club it's 
 from, or every club under the account? Matters for how `scrape_my_reservations()`
 should be called across multiple saved clubs.
 
+**Login form + "My Reservations" markup, confirmed live 2026-09-06/07** (the user
+logged in themselves each time — Claude only ever inspected the resulting page
+structure, never entered or saw the real password): the login form is a plain HTML
+`<form>`, no JavaScript, no CSRF token — `POST .../app.php?cat=start` with
+`service=login&rq[login]=<username>&rq[password]=<password>`; a failed attempt
+re-renders a page still containing the `rq[password]` field, a clean way to detect
+failure without guessing at error-message text/language. "My Reservations"
+(`cat=reservations`) shows `table.meine-buchungen`, one `<tr>` per booking with
+`<td>`s for Details/Persons/Actions. Confirmed against a real demo booking made
+2026-09-06 (see `docs/pccaddie-markup-notes.md`): the Details cell's text (its `<br>`s
+splitting it into lines) is, in order, a "day, date, time" line, the club name, then
+the course name last — the course name is always exactly one of `COURSE_ALIASES`'s own
+keys (e.g. "6 Loch Platz"), letting the hole count be derived from its leading digit
+rather than needing a separate lookup. Confirmed in both languages: English "Mon,
+2026-09-07, 19:50 o'clock" (already ISO date order) and German "Mo, 07.09.2026, 19:50
+Uhr" (`DD.MM.YYYY`, needs reordering to `YYYY-MM-DD`). The Persons cell lists
+"Lastname, Firstname" per booked person (a trailing "*" on one of them, apparently
+marking the account's own booking) — not parsed into `ConfirmedBooking`, which has no
+players field.
+
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
 course you're even looking at has to be settled before any scraping happens, and the
@@ -294,15 +314,19 @@ rq[login]=<username>&rq[password]=<password>` sets a session cookie. So the
 `scrape_schedule()` already answered it — a plain `httpx.Client` (its cookie jar
 carries the session) is all login needs too; no browser automation anywhere in the
 shipped tool. `scraper.login()` returns that authenticated client;
-`scrape_my_reservations()` uses it to read "My Reservations," parsing only the
-confirmed empty state so far ("No bookings found" — this account had nothing booked
-during the walkthrough) and raising `NotImplementedError` for anything else, rather
-than guessing at a real booking row's markup sight unseen. `scrape_once.run()` now
-actually calls this (`_sync_my_reservations()`), resolving `PCC_USER`/`PCC_PASS` via
+`scrape_my_reservations()` uses it to read "My Reservations" — first implemented for
+just the confirmed empty state ("No bookings found"), then fully confirmed 2026-09-07
+against a real demo booking: each row's Details cell holds date/time/club/course as
+plain text lines (`<br>`-separated), the course name always matching one of
+`COURSE_ALIASES`'s own keys, confirmed in both English ("Mon, 2026-09-07, 19:50
+o'clock") and German ("Mo, 07.09.2026, 19:50 Uhr") date/time formats. Still raises
+`NotImplementedError` for anything that doesn't match this confirmed shape, rather
+than guessing at unseen markup. `scrape_once.run()` calls this via
+`_sync_my_reservations()`, resolving `PCC_USER`/`PCC_PASS` via
 `club_config.resolve_credentials()` and treating every failure mode (no slug, no
-credentials configured, wrong credentials, or the still-unconfirmed populated-list
-case) as best-effort, not fatal — matching the same "one club's login trouble
-shouldn't stop an unattended run" principle already used for weather.
+credentials configured, wrong credentials, or genuinely unrecognized markup) as
+best-effort, not fatal — matching the same "one club's login trouble shouldn't stop an
+unattended run" principle already used for weather.
 - `models.py` — `Slot` / `Schedule` dataclasses (as in v1 spec), `Schedule` also gets an
   `events: list[str]` field for tournament/event notes and an `available_courses:
   list[str]` field for Phase 0's course picker.
@@ -517,7 +541,7 @@ new `params` column round-tripping). 240 tests passing (was 224).
   half (scrape + save via storage.py); the login-dependent half now actually logs in
   too (`_sync_my_reservations()`, once `scraper.login()` was implemented the same day)
   and still degrades gracefully — no slug/credentials configured, a `LoginError`, or
-  a `NotImplementedError` from the still-unconfirmed populated-reservations markup are
+  a `NotImplementedError` from genuinely unrecognized reservations markup are
   all caught and skipped, not fatal, so one club's login trouble doesn't stop an
   unattended run scraping every other club/course/date it covers. `main()` loops every
   saved club and its `overview_days` window with no arguments needed — not actually
@@ -801,12 +825,11 @@ much emptier" instead of ranking blind.
   plain HTML POST, no JS, no CSRF token, inspected live 2026-09-06 (see `scraper.py`'s
   `login()`) — Claude never entered or saw the actual password to confirm this; the
   user logged in themselves and Claude inspected the resulting form's HTML.
-- `scrape_my_reservations()`'s parsing only covers the confirmed empty state so far
-  ("No bookings found") — the real row markup for an actual populated reservation
-  list is still unconfirmed, since this account had nothing booked during the
-  walkthrough. Raises `NotImplementedError` rather than guessing, so a real booking
-  won't silently get dropped or mis-parsed once one exists — worth revisiting once
-  there's an actual booking to inspect.
+- ~~`scrape_my_reservations()`'s parsing only covers the confirmed empty state~~ —
+  **resolved 2026-09-07**: a real demo booking was made and inspected live, confirming
+  the populated-row markup (see `login()`'s note above). Still raises
+  `NotImplementedError` for anything that doesn't match the now-confirmed shape,
+  rather than guessing at further unseen variants.
 - **AI calls cost money and send data to Anthropic's API, starting from Phase 1** —
   not deferred/opt-in the way an earlier draft of this roadmap had it. Tee-sheet
   contents (including other members' names, if visible), your availability/preference

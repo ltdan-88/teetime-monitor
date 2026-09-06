@@ -56,14 +56,21 @@ that's needed — **no Playwright/browser required for login either**, same conc
 as `scrape_schedule()` already reached. `SELECTORS` (a Playwright selector dict) is
 gone — there was never a need for it once the form turned out this simple.
 
-`scrape_my_reservations()` is implemented for the confirmed empty state ("No bookings
-found") — this account had nothing booked during the walkthrough, so the actual row
-markup for a populated reservations list is still unconfirmed. Deliberately raises
-`NotImplementedError` for anything else rather than guessing at unseen markup and
-silently parsing a real booking wrong (or dropping it) — see `_parse_my_reservations_html()`.
+`scrape_my_reservations()` is fully implemented as of 2026-09-07, once a real demo
+booking existed to inspect: a populated row lives in `table.meine-buchungen`, one
+`<tr>` per booking, `<td>`s for Details/Persons/Actions. The Details cell's text nodes
+(split on `<br>`) are, in order: a "day, date, time" line, the club name, then the
+course name last — confirmed to be exactly one of `COURSE_ALIASES`'s own keys (e.g.
+"6 Loch Platz"). Confirmed in both languages: English "Mon, 2026-09-07, 19:50 o'clock"
+(already ISO) and German "Mo, 07.09.2026, 19:50 Uhr" (DD.MM.YYYY, needs reordering).
+The Persons cell (names, "*" apparently marking the booking's own account) isn't
+parsed — `ConfirmedBooking` has no players field. Still raises `NotImplementedError`
+for anything that doesn't match this confirmed shape, rather than guessing at
+unseen markup — see `_parse_my_reservations_html()`.
 """
 
 import re
+from datetime import datetime, timezone
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -222,21 +229,76 @@ def login(club_id: str, username: str, password: str) -> httpx.Client:
     return client
 
 
+# Confirmed 2026-09-07 against a real demo booking, both languages (see module
+# docstring). English is already ISO; German is DD.MM.YYYY and needs reordering.
+_RESERVATION_DATETIME_RE_EN = re.compile(r"(\d{4}-\d{2}-\d{2}),\s*(\d{2}:\d{2})\s*o'clock")
+_RESERVATION_DATETIME_RE_DE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4}),\s*(\d{2}:\d{2})\s*Uhr")
+
+
+def _parse_reservation_datetime(text: str) -> tuple[str, str]:
+    """Pull (date, time) out of a "My Reservations" row's date/time line."""
+    match = _RESERVATION_DATETIME_RE_EN.search(text)
+    if match:
+        return match.group(1), match.group(2)
+    match = _RESERVATION_DATETIME_RE_DE.search(text)
+    if match:
+        day, month, year, time = match.groups()
+        return f"{year}-{month}-{day}", time
+    raise NotImplementedError(
+        f"scrape_my_reservations() can't parse this row's date/time text: {text!r} — "
+        "see scraper.py's module docstring."
+    )
+
+
+def _holes_from_course_label(course: str) -> int | None:
+    """"18 Loch Tee 1" -> 18, "6 Loch Platz" -> 6 — every confirmed COURSE_ALIASES
+    label starts with its hole count."""
+    match = re.match(r"(\d+)", course)
+    return int(match.group(1)) if match else None
+
+
 def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
-    """Parse "My Reservations" into ConfirmedBooking rows. Confirmed empty-state
-    handling only (2026-09-06 walkthrough saw "No bookings found" / nothing booked) —
-    the actual row markup for a populated list is still unconfirmed, since this
-    account had no bookings to inspect during the walkthrough. Raises
-    NotImplementedError for anything else so a real booking doesn't silently get
-    dropped or mis-parsed once one actually exists — better to fail loudly and get
-    fixed once there's a real row to look at than guess at unseen markup."""
+    """Parse "My Reservations" into ConfirmedBooking rows. Confirmed live against a
+    real demo booking (2026-09-07) as well as the empty state (2026-09-06 walkthrough,
+    "No bookings found") — see module docstring for the confirmed row shape. Raises
+    NotImplementedError for anything that doesn't match either confirmed shape, rather
+    than guessing at unseen markup and silently dropping or mis-parsing a real booking."""
     if "No bookings found" in html or "Keine Buchungen gefunden" in html:
         return []
-    raise NotImplementedError(
-        "scrape_my_reservations() only confirmed the empty state so far — the real "
-        "row markup for an actual booking hasn't been seen yet. See scraper.py's "
-        "module docstring."
-    )
+
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", class_="meine-buchungen")
+    if table is None:
+        raise NotImplementedError(
+            "scrape_my_reservations() found neither the confirmed empty-state text "
+            "nor the confirmed 'meine-buchungen' table — the real markup may have "
+            "changed. See scraper.py's module docstring."
+        )
+
+    bookings = []
+    for row in table.find_all("tr"):
+        details_cell = row.find("td")
+        if details_cell is None:
+            continue  # the header row uses <th>, not <td> -- not a booking row
+        lines = list(details_cell.stripped_strings)
+        if len(lines) < 2:
+            raise NotImplementedError(
+                f"scrape_my_reservations() got an unrecognized Details cell: {lines!r} "
+                "— see scraper.py's module docstring."
+            )
+        date, time = _parse_reservation_datetime(lines[0])
+        course = lines[-1]  # confirmed to always be one of COURSE_ALIASES's own keys
+        bookings.append(
+            ConfirmedBooking(
+                date=date,
+                course=course,
+                time=time,
+                holes=_holes_from_course_label(course),
+                source="my_reservations",
+                confirmed_at=datetime.now(timezone.utc).isoformat(),
+            )
+        )
+    return bookings
 
 
 def scrape_schedule(club_id: str, course: str, date: str) -> Schedule:
@@ -267,10 +329,11 @@ def scrape_my_reservations(club_id: str, username: str, password: str) -> list[C
     """Log in and read "My Reservations" — the automatic primary source for
     confirmed_bookings (ROADMAP.md Phase 1). Needs login, unlike scrape_schedule().
 
-    Implemented 2026-09-06 — see login() and _parse_my_reservations_html() for what's
-    actually confirmed vs. still unconfirmed. `username`/`password` are the caller's
-    responsibility to resolve (club_config.resolve_credentials()) — this function
-    doesn't read `.env` itself, keeping it decoupled from local config file layout.
+    Implemented 2026-09-06, fully confirmed 2026-09-07 against a real demo booking —
+    see login() and _parse_my_reservations_html() for the confirmed row shape.
+    `username`/`password` are the caller's responsibility to resolve
+    (club_config.resolve_credentials()) — this function doesn't read `.env` itself,
+    keeping it decoupled from local config file layout.
     """
     client = login(club_id, username, password)
     try:

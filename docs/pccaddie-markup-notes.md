@@ -198,10 +198,52 @@ seat icons only:
 Count `.occupied` vs `.bookable` icons per row/course to get the aggregate — no names,
 no per-slot detail; use the per-course tee sheet above for that.
 
+## Login form (confirmed 2026-09-06)
+
+A plain HTML `<form>`, no JavaScript, no CSRF token — inspected live while the user
+was logged in themselves; Claude never entered or saw a real password to confirm this:
+
+```html
+<form method="post" action="/clubs/<club_id>/app.php?cat=start">
+  <input type="hidden" name="service" value="login">
+  <input type="text" name="rq[login]">
+  <input type="password" name="rq[password]">
+</form>
+```
+
+A failed attempt re-renders a page still containing the `rq[password]` field name — a
+reliable success/failure signal without needing to match error-message text (which
+would also need a language variant, unlike this).
+
+## "My Reservations" page structure (confirmed 2026-09-06/07)
+
+One `<table class="table table-bordered table-striped table-condensed cf
+meine-buchungen">`, header row of `<th>`s, then one `<tr>` of `<td>`s per booking.
+Confirmed against a real demo booking:
+
+```html
+<tr>
+  <td>Mon, 2026-09-07, 19:50 o'clock<br>Golfclub Domäne Musterhausen<br>6 Loch Platz</td>
+  <td>Mustermann, Max *<br></td>
+  <td><!-- "Save to calendar" button, "Show"/"Cancel" links --></td>
+</tr>
+```
+
+German equivalent's Details cell: `Mo, 07.09.2026, 19:50 Uhr<br>...` — same club/course
+lines, only the date/time line's format differs (`DD.MM.YYYY` + "Uhr" instead of
+already-ISO + "o'clock"). The course name (last line) is always exactly one of
+`COURSE_ALIASES`'s own keys. The Persons cell's "*" (seen on the account's own name)
+isn't otherwise explained anywhere on the page — not parsed, since `ConfirmedBooking`
+has no players field to put it in. Empty state (no bookings at all) shows plain page
+text "No bookings found." (English) / "Keine Buchungen gefunden." (German, not directly
+observed but handled defensively), no table at all.
+
 ## Things confirmed absent / not yet confirmed
 
 - No confirmed example of an actual friend's real name in the wild — a scan across all
   5 available days × all 3 courses on 2026-09-05 found none of this account's 4 friends
   with a booking. Re-check once one does.
-- The real login form markup — not inspected, to avoid disrupting the user's active
-  session. First real task once Phase 1 implementation starts.
+- What a multi-person booking's Persons cell looks like beyond the single-person case
+  above (the demo booking was solo) — presumably each person on their own line,
+  matching the booking flow's "Person 1"/"Person 2"/etc., but not yet seen rendered
+  back on this page.

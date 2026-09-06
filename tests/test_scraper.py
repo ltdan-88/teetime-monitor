@@ -316,7 +316,7 @@ def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(mon
     assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=reservations"
 
 
-def test_scrape_my_reservations_raises_for_unconfirmed_populated_markup(monkeypatch):
+def test_scrape_my_reservations_raises_for_unrecognized_markup(monkeypatch):
     fake_client = _FakeClient(
         post_response_text="<html>Welcome back</html>",
         get_response_text="<html><table><tr><td>14:00</td></tr></table></html>",
@@ -330,6 +330,34 @@ def test_scrape_my_reservations_raises_for_unconfirmed_populated_markup(monkeypa
         pass
 
     assert fake_client.closed  # cleaned up even though parsing raised
+
+
+# Real "My Reservations" row markup, confirmed live 2026-09-07 against an actual demo
+# booking (see scraper.py's module docstring) — the Details cell's three lines
+# (date/time, club name, course name) confirmed in both languages; the Persons/Actions
+# cells' real content is trimmed to the minimum needed to look like a real row, since
+# ConfirmedBooking has no players field to parse them into.
+_REAL_ROW_HTML_EN = """
+<table class="table table-bordered table-striped table-condensed cf meine-buchungen">
+<tr><th>Details</th><th>Persons</th><th class="hideprint pcco-actions">Actions</th></tr>
+<tr>
+<td>Mon, 2026-09-07, 19:50 o'clock<br>Golfclub Domäne Musterhausen<br>6 Loch Platz</td>
+<td>Mustermann, Max *<br></td>
+<td>Show</td>
+</tr>
+</table>
+"""
+
+_REAL_ROW_HTML_DE = """
+<table class="table table-bordered table-striped table-condensed cf meine-buchungen">
+<tr><th>Details</th><th>Personen</th><th class="hideprint pcco-actions">Aktionen</th></tr>
+<tr>
+<td>Mo, 07.09.2026, 19:50 Uhr<br>Golfclub Domäne Musterhausen<br>6 Loch Platz</td>
+<td>Mustermann, Max *<br></td>
+<td>Anzeigen</td>
+</tr>
+</table>
+"""
 
 
 def test_parse_my_reservations_html_empty_state_english():
@@ -346,3 +374,30 @@ def test_parse_my_reservations_html_raises_for_unrecognized_markup():
         assert False, "expected NotImplementedError"
     except NotImplementedError:
         pass
+
+
+def test_parse_my_reservations_html_parses_a_real_booking_english():
+    [booking] = _parse_my_reservations_html(_REAL_ROW_HTML_EN)
+    assert booking.date == "2026-09-07"
+    assert booking.time == "19:50"
+    assert booking.course == "6 Loch Platz"
+    assert booking.holes == 6
+    assert booking.source == "my_reservations"
+    assert booking.confirmed_at  # a real ISO timestamp was stamped, not left blank
+
+
+def test_parse_my_reservations_html_parses_a_real_booking_german():
+    [booking] = _parse_my_reservations_html(_REAL_ROW_HTML_DE)
+    assert booking.date == "2026-09-07"
+    assert booking.time == "19:50"
+    assert booking.course == "6 Loch Platz"
+
+
+def test_scrape_my_reservations_returns_confirmed_bookings_for_a_real_row(monkeypatch):
+    fake_client = _FakeClient(post_response_text="<html>Welcome back</html>", get_response_text=_REAL_ROW_HTML_EN)
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    [booking] = scrape_my_reservations("0000001", "user@example.com", "hunter2")
+
+    assert (booking.date, booking.time, booking.course) == ("2026-09-07", "19:50", "6 Loch Platz")
+    assert fake_client.closed

@@ -9,12 +9,13 @@ Status: every backend piece is real and tested now — scraper, storage, schedul
 scrape, weather, holidays/vacations, the "did my booking's situation change" watcher,
 the deterministic recommendation engine, the three Claude API calls, local-history
 analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
-inspecting the real site — no browser automation needed for it either). The TUI's
-single-day detail screen (club/course picker, the tee sheet itself, confirming a
-booking, and the booking-watch banners) is real too — see "Project structure" below.
-Still to come: the multi-day overview, ad hoc search, and crowd-heatmap screens, and
-parsing an actual populated "My Reservations" list (only the empty state is confirmed
-so far). See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+inspecting the real site — no browser automation needed for it either). "My
+Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
+booking. The TUI's single-day detail screen (club/course picker, the tee sheet itself,
+confirming a booking, and the booking-watch banners) is real too — see "Project
+structure" below. Still to come: the multi-day overview, ad hoc search, and
+crowd-heatmap screens, plus a searchable in-app club picker (researched, not yet
+built). See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -176,10 +177,9 @@ scraping is now verified against the live site (2026-09-06). Login is implemente
 (2026-09-06) — the user logged into the real site themselves and Claude inspected the
 resulting form's HTML directly, never entering or seeing the actual password; it
 turned out to be a plain POST, no JavaScript, no CSRF token. `scrape_my_reservations()`
-uses it, though it only confirms the empty "no bookings" state so far — the real row
-markup for an actual booking is still unconfirmed and will need a follow-up once
-there's one to look at. Note that every AI
-call (booking-label classification, ranking, history summarization) sends data to
+uses it to parse real reservation rows too, confirmed 2026-09-07 against an actual
+demo booking (both English and German date/time formats). Note that every AI call
+(booking-label classification, ranking, history summarization) sends data to
 Anthropic's API and costs a small amount per call — see "Known risks" in `ROADMAP.md`.
 Also note: `settings_screen.py` saves a club's whole config file on every save, so any
 hand-written comments in that club's own `clubs/*.yaml` (e.g. ones copied over from
