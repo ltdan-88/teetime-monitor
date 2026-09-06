@@ -119,8 +119,8 @@ teetime-monitor/
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client (implemented)
 │   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it? (implemented)
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
+│   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (implemented)
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (stub)
-│   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (stub)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
 │   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (stub)
 │   └── tui.py               # main Textual app: club/course pickers, overview, day detail, search (stub)
@@ -135,6 +135,7 @@ teetime-monitor/
     ├── test_settings_screen.py
     ├── test_weather.py
     ├── test_booking_watch.py
+    ├── test_calendar_context.py
     └── test_playability.py
 ```
 

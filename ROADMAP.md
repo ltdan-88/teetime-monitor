@@ -430,7 +430,17 @@ checks see real numbers instead of always getting `None` back (both already had 
 logic; they just had nothing real to look at yet). Best-effort: skipped if `location`
 is still the `0.0, 0.0` placeholder, and any request failure is caught and logged
 rather than sinking the whole scrape — occupancy is still the primary thing a scrape
-is for. `calendar_context.py` is still a stub.
+is for.
+
+**`calendar_context.py` implemented 2026-09-06** (8 tests, `tests/test_calendar_context.py`):
+`fetch_public_holidays()` is a plain Nager.Date GET, mocked in tests like Open-Meteo
+above; `classify_day()` is pure — priority order exactly as documented above
+(tournament > public_holiday > vacation > weekend > workday), each boundary covered by
+its own test (a vacation range's start/end dates inclusive, a holiday that falls on a
+weekend still classifying as the holiday, a tournament on a holiday still classifying
+as a tournament). Not yet wired into anything else — no caller populates a club's
+`identity`/day-type view yet, since that's tui.py/analytics.py territory (Phases 4/5),
+still stubs.
 
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
