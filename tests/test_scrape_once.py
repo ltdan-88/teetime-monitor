@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from src import scrape_once
+from src import booking_watch, scrape_once
 from src.models import ConfirmedBooking, Schedule, Slot
 
 
@@ -160,6 +160,49 @@ def test_should_scrape_ignores_a_confirmed_not_playing_booking(tmp_path, monkeyp
 
     config = {"scrape_interval_minutes": 360, "scrape_interval_minutes_booked": 60}
     assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is False
+
+
+# --- scrape_due_for_club() (extracted from main() 2026-09-07 so tui.py can call it
+# directly for its own auto-refresh -- see that module's docstring) ------------------
+
+
+def test_scrape_due_for_club_skips_and_returns_empty_when_no_club_id(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    result = scrape_once.scrape_due_for_club("musterhausen", {})
+    assert result == []
+    assert "no club_id" in capsys.readouterr().out
+
+
+def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
+    fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
+    fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug: [fake_change])
+
+    result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+
+    assert result == [fake_change] * len(scrape_once.COURSE_ALIASES)
+
+
+def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
+    calls = []
+
+    def fake_run(club_id, course, date, config, slug):
+        if course == list(scrape_once.COURSE_ALIASES)[0]:
+            raise RuntimeError("boom")
+        calls.append(course)
+        return []
+
+    monkeypatch.setattr(scrape_once, "run", fake_run)
+
+    result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+
+    assert result == []
+    assert len(calls) == len(scrape_once.COURSE_ALIASES) - 1  # every other course still ran
+    assert "failed" in capsys.readouterr().out
 
 
 def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):

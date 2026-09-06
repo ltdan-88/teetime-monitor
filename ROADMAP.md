@@ -619,6 +619,53 @@ new `params` column round-tripping). 240 tests passing (was 224).
   interval applies before re-scraping a course/date, so the *cron job itself* can now
   fire often (e.g. every 15-30 min) and the script self-throttles per course/date,
   rather than needing the cron schedule itself tuned to match the desired interval.
+- **Don't open on "today" once it's already over (added 2026-09-07)**: the first real
+  end-to-end run (user's own screenshot) — opening the app in the evening landed on
+  today's date, where the course had effectively closed and every remaining slot was
+  already history. New `tui._initial_date()`: opens on tomorrow instead if today's
+  own cached schedule (`storage.load_latest_schedule()`, no live scrape triggered —
+  opening the app stays instant) shows every slot's time has already passed; falls
+  back to today if nothing's cached yet to check against. Deliberately keyed off the
+  schedule's own last real slot rather than a fixed clock cutoff, since course hours
+  vary by club and season. 4 new tests, 302 tests passing (was 298).
+- **TUI auto-refresh (added 2026-09-07, direct feedback: "can we make autorefresh for
+  the maximum timeframe, whenever you run the TUI and at the defined time intervals?
+  I think hitting 'r' makes only sense as a manual override")**: a cron job was never
+  the *only* way to trigger a scrape — `main()`'s own per-club loop is now
+  `scrape_once.scrape_due_for_club(slug, config)`, extracted specifically so
+  `tui.py` can call it too. `TeetimeApp` now runs it once right after opening and
+  again every 15 minutes while it keeps running, covering the active club's *whole*
+  `overview_days` window (matching "maximum timeframe" from the request), not just
+  whatever single day is on screen. `_should_scrape()` still throttles what's
+  actually fetched exactly as before, so this doesn't scrape more often than each
+  course/date's own configured interval. Runs in a real thread
+  (`run_worker(..., thread=True)`) so scraping several courses/days doesn't freeze
+  the UI — confirmed live with an artificially slow fake scrape (tmux, headless):
+  the tee sheet rendered instantly and stayed responsive while the background pass
+  ran to completion. `r` is untouched — still a synchronous, always-immediate,
+  single-day manual override on `DayDetailScreen` itself.
+
+  A genuinely subtle bug surfaced while building this, worth remembering: the first
+  attempt named the new method `_auto_refresh()`, which silently collided with
+  Textual's own `DOMNode.__init__` setting `self._auto_refresh = None` (the private
+  backing field for every widget's *built-in* `auto_refresh` reactive, unrelated to
+  this feature). Since a plain instance attribute shadows a same-named class method
+  in Python's attribute lookup, `self._auto_refresh()` silently resolved to `None()`
+  instead of the intended method — a `TypeError: 'NoneType' object is not callable`
+  with a traceback that stopped exactly at the call site, no deeper frames, which is
+  itself the tell for this class of bug. Renamed to `_periodic_scrape()`
+  (confirmed via a source grep that nothing in Textual's own codebase uses that name)
+  once diagnosed via a minimal standalone reproduction outside pytest, isolating it
+  from any test-specific behavior. Also caught and fixed a real test-isolation
+  regression this feature's own tests introduced along the way: every test in
+  `test_tui.py` that builds a real `TeetimeApp` now triggers this background scrape
+  automatically, and none of those tests otherwise mock `scraper.py` — the full test
+  suite's runtime jumped from ~15s to over a minute (real requests to the live pc
+  caddie site, using this account's real saved club id) before a new autouse fixture
+  mocked `scrape_once.scrape_due_for_club` to a no-op by default across that file. 6
+  new tests (3 in `test_tui.py` for the auto-refresh wiring itself, 3 in
+  `test_scrape_once.py` for the extracted `scrape_due_for_club()`) — 308 tests
+  passing (was 302, per the entry just above).
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key

@@ -69,6 +69,21 @@ Textual itself ships them in — English. Overriding those specifically would me
 re-implementing that base method's own logic to swap in translated strings, not
 covered here since the user's own report was specifically about the footer and the
 banner text, not the command palette's built-in entries.
+
+Auto-refresh (added 2026-09-07, direct feedback: "can we make autorefresh for the
+maximum timeframe, whenever you run the TUI and at the defined time intervals? I
+think hitting 'r' makes only sense as a manual override"): `TeetimeApp` now calls
+`scrape_once.scrape_due_for_club()` for the active club once right after opening, and
+again every `AUTO_REFRESH_INTERVAL_SECONDS` while it keeps running — covering that
+club's *whole* `overview_days` window, not just whatever single day happens to be on
+screen, matching "maximum timeframe" from the request. `scrape_once._should_scrape()`
+still throttles what's actually fetched each pass exactly as it already did for the
+standalone scheduled job, so this doesn't scrape more often than each course/date's
+own configured interval — it just means a cron job is no longer the only thing that
+can trigger it. Runs in a background thread (`run_worker(..., thread=True)`) so
+scraping the whole window doesn't freeze the UI; `r` stays a synchronous, single-day,
+always-immediate manual override on `DayDetailScreen` itself, exactly as before —
+the two are independent, not one replacing the other.
 """
 
 from datetime import date as date_cls
@@ -80,13 +95,20 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, storage
+from . import club_config, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, scrape_schedule
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
+
+# How often the running app rechecks whether anything's due for a background
+# re-scrape — matches the cadence scrape_once.py's own docstring recommends for an
+# external cron job (every 15-30 min); scrape_once._should_scrape() still decides
+# what's actually due each pass, so firing this often doesn't mean hammering the site
+# every time. See TeetimeApp._periodic_scrape()'s own docstring.
+AUTO_REFRESH_INTERVAL_SECONDS = 15 * 60
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
 _NOW_HHMM = lambda: datetime.now().strftime("%H:%M")  # noqa: E731 — same reasoning, for _initial_date()
@@ -423,6 +445,47 @@ class TeetimeApp(App[None]):
             course = await self.push_screen_wait(CoursePickerScreen(courses))
 
         await self.push_screen(DayDetailScreen(club_id, slug, course, _initial_date(club_id, course)))
+
+        self._club_slug = slug
+        self._club_config = config
+        self._periodic_scrape_running = False
+        self._periodic_scrape()
+        self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
+
+    def _periodic_scrape(self) -> None:
+        """Best-effort background scrape of this club's whole overview window — direct
+        feedback 2026-09-07: "I think hitting 'r' makes only sense as a manual
+        override" — 'r' still forces an immediate re-scrape of just the currently
+        viewed day (DayDetailScreen.action_refresh()), but data should also update on
+        its own, both right when the app opens and periodically while it keeps
+        running, without waiting for a keypress or a separately-scheduled cron job.
+
+        Runs `scrape_once.scrape_due_for_club()` in a real thread (`run_worker(...,
+        thread=True)`) rather than as a plain coroutine, since scraping the whole
+        window (every course x every day in `overview_days`) can be several requests
+        and would otherwise block the UI's single event loop for that whole time —
+        `action_refresh()`'s single-day scrape stays synchronous since it's already a
+        deliberate, one-off user action. `_should_scrape()` still throttles what's
+        actually fetched each pass, same as the standalone scheduled job. Skips
+        starting a new pass if a previous one is still running, so a slow network
+        can't pile up overlapping scrapes."""
+        if self._periodic_scrape_running:
+            return
+        self._periodic_scrape_running = True
+
+        def scrape_then_reload() -> None:
+            try:
+                scrape_once.scrape_due_for_club(self._club_slug, self._club_config)
+            finally:
+                self.call_from_thread(self._finish_periodic_scrape)
+
+        self.run_worker(scrape_then_reload, thread=True)
+
+    def _finish_periodic_scrape(self) -> None:
+        self._periodic_scrape_running = False
+        if isinstance(self.screen, DayDetailScreen):
+            self.screen.load_schedule()
+            self.screen.refresh_banners()
 
 
 def main() -> None:

@@ -22,6 +22,19 @@ def _english_ui(monkeypatch, tmp_path):
     i18n._current_language = None
 
 
+@pytest.fixture(autouse=True)
+def _no_background_scraping(monkeypatch):
+    """`TeetimeApp._periodic_scrape()` (added 2026-09-07) fires once automatically as
+    soon as `TeetimeApp._start()` finishes — every test here that builds a real
+    `TeetimeApp()` would otherwise kick off a real background-thread scrape against
+    the live pc caddie site (real club_id "0000001" used throughout this file), since
+    none of those tests otherwise mock scraper.py. Caught live: the full test suite's
+    runtime jumped from ~15s to over a minute once this shipped, before this fixture
+    was added. A no-op by default; a test that specifically wants to exercise the
+    real wiring overrides `scrape_once.scrape_due_for_club` itself locally."""
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: [])
+
+
 class _HostApp(App):
     """Minimal App that just pushes one screen — Textual screens need a running App to
     mount into; this stands in for the real TeetimeApp so each screen can be tested in
@@ -361,6 +374,105 @@ def test_app_skips_pickers_with_one_club_and_default_course(tmp_path, monkeypatc
             assert isinstance(screen, tui.DayDetailScreen)
             assert screen.course == "9 Loch Tee 1"
             assert screen.club_id == "0000001"
+
+    _run(scenario())
+
+
+# --- Auto-refresh (2026-09-07, direct feedback: "can we make autorefresh for the
+# maximum timeframe, whenever you run the TUI and at the defined time intervals? I
+# think hitting 'r' makes only sense as a manual override") ------------------------
+
+
+def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    club_cfg = {"club_id": "0000001", "default_course": "9 Loch Tee 1"}
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug: club_cfg)
+
+    calls = []
+
+    def fake_scrape(slug, config):
+        calls.append((slug, config))
+        return []
+
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", fake_scrape)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            for _ in range(20):
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            assert calls == [("home-club", club_cfg)]
+
+    _run(scenario())
+
+
+def test_periodic_scrape_reloads_the_day_detail_screen_when_done(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            reload_calls = []
+            monkeypatch.setattr(screen, "load_schedule", lambda: reload_calls.append("load"))
+            monkeypatch.setattr(screen, "refresh_banners", lambda: reload_calls.append("banners"))
+
+            # Trigger another pass directly rather than waiting on the real interval
+            # timer (15 minutes) -- exercises the same _finish_periodic_scrape() path
+            # that the timer would eventually reach on its own.
+            app._periodic_scrape_running = False
+            app._periodic_scrape()
+
+            for _ in range(20):
+                if reload_calls:
+                    break
+                await pilot.pause(0.05)
+            assert "load" in reload_calls
+            assert "banners" in reload_calls
+
+    _run(scenario())
+
+
+def test_periodic_scrape_skips_a_new_pass_while_one_is_already_running(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+    calls = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: calls.append(1) or [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            for _ in range(20):  # wait for the automatic on-open pass to finish
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            assert calls == [1]
+
+            # Force the flag on to simulate a pass still in flight, and confirm a
+            # second call is a genuine no-op -- no additional scrape gets started.
+            app._periodic_scrape_running = True
+            app._periodic_scrape()
+            await pilot.pause(0.1)
+            assert calls == [1]
 
     _run(scenario())
 

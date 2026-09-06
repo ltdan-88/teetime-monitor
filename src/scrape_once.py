@@ -37,13 +37,17 @@ desired interval:
 
     */15 * * * * cd /path/to/teetime-monitor && .venv/bin/python -m src.scrape_once
 
-`main()` loops every saved club (club_config.list_clubs()) and, for each, every course
-x every day in that club's `overview_days` window — so one cron entry with no
-arguments covers everything currently configured, throttled per course/date as above.
+`main()` loops every saved club (club_config.list_clubs()) via `scrape_due_for_club()`
+(one club, every course x every day in its `overview_days` window) — so one cron
+entry with no arguments covers everything currently configured, throttled per
+course/date as above.
 
 Not installed as an actual cron/launchd job by this session — that's a standing,
 persistent change and stays the user's call to make (and verify paths/venv for)
-themselves.
+themselves. As of 2026-09-07, `tui.py` also calls `scrape_due_for_club()` directly
+for whichever club it's showing — once on open and again on a timer while it stays
+running — so a cron job isn't the only way this happens anymore either; see that
+module's own "Auto-refresh" docstring note.
 """
 
 from datetime import date as date_cls
@@ -203,25 +207,41 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
     return elapsed_minutes >= interval_minutes
 
 
+def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingChange]:
+    """Scrape every course x day in `slug`'s `overview_days` window that's actually
+    due per `_should_scrape()`, skipping the rest. Extracted 2026-09-07 from `main()`'s
+    own per-club loop so `tui.py` can call this directly too — both once on open and
+    again on a timer while it stays running (direct feedback: "I think hitting 'r'
+    makes only sense as a manual override" — see that module's own "Auto-refresh"
+    note) — without needing a separately-scheduled process for that to happen at all.
+    One course/date's own failure is caught and skipped, not fatal, same stance as
+    `main()`'s own: it must not stop the rest of this club's window, let alone (from
+    `main()`) every other saved club."""
+    club_id = config.get("club_id")
+    if not club_id:
+        print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
+        return []
+    overview_days = config.get("overview_days", 5)
+    today = date_cls.today()
+    changes: list[booking_watch.BookingChange] = []
+    for offset in range(overview_days):
+        target_date = (today + timedelta(days=offset)).isoformat()
+        for course in COURSE_ALIASES:
+            if not _should_scrape(club_id, course, target_date, config):
+                continue
+            try:
+                changes.extend(run(club_id, course, target_date, config, slug))
+            except Exception as exc:  # noqa: BLE001 — one bad course/date must not
+                # stop the rest of this club's window (or, from main(), every other
+                # saved club).
+                print(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+    return changes
+
+
 def main() -> None:
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
-        club_id = config.get("club_id")
-        if not club_id:
-            print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
-            continue
-        overview_days = config.get("overview_days", 5)
-        today = date_cls.today()
-        for offset in range(overview_days):
-            target_date = (today + timedelta(days=offset)).isoformat()
-            for course in COURSE_ALIASES:
-                if not _should_scrape(club_id, course, target_date, config):
-                    continue
-                try:
-                    run(club_id, course, target_date, config, slug)
-                except Exception as exc:  # noqa: BLE001 — one bad course/date/club
-                    # must not stop every other one in an unattended run.
-                    print(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+        scrape_due_for_club(slug, config)
 
 
 if __name__ == "__main__":

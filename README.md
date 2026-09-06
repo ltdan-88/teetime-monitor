@@ -15,9 +15,12 @@ booking. The TUI's single-day detail screen (club/course picker, the tee sheet i
 confirming a booking, and the booking-watch banners) is real too, and so is a
 standalone searchable club picker (`club_picker.py`, added 2026-09-07) for adding
 clubs beyond your first one, plus a credentials setup screen (`credentials_screen.py`)
-it opens automatically the moment it needs a login and none is configured yet — see
-"Project structure" below. Still to come: the multi-day overview, ad hoc search, and
-crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+it opens automatically the moment it needs a login and none is configured yet. The
+TUI also keeps its data current on its own now — it re-scrapes the active club's
+whole overview window once on open and periodically while it stays running, not just
+when `r` is pressed — see "Project structure" below. Still to come: the multi-day
+overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md)
+for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
@@ -42,6 +45,11 @@ crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan 
   once a date has a confirmed booking on it — e.g. every 6 hours normally, every hour
   once you've actually booked that date, since freshness matters more once there's
   something to protect
+- The TUI itself also scrapes automatically — once right when you open it, and
+  periodically while it keeps running — covering the whole overview window, not just
+  the day on screen. `r` still re-scrapes just the current day immediately, as a
+  manual override; the automatic pass is what keeps everything current without
+  needing either a keypress or a cron job to be set up first
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio.
   Real names only show for people on your pc caddie friends list (a native pc caddie
   feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
