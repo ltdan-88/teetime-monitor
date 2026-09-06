@@ -2,6 +2,7 @@ from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
     distinct_scraped_dates,
+    init_db,
     last_scraped_at,
     load_all_confirmed_bookings,
     load_confirmed_booking,
@@ -11,6 +12,19 @@ from src.storage import (
     save_confirmed_booking,
     save_schedule,
 )
+
+
+def test_init_db_creates_a_missing_parent_directory(tmp_path):
+    # Regression test for a real bug found live 2026-09-07: opening the TUI for the
+    # very first time, before scrape_once.py had ever run to create data/ itself,
+    # crashed with "OperationalError: unable to open database file" -- sqlite3
+    # creates the database *file* but not a missing directory in its path.
+    db = tmp_path / "data" / "0000001.db"
+    assert not db.parent.exists()
+
+    init_db(db)
+
+    assert db.exists()
 
 
 def test_load_latest_schedule_returns_none_when_never_scraped(tmp_path):

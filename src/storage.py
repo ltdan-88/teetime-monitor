@@ -112,6 +112,14 @@ CREATE TABLE IF NOT EXISTS booking_changes (
 
 
 def init_db(path: Path = DEFAULT_DB_PATH) -> None:
+    """Create `path`'s schema if it doesn't exist yet. Every other function in this
+    module calls this first, so this is also the one place that needs to create
+    `path`'s parent directory — sqlite3 happily creates the database *file* itself
+    but not any missing directory in its path. Found live 2026-09-07: opening the TUI
+    for the very first time, before `scrape_once.py` had ever run to create `data/`
+    itself, crashed with `OperationalError: unable to open database file` — the
+    directory just didn't exist yet."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
 

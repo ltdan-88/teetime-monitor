@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import pytest
 
@@ -15,6 +16,26 @@ def _english_ui(monkeypatch, tmp_path):
     i18n.set_language("en")
     yield
     i18n._current_language = None
+
+
+@pytest.fixture(autouse=True)
+def _restore_pcc_env():
+    # CredentialsScreen writes directly to os.environ on save (see its own docstring
+    # for why) -- bypassing monkeypatch's undo tracking, since that only covers
+    # changes made through monkeypatch.setenv/delenv themselves, not ones application
+    # code makes afterward. Every test in this file that exercises a real save needs
+    # this restored regardless: skipping it once already leaked a fake PCC_USER/
+    # PCC_PASS into later tests in the same pytest process, which let
+    # scrape_once.py's tests skip their "no credentials" guard and fire real (if
+    # rejected) login requests at the live pc caddie site.
+    original_user = os.environ.get("PCC_USER")
+    original_pass = os.environ.get("PCC_PASS")
+    yield
+    for key, original in (("PCC_USER", original_user), ("PCC_PASS", original_pass)):
+        if original is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = original
 
 
 # CredentialsScreen is a Screen, not a standalone App -- test it pushed into a
@@ -163,6 +184,7 @@ def test_credentials_screen_prefills_existing_username_not_password(tmp_path):
 
 
 def test_credentials_screen_updates_live_process_environment(monkeypatch, tmp_path):
+    # Cleanup is handled by the module's autouse _restore_pcc_env fixture above.
     monkeypatch.delenv("PCC_USER", raising=False)
     monkeypatch.delenv("PCC_PASS", raising=False)
     env_path = tmp_path / ".env"
@@ -177,8 +199,6 @@ def test_credentials_screen_updates_live_process_environment(monkeypatch, tmp_pa
             await pilot.pause()
 
     asyncio.run(scenario())
-
-    import os
 
     assert os.environ["PCC_USER"] == "someone@example.com"
     assert os.environ["PCC_PASS"] == "hunter2"
