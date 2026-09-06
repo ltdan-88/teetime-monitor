@@ -1,10 +1,13 @@
 from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 from src.storage import (
+    acknowledge_booking_changes,
     distinct_scraped_dates,
     last_scraped_at,
     load_all_confirmed_bookings,
     load_confirmed_booking,
     load_latest_schedule,
+    load_unacknowledged_booking_changes,
+    save_booking_change,
     save_confirmed_booking,
     save_schedule,
 )
@@ -247,3 +250,44 @@ def test_load_all_confirmed_bookings_uses_latest_confirmation_per_course_date(tm
     bookings = load_all_confirmed_bookings(path=db)
     assert len(bookings) == 1
     assert bookings[0].source == "my_reservations"
+
+
+def test_load_unacknowledged_booking_changes_empty_when_none_saved(tmp_path):
+    db = tmp_path / "teetime.db"
+    assert load_unacknowledged_booking_changes(path=db) == []
+
+
+def test_save_and_load_booking_change_round_trips(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_booking_change(
+        course="18 Loch Tee 1",
+        date="2026-09-06",
+        time="14:00",
+        kind="party_grew",
+        message="1 more player joined your 14:00 tee time since you booked",
+        path=db,
+    )
+
+    changes = load_unacknowledged_booking_changes(path=db)
+    assert len(changes) == 1
+    assert changes[0]["course"] == "18 Loch Tee 1"
+    assert changes[0]["kind"] == "party_grew"
+    assert "1 more player" in changes[0]["message"]
+
+
+def test_acknowledge_booking_changes_hides_them(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_booking_change(
+        course="18 Loch Tee 1", date="2026-09-06", time="14:00", kind="party_grew", message="msg", path=db
+    )
+    changes = load_unacknowledged_booking_changes(path=db)
+
+    acknowledge_booking_changes([c["id"] for c in changes], path=db)
+
+    assert load_unacknowledged_booking_changes(path=db) == []
+
+
+def test_acknowledge_booking_changes_handles_empty_list(tmp_path):
+    db = tmp_path / "teetime.db"
+    acknowledge_booking_changes([], path=db)  # must not raise, e.g. on an empty db
+    assert load_unacknowledged_booking_changes(path=db) == []

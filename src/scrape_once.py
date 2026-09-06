@@ -90,8 +90,16 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
     """Scrape one club/course/date's schedule (plus its weather overlay) and persist
     it, best-effort persisting "My Reservations" too, then check any confirmed booking
     for that date against what changed since the previous scrape. Intended to be
-    called by cron/launchd — returns whatever BookingChanges were detected so a
-    caller/test can inspect what happened without needing separate storage for it yet.
+    called by cron/launchd — returns whatever BookingChanges were detected, and also
+    persists each one via `storage.save_booking_change()` (added 2026-09-06 alongside
+    tui.py) — this runs as a separate process from the interactive TUI, so a detected
+    change needs to survive somewhere for the TUI's home screen to read on next open,
+    not just exist as an in-memory return value nothing else reads.
+
+    `config` is optional — `main()` already has each club's config loaded from its
+    loop over `club_config.list_clubs()` and passes it straight through, rather than
+    having `run()` redundantly re-read it via `_club_config_for_id()`. A caller (or
+    test) with no config handy can omit it and `run()` looks it up itself the same way.
 
     `config` is optional — `main()` already has each club's config loaded from its
     loop over `club_config.list_clubs()` and passes it straight through, rather than
@@ -132,6 +140,15 @@ def run(club_id: str, course: str, date: str, config: dict | None = None) -> lis
             changes = booking_watch.check_for_changes(
                 confirmed, baseline, latest, buffer_minutes, round_duration, preferences
             )
+            for change in changes:
+                storage.save_booking_change(
+                    course=course,
+                    date=date,
+                    time=confirmed.time,
+                    kind=change.kind,
+                    message=change.message,
+                    path=db_path,
+                )
 
     return changes
 

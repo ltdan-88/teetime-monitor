@@ -13,7 +13,7 @@ separation (e.g. `data/<club_slug>.db`, one per `clubs/*.yaml`), matching how
 club_config.py already treats each club as its own file. Keeps every function's
 signature here identical to what a single-club tool would need.
 
-Three tables:
+Four tables:
 - `scrapes` — one row per scrape *event* (course/date/timestamp) — a batch header.
 - `slots` and `weather_points` — the actual per-time-slot data for one scrape, each row
   pointing back at its `scrapes.id`. Split out (rather than one wide flat table) because
@@ -27,6 +27,13 @@ Three tables:
   described in ROADMAP.md Phase 1, not the main path. Kept as its own table because it
   answers a different question than scraped player-name matching can reliably answer on
   its own (most players show as anonymized "Member (H.H)", not by name).
+- `booking_changes` — added 2026-09-06 alongside `tui.py`: booking_watch.py's
+  `check_for_changes()` is computed during the *scheduled* scrape (a separate process
+  from the interactive TUI), so a detected change needs to be persisted somewhere for
+  the TUI to pick up next time it opens, rather than only ever existing as an in-memory
+  return value that nothing reads. Flattened rather than storing a serialized
+  `BookingChange` — just enough fields to show a banner — and `acknowledged` lets the
+  TUI mark a banner as seen without deleting the historical record.
 
 Implemented and tested 2026-09-06. Not yet covered here: a lookup for a *specific*
 historical scrape (e.g. "the schedule as of when this booking was confirmed") — only
@@ -79,6 +86,17 @@ CREATE TABLE IF NOT EXISTS confirmed_bookings (
     holes INTEGER,             -- 9 or 18, if noted
     source TEXT NOT NULL,      -- "my_reservations" (automatic) or "manual" (TUI `c`)
     confirmed_at TEXT NOT NULL -- ISO 8601 timestamp
+);
+
+CREATE TABLE IF NOT EXISTS booking_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    course TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT,                 -- the booking's own time, for display
+    kind TEXT NOT NULL,        -- one of booking_watch.py's change-kind constants
+    message TEXT NOT NULL,     -- plain-language, ready to show as-is
+    detected_at TEXT NOT NULL, -- ISO 8601 timestamp
+    acknowledged INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -272,3 +290,55 @@ def load_all_confirmed_bookings(path: Path = DEFAULT_DB_PATH) -> list[ConfirmedB
         ConfirmedBooking(date=date, course=course, time=time, holes=holes, source=source, confirmed_at=confirmed_at)
         for course, date, time, holes, source, confirmed_at in rows
     ]
+
+
+def save_booking_change(
+    course: str, date: str, time: str | None, kind: str, message: str, path: Path = DEFAULT_DB_PATH
+) -> None:
+    """Persist one detected booking_watch.BookingChange so the TUI can show it as a
+    banner next time it opens — see the module docstring's `booking_changes` note.
+    Takes plain fields rather than a BookingChange object so storage.py doesn't need to
+    import booking_watch.py just for a dataclass shape."""
+    init_db(path)
+    detected_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO booking_changes (course, date, time, kind, message, detected_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (course, date, time, kind, message, detected_at),
+        )
+
+
+def load_unacknowledged_booking_changes(path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """Every not-yet-seen booking change, oldest first — what the TUI's home screen
+    shows as banners. Returns plain dicts (id/course/date/time/kind/message/detected_at)
+    rather than reconstructing a full BookingChange (which would need a full
+    ConfirmedBooking round-tripped back out too) — display only needs these fields."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT id, course, date, time, kind, message, detected_at FROM booking_changes "
+            "WHERE acknowledged = 0 ORDER BY id"
+        ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "course": row[1],
+            "date": row[2],
+            "time": row[3],
+            "kind": row[4],
+            "message": row[5],
+            "detected_at": row[6],
+        }
+        for row in rows
+    ]
+
+
+def acknowledge_booking_changes(ids: list[int], path: Path = DEFAULT_DB_PATH) -> None:
+    """Mark banners as seen — doesn't delete the row, just stops it showing again next
+    time the TUI opens."""
+    if not ids:
+        return
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.executemany("UPDATE booking_changes SET acknowledged = 1 WHERE id = ?", [(i,) for i in ids])

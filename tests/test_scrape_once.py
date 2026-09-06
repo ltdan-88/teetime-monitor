@@ -93,6 +93,13 @@ def test_run_reports_booking_watch_changes_when_a_booking_exists(tmp_path, monke
     assert len(changes) == 1
     assert changes[0].kind == "party_grew"
 
+    # Persisted too -- a separate TUI process reading this club's database later needs
+    # to see it, not just whatever run() happened to return in-memory this time.
+    saved = scrape_once.storage.load_unacknowledged_booking_changes(path=scrape_once._db_path("0000001"))
+    assert len(saved) == 1
+    assert saved[0]["kind"] == "party_grew"
+    assert saved[0]["date"] == "2026-09-06"
+
 
 def test_should_scrape_true_when_never_scraped(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
