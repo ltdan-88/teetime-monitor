@@ -48,6 +48,17 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) ->
         yaml.safe_dump(config, f, sort_keys=False)
 
 
+def new_club_stub(club_id: str) -> dict:
+    """A minimal starting config for a club just picked via club_picker.py — only
+    `club_id` comes from pc caddie's own directory; every other field (location,
+    calendar, availability, preferences, ...) is a personal fact the picker has no way
+    to know, and stays whatever each consumer already falls back to when it's missing
+    (see e.g. scrape_once.py's DEFAULT_SCRAPE_INTERVAL_MINUTES, recommend.py's
+    DEFAULT_AVOID_RAIN_*) until filled in by hand or via settings_screen.py. See
+    clubs/club.example.yaml for the fully annotated reference of what's available."""
+    return {"club_id": club_id, "default_course": "", "default_date": "today"}
+
+
 def resolve_credentials(club_id: str) -> tuple[str, str]:
     """(username, password) for a club.
 

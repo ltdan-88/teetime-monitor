@@ -1,4 +1,10 @@
-from src.club_config import list_clubs, load_club_config, resolve_credentials, save_club_config
+from src.club_config import (
+    list_clubs,
+    load_club_config,
+    new_club_stub,
+    resolve_credentials,
+    save_club_config,
+)
 
 
 def test_list_clubs_excludes_example_template(tmp_path):
@@ -57,3 +63,15 @@ def test_save_club_config_overwrites_existing_file(tmp_path):
     save_club_config("home-club", {"club_id": "new"}, tmp_path)
 
     assert load_club_config("home-club", tmp_path) == {"club_id": "new"}
+
+
+def test_new_club_stub_fills_only_club_id():
+    stub = new_club_stub("0000001")
+    assert stub["club_id"] == "0000001"
+    assert stub["default_course"] == ""
+    assert stub["default_date"] == "today"
+
+
+def test_new_club_stub_is_saveable_and_loadable(tmp_path):
+    save_club_config("guest-club", new_club_stub("0352001"), tmp_path)
+    assert load_club_config("guest-club", tmp_path)["club_id"] == "0352001"

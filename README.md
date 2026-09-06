@@ -12,16 +12,20 @@ analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
 booking. The TUI's single-day detail screen (club/course picker, the tee sheet itself,
-confirming a booking, and the booking-watch banners) is real too — see "Project
-structure" below. Still to come: the multi-day overview, ad hoc search, and
-crowd-heatmap screens, plus a searchable in-app club picker (researched, not yet
-built). See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+confirming a booking, and the booking-watch banners) is real too, and so is a
+standalone searchable club picker (`club_picker.py`, added 2026-09-07) for adding
+clubs beyond your first one — see "Project structure" below. Still to come: the
+multi-day overview, ad hoc search, and crowd-heatmap screens. See
+[`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
 - Save more than one club (`clubs/`), picking which one at startup — skipped
-  automatically if you've only saved one
+  automatically if you've only saved one. Add clubs beyond your first one by
+  searching pc caddie's own directory instead of hand-typing a numeric id — run
+  `python -m src.club_picker`, matching pc caddie's own in-app "Anlagenauswahl"
+  feature (confirmed against real app screenshots, 2026-09-06)
 - Course picker for the 27-hole club's fixed options ("18 Loch Tee 1" / "9 Loch Tee 1" /
   "6 Loch Platz") — the actual weekly A/B/C loop combination just shows as an
   informational banner, confirmed by checking the real site rather than assumed
@@ -99,8 +103,10 @@ pip install -e .
 playwright install chromium
 cp .env.example .env                              # fill in PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
 cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinates, etc.
-                                                    # repeat for each club you want saved
+                                                    # (your first club only -- see club_picker.py below
+                                                    # for adding the rest by searching, not hand-typing)
 
+python -m src.club_picker my-club                  # search pc caddie's directory to add another club
 python -m src.settings_screen my-club              # adjust availability/weather preferences + scrape interval
 python -m src.scrape_once                          # one-off scrape of every saved club's overview window
 python -m src.tui                                  # the tee sheet itself, single-day detail view
@@ -130,6 +136,7 @@ teetime-monitor/
 │   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
 │   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
 │   ├── settings_screen.py  # standalone Textual screen: edit preferences/interval (implemented)
+│   ├── club_picker.py      # standalone Textual screen: search pc caddie's directory, add a club (implemented)
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client (implemented)
 │   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it? (implemented)
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
@@ -151,6 +158,7 @@ teetime-monitor/
     ├── test_search.py
     ├── test_recommend.py
     ├── test_settings_screen.py
+    ├── test_club_picker.py
     ├── test_weather.py
     ├── test_booking_watch.py
     ├── test_calendar_context.py

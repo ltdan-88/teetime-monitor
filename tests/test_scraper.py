@@ -7,9 +7,11 @@ from src.scraper import (
     STATUS_DISABLE_TIME,
     STATUS_OCCUPIED,
     LoginError,
+    _parse_club_directory_html,
     _parse_my_reservations_html,
     _parse_slot_row,
     club_url,
+    fetch_club_directory,
     login,
     parse_schedule_html,
     parse_seats_free,
@@ -400,4 +402,51 @@ def test_scrape_my_reservations_returns_confirmed_bookings_for_a_real_row(monkey
     [booking] = scrape_my_reservations("0000001", "user@example.com", "hunter2")
 
     assert (booking.date, booking.time, booking.course) == ("2026-09-07", "19:50", "6 Loch Platz")
+    assert fake_client.closed
+
+
+# ---------------------------------------------------------------------------
+# fetch_club_directory() -- confirmed 2026-09-07 by inspecting "My Golf" live: the
+# whole platform directory sits in one <select>, not fetched per keystroke.
+
+_CLUB_DIRECTORY_HTML = """
+<select id="user_association_club" name="rq[user_association_club]">
+<option value=""></option>
+<option value="0352001">[0352001] Golf Club Grand Ducal de Luxembourg</option>
+<option value="0491605">[0491605] 1. Golfclub Leipzig e.V.</option>
+<option value="0000001">[0000001] Golfclub Domäne Musterhausen e.V.</option>
+</select>
+"""
+
+
+def test_parse_club_directory_html_extracts_id_and_name():
+    entries = _parse_club_directory_html(_CLUB_DIRECTORY_HTML)
+    assert entries == [
+        ("0352001", "Golf Club Grand Ducal de Luxembourg"),
+        ("0491605", "1. Golfclub Leipzig e.V."),
+        ("0000001", "Golfclub Domäne Musterhausen e.V."),
+    ]
+
+
+def test_parse_club_directory_html_skips_the_blank_placeholder_option():
+    entries = _parse_club_directory_html(_CLUB_DIRECTORY_HTML)
+    assert all(club_id for club_id, _ in entries)
+
+
+def test_parse_club_directory_html_raises_for_unrecognized_markup():
+    try:
+        _parse_club_directory_html("<html><body>no select here</body></html>")
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
+def test_fetch_club_directory_returns_parsed_entries(monkeypatch):
+    fake_client = _FakeClient(post_response_text="<html>Welcome back</html>", get_response_text=_CLUB_DIRECTORY_HTML)
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    entries = fetch_club_directory("0000001", "user@example.com", "hunter2")
+
+    assert ("0000001", "Golfclub Domäne Musterhausen e.V.") in entries
+    assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=golf"
     assert fake_client.closed

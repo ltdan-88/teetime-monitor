@@ -94,6 +94,22 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "rain chance",
         "watch.reason.rain_amount": "rain amount",
         "watch.reason.wind": "wind",
+        "club_picker.title": "Add a club",
+        "club_picker.search_placeholder": "Search club name…",
+        "club_picker.slug_placeholder": "Save as (filename)…",
+        "club_picker.fetching": "Fetching pc caddie's club directory…",
+        "club_picker.fetch_failed": "Couldn't fetch the club directory: {error}",
+        "club_picker.no_credentials": "No PCC_USER/PCC_PASS configured yet — set them in .env first.",
+        "club_picker.match_count": "{count} matches",
+        "club_picker.no_matches": "No matches",
+        "club_picker.select_prompt": "Type to search, then pick a club below",
+        "club_picker.slug_required": "Enter a filename first.",
+        "club_picker.slug_taken": "clubs/{slug}.yaml already exists — pick another name.",
+        "club_picker.pick_first": "Pick a club from the list first.",
+        "club_picker.saved": (
+            "Saved clubs/{slug}.yaml — edit it to add location, calendar, and preferences "
+            "(see club.example.yaml)."
+        ),
     },
     "de": {
         "picker.club_title": "Welcher Club?",
@@ -154,6 +170,22 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "Regenwahrscheinlichkeit",
         "watch.reason.rain_amount": "Regenmenge",
         "watch.reason.wind": "Wind",
+        "club_picker.title": "Club hinzufügen",
+        "club_picker.search_placeholder": "Clubnamen suchen…",
+        "club_picker.slug_placeholder": "Speichern als (Dateiname)…",
+        "club_picker.fetching": "Club-Verzeichnis von pc caddie wird abgerufen…",
+        "club_picker.fetch_failed": "Club-Verzeichnis konnte nicht abgerufen werden: {error}",
+        "club_picker.no_credentials": "Noch kein PCC_USER/PCC_PASS konfiguriert — bitte zuerst in .env eintragen.",
+        "club_picker.match_count": "{count} Treffer",
+        "club_picker.no_matches": "Keine Treffer",
+        "club_picker.select_prompt": "Suchbegriff eingeben, dann unten einen Club auswählen",
+        "club_picker.slug_required": "Bitte zuerst einen Dateinamen eingeben.",
+        "club_picker.slug_taken": "clubs/{slug}.yaml existiert bereits — bitte einen anderen Namen wählen.",
+        "club_picker.pick_first": "Bitte zuerst einen Club aus der Liste auswählen.",
+        "club_picker.saved": (
+            "clubs/{slug}.yaml gespeichert — Standort, Kalender und Einstellungen bitte "
+            "ergänzen (siehe club.example.yaml)."
+        ),
     },
 }
 

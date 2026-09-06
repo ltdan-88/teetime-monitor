@@ -245,6 +245,28 @@ Uhr" (`DD.MM.YYYY`, needs reordering to `YYYY-MM-DD`). The Persons cell lists
 marking the account's own booking) — not parsed into `ConfirmedBooking`, which has no
 players field.
 
+**Club directory + searchable club picker (2026-09-07)**: prompted directly — the
+user described pc caddie's own "Anlagenauswahl" (Facility Selection) feature (real
+mobile-app screenshots showing "Zuletzt besucht"/Recently visited and "Alle
+Clubs"/All Clubs tabs) and asked for the same searchable dropdown in this TUI, since
+they've saved a few visited courses beyond their home club in the real app already.
+Investigated live on "My Golf" (`cat=golf`, the web version's equivalent field):
+confirmed via `read_network_requests` that nothing fires per keystroke — the entire
+platform directory (1300+ clubs at inspection time) sits in one plain `<select
+id="user_association_club">`, `<option value="club_id">[club_id] Name</option>` per
+club, and whatever search box sits on top is just a client-side filter over it (see
+`scraper.py`'s `fetch_club_directory()`/`_parse_club_directory_html()`). New
+`club_picker.py` (standalone Textual screen, same convention as `settings_screen.py`)
+fetches this once via an already-configured club's credentials, lets the user search
+(plain case-insensitive substring on name — a deliberate, friendlier deviation from
+pc caddie's own exact-substring, umlaut-sensitive matching, confirmed live
+2026-09-06), and saves a new `clubs/*.yaml` stub (`club_config.new_club_stub()`) with
+just `club_id` filled in. Can't bootstrap a first club (there'd be no club_id yet to
+log in with) — that one still needs manual setup per `club.example.yaml`; this is for
+the ones after it. 21 new tests (4 in `test_scraper.py`, 2 in `test_club_config.py`,
+15 in `test_club_picker.py`, the latter a real headless Textual `run_test()` app same
+as `test_settings_screen.py`) — 276 tests passing (was 255).
+
 ## Phase 0 — Club & course setup
 Added 2026-09-05, and deliberately numbered *before* Phase 1: which club and which
 course you're even looking at has to be settled before any scraping happens, and the
@@ -255,7 +277,9 @@ user's club plays 27 holes with the 9-hole loops rotating which pair makes up "t
 - Multi-club config: each club is one YAML file under `clubs/` (see
   `clubs/club.example.yaml` for the template) — its filename (without `.yaml`) is the
   club's id. Was explicitly out of scope in the original spec; reversed 2026-09-05 once
-  the user asked to save more than one.
+  the user asked to save more than one. Beyond your first club, `club_picker.py`
+  (2026-09-07, see "Confirmed pc caddie markup reference" above) adds one by
+  searching pc caddie's own directory instead of hand-typing its numeric id.
 - On startup, the TUI lists club ids found in `clubs/` and lets you pick one — skipped
   automatically if only one exists. In the spirit of `brew-launcher`'s fzf-style
   pickers, given this project's stated inspiration.

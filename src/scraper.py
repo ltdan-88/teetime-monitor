@@ -67,6 +67,13 @@ The Persons cell (names, "*" apparently marking the booking's own account) isn't
 parsed — `ConfirmedBooking` has no players field. Still raises `NotImplementedError`
 for anything that doesn't match this confirmed shape, rather than guessing at
 unseen markup — see `_parse_my_reservations_html()`.
+
+`fetch_club_directory()` (added 2026-09-07) reads "My Golf"'s `<select
+id="user_association_club">` — the entire pc caddie platform directory, rendered
+server-side rather than fetched per keystroke (confirmed via `read_network_requests`
+while inspecting live: nothing fires as you type in the site's own search box). This
+is what backs `club_picker.py`'s searchable "add a club by name" screen — see that
+module and `_parse_club_directory_html()`.
 """
 
 import re
@@ -89,6 +96,7 @@ OVERVIEW_AREAS_CATEGORY = "tt_timetable_course_alias"
 MY_RESERVATIONS_CATEGORY = "reservations"
 EVENTS_CALENDAR_CATEGORY = "ts_calendar"
 LESSONS_CALENDAR_CATEGORY = "ts_calendar_course"
+CLUB_DIRECTORY_CATEGORY = "golf"  # "My Golf" -- see fetch_club_directory() below
 
 # Every player position is 1 of 4 on this club's tee sheet — confirmed via the
 # "- 1 -".."- 4 -" column headers on the real page.
@@ -341,6 +349,61 @@ def scrape_my_reservations(club_id: str, username: str, password: str) -> list[C
         response = client.get(url)
         response.raise_for_status()
         return _parse_my_reservations_html(response.text)
+    finally:
+        client.close()
+
+
+def _parse_club_directory_html(html: str) -> list[tuple[str, str]]:
+    """Parse "My Golf"'s embedded club-search dropdown into (club_id, name) pairs.
+
+    Confirmed 2026-09-07: pc caddie's own "search for a club by name" feature — both
+    the web version's "Home club" field on this page and the mobile app's "Alle Clubs"
+    tab (see club_picker.py) — isn't backed by a live per-keystroke API call. The
+    entire platform directory (1300+ clubs at the time of inspection) is rendered
+    server-side into one plain `<select id="user_association_club">`, one
+    `<option value="club_id">[club_id] Name</option>` per club; whatever search box
+    sits on top of it is just a client-side filter over these already-loaded options."""
+    soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="user_association_club")
+    if select is None:
+        raise NotImplementedError(
+            "fetch_club_directory() didn't find the confirmed 'user_association_club' "
+            "<select> -- the real markup may have changed. See scraper.py's module docstring."
+        )
+    entries = []
+    for option in select.find_all("option"):
+        club_id = option.get("value", "").strip()
+        if not club_id:
+            continue  # the blank placeholder option, not a real club
+        # Strip the redundant "[club_id] " prefix pc caddie puts in its own display
+        # text -- club_picker.py re-adds it at display time, but wants a clean `name`
+        # to search against.
+        name = re.sub(rf"^\[{re.escape(club_id)}\]\s*", "", option.get_text(strip=True))
+        entries.append((club_id, name))
+    return entries
+
+
+def fetch_club_directory(club_id: str, username: str, password: str) -> list[tuple[str, str]]:
+    """Log in and fetch pc caddie's own full club directory — every club on the
+    platform, not just this one. The mechanism behind club_picker.py's searchable
+    "add a club by name" screen, matching pc caddie's own in-app club-search feature
+    (see module docstring and `_parse_club_directory_html()`).
+
+    `club_id` only needs to be *a* club you can already log into — one pc caddie
+    login works across every club on the platform (confirmed 2026-09-05), so the
+    directory this returns isn't limited to clubs you've saved locally. This also
+    means it can't bootstrap your very first saved club (there'd be no club_id yet to
+    log in with) — that one still needs its numeric id found by hand, same as
+    clubs/club.example.yaml's own instructions. It's for adding the clubs *after*
+    that one, matching what prompted this feature: a home club plus a few others
+    visited occasionally.
+    """
+    client = login(club_id, username, password)
+    try:
+        url = club_url(club_id, CLUB_DIRECTORY_CATEGORY)
+        response = client.get(url)
+        response.raise_for_status()
+        return _parse_club_directory_html(response.text)
     finally:
         client.close()
 
