@@ -82,6 +82,10 @@ and crowd-heatmap screens, and the real pc caddie login form. See
   (catppuccin, gruvbox, tokyonight, nord, dracula, green, amber, solarized-dark,
   solarized-light, red-sands) — switch via `ctrl+p` or the `t` key, applied
   immediately and remembered next time you open the app
+- Bilingual UI (English/German) — every label, button, table header, and status
+  message across the tee-sheet screen and the settings screen. Defaults to German if
+  your system locale looks German, English otherwise; switch anytime from the same
+  `ctrl+p` command palette as themes, applied immediately and remembered next time
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
@@ -131,6 +135,8 @@ teetime-monitor/
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
 │   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (implemented)
 │   ├── theme.py            # 10 color themes, same set as brew-launcher (implemented)
+│   ├── i18n.py             # English/German UI text lookup (implemented)
+│   ├── user_config.py      # shared KEY=value config file, used by theme.py + i18n.py (implemented)
 │   └── tui.py               # main Textual app: club/course pickers, day detail (implemented);
 │                            #   multi-day overview, search, heatmap screens (not yet built)
 └── tests/
@@ -148,6 +154,8 @@ teetime-monitor/
     ├── test_ai_assist.py
     ├── test_analytics.py
     ├── test_theme.py
+    ├── test_i18n.py
+    ├── test_user_config.py
     ├── test_tui.py
     └── test_playability.py
 ```
@@ -177,4 +185,9 @@ Theme choice is separate from any club's YAML — it's a "how do I like my termi
 look" preference, not a per-club fact — and lives in its own file,
 `~/.config/teetime-monitor/config`, in the same spirit as `brew-launcher`'s own config
 file. Set `TEETIME_MONITOR_THEME=<name>` to override it for one run without changing
-the saved default.
+the saved default. Language works the same way, sharing that same file
+(`TEETIME_MONITOR_LANG=en` or `=de` to override for one run) — English and German are
+supported, defaulting to German if your system locale looks German. Two things stay
+English-only regardless of language: the passive banners `booking_watch.py` writes for
+a booking whose situation changed (see `ROADMAP.md`'s bilingual-UI note for why), and
+each screen's key-hint text in the footer.

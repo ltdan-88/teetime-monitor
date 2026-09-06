@@ -18,6 +18,15 @@ saved, matching the "skip the picker" convention used elsewhere in this project.
 Saving writes the whole config back via club_config.save_club_config() — see that
 function's docstring for the one known limitation (comments in the YAML file don't
 survive a save).
+
+Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): applies the same
+resolved theme/language as the main TUI on startup, and every field label/button/
+status message goes through i18n.py — this is a separate standalone App (run directly
+as `python -m src.settings_screen`, not a Screen pushed into TeetimeApp), so it needs
+its own `apply_theme()`/`apply_language()` calls rather than inheriting TeetimeApp's.
+No in-app language-switch command here, unlike tui.py — switch language from the main
+TUI (persists to the shared config file) and this screen picks it up next time it's
+run.
 """
 
 import copy
@@ -30,7 +39,8 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Footer, Header, Input, Label, Static, Switch
 
-from . import club_config
+from . import club_config, i18n
+from . import theme as theme_module
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
@@ -64,54 +74,58 @@ class Field:
     thresholds that are legitimately optional (e.g. no temperature floor at all);
     "optional_time" -> Input held as a raw "HH:MM" string or blank -> None;
     "bool" -> Switch.
+
+    `label_key` is an i18n.py key, not literal text — looked up at compose() time so
+    the label reflects whatever language is current then, not whatever it was when
+    FIELDS (a module-level list, built once at import time) was first defined.
     """
 
-    label: str
+    label_key: str
     path: tuple[str, ...]
     kind: str
     default: Any = None
 
 
 FIELDS: list[Field] = [
-    Field("Min open spots (party size)", ("availability", "min_open_spots"), "int", 1),
-    Field("Weekday window — after", ("availability", "weekday_window", "after"), "optional_time"),
-    Field("Weekday window — before", ("availability", "weekday_window", "before"), "optional_time"),
-    Field("Weekend window — after", ("availability", "weekend_window", "after"), "optional_time"),
-    Field("Weekend window — before", ("availability", "weekend_window", "before"), "optional_time"),
-    Field("Buffer from other flights (minutes)", ("availability", "buffer_minutes"), "int", 0),
-    Field("Avoid rain", ("preferences", "avoid_rain"), "bool", False),
+    Field("settings.field.min_open_spots", ("availability", "min_open_spots"), "int", 1),
+    Field("settings.field.weekday_after", ("availability", "weekday_window", "after"), "optional_time"),
+    Field("settings.field.weekday_before", ("availability", "weekday_window", "before"), "optional_time"),
+    Field("settings.field.weekend_after", ("availability", "weekend_window", "after"), "optional_time"),
+    Field("settings.field.weekend_before", ("availability", "weekend_window", "before"), "optional_time"),
+    Field("settings.field.buffer_minutes", ("availability", "buffer_minutes"), "int", 0),
+    Field("settings.field.avoid_rain", ("preferences", "avoid_rain"), "bool", False),
     Field(
-        "  ...above rain probability (%)",
+        "settings.field.avoid_rain_probability",
         ("preferences", "avoid_rain_probability_percent"),
         "optional_float",
         DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
     ),
     Field(
-        "  ...above rain amount (mm)",
+        "settings.field.avoid_rain_mm",
         ("preferences", "avoid_rain_mm"),
         "optional_float",
         DEFAULT_AVOID_RAIN_MM,
     ),
-    Field("Avoid wind", ("preferences", "avoid_wind"), "bool", False),
+    Field("settings.field.avoid_wind", ("preferences", "avoid_wind"), "bool", False),
     Field(
-        "  ...above wind speed (kph)",
+        "settings.field.avoid_wind_kph",
         ("preferences", "avoid_wind_kph"),
         "optional_float",
         DEFAULT_AVOID_WIND_KPH,
     ),
-    Field("Avoid temperature below (°C)", ("preferences", "avoid_temp_below_c"), "optional_float"),
-    Field("Avoid temperature above (°C)", ("preferences", "avoid_temp_above_c"), "optional_float"),
-    Field("Prioritize friends' slots", ("preferences", "prioritize_friends"), "bool", False),
-    Field("Avoid predicted crowds", ("preferences", "avoid_predicted_crowd"), "bool", False),
-    Field("Daylight safety buffer (minutes)", ("daylight_buffer_minutes",), "int", 30),
+    Field("settings.field.avoid_temp_below", ("preferences", "avoid_temp_below_c"), "optional_float"),
+    Field("settings.field.avoid_temp_above", ("preferences", "avoid_temp_above_c"), "optional_float"),
+    Field("settings.field.prioritize_friends", ("preferences", "prioritize_friends"), "bool", False),
+    Field("settings.field.avoid_predicted_crowd", ("preferences", "avoid_predicted_crowd"), "bool", False),
+    Field("settings.field.daylight_buffer", ("daylight_buffer_minutes",), "int", 30),
     Field(
-        "Scrape interval — normal (minutes)",
+        "settings.field.scrape_interval_normal",
         ("scrape_interval_minutes",),
         "int",
         DEFAULT_SCRAPE_INTERVAL_MINUTES,
     ),
     Field(
-        "Scrape interval — once booked (minutes)",
+        "settings.field.scrape_interval_booked",
         ("scrape_interval_minutes_booked",),
         "int",
         DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
@@ -212,6 +226,10 @@ class SettingsScreen(App[None]):
         self._on_saved = on_saved
         self.config = club_config.load_club_config(club_id, clubs_dir)
 
+    def on_mount(self) -> None:
+        theme_module.apply_theme(self)
+        i18n.apply_language()
+
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll(id="fields"):
@@ -219,15 +237,15 @@ class SettingsScreen(App[None]):
             for field in FIELDS:
                 widget_id = _field_id(field)
                 with Horizontal(classes="field-row"):
-                    yield Label(field.label, classes="field-label")
+                    yield Label(i18n.t(field.label_key), classes="field-label")
                     if field.kind == "bool":
                         yield Switch(value=values[widget_id], id=widget_id, classes="field-input")
                     else:
                         yield Input(value=values[widget_id], id=widget_id, classes="field-input")
         yield Static("", id="status")
         with Horizontal(id="buttons"):
-            yield Button("Save", id="save", variant="success")
-            yield Button("Quit", id="quit")
+            yield Button(i18n.t("button.save"), id="save", variant="success")
+            yield Button(i18n.t("button.quit"), id="quit")
         yield Footer()
 
     def _read_widget_values(self) -> dict[str, Any]:
@@ -246,13 +264,13 @@ class SettingsScreen(App[None]):
             try:
                 updated = widget_values_to_config(self.config, self._read_widget_values())
             except ValueError as exc:
-                self.query_one("#status", Static).update(f"Not saved — {exc}")
+                self.query_one("#status", Static).update(i18n.t("settings.not_saved", error=exc))
                 return
             club_config.save_club_config(self.club_id, updated, self.clubs_dir)
             self.config = updated
             if self._on_saved is not None:
                 self._on_saved(updated)
-            self.query_one("#status", Static).update("Saved.")
+            self.query_one("#status", Static).update(i18n.t("settings.saved"))
 
 
 def main() -> None:

@@ -1,13 +1,27 @@
 import asyncio
 
+import pytest
+
+from src import i18n
 from src.club_config import load_club_config
 from src.recommend import DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT
 from src.scrape_once import DEFAULT_SCRAPE_INTERVAL_MINUTES
 from src.settings_screen import (
+    FIELDS,
     SettingsScreen,
     config_to_widget_values,
     widget_values_to_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def _english_ui(monkeypatch, tmp_path):
+    # Same reasoning as tui.py's identical fixture -- i18n's current language is
+    # module-level global state that would otherwise leak between tests.
+    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
+    i18n.set_language("en")
+    yield
+    i18n._current_language = None
 
 
 def _id(*path):
@@ -171,3 +185,49 @@ def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     # Unsaved -- the on-disk file still has the original value.
     saved = load_club_config("home-club", tmp_path)
     assert saved["availability"]["min_open_spots"] == 1
+
+
+# --- Language (bilingual UI) ----------------------------------------------------------
+
+
+def test_every_field_label_key_has_a_translation():
+    for field in FIELDS:
+        assert i18n.t(field.label_key) != field.label_key, f"missing translation for {field.label_key!r}"
+
+
+def test_settings_screen_renders_german_labels_and_buttons(tmp_path):
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    i18n.set_language("de")
+
+    async def scenario():
+        from textual.widgets import Button, Label
+
+        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            labels = {str(label.content) for label in app.query(Label)}
+            assert "Min. freie Plätze (Gruppengröße)" in labels
+            assert "Regen vermeiden" in labels
+            assert str(app.query_one("#save", Button).label) == "Speichern"
+            assert str(app.query_one("#quit", Button).label) == "Beenden"
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_german_status_messages(tmp_path):
+    (tmp_path / "home-club.yaml").write_text(
+        "club_id: '0000001'\navailability:\n  min_open_spots: 1\n"
+    )
+    i18n.set_language("de")
+
+    async def scenario():
+        from textual.widgets import Static
+
+        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.query_one("#status", Static).content) == "Gespeichert."
+
+    asyncio.run(scenario())

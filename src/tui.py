@@ -37,18 +37,32 @@ startup (`TeetimeApp.on_mount`); switching afterward is Textual's own command pa
 needed, unlike brew-launcher's own version) rather than a hand-built picker screen —
 `watch_theme()` persists whatever the command palette picks, including a native
 Textual theme with no brew-launcher equivalent.
+
+Language (added 2026-09-06, "need to make sure the TUI is at least bilingual, since
+it will be used in Germany"): see i18n.py for the English/German string table and how
+it resolves/persists — same shape as theme.py's resolution, sharing the same config
+file. Switching is a command-palette entry ("Language: switch to Deutsch"/"...to
+English"), which also rebuilds the current `DayDetailScreen` in place so every label,
+table header, and status message updates immediately, not just on next launch. One
+deliberate scope boundary: the Footer's key-hint text (from each Screen's `BINDINGS`,
+a class-level attribute fixed at import time) stays English always — Textual's static
+binding descriptions aren't a good fit for a runtime language switch, and they're a
+minor navigational aid next to a single letter key, not primary content. Every label,
+button, table header, status/error message, and picker title a person actually reads
+while using the app is fully bilingual.
 """
 
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from . import club_config, storage
+from . import i18n
 from . import theme as theme_module
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
@@ -80,7 +94,7 @@ class ClubPickerScreen(Screen[str]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label("Which club?")
+        yield Label(i18n.t("picker.club_title"))
         yield OptionList(*[Option(slug, id=slug) for slug in self.club_slugs])
         yield Footer()
 
@@ -99,7 +113,7 @@ class CoursePickerScreen(Screen[str]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Label("Which course?")
+        yield Label(i18n.t("picker.course_title"))
         yield OptionList(*[Option(course, id=course) for course in self.courses])
         yield Footer()
 
@@ -121,15 +135,15 @@ class ConfirmBookingScreen(Screen[bool]):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="confirm-form"):
-            yield Label(f"Confirm your tee time for {self.date}")
-            yield Label("Time (HH:MM):")
+            yield Label(i18n.t("confirm.title", date=self.date))
+            yield Label(i18n.t("confirm.time_label"))
             yield Input(placeholder="14:00", id="time")
-            yield Label("Holes (9 or 18, optional):")
+            yield Label(i18n.t("confirm.holes_label"))
             yield Input(placeholder="18", id="holes")
             yield Static("", id="confirm-status")
             with Horizontal():
-                yield Button("Save", id="save", variant="success")
-                yield Button("Cancel", id="cancel")
+                yield Button(i18n.t("button.save"), id="save", variant="success")
+                yield Button(i18n.t("button.cancel"), id="cancel")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -140,12 +154,12 @@ class ConfirmBookingScreen(Screen[bool]):
         time = self.query_one("#time", Input).value.strip()
         holes_text = self.query_one("#holes", Input).value.strip()
         if not time:
-            self.query_one("#confirm-status", Static).update("Enter a time first.")
+            self.query_one("#confirm-status", Static).update(i18n.t("confirm.enter_time"))
             return
         try:
             holes = int(holes_text) if holes_text else None
         except ValueError:
-            self.query_one("#confirm-status", Static).update("Holes must be a number.")
+            self.query_one("#confirm-status", Static).update(i18n.t("confirm.holes_number"))
             return
 
         booking = ConfirmedBooking(
@@ -189,7 +203,7 @@ class DayDetailScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Time", "Occupancy", "Players")
+        table.add_columns(i18n.t("table.time"), i18n.t("table.occupancy"), i18n.t("table.players"))
         table.cursor_type = "row"
         self.refresh_banners()
         self.load_schedule()
@@ -207,7 +221,7 @@ class DayDetailScreen(Screen[None]):
         table.clear()
         schedule = storage.load_latest_schedule(self.course, self.date, path=self.db_path)
         if schedule is None or not schedule.slots:
-            table.add_row("—", "no data yet", "press 'r' to scrape")
+            table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"))
             return
         for slot in schedule.slots:
             if slot.block_reason is not None:
@@ -235,10 +249,10 @@ class DayDetailScreen(Screen[None]):
             # (no network, site down); pressing 'r' shouldn't crash the whole TUI over
             # it, and this uses a separate widget from #banners so a transient error
             # here doesn't clobber a pending booking_watch message.
-            status.update(f"Refresh failed: {exc}")
+            status.update(i18n.t("status.refresh_failed", error=exc))
             return
         storage.save_schedule(schedule, path=self.db_path)
-        status.update("Refreshed.")
+        status.update(i18n.t("status.refreshed"))
         self.load_schedule()
 
     def action_confirm(self) -> None:
@@ -281,6 +295,7 @@ class TeetimeApp(App[None]):
 
     def on_mount(self) -> None:
         theme_module.apply_theme(self)
+        i18n.apply_language()
         self.run_worker(self._start(), exclusive=True)
 
     def watch_theme(self, theme_name: str) -> None:
@@ -291,10 +306,41 @@ class TeetimeApp(App[None]):
         re-persist the same value on startup."""
         theme_module.save_theme(theme_module.to_logical_name(theme_name))
 
+    def get_system_commands(self, screen: Screen):
+        yield from super().get_system_commands(screen)
+        current = i18n.get_language()
+        other = i18n.other_language(current)
+        yield SystemCommand(
+            i18n.t("command.language_title", other=i18n.LANGUAGE_LABELS[other]),
+            i18n.t("command.language_description", current=i18n.LANGUAGE_LABELS[current]),
+            self.action_switch_language,
+        )
+
+    def action_switch_language(self) -> None:
+        new_lang = i18n.other_language(i18n.get_language())
+        i18n.set_language(new_lang)
+        i18n.save_language(new_lang)
+        self._rebuild_day_detail_screen()
+
+    def _rebuild_day_detail_screen(self) -> None:
+        """Replace the current screen with a fresh instance of itself so every label,
+        table header, and status message re-renders in the new language immediately —
+        simpler and more reliable than a partial recompose that would also need to
+        manually re-run load_schedule()/refresh_banners() by hand. A no-op if the
+        current screen isn't DayDetailScreen (e.g. mid-picker when switching
+        language) — that screen is transient enough that the next one shown will
+        already use the new language, and this app deliberately doesn't chase every
+        transient screen's live re-render (see module docstring)."""
+        screen = self.screen
+        if isinstance(screen, DayDetailScreen):
+            replacement = DayDetailScreen(screen.club_id, screen.club_slug, screen.course, screen.date)
+            self.pop_screen()
+            self.push_screen(replacement)
+
     async def _start(self) -> None:
         slugs = club_config.list_clubs()
         if not slugs:
-            self.exit(message="No clubs saved yet — copy clubs/club.example.yaml first.")
+            self.exit(message=i18n.t("app.no_clubs"))
             return
 
         slug = slugs[0] if len(slugs) == 1 else await self.push_screen_wait(ClubPickerScreen(slugs))
@@ -302,7 +348,7 @@ class TeetimeApp(App[None]):
         config = club_config.load_club_config(slug)
         club_id = config.get("club_id")
         if not club_id:
-            self.exit(message=f"clubs/{slug}.yaml has no club_id set.")
+            self.exit(message=i18n.t("app.no_club_id", slug=slug))
             return
 
         courses = list(COURSE_ALIASES)

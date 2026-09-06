@@ -27,7 +27,8 @@ Persistence is a flat `KEY=value` text file, `~/.config/teetime-monitor/config` 
 same shape and the same "never sourced as code" safety property as brew-launcher's
 own `~/.config/brew-launcher/config` — but a separate mechanism from `clubs/*.yaml`,
 since a color preference is a "how do I like my terminal to look" choice, not a
-per-club fact.
+per-club fact. The actual file read/write lives in `user_config.py`, shared with
+`i18n.py`'s `LANG=` line in that same file.
 """
 
 import os
@@ -36,11 +37,13 @@ from pathlib import Path
 from textual.app import App
 from textual.theme import Theme
 
+from . import user_config
+
 DEFAULT_THEME = "catppuccin"
 
 ENV_VAR = "TEETIME_MONITOR_THEME"
-CONFIG_DIR = Path.home() / ".config" / "teetime-monitor"
-CONFIG_FILE = CONFIG_DIR / "config"
+CONFIG_DIR = user_config.CONFIG_DIR
+CONFIG_FILE = user_config.CONFIG_FILE
 
 # brew-launcher name -> Textual's own built-in equivalent (same published palette).
 BUILTIN_THEME_MAP = {
@@ -153,37 +156,18 @@ def load_saved_theme(config_file: Path | None = None) -> str | None:
     `theme.CONFIG_FILE` and have every caller here actually see the replacement —
     a plain `config_file: Path = CONFIG_FILE` default is frozen at import time and
     would silently ignore a monkeypatch, the same gotcha already caught once this
-    session in club_config.py."""
+    session in club_config.py. The actual read/write lives in user_config.py, shared
+    with i18n.py's identically-shaped LANG= line in the same file."""
     config_file = config_file if config_file is not None else CONFIG_FILE
-    if not config_file.exists():
-        return None
-    for line in config_file.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith("THEME="):
-            value = stripped.split("=", 1)[1].strip()
-            return value or None
-    return None
+    return user_config.load_value("THEME", config_file)
 
 
 def save_theme(name: str, config_file: Path | None = None) -> None:
     """Persist `name` (a logical/brew-launcher-style name where one exists) to the
-    config file, rewriting an existing THEME= line in place rather than duplicating
-    it, and leaving every other line (any future setting) untouched. See
-    load_saved_theme() for why `config_file` isn't a plain `= CONFIG_FILE` default."""
+    config file. See load_saved_theme() for why `config_file` isn't a plain
+    `= CONFIG_FILE` default."""
     config_file = config_file if config_file is not None else CONFIG_FILE
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = []
-    replaced = False
-    if config_file.exists():
-        for line in config_file.read_text().splitlines():
-            if line.strip().startswith("THEME="):
-                lines.append(f"THEME={name}")
-                replaced = True
-            else:
-                lines.append(line)
-    if not replaced:
-        lines.append(f"THEME={name}")
-    config_file.write_text("\n".join(lines) + "\n")
+    user_config.save_value("THEME", name, config_file)
 
 
 def resolve_theme_name(env: dict | None = None, config_file: Path | None = None) -> str:

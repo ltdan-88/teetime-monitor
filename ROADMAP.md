@@ -415,6 +415,51 @@ tmux session end to end: picked "green" via the command palette, confirmed it ap
 immediately, confirmed the exact RGB(51,255,102) = #33ff66 hex value in the raw
 terminal output, quit, relaunched, and confirmed it came back up already green.
 
+**Bilingual UI (English/German), added 2026-09-06 ("need to make sure the TUI is at
+least bilingual, since it will be used in Germany").** New `src/i18n.py`: a flat
+key -> template-string dict per language, `str.format()` with named placeholders, one
+process-wide current language — same global-preference shape as `theme.py`, sharing
+its config file (a `LANG=` line alongside `THEME=`) via a new `src/user_config.py`
+factored out of `theme.py`'s original read/write logic once a second module needed the
+identical "read/write one `KEY=value` line, preserve the rest" behavior. Default:
+German if the system locale (`LC_ALL`/`LANG`/`LANGUAGE`) looks German, English
+otherwise — this club's own portal is itself German-language, so a German-speaking
+user shouldn't have to ask for it first. Switching is a command-palette entry
+("Language: switch to Deutsch"/"...to English", alongside "Theme"), which also
+rebuilds the current `DayDetailScreen` in place so every visible label/header/status
+message updates immediately, not just on next launch.
+
+Covers every label, button, table header, and status/error message across
+`tui.py` and `settings_screen.py` — both club/course pickers, the confirm-booking
+form, the day-detail table (including the "no data yet" placeholder), and every
+settings-screen field label. Two deliberate scope boundaries, documented rather than
+silently missed:
+- `booking_watch.py`'s banner messages stay English-only. Those are generated once at
+  scrape time by a separate headless process (`scrape_once.py`) and stored as
+  already-rendered plain text in `storage.py`'s `booking_changes` table — translating
+  them properly means storing structured (kind, params) instead of prose and
+  re-rendering at display time, a real schema change, not something to fold in here.
+- Each `Screen`'s `BINDINGS` (the Footer's key-hint text) stays English always —
+  it's a class-level attribute fixed at import time, and Textual's static binding
+  descriptions aren't a good fit for a runtime language switch. A minor navigational
+  aid next to a single letter key, not primary content.
+
+Caught one real bug while wiring this up, not just a test artifact: `apply_language()`
+originally re-resolved (env var > saved config > default) and overwrote the current
+language on *every* call, including a second call in the same process — meaning
+`SettingsScreen.on_mount()` calling it would silently clobber a language someone had
+already explicitly set that same process. Fixed to only resolve if nothing has set it
+yet, mirroring `get_language()`'s own lazy-resolve-once behavior — found by a test
+that set German explicitly, then saw the save confirmation come back in English.
+
+Verified live in a headless tmux session with `LANG=de_DE.UTF-8`: the app came up
+already in German without any explicit setting, confirmed every screen's text (table
+headers, confirm-booking form, the language-switch command's own two labels), switched
+back to English live via the command palette, and confirmed both `THEME=` and `LANG=`
+persisted correctly side by side in the same config file. 28 new tests across
+`tests/test_user_config.py`, `tests/test_i18n.py`, and additions to
+`tests/test_tui.py`/`tests/test_settings_screen.py`.
+
 - Config via `.env` (see Phase 0's namespaced credentials) + the active club's YAML
   (club URL, default course, default date range)
 - A small standalone scrape-and-store script (no TUI), runnable on a schedule (e.g. a

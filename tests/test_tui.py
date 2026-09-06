@@ -1,10 +1,25 @@
 import asyncio
 
+import pytest
 from textual.app import App
 from textual.widgets import DataTable, Input, OptionList, Static
 
-from src import scrape_once, storage, theme, tui
+from src import i18n, scrape_once, storage, theme, tui
 from src.models import Schedule, Slot
+
+
+@pytest.fixture(autouse=True)
+def _english_ui(monkeypatch, tmp_path):
+    """Every test here reads English UI text unless it explicitly switches language
+    itself — i18n's "current language" is deliberate module-level global state (see
+    i18n.py's docstring), so without this a test that switches to German would leak
+    that choice into every test that runs afterward in the same pytest process, and a
+    fresh test would otherwise resolve its language from this machine's real locale
+    env vars / real ~/.config/teetime-monitor/config, not a hermetic default."""
+    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
+    i18n.set_language("en")
+    yield
+    i18n._current_language = None
 
 
 class _HostApp(App):
@@ -383,3 +398,71 @@ def test_day_detail_t_binding_opens_command_palette(tmp_path, monkeypatch):
             assert any(isinstance(screen, CommandPalette) for screen in app.screen_stack)
 
     _run(scenario())
+
+
+# --- Language (bilingual UI) ----------------------------------------------------------
+
+
+def test_day_detail_renders_german_table_headers_and_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler"]
+            row = table.get_row_at(0)
+            assert row[1] == "noch keine Daten"
+
+    _run(scenario())
+
+
+def test_confirm_booking_renders_german_labels_and_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    i18n.set_language("de")
+
+    async def scenario():
+        from textual.widgets import Button
+
+        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#save", Button).label) == "Speichern"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert "Uhrzeit" in str(app.screen.query_one("#confirm-status", Static).content)
+
+    _run(scenario())
+
+
+def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert i18n.get_language() == "en"  # default, per the autouse fixture
+
+            app.action_switch_language()
+            await pilot.pause()
+
+            table = app.screen.query_one(DataTable)
+            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler"]
+
+    _run(scenario())
+
+    # The autouse fixture points i18n.CONFIG_FILE at this same tmp_path -- confirms
+    # action_switch_language() actually persisted the change, not just applied it live.
+    assert i18n.load_saved_language(tmp_path / "not-used-unless-a-test-wants-it") == "de"
+
