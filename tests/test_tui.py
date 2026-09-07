@@ -2076,6 +2076,25 @@ def test_day_detail_footer_renders_translated_hints_in_english(tmp_path, monkeyp
     _run(scenario())
 
 
+def test_day_detail_footer_wraps_instead_of_hiding_hints_in_a_narrow_window(tmp_path, monkeypatch):
+    # Point 5, direct feedback (2026-09-08): "the bottom menu bar (the one that
+    # shows the keybinds) doesn't scale well when you resize the window (i.e. some
+    # elements might be hidden, if the window is too narrow)". DayDetailScreen has
+    # ten key hints -- one long joined line is far wider than a narrow terminal, so
+    # a fixed height: 1 footer could only clip it, not wrap it. Checks the actual
+    # resolved height at a narrow width, not just that the CSS text changed.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test(size=(40, 24)) as pilot:
+            await pilot.pause()
+            footer = app.screen.query_one(tui.TranslatedFooter)
+            assert footer.size.height > 1
+
+    _run(scenario())
+
+
 def test_day_detail_footer_renders_translated_hints_in_german(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     i18n.set_language("de")

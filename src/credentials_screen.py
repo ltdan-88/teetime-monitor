@@ -19,6 +19,12 @@ username isn't secret) — leaving it blank on save means "keep whatever's alrea
 there," not "clear it," so there's never a need to display or retype a password that
 already works.
 
+Field rows and the button row picked up the same layout fixes as settings_screen.py
+(2026-09-08, point 6 of that screen's UI/UX feedback: overall consistency) --
+compact, one-row Input fields lined up with their labels, and a right-aligned,
+Quit-then-Save button row -- since this screen had the identical field-row-height
+mismatch and left-hugging buttons, just never called out by name.
+
 Also updates `os.environ` directly for the *current* process on save, not just the
 file on disk — needed for club_picker.py's own "retry automatically once saved" flow
 to see the new credentials without a restart. A fresh process picks them up from
@@ -49,7 +55,13 @@ class CredentialsScreen(Screen[bool]):
         color: $text-muted;
     }
     .field-row {
-        height: 3;
+        /* Same fix as settings_screen.py's own .field-row -- Input's default
+           bordered rendering is 3 rows tall against a 1-row Static label, so the two
+           never lined up. See that module's CSS for the fuller writeup (direct
+           feedback, 2026-09-08, on the sibling settings screen, but the same
+           mismatch was here too -- fixed for consistency, point 6 of that
+           feedback). compact=True on both Inputs below is the other half of this. */
+        height: 1;
         align: left middle;
         padding: 0 2;
     }
@@ -65,6 +77,9 @@ class CredentialsScreen(Screen[bool]):
     }
     #buttons {
         padding: 1 2;
+        /* Right-aligned, Quit-then-Save -- same OS-dialog convention applied to
+           settings_screen.py's own #buttons, for consistency across both screens. */
+        align: right middle;
     }
     """
 
@@ -91,7 +106,7 @@ class CredentialsScreen(Screen[bool]):
         with Vertical():
             with Horizontal(classes="field-row"):
                 yield Static(i18n.t("credentials.username_label"), classes="field-label")
-                yield Input(value=existing_username, id="username", classes="field-input")
+                yield Input(value=existing_username, id="username", classes="field-input", compact=True)
             with Horizontal(classes="field-row"):
                 yield Static(i18n.t("credentials.password_label"), classes="field-label")
                 yield Input(
@@ -99,11 +114,12 @@ class CredentialsScreen(Screen[bool]):
                     placeholder=i18n.t(password_hint_key),
                     id="password",
                     classes="field-input",
+                    compact=True,
                 )
         yield Static("", id="status")
         with Horizontal(id="buttons"):
-            yield Button(i18n.t("button.save"), id="save", variant="success")
             yield Button(i18n.t("button.quit"), id="quit")
+            yield Button(i18n.t("button.save"), id="save", variant="success")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

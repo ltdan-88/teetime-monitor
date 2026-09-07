@@ -233,17 +233,25 @@ class ClubBrowserScreen(Screen[str | None]):
     #club-status { padding: 0 2; color: $text-muted; }
     """
 
+    # Ordered enter (the primary action) first, this screen's own actions next, then
+    # escape/quit last -- matching every other screen's convention (see
+    # OverviewScreen/DayDetailScreen) rather than putting "Back" ahead of actions
+    # that are used far more often. Direct feedback (2026-09-08): "please check
+    # whether the order of menu elements or keybinds displayed at the bottom of the
+    # window is logical" -- escape used to sit right after enter, ahead of Favorite
+    # and Refresh, even though this screen is usually the app's home screen (opened
+    # with allow_cancel=False, so escape often does nothing at all here).
     BINDINGS = [
-        ("escape", "cancel", "Back"),
         ("f", "toggle_favorite", "Favorite"),
         ("r", "refresh_directory", "Refresh list"),
+        ("escape", "cancel", "Back"),
         ("q", "quit", "Quit"),
     ]
     _FOOTER_BINDINGS = [
         ("enter", "binding.open"),
-        ("escape", "binding.cancel"),
         ("f", "binding.favorite"),
         ("r", "binding.refresh_directory"),
+        ("escape", "binding.cancel"),
         ("q", "binding.quit"),
     ]
 

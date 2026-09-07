@@ -1003,6 +1003,73 @@ one already protecting `theme.CONFIG_FILE`) was added to redirect it in every te
 `booking_watch` check). Verified live across two real, unrelated clubs sharing one
 fake home directory: writing an availability rule for one showed the same ★
 recommendation on a completely different club's own tee sheet.
+
+**6-point UI/UX pass, same day** — direct feedback on the newly-reachable, newly-
+global settings screen, delivered as a numbered list:
+
+1. *Buttons need to follow common layout conventions (aligned to the right)* — Save
+   and Quit were left-hugging the window because Textual's `Horizontal` (`#buttons`)
+   doesn't align its children right by default. Added `align: right middle;`, and
+   swapped the order to Quit-then-Save so the primary action is rightmost, matching
+   the ordinary OS-dialog "Cancel ... Save" convention. Verified by temporarily
+   reverting the alignment and confirming a new position-based test genuinely fails
+   (`save_button.region.right` dropped from >60 to 34 on an 80-column screen).
+2. *Entries take too much vertical space (two rows), labels don't line up* — actually
+   three rows: `Input`'s default rendering draws its own top/bottom border, against
+   a one-row `Label`. Both `Input` and `Select` support a `compact=True` flag
+   (border-less, one row) that Textual already ships but this screen wasn't using;
+   `Switch` has no such flag, so it gets a direct `border: none;` override instead.
+   `.field-row`'s height dropped from 3 to 1 to match. Reverting just the CSS height
+   (not the compact flags) and rerunning confirmed a new test genuinely fails
+   (resolved row height 3, not 1).
+3. *Many fields could be dropdowns; ranges could use two-handed sliders* — checked
+   Textual's actual widget set first: it ships `Select` (dropdown) but no
+   slider/range widget of any kind, so the slider half of this isn't something
+   Textual can currently do. Converted the fields whose real values only ever come
+   from a small known set — party size (1-4), the daylight buffer, and both scrape
+   intervals — to `Select` dropdowns with sensible presets (a dropdown also closes
+   off "not a number" typos for exactly these fields, since it can't hold a value
+   outside its own options). Left genuine ranges (time windows, rain/wind/
+   temperature thresholds) as free text: a discrete list for those would be either
+   too coarse to be useful or too long to beat just typing a number. A value saved
+   outside the preset list (hand-edited YAML, or an old default no longer in the
+   list — an early version of the scrape-interval presets accidentally omitted
+   `scrape_once.py`'s own 360-minute default, caught by eyeballing a fresh install
+   live) is added back into the dropdown under its own value rather than lost or
+   crashing the screen.
+4. *Group entries into categories* — `FIELDS` now carries a `group_key`, and
+   `compose()` wraps each group in an expanded-by-default `Collapsible` (Textual's
+   own expandable-section widget): Availability / Weather / Priorities / Timing &
+   scraping.
+5. *The footer doesn't scale — hides elements when the window narrows* — real,
+   global bug, not settings-screen-specific: `TranslatedFooter` (docked at the
+   bottom of every screen in the app) had a fixed `height: 1`, so its one joined
+   line of key hints could only be clipped, not wrapped, once the window got
+   narrower than that line. `DayDetailScreen` alone has ten hints, easily wider than
+   a narrow terminal. Changed to `height: auto`, which lets Textual's `Static` wrap
+   normally. Verified against the real regression: reverting to `height: 1` and
+   rerunning a new test (`DayDetailScreen`'s footer at 40 columns) confirmed it
+   fails (resolved height stuck at 1, needed >1).
+6. *Overall consistency; is the footer/keybind order logical* — `credentials_screen.py`
+   turned out to have the exact same field-row-height mismatch and left-hugging
+   button row as settings_screen.py, just never called out by name — fixed there too
+   for consistency (compact `Input`s, right-aligned Quit-then-Save). For ordering:
+   `ClubBrowserScreen`'s footer had `escape` (Back) placed right after `enter`, ahead
+   of `Favorite`/`Refresh` — inconsistent with `OverviewScreen`/`DayDetailScreen`,
+   both of which put their own actions before escape/commands/quit at the end.
+   Reordered to match (`enter`, `f`, `r`, `escape`, `q`), which also makes more sense
+   given this screen is usually opened as the app's own home screen
+   (`allow_cancel=False`), where escape often does nothing at all. Every other
+   screen's ordering (primary action first, this screen's own actions next,
+   escape/commands/quit last) was already consistent. Not attempted: making the
+   settings form itself reflow at very narrow widths (its fixed-width label/input
+   columns need roughly 65+ columns to both stay visible) — that's a pre-existing
+   limitation, not something this pass introduced, and wasn't part of the feedback.
+
+6 new tests. All temporarily-reverted-to-confirm-it-actually-fails checks above were
+genuine, not just CSS-text assertions — each measures real resolved widget positions/
+sizes through Textual's own test harness. Verified live in an isolated sandbox
+(`HOME` pointed at a scratch directory, never the real `~/.config/teetime-monitor/`).
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

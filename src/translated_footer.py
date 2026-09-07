@@ -22,7 +22,16 @@ class TranslatedFooter(Static):
     DEFAULT_CSS = """
     TranslatedFooter {
         dock: bottom;
-        height: 1;
+        /* Was a fixed height: 1 -- fine at a normal terminal width, but a screen
+           with several key hints (DayDetailScreen has ten) produces one long joined
+           string that a single fixed row can only clip, not wrap, once the window
+           narrows below that string's length. Direct feedback (2026-09-08): "the
+           bottom menu bar ... doesn't scale well when you resize the window (i.e.
+           some elements might be hidden, if the window is too narrow)". `auto` lets
+           Static wrap the text across as many rows as the current width actually
+           needs, so a narrow window shows every hint on more lines instead of
+           silently losing the ones that don't fit on one. */
+        height: auto;
         background: $panel;
         color: $text;
     }

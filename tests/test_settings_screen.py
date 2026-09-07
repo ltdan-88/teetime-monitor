@@ -209,13 +209,17 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
 
 
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
+    # min_open_spots (used here before 2026-09-08) became a Select dropdown that
+    # same day -- it can no longer even hold an invalid string, so this now targets
+    # buffer_minutes, one of the fields that stayed free text (see FIELDS' "choices"
+    # split in the module docstring).
     preferences_file = tmp_path / "preferences.yaml"
-    preferences_file.write_text("availability:\n  min_open_spots: 1\n")
+    preferences_file.write_text("availability:\n  min_open_spots: 1\n  buffer_minutes: 5\n")
 
     async def scenario():
         app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
-            widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
+            widget = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}")
             widget.value = "not a number"
             await pilot.click("#save")
             await pilot.pause()
@@ -224,7 +228,7 @@ def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
 
     # Unsaved -- the on-disk file still has the original value.
     saved = global_preferences.load_preferences(preferences_file)
-    assert saved["availability"]["min_open_spots"] == 1
+    assert saved["availability"]["buffer_minutes"] == 5
 
 
 # --- Language (bilingual UI) ----------------------------------------------------------
@@ -268,6 +272,117 @@ def test_settings_screen_german_status_messages(tmp_path):
             await pilot.click("#save")
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == "Gespeichert."
+
+    asyncio.run(scenario())
+
+
+# --- 2026-09-08 UI/UX pass (6-point direct feedback) -------------------------------
+
+
+def test_settings_screen_buttons_are_right_aligned_quit_then_save(tmp_path):
+    # Point 1: "buttons at the bottom of window need to follow common layout
+    # conventions regarding placement (iirc usually those buttons are aligned to
+    # the right)". Checks actual resolved positions, not just that the CSS mentions
+    # "right" -- and that Quit (secondary) sits left of Save (primary), matching the
+    # ordinary OS-dialog "Cancel ... Save" convention.
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test(size=(80, 50)) as pilot:
+            await pilot.pause()
+            quit_button = app.screen.query_one("#quit")
+            save_button = app.screen.query_one("#save")
+            assert quit_button.region.x < save_button.region.x
+            # The row hugs the right edge of an 80-column screen, not the left.
+            assert save_button.region.right > 60
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_field_rows_are_one_row_tall(tmp_path):
+    # Point 2: "the settings entries take too much vertical space (seems to be two
+    # rows currently)" -- was actually three (Input's default border), against a
+    # one-row Label, which is also what caused the label/field misalignment.
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test(size=(80, 50)) as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}").parent
+            assert row.size.height == 1
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_limited_fields_render_as_dropdowns(tmp_path):
+    # Point 3: "many of the entry fields could be dropdowns since the selection
+    # options are mostly limited". min_open_spots (1-4), the daylight buffer, and
+    # both scrape intervals qualify; genuine ranges (weather thresholds, time
+    # windows) stay free text -- see the module docstring for why (no range-slider
+    # widget exists in Textual, and a dropdown wouldn't clearly beat typing a number
+    # for those).
+    from textual.widgets import Select
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen.query_one(f"#{_id('availability', 'min_open_spots')}"), Select)
+            assert isinstance(app.screen.query_one(f"#{_id('daylight_buffer_minutes')}"), Select)
+            # A genuine range stays free text.
+            from textual.widgets import Input
+
+            assert isinstance(
+                app.screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}"), Input
+            )
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_dropdown_keeps_a_stored_value_outside_the_presets(tmp_path):
+    # A value saved before these presets existed (or hand-edited to something
+    # unusual) must still load and remain selectable rather than crashing the
+    # screen or silently getting discarded on the next save.
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("scrape_interval_minutes: 7\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            widget = app.screen.query_one(f"#{_id('scrape_interval_minutes')}")
+            assert widget.value == "7"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["scrape_interval_minutes"] == 7
+
+
+def test_settings_screen_groups_fields_into_labeled_sections(tmp_path):
+    # Point 4: "entries in settings could be grouped into categories, to make it
+    # more user friendly."
+    from textual.widgets import Collapsible
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            titles = {str(c.title) for c in app.screen.query(Collapsible)}
+            assert titles == {"Availability", "Weather", "Priorities", "Timing & scraping"}
+            # Expanded by default -- these are settings you're here to look at.
+            assert all(not c.collapsed for c in app.screen.query(Collapsible))
+            # A field genuinely lives inside its labeled group, not just anywhere.
+            availability_group = next(c for c in app.screen.query(Collapsible) if str(c.title) == "Availability")
+            assert availability_group.query_one(f"#{_id('availability', 'min_open_spots')}")
 
     asyncio.run(scenario())
 
