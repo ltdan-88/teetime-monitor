@@ -996,6 +996,26 @@ def test_overview_screen_row_selected_opens_that_dates_day_detail_screen(tmp_pat
     _run(scenario())
 
 
+def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-07: "the club selector also doesn't say that you need
+    # to hit enter" -- true of every screen here that opens something via Textual's
+    # own built-in Enter behavior (OptionList/DataTable), not a real BINDINGS entry
+    # this app declares, which is exactly why it never showed up in the footer on its
+    # own anywhere. Checked here for OverviewScreen; see the matching ClubBrowserScreen
+    # and CoursePickerScreen tests below for the other two.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "enter" in text and "Open" in text
+
+    _run(scenario())
+
+
 def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp_path, monkeypatch):
     # club_slug=None (a club reached by id, never favorited) must not try to load a
     # config file that doesn't exist -- same handling as DayDetailScreen's own.
@@ -1012,6 +1032,40 @@ def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp
 
 
 # --- ClubBrowserScreen / CoursePickerScreen --------------------------------------------
+
+
+def test_club_browser_footer_says_enter_opens_a_club(monkeypatch):
+    # Direct feedback 2026-09-07: "the club selector also doesn't say that you need
+    # to hit enter" -- see OverviewScreen's matching test above for the fuller note.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "enter" in text and "Open" in text
+
+    _run(scenario())
+
+
+def test_club_browser_status_mentions_enter_once_matches_are_shown(monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(
+        tui.club_directory, "load_cached_directory", lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V.")]
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "leipzig"
+            await pilot.pause()
+            status = str(app.screen.query_one("#club-status", Static).content)
+            assert "enter" in status
+
+    _run(scenario())
 
 
 def test_club_browser_lists_favorites_and_dismisses_with_the_club_id(tmp_path, monkeypatch):
@@ -1154,6 +1208,18 @@ def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
             app.screen.action_toggle_favorite()
             await pilot.pause()
             assert added == ["0000001"]
+
+    _run(scenario())
+
+
+def test_course_picker_footer_says_enter_opens_a_course():
+    # Same gap, same fix as ClubBrowserScreen/OverviewScreen -- see their tests above.
+    async def scenario():
+        app = _HostApp(tui.CoursePickerScreen(["18 Loch Tee 1", "9 Loch Tee 1"]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "enter" in text and "Open" in text
 
     _run(scenario())
 

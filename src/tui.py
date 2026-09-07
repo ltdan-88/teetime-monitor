@@ -208,7 +208,12 @@ class ClubBrowserScreen(Screen[str | None]):
 
     Dismisses with the chosen club's numeric id, or `None` if backed out. `f` toggles
     whether the highlighted club is a favorite; `r` refreshes the directory cache
-    (the one action here that does need a login)."""
+    (the one action here that does need a login). Opening the highlighted club is
+    plain `enter` — Textual's own built-in `OptionList`/`Input` behavior, not a
+    binding this screen declares itself (see `on_input_submitted()` and
+    `on_option_list_option_selected()` below) — which is exactly why it never showed
+    up in the footer on its own; added explicitly to `_FOOTER_BINDINGS` below after
+    direct feedback that nothing on screen actually said to press it."""
 
     CSS = """
     #club-search { margin: 0 2; }
@@ -223,6 +228,7 @@ class ClubBrowserScreen(Screen[str | None]):
         ("q", "quit", "Quit"),
     ]
     _FOOTER_BINDINGS = [
+        ("enter", "binding.open"),
         ("escape", "binding.cancel"),
         ("f", "binding.favorite"),
         ("r", "binding.refresh_directory"),
@@ -304,7 +310,7 @@ class ClubBrowserScreen(Screen[str | None]):
             return
         matches = club_directory.search(self._directory, query)
         if matches:
-            self._show_entries(matches, i18n.t("club_picker.match_count", count=len(matches)))
+            self._show_entries(matches, i18n.t("picker.match_count", count=len(matches)))
         elif self._directory:
             self._show_entries([], i18n.t("club_picker.no_matches"))
         else:
@@ -403,10 +409,12 @@ class CoursePickerScreen(Screen[str | None]):
     club's own `fetch_course_aliases()` (not a rotating list, but not universal
     across clubs either — see scraper.py's module docstring for why a second real
     club needed this fixed 2026-09-07). Same `escape`/`q` bindings as
-    `ClubBrowserScreen` — see that class's own docstring."""
+    `ClubBrowserScreen` — see that class's own docstring, including why `enter` is
+    listed in `_FOOTER_BINDINGS` despite not being a real `BINDINGS` entry here
+    either."""
 
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
-    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+    _FOOTER_BINDINGS = [("enter", "binding.open"), ("escape", "binding.cancel"), ("q", "binding.quit")]
 
     def __init__(self, courses: list[str]) -> None:
         super().__init__()
@@ -663,10 +671,14 @@ class OverviewScreen(Screen[None]):
     booking yet" rather than a misleadingly empty schedule.
 
     Enter drills into `DayDetailScreen` for the highlighted day's exact date; escape
-    there pops back here (see that screen's `action_back_to_overview()`). Deliberately
-    doesn't yet bind `/` (ad hoc search) or `h` (crowd heatmap) — those are separate,
-    still-unbuilt screens (ROADMAP.md Phase 4/5); adding the keys now would promise
-    something that isn't there yet."""
+    there pops back here (see that screen's `action_back_to_overview()`). `enter`
+    itself is Textual's own built-in `DataTable` behavior, not a `BINDINGS` entry this
+    screen declares — the same reason it never showed up in the footer on its own,
+    fixed by listing it explicitly in `_FOOTER_BINDINGS` (see `ClubBrowserScreen`'s own
+    docstring for the direct feedback this responds to). Deliberately doesn't yet bind
+    `/` (ad hoc search) or `h` (crowd heatmap) — those are separate, still-unbuilt
+    screens (ROADMAP.md Phase 4/5); adding the keys now would promise something that
+    isn't there yet."""
 
     BINDINGS = [
         ("s", "switch", "Switch club/course"),
@@ -674,6 +686,7 @@ class OverviewScreen(Screen[None]):
         ("q", "quit", "Quit"),
     ]
     _FOOTER_BINDINGS = [
+        ("enter", "binding.open"),
         ("s", "binding.switch"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
