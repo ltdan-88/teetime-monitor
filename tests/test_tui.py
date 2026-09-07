@@ -1064,6 +1064,91 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
     _run(scenario())
 
 
+def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-08: "i don't even know where to configure from the UI"
+    # -- settings_screen.py used to only be reachable as its own separate command,
+    # with nothing in the running app pointing at it. `e` now opens it directly.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    (tmp_path / "clubs").mkdir()
+    (tmp_path / "clubs" / "home-club.yaml").write_text("club_id: '0000001'\ndefault_course: '18 Loch Tee 1'\n")
+    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            assert app.screen.club_slug == "home-club"
+
+            await pilot.press("e")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SettingsScreen)
+
+            widget = app.screen.query_one("#field-availability-min_open_spots")
+            widget.value = "3"
+            await pilot.click("#save")
+            await pilot.pause()
+            await pilot.press("q")
+            await pilot.pause()
+
+            # Back on the overview, reloaded -- a saved availability change can
+            # immediately affect its per-day pick column and "This week's picks".
+            assert isinstance(app.screen, tui.OverviewScreen)
+
+    _run(scenario())
+
+    saved = tui.club_config.load_club_config("home-club", tmp_path / "clubs")
+    assert saved["availability"]["min_open_spots"] == 3
+
+
+def test_edit_settings_favorites_an_unsaved_club_first(tmp_path, monkeypatch):
+    # Editing settings needs somewhere to save them -- a club reached without saving
+    # it gets favorited automatically the moment `e` is pressed, rather than sending
+    # the user to go find `f` on a different screen first.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    (tmp_path / "clubs").mkdir()
+    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
+    )
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    slugs_seen = []
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.dismiss("0000001")  # a club id typed in, never saved
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CoursePickerScreen)
+            app.screen.dismiss("18 Loch Tee 1")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.club_slug is None
+
+            await pilot.press("e")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SettingsScreen)
+            await pilot.press("q")
+            await pilot.pause()
+
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.club_slug is not None  # favorited along the way
+            slugs_seen.append(app.screen.club_slug)
+
+    _run(scenario())
+
+    assert tui.club_config.list_clubs(tmp_path / "clubs") == slugs_seen
+
+
 def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):
     # Direct feedback 2026-09-07: "the club selector also doesn't say that you need
     # to hit enter" -- true of every screen here that opens something via Textual's
@@ -1080,6 +1165,7 @@ def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):
             await pilot.pause()
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "enter" in text and "Open" in text
+            assert "Settings" in text
 
     _run(scenario())
 
@@ -1937,6 +2023,7 @@ def test_day_detail_footer_renders_translated_hints_in_english(tmp_path, monkeyp
             text = footer.render()
             assert "Refresh" in text
             assert "Confirm tee time" in text
+            assert "Settings" in text
             assert "Quit" in text
 
     _run(scenario())

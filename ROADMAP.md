@@ -952,6 +952,22 @@ survive a save (the checked-in `club.example.yaml` template is never touched, so
 stays available as reference either way). This is genuinely a separate screen from the
 eventual tui.py home screen, not a preview of it — no club/course picker, no tee-sheet
 view, just the settings form.
+
+**Wired into the main app, 2026-09-08** — direct feedback once the overview screen
+existed and a real user went looking for it: "i don't even know where to configure
+from the UI." Standalone-only had quietly become a real gap, not a deliberate
+scope line, once there was a whole running app around it with no path in. Converted
+`SettingsScreen` from its own standalone `App` to a plain `Screen` (a thin
+`SettingsApp` wrapper keeps the standalone command working unchanged), and bound `e`
+to it on both `OverviewScreen` and `DayDetailScreen`. Editing settings on a club
+that isn't a favorite yet (`club_slug is None`) favorites it automatically first —
+editing settings needs somewhere to write them, and that's already what favoriting
+means — rather than sending the user to find `f` on a different screen first. A
+saved change reloads whichever screen is current immediately, since availability/
+preferences changes can affect the ★ marker, the overview's pick column, and "This
+week's picks" all at once. 6 new tests (2 integration-level through a real
+`TeetimeApp`, the rest the existing suite's own `SettingsScreen` tests updated for
+the `App`→`Screen` change).
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

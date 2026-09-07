@@ -105,10 +105,11 @@ build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
   10:00, always solo") and the week's matching slots are highlighted automatically —
   no need to search every time
-- A standalone settings screen for adjusting availability/weather preferences and the
-  scrape interval without hand-editing YAML — run it with
-  `python -m src.settings_screen <club-id>`. Built ahead of the main tee-sheet TUI,
-  since these are the dials you'd actually want to reach for day to day
+- A settings screen for adjusting availability/weather preferences and the scrape
+  interval without hand-editing YAML — press `e` from the overview or the tee sheet
+  itself, no separate command needed. Editing settings on a club you haven't saved
+  favorites it first, since that's exactly what having settings already means. Still
+  runnable on its own too via `python -m src.settings_screen <club-id>`
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
@@ -163,10 +164,10 @@ python -m src.credentials_screen                   # set PCC_USER/PCC_PASS from 
                                                     # in the club browser) and to read "My Reservations"
 cp clubs/club.example.yaml clubs/my-club.yaml      # a favorite's own settings -- coordinates for the
                                                     # weather overlay, availability rules, thresholds.
-                                                    # Pressing 'f' in the club browser writes a minimal
-                                                    # version of this for you; copy the template over it
-                                                    # when you want the annotated reference
-python -m src.settings_screen my-club              # ...or edit those from the UI instead
+                                                    # 'f' (favorite) or 'e' (settings) in the app write
+                                                    # a minimal version of this for you; copy the
+                                                    # template over it for the annotated reference
+python -m src.settings_screen my-club              # ...or edit those outside the running app
 python -m src.scrape_once                          # one-off scrape of every favorite's booking window
 ```
 
@@ -226,7 +227,7 @@ teetime-monitor/
 │   ├── scrape_once.py      # headless scheduled scrape, adjustable per-club interval (implemented)
 │   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
 │   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
-│   ├── settings_screen.py  # standalone Textual screen: edit preferences/interval (implemented)
+│   ├── settings_screen.py  # edit preferences/interval -- pushed from tui.py ('e') + standalone (implemented)
 │   ├── club_picker.py      # search pc caddie's directory, add a club -- ClubSearchScreen (pushable from tui.py) + a thin standalone wrapper (implemented)
 │   ├── credentials_screen.py # Textual screen (standalone or pushed): set PCC_USER/PCC_PASS (implemented)
 │   ├── env_file.py         # read/write .env KEY=value pairs in place (implemented)

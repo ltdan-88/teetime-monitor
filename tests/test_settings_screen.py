@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from textual.app import App
 
 from src import i18n
 from src.club_config import load_club_config
@@ -26,6 +27,20 @@ def _english_ui(monkeypatch, tmp_path):
 
 def _id(*path):
     return "field-" + "-".join(path)
+
+
+class _HostApp(App):
+    """SettingsScreen became a plain Screen (2026-09-08, once tui.py needed to push
+    it directly) rather than a standalone App — this stands in for the real host app
+    so it can still be tested in isolation, same pattern used for every other pushed
+    screen in this project."""
+
+    def __init__(self, screen):
+        super().__init__()
+        self._screen_to_push = screen
+
+    def on_mount(self):
+        self.push_screen(self._screen_to_push)
 
 
 # --- config_to_widget_values ------------------------------------------------
@@ -123,9 +138,9 @@ def test_settings_screen_loads_config_into_widgets(tmp_path):
     )
 
     async def scenario():
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test():
-            widget = app.query_one(f"#{_id('availability', 'min_open_spots')}")
+            widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             assert widget.value == "3"
 
     asyncio.run(scenario())
@@ -137,9 +152,9 @@ def test_settings_screen_save_writes_edited_value_to_disk(tmp_path):
     )
 
     async def scenario():
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test() as pilot:
-            widget = app.query_one(f"#{_id('availability', 'min_open_spots')}")
+            widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             widget.value = "3"
             await pilot.click("#save")
             await pilot.pause()
@@ -156,7 +171,7 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
     seen = []
 
     async def scenario():
-        app = SettingsScreen("home-club", clubs_dir=tmp_path, on_saved=seen.append)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path, on_saved=seen.append))
         async with app.run_test() as pilot:
             await pilot.click("#save")
             await pilot.pause()
@@ -173,9 +188,9 @@ def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     )
 
     async def scenario():
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test() as pilot:
-            widget = app.query_one(f"#{_id('availability', 'min_open_spots')}")
+            widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             widget.value = "not a number"
             await pilot.click("#save")
             await pilot.pause()
@@ -202,14 +217,14 @@ def test_settings_screen_renders_german_labels_and_buttons(tmp_path):
     async def scenario():
         from textual.widgets import Button, Label
 
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test() as pilot:
             await pilot.pause()
-            labels = {str(label.content) for label in app.query(Label)}
+            labels = {str(label.content) for label in app.screen.query(Label)}
             assert "Min. freie Plätze (Gruppengröße)" in labels
             assert "Regen vermeiden" in labels
-            assert str(app.query_one("#save", Button).label) == "Speichern"
-            assert str(app.query_one("#quit", Button).label) == "Beenden"
+            assert str(app.screen.query_one("#save", Button).label) == "Speichern"
+            assert str(app.screen.query_one("#quit", Button).label) == "Beenden"
 
     asyncio.run(scenario())
 
@@ -223,12 +238,12 @@ def test_settings_screen_german_status_messages(tmp_path):
     async def scenario():
         from textual.widgets import Static
 
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.click("#save")
             await pilot.pause()
-            assert str(app.query_one("#status", Static).content) == "Gespeichert."
+            assert str(app.screen.query_one("#status", Static).content) == "Gespeichert."
 
     asyncio.run(scenario())
 
@@ -240,10 +255,10 @@ def test_settings_screen_footer_renders_translated_hint(tmp_path):
     async def scenario():
         from src.settings_screen import TranslatedFooter
 
-        app = SettingsScreen("home-club", clubs_dir=tmp_path)
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
         async with app.run_test() as pilot:
             await pilot.pause()
-            footer = app.query_one(TranslatedFooter)
+            footer = app.screen.query_one(TranslatedFooter)
             assert "Beenden" in footer.render()
 
     asyncio.run(scenario())

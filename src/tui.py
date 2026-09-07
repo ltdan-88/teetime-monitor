@@ -129,6 +129,7 @@ from . import theme as theme_module
 from .search import search as search_slots
 from .models import ConfirmedBooking, Schedule
 from .scrape_once import _db_path
+from .settings_screen import SettingsScreen
 from .scraper import (
     NoTeeSheetError,
     _holes_from_course_label,
@@ -689,16 +690,27 @@ class OverviewScreen(Screen[None]):
     docstring for the direct feedback this responds to). Deliberately doesn't yet bind
     `/` (ad hoc search) or `h` (crowd heatmap) — those are separate, still-unbuilt
     screens (ROADMAP.md Phase 4/5); adding the keys now would promise something that
-    isn't there yet."""
+    isn't there yet.
+
+    `e` opens `SettingsScreen` for the active club (added 2026-09-08, direct
+    feedback: "i don't even know where to configure from the UI" — until then
+    `settings_screen.py` really was only reachable as its own separate command,
+    `python -m src.settings_screen <club-id>`, with nothing in the running app
+    pointing at it). A club being visited without saving it (`club_slug is None`)
+    gets favorited automatically the moment settings are opened on it — see
+    `TeetimeApp._do_edit_settings()` — since editing settings needs somewhere to
+    save them, and that's already what favoriting means."""
 
     BINDINGS = [
         ("s", "switch", "Switch club/course"),
+        ("e", "edit_settings", "Settings"),
         ("t", "command_palette", "Commands"),
         ("q", "quit", "Quit"),
     ]
     _FOOTER_BINDINGS = [
         ("enter", "binding.open"),
         ("s", "binding.switch"),
+        ("e", "binding.settings"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
     ]
@@ -761,6 +773,7 @@ class OverviewScreen(Screen[None]):
         return (dates, open_dates) if open_dates else (dates, set(dates))
 
     def load_overview(self) -> None:
+        self._set_title()  # picks up club_slug if this club was just favorited
         config = self._config()
         dates, open_dates = self._display_dates(config)
         table = self.query_one(DataTable)
@@ -846,6 +859,13 @@ class OverviewScreen(Screen[None]):
         # needs to run on the App, see TeetimeApp.action_switch_club_or_course().
         self.app.action_switch_club_or_course()
 
+    def action_edit_settings(self) -> None:
+        # Delegates to the App for the same reason action_switch does above —
+        # opening SettingsScreen needs push_screen_wait(), and may also need to
+        # favorite this club first if it isn't one yet (see
+        # TeetimeApp._do_edit_settings()).
+        self.app.action_edit_settings()
+
     def action_command_palette(self) -> None:
         self.app.action_command_palette()
 
@@ -862,6 +882,7 @@ class DayDetailScreen(Screen[None]):
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
         ("s", "switch", "Switch club/course"),
+        ("e", "edit_settings", "Settings"),
         ("x", "dismiss_banners", "Dismiss banners"),
         ("escape", "back_to_overview", "Overview"),
         ("t", "command_palette", "Commands"),
@@ -874,6 +895,7 @@ class DayDetailScreen(Screen[None]):
         ("n", "binding.next_day"),
         ("p", "binding.prev_day"),
         ("s", "binding.switch"),
+        ("e", "binding.settings"),
         ("x", "binding.dismiss_banners"),
         ("escape", "binding.overview"),
         ("t", "binding.commands"),
@@ -1093,6 +1115,11 @@ class DayDetailScreen(Screen[None]):
         # docstring.
         self.app.action_switch_club_or_course()
 
+    def action_edit_settings(self) -> None:
+        # Same delegation reasoning as action_switch() above — see
+        # TeetimeApp._do_edit_settings().
+        self.app.action_edit_settings()
+
     def action_command_palette(self) -> None:
         # The command palette's own ctrl+p binding isn't a normal bubbling action
         # (found empirically — it's not even in App.BINDINGS), so `t` needs its own
@@ -1302,6 +1329,42 @@ class TeetimeApp(App[None]):
             return
         await self._open_club(club_id, always_ask_course=True)
         self._periodic_scrape()
+
+    def action_edit_settings(self) -> None:
+        """Open `SettingsScreen` for the active club — direct feedback 2026-09-08:
+        "i don't even know where to configure from the UI." Bound to `e` on both
+        `OverviewScreen` and `DayDetailScreen` (see their own `action_edit_settings()`,
+        which delegate here since `push_screen_wait()` lives on the App). Same worker
+        requirement/reasoning as `action_switch_club_or_course()` above."""
+        self.run_worker(self._do_edit_settings(), exclusive=True, group="settings")
+
+    async def _do_edit_settings(self) -> None:
+        screen = self.screen
+        if not isinstance(screen, (DayDetailScreen, OverviewScreen)):
+            return  # settings only ever opens from one of these two, this is just a guard
+        club_id, slug, name = screen.club_id, screen.club_slug, screen.club_name
+        if slug is None:
+            # A club visited without saving it (see ClubBrowserScreen's own docstring
+            # on favorites) has nowhere to write settings to yet -- favoriting it here
+            # is exactly what "having settings" already means, so this does it
+            # automatically rather than sending the user to go find `f` on a
+            # different screen first just to come back and press `e` again.
+            slug = club_config.add_favorite(club_id, name)
+            screen.club_slug = slug
+            self._club_slug = slug
+        await self.push_screen_wait(SettingsScreen(slug))
+        # Re-read from disk rather than trusting SettingsScreen's own return value --
+        # club_id must always be present for the periodic background scrape to do
+        # anything at all (see the `_club_config` note in `_open_club()` above), and
+        # merging it back in here is cheaper than threading it through the screen.
+        self._club_config = {**club_config.load_club_config(slug), "club_id": club_id}
+        # A saved availability/preferences change should be reflected immediately --
+        # not just on the next scheduled reload -- since it can change the ★ marker,
+        # the overview's per-day pick column, and "This week's picks" all at once.
+        if isinstance(self.screen, DayDetailScreen):
+            self.screen.load_schedule()
+        elif isinstance(self.screen, OverviewScreen):
+            self.screen.load_overview()
 
     def _periodic_scrape(self) -> None:
         """Best-effort background scrape of this club's whole overview window — direct

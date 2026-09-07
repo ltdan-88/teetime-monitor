@@ -3,30 +3,35 @@ scrape interval — built ahead of the full tee-sheet TUI (ROADMAP.md Phase 4), 
 direct feedback (2026-09-06) that these needed to be adjustable from the UI, not just
 by hand-editing a club's YAML.
 
-Deliberately narrow: this is *not* tui.py's home screen (still unbuilt — Phase 0/1/4
-have to land first, see tui.py's own docstring). It's a standalone screen for exactly
-the settings that came up in that feedback: `availability` (min open spots, time
-windows, buffer), `preferences` (rain/wind/temperature thresholds, friend/crowd
-weighting), and the scrape interval added the same day. Everything else in a club's
-YAML (club_id, location, calendar, identity, ai_assist) stays hand-edited for now —
-those are set-once-at-setup values, not day-to-day dials.
+Deliberately narrow — a screen for exactly the settings that came up in that feedback:
+`availability` (min open spots, time windows, buffer), `preferences` (rain/wind/
+temperature thresholds, friend/crowd weighting), and the scrape interval added the
+same day. Everything else in a club's YAML (club_id, location, calendar, identity,
+ai_assist) stays hand-edited for now — those are set-once-at-setup values, not
+day-to-day dials.
 
-Run directly: `python -m src.settings_screen <club-id>` (the clubs/*.yaml filename
-slug, not the pc caddie numeric id) — or with no argument if exactly one club is
-saved, matching the "skip the picker" convention used elsewhere in this project.
+`SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
+from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
+2026-09-08 once a real user asked "i don't even know where to configure from the UI":
+until then this really was only reachable as its own separate command, a genuine gap
+this whole module's own docstring used to describe as deliberate rather than naming as
+the limitation it was). Still runnable on its own too, via the thin `SettingsApp`
+wrapper: `python -m src.settings_screen <club-id>` (the clubs/*.yaml filename slug,
+not the pc caddie numeric id) — or with no argument if exactly one club is saved,
+matching the "skip the picker" convention used elsewhere in this project.
 
 Saving writes the whole config back via club_config.save_club_config() — see that
 function's docstring for the one known limitation (comments in the YAML file don't
 survive a save).
 
-Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): applies the same
-resolved theme/language as the main TUI on startup, and every field label/button/
-status message goes through i18n.py — this is a separate standalone App (run directly
-as `python -m src.settings_screen`, not a Screen pushed into TeetimeApp), so it needs
-its own `apply_theme()`/`apply_language()` calls rather than inheriting TeetimeApp's.
-No in-app language-switch command here, unlike tui.py — switch language from the main
-TUI (persists to the shared config file) and this screen picks it up next time it's
-run. Its footer's key hint ("q Quit") is rendered by a small `TranslatedFooter` — see
+Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
+label/button/status message goes through i18n.py, same as every other screen in this
+project. `SettingsApp` applies the resolved theme/language on startup for the
+standalone case; pushed from `tui.py` it inherits whatever's already applied there,
+same as every other pushed screen. No in-app language-switch command here, unlike
+tui.py itself — switch language from the main TUI (persists to the shared config
+file) and this screen picks it up next time it's opened. Its footer's key hint
+("q Quit") is rendered by a small `TranslatedFooter` — see
 translated_footer.py's docstring for why Textual's built-in `Footer` can't be
 translated at render time. Factored into its own tiny module (2026-09-07, once a
 fourth screen needed it) specifically so it stays import-light — no need to pull in
@@ -42,6 +47,7 @@ from typing import Any, Callable
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
+from textual.screen import Screen
 from textual.widgets import Button, Header, Input, Label, Static, Switch
 
 from . import club_config, i18n
@@ -189,9 +195,11 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
     return updated
 
 
-class SettingsScreen(App[None]):
+class SettingsScreen(Screen[dict | None]):
     """Edit one club's availability/preferences/scrape-interval settings and save them
-    back to its YAML file."""
+    back to its YAML file. Dismisses with the final config dict (whether or not a save
+    actually happened during the screen's lifetime — a caller that only cares "did a
+    save happen" should use `on_saved` instead, which only fires on an actual save)."""
 
     CSS = """
     #fields {
@@ -218,24 +226,24 @@ class SettingsScreen(App[None]):
     }
     """
 
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [("q", "quit_screen", "Quit")]
     _FOOTER_BINDINGS = [("q", "binding.quit")]
 
     def __init__(
         self,
         club_id: str,
-        clubs_dir: Path = club_config.CLUBS_DIR,
+        clubs_dir: Path | None = None,
         on_saved: Callable[[dict], None] | None = None,
     ) -> None:
         super().__init__()
         self.club_id = club_id
-        self.clubs_dir = clubs_dir
+        # Resolved at call time, not bound as a class-definition-time default -- see
+        # env_file.py's module docstring for the frozen-default gotcha this avoids
+        # (a caller/test monkeypatching club_config.CLUBS_DIR after this module's own
+        # import must still be honored).
+        self.clubs_dir = clubs_dir if clubs_dir is not None else club_config.CLUBS_DIR
         self._on_saved = on_saved
-        self.config = club_config.load_club_config(club_id, clubs_dir)
-
-    def on_mount(self) -> None:
-        theme_module.apply_theme(self)
-        i18n.apply_language()
+        self.config = club_config.load_club_config(club_id, self.clubs_dir)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -263,9 +271,12 @@ class SettingsScreen(App[None]):
             widget_values[widget_id] = widget.value
         return widget_values
 
+    def action_quit_screen(self) -> None:
+        self.dismiss(self.config)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "quit":
-            self.exit()
+            self.action_quit_screen()
             return
         if event.button.id == "save":
             try:
@@ -278,6 +289,24 @@ class SettingsScreen(App[None]):
             if self._on_saved is not None:
                 self._on_saved(updated)
             self.query_one("#status", Static).update(i18n.t("settings.saved"))
+
+
+class SettingsApp(App[None]):
+    """Thin standalone wrapper so SettingsScreen is runnable on its own:
+    `python -m src.settings_screen <club-id>`. Not used when the screen is pushed
+    from tui.py directly (`e` on OverviewScreen/DayDetailScreen) — that app supplies
+    its own theme/language setup and push_screen_wait() call directly."""
+
+    TITLE = "teetime-monitor"
+
+    def __init__(self, club_id: str) -> None:
+        super().__init__()
+        self.club_id = club_id
+
+    def on_mount(self) -> None:
+        theme_module.apply_theme(self)
+        i18n.apply_language()
+        self.push_screen(SettingsScreen(self.club_id), lambda _config: self.exit())
 
 
 def main() -> None:
@@ -294,7 +323,7 @@ def main() -> None:
             print("More than one club saved — pass one: " + ", ".join(clubs))
             return
 
-    SettingsScreen(club_id).run()
+    SettingsApp(club_id).run()
 
 
 if __name__ == "__main__":
