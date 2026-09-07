@@ -996,6 +996,48 @@ def test_overview_screen_row_selected_opens_that_dates_day_detail_screen(tmp_pat
     _run(scenario())
 
 
+def test_overview_screen_highlights_todays_row_when_today_still_has_upcoming_slots(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).cursor_row == 0
+
+    _run(scenario())
+
+
+def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-07, the same evening OverviewScreen shipped: "why is
+    # the TUI still showing today at this time (11:12 PM)?" -- _initial_date()'s own
+    # "today's closed, default to tomorrow" logic was written for the old launch flow
+    # that opened straight on a DayDetailScreen, and silently stopped being called at
+    # all once that flow became this overview screen instead. Fixed by using it to
+    # pick which row starts highlighted here, rather than leaving it dead code.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).cursor_row == 1  # tomorrow's row
+
+    _run(scenario())
+
+
 def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):
     # Direct feedback 2026-09-07: "the club selector also doesn't say that you need
     # to hit enter" -- true of every screen here that opens something via Textual's

@@ -21,12 +21,16 @@ Startup flow:
    attempted day (weekday + exact ISO date, weather or a tournament/rain tag, a
    six-block "heat strip" for 08:00-20:00, and that day's own pick — a confirmed
    booking, a recommended ★ slot, or why neither applies), plus "This week's picks"
-   below (only shown once `availability` rules are configured). Enter drills into:
-4. `DayDetailScreen` — one day's own tee sheet, opening on that exact date unless it's
-   today and `_initial_date()` finds today's own cached schedule already fully in the
-   past (see that function's docstring — direct feedback 2026-09-07: showing "today"
-   once the course has closed for the day isn't useful), in which case it opens on
-   tomorrow instead. One row per slot: Time | Occupancy | Players (or a block reason
+   below (only shown once `availability` rules are configured). The cursor starts on
+   today's own row, unless `_initial_date()` finds today's cached schedule already
+   fully in the past (direct feedback 2026-09-07: showing "today" once the course has
+   closed for the day isn't useful — first written for the single-day launch flow
+   this screen replaced, then silently stopped applying to anything once it did,
+   caught the same evening: "why is the TUI still showing today at this time (11:12
+   PM)?"), in which case tomorrow's row is pre-highlighted instead. Enter opens
+   whichever row is actually highlighted (or later moved to) either way, drilling into:
+4. `DayDetailScreen` — one day's own tee sheet, for that exact date. One row per slot:
+   Time | Occupancy | Players (or a block reason
    in place of both, for an event/lesson/advance-booking-window row). `r` re-scrapes
    live (scraper.scrape_schedule() +
    storage.save_schedule()) rather than always hitting the real site on open — opening
@@ -154,6 +158,13 @@ def _initial_date(club_id: str, course: str) -> str:
     cached schedule to check against yet (a genuinely first-ever open, or one that
     hasn't been scraped since) — nothing lost, since there'd be no data to show for
     either date until 'r' is pressed regardless.
+
+    Originally the date `DayDetailScreen` opened on directly at launch. Now backs
+    `OverviewScreen.load_overview()`'s own choice of which row to pre-highlight
+    instead, since `OverviewScreen` (added the same day) became what launch actually
+    lands on — this function stopped being called at all for a while in between,
+    silently regressing the whole feature until a live report the same evening ("why
+    is the TUI still showing today at this time (11:12 PM)?") caught it.
 
     Deliberately reads whatever's already cached (storage.load_latest_schedule())
     rather than triggering a live scrape here — opening the app should stay instant,
@@ -788,6 +799,19 @@ class OverviewScreen(Screen[None]):
                 heat_cell = "[dim]……[/]"
             pick_cell = _day_pick_text(schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates)
             table.add_row(day_cell, weather_cell, heat_cell, pick_cell)
+
+        # Pre-highlight today, unless today's own cached schedule shows every slot
+        # already passed -- see _initial_date()'s own docstring (direct feedback,
+        # first written for the old "land straight on a day" launch flow, and
+        # silently stopped applying to anything once that flow became this overview
+        # instead; re-caught live 2026-09-07 the same evening: "why is the TUI still
+        # showing today at this time (11:12 PM)?"). Enter still opens whatever row is
+        # actually highlighted, same as always -- this only moves where the cursor
+        # starts, so a quick glance-and-enter lands somewhere useful late at night
+        # without requiring an extra press of `n`/arrow-down first.
+        target_date = _initial_date(self.club_id, self.course)
+        if target_date in self._row_dates:
+            table.move_cursor(row=self._row_dates.index(target_date))
 
         self._update_picks(schedules, config)
 
