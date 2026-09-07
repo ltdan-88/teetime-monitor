@@ -204,6 +204,7 @@ class SettingsScreen(Screen[dict | None]):
     CSS = """
     #fields {
         padding: 1 2;
+        height: 1fr;
     }
     .field-row {
         height: 3;
@@ -223,6 +224,17 @@ class SettingsScreen(Screen[dict | None]):
     }
     #buttons {
         padding: 1 2;
+        /* Textual's own Horizontal container defaults to height: 1fr, same as
+           VerticalScroll (#fields above) -- with nothing overriding it, this row of
+           two buttons was claiming an equal fractional share of the whole screen's
+           remaining height as the entire fields list, leaving most of a tall
+           terminal window as dead, empty space below a stub of visible fields.
+           Direct feedback (a real screenshot, 2026-09-08): "the settings menu
+           doesn't fill out vertical space from my window" -- exactly this: #fields
+           needed the space #buttons was silently taking, not more space overall.
+           auto lets #buttons take only what its two buttons actually need, so
+           #fields' own height: 1fr above can claim everything else. */
+        height: auto;
     }
     """
 

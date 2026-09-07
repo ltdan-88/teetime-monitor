@@ -146,6 +146,33 @@ def test_settings_screen_loads_config_into_widgets(tmp_path):
     asyncio.run(scenario())
 
 
+def test_settings_screen_fields_fill_the_window_instead_of_the_button_row(tmp_path):
+    # Direct feedback, a real screenshot (2026-09-08): "the settings menu doesn't
+    # fill out vertical space from my window". Root cause: Textual's own Horizontal
+    # container (used for #buttons) defaults to height: 1fr, same as VerticalScroll
+    # (#fields) -- with nothing overriding it, the two-button row was claiming an
+    # equal fractional share of the screen as the entire scrollable fields list,
+    # leaving most of a tall terminal as dead space below a stub of visible fields.
+    # Asserts the actual resolved sizes in a tall terminal, not just that the CSS
+    # text contains the right words.
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        async with app.run_test(size=(80, 50)):
+            fields = app.screen.query_one("#fields")
+            buttons = app.screen.query_one("#buttons")
+            # #buttons should be sized to its own two buttons, not sharing an equal
+            # fractional split of the screen with #fields -- a generous upper bound
+            # (a button row is a handful of rows, nowhere near half a 50-row screen).
+            assert buttons.size.height < 10
+            # #fields should claim essentially everything else, not be squeezed down
+            # to the same size as the two-line button row it was splitting space with.
+            assert fields.size.height > 30
+
+    asyncio.run(scenario())
+
+
 def test_settings_screen_save_writes_edited_value_to_disk(tmp_path):
     (tmp_path / "home-club.yaml").write_text(
         "club_id: '0000001'\navailability:\n  min_open_spots: 1\n"
