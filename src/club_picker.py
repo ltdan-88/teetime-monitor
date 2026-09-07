@@ -18,10 +18,18 @@ automatically (added 2026-09-07, same session — "I want to setup credentials f
 It should be user friendly") so they can be filled in right here instead of hand-
 editing `.env`, then retries the fetch once saved.
 
-Run directly: `python -m src.club_picker <existing-club-slug>` (the clubs/*.yaml
-filename slug, not the pc caddie numeric id) — or with no argument if exactly one
-club is already saved, matching the "skip the picker" convention used elsewhere in
-this project (settings_screen.py, tui.py's own ClubPickerScreen).
+`ClubSearchScreen` is a plain `Screen[str | None]` (added 2026-09-07, direct
+follow-up: "I want to be able to switch clubs on the fly" — a hassle otherwise, since
+adding a club meant leaving the running TUI, running this as its own program, then
+restarting) — meant to be *pushed* from another app. `tui.py`'s own club picker
+(reached via `s` on the tee sheet) offers a "search for a club" entry precisely so a
+new club can be found, saved, and switched to in one continuous flow, no separate
+command needed. Dismisses with the newly saved slug, or `None` if backed out (`q`)
+without saving. Still runnable on its own too, via the thin `ClubPickerApp` wrapper:
+`python -m src.club_picker <existing-club-slug>` (the clubs/*.yaml filename slug, not
+the pc caddie numeric id) — or with no argument if exactly one club is already saved,
+matching the "skip the picker" convention used elsewhere in this project
+(settings_screen.py, tui.py's own ClubPickerScreen).
 
 Search is a plain case-insensitive substring match against each club's name — not pc
 caddie's own exact-substring, umlaut-sensitive behavior confirmed live 2026-09-06 on
@@ -43,6 +51,7 @@ from typing import Callable
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
+from textual.screen import Screen
 from textual.widgets import Button, Header, Input, Static
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
@@ -81,9 +90,10 @@ def slugify(name: str) -> str:
     return slug or "club"
 
 
-class ClubPickerApp(App[None]):
+class ClubSearchScreen(Screen[str | None]):
     """Fetch pc caddie's club directory once (via an already-configured club's
-    credentials), let the user search/select from it, and save a new club stub."""
+    credentials), let the user search/select from it, and save a new club stub. See
+    module docstring."""
 
     CSS = """
     #status {
@@ -107,7 +117,7 @@ class ClubPickerApp(App[None]):
     }
     """
 
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [("q", "quit_screen", "Quit")]
     _FOOTER_BINDINGS = [("q", "binding.quit")]
 
     MAX_RESULTS = 50
@@ -115,26 +125,29 @@ class ClubPickerApp(App[None]):
     def __init__(
         self,
         existing_slug: str,
-        clubs_dir: Path = club_config.CLUBS_DIR,
+        clubs_dir: Path | None = None,
         on_saved: Callable[[str], None] | None = None,
         env_path: Path | None = None,
         template_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.existing_slug = existing_slug
-        self.clubs_dir = clubs_dir
-        self._on_saved = on_saved
         # Resolved at call time, not bound as a literal default -- see env_file.py's
-        # module docstring for the frozen-default gotcha this avoids.
+        # module docstring for the frozen-default gotcha this avoids (this screen is
+        # now pushed straight from tui.py's own switch flow, not just constructed
+        # directly by tests/club_picker.py's own CLI wrapper, so a caller that never
+        # touches `clubs_dir` at all must still see any monkeypatched
+        # club_config.CLUBS_DIR — a class-definition-time default wouldn't).
+        self.clubs_dir = clubs_dir if clubs_dir is not None else club_config.CLUBS_DIR
+        self._on_saved = on_saved
         self.env_path = env_path if env_path is not None else env_file.ENV_FILE
         self.template_path = template_path if template_path is not None else env_file.ENV_EXAMPLE_FILE
         self.directory: list[tuple[str, str]] = []
         self.selected: tuple[str, str] | None = None
         self._match_names: dict[str, str] = {}
+        self._saved_slug: str | None = None
 
     def on_mount(self) -> None:
-        theme_module.apply_theme(self)
-        i18n.apply_language()
         self._load_directory()
 
     def compose(self) -> ComposeResult:
@@ -169,7 +182,7 @@ class ClubPickerApp(App[None]):
         if not username or not password:
             status.update(i18n.t("club_picker.no_credentials"))
             search.disabled = True
-            self.push_screen(
+            self.app.push_screen(
                 CredentialsScreen(self.env_path, self.template_path), self._on_credentials_screen_dismissed
             )
             return
@@ -232,9 +245,31 @@ class ClubPickerApp(App[None]):
             return
         club_id, _name = self.selected
         club_config.save_club_config(slug, club_config.new_club_stub(club_id), self.clubs_dir)
+        self._saved_slug = slug
         if self._on_saved is not None:
             self._on_saved(slug)
         status.update(i18n.t("club_picker.saved", slug=slug))
+
+    def action_quit_screen(self) -> None:
+        self.dismiss(self._saved_slug)
+
+
+class ClubPickerApp(App[None]):
+    """Thin standalone wrapper so ClubSearchScreen is runnable on its own:
+    `python -m src.club_picker`. Not used when the screen is pushed from another app
+    (tui.py's switch-club flow) — that app supplies its own theme/language setup and
+    push_screen()/push_screen_wait() call directly."""
+
+    TITLE = "teetime-monitor"
+
+    def __init__(self, existing_slug: str) -> None:
+        super().__init__()
+        self.existing_slug = existing_slug
+
+    def on_mount(self) -> None:
+        theme_module.apply_theme(self)
+        i18n.apply_language()
+        self.push_screen(ClubSearchScreen(self.existing_slug), lambda _slug: self.exit())
 
 
 def main() -> None:

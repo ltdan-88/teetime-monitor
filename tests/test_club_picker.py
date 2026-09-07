@@ -1,10 +1,12 @@
 import asyncio
+import os
 
 import pytest
+from textual.app import App
 
 from src import club_picker, i18n
 from src.club_config import list_clubs, load_club_config
-from src.club_picker import ClubPickerApp, search_club_directory, slugify
+from src.club_picker import ClubSearchScreen, search_club_directory, slugify
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +18,21 @@ def _english_ui(monkeypatch, tmp_path):
     i18n.set_language("en")
     yield
     i18n._current_language = None
+
+
+@pytest.fixture(autouse=True)
+def _restore_pcc_env():
+    # CredentialsScreen (pushed automatically when credentials are missing) writes
+    # directly to os.environ on save -- bypassing monkeypatch's own undo tracking.
+    # Same reasoning/precedent as test_credentials_screen.py's identical fixture.
+    original_user = os.environ.get("PCC_USER")
+    original_pass = os.environ.get("PCC_PASS")
+    yield
+    for key, original in (("PCC_USER", original_user), ("PCC_PASS", original_pass)):
+        if original is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = original
 
 
 _DIRECTORY = [
@@ -61,11 +78,39 @@ def test_slugify_empty_name_falls_back_to_placeholder():
     assert slugify("---") == "club"
 
 
-# --- ClubPickerApp (real Textual app, run headlessly) -------------------------
+# --- ClubSearchScreen (real Textual screen, run headlessly via a throwaway host app) --
+
+
+class _HostApp(App[None]):
+    """Minimal App that just pushes ClubSearchScreen -- Screens need a running App to
+    mount into; this stands in for tui.py's real TeetimeApp so the screen can be
+    tested in isolation, same shape as test_credentials_screen.py's own _HostApp."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+        self._args = args
+        self._kwargs = kwargs
+        self.result: str | None = "not set"
+
+    def on_mount(self) -> None:
+        self.push_screen(ClubSearchScreen(*self._args, **self._kwargs), self._on_dismissed)
+
+    def _on_dismissed(self, slug: str | None) -> None:
+        self.result = slug
 
 
 def _fake_fetch_ok(monkeypatch):
     monkeypatch.setattr(club_picker, "fetch_club_directory", lambda club_id, user, password: _DIRECTORY)
+
+
+def _fake_selected_event(option_id: str):
+    class _FakeOption:
+        id = option_id
+
+    class _FakeEvent:
+        option = _FakeOption()
+
+    return _FakeEvent()
 
 
 def test_club_picker_pushes_credentials_screen_when_none_configured(tmp_path, monkeypatch):
@@ -79,7 +124,7 @@ def test_club_picker_pushes_credentials_screen_when_none_configured(tmp_path, mo
     async def scenario():
         from src.credentials_screen import CredentialsScreen
 
-        app = ClubPickerApp(
+        app = _HostApp(
             "home-club",
             clubs_dir=tmp_path,
             env_path=tmp_path / ".env",
@@ -104,7 +149,7 @@ def test_club_picker_retries_directory_fetch_after_credentials_saved(monkeypatch
     async def scenario():
         from textual.widgets import OptionList
 
-        app = ClubPickerApp(
+        app = _HostApp(
             "home-club",
             clubs_dir=tmp_path,
             env_path=tmp_path / ".env",
@@ -118,21 +163,12 @@ def test_club_picker_retries_directory_fetch_after_credentials_saved(monkeypatch
             await pilot.pause()
             await pilot.click("#quit")
             await pilot.pause()
-            # Back on ClubPickerApp's own screen now, with a real directory loaded.
-            app.query_one("#search").value = "leipzig"
+            # Back on ClubSearchScreen now, with a real directory loaded.
+            app.screen.query_one("#search").value = "leipzig"
             await pilot.pause()
-            assert app.query_one("#results", OptionList).option_count == 1
+            assert app.screen.query_one("#results", OptionList).option_count == 1
 
-    try:
-        asyncio.run(scenario())
-    finally:
-        # CredentialsScreen writes directly to os.environ (see its own docstring for
-        # why), bypassing monkeypatch's tracking -- clean up explicitly so this
-        # doesn't leak into later tests in the same process.
-        import os
-
-        os.environ.pop("PCC_USER", None)
-        os.environ.pop("PCC_PASS", None)
+    asyncio.run(scenario())
 
 
 def test_club_picker_fetches_directory_and_filters_on_search(monkeypatch, tmp_path):
@@ -144,14 +180,14 @@ def test_club_picker_fetches_directory_and_filters_on_search(monkeypatch, tmp_pa
     async def scenario():
         from textual.widgets import OptionList, Static
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.query_one("#search").value = "golf"
+            app.screen.query_one("#search").value = "golf"
             await pilot.pause()
-            results = app.query_one("#results", OptionList)
+            results = app.screen.query_one("#results", OptionList)
             assert results.option_count == 3
-            assert "3" in str(app.query_one("#status", Static).content)
+            assert "3" in str(app.screen.query_one("#status", Static).content)
 
     asyncio.run(scenario())
 
@@ -165,12 +201,12 @@ def test_club_picker_narrows_to_one_match(monkeypatch, tmp_path):
     async def scenario():
         from textual.widgets import OptionList
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.query_one("#search").value = "musterhausen"
+            app.screen.query_one("#search").value = "musterhausen"
             await pilot.pause()
-            results = app.query_one("#results", OptionList)
+            results = app.screen.query_one("#results", OptionList)
             assert results.option_count == 1
 
     asyncio.run(scenario())
@@ -183,26 +219,16 @@ def test_club_picker_selecting_a_result_prefills_slug(monkeypatch, tmp_path):
     _fake_fetch_ok(monkeypatch)
 
     async def scenario():
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.query_one("#search").value = "leipzig"
+            app.screen.query_one("#search").value = "leipzig"
             await pilot.pause()
-            app.on_option_list_option_selected(_fake_selected_event("0491605"))
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
             await pilot.pause()
-            assert app.query_one("#slug").value == "1-golfclub-leipzig-e-v"
+            assert app.screen.query_one("#slug").value == "1-golfclub-leipzig-e-v"
 
     asyncio.run(scenario())
-
-
-def _fake_selected_event(option_id: str):
-    class _FakeOption:
-        id = option_id
-
-    class _FakeEvent:
-        option = _FakeOption()
-
-    return _FakeEvent()
 
 
 def test_club_picker_save_writes_new_club_stub(monkeypatch, tmp_path):
@@ -213,12 +239,12 @@ def test_club_picker_save_writes_new_club_stub(monkeypatch, tmp_path):
     seen = []
 
     async def scenario():
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path, on_saved=seen.append)
+        app = _HostApp("home-club", clubs_dir=tmp_path, on_saved=seen.append)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.query_one("#search").value = "leipzig"
+            app.screen.query_one("#search").value = "leipzig"
             await pilot.pause()
-            app.on_option_list_option_selected(_fake_selected_event("0491605"))
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
             await pilot.pause()
             await pilot.click("#save")
             await pilot.pause()
@@ -231,6 +257,52 @@ def test_club_picker_save_writes_new_club_stub(monkeypatch, tmp_path):
     assert "1-golfclub-leipzig-e-v" in list_clubs(tmp_path)
 
 
+def test_club_picker_dismisses_with_the_saved_slug_on_quit(monkeypatch, tmp_path):
+    # Direct feedback 2026-09-07: this screen is meant to be pushed inline from
+    # tui.py's own switch-club flow -- it must report back what was saved (or None)
+    # rather than exiting the whole app the way the old standalone-only App did.
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.setenv("PCC_USER", "user@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    _fake_fetch_ok(monkeypatch)
+
+    async def scenario():
+        app = _HostApp("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search").value = "leipzig"
+            await pilot.pause()
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+            # "q" is a keybinding, not a button here -- call the action directly
+            # rather than pilot.press("q"), which would just type into whichever
+            # Input has focus instead of triggering it.
+            app.screen.action_quit_screen()
+            await pilot.pause()
+            assert app.result == "1-golfclub-leipzig-e-v"
+
+    asyncio.run(scenario())
+
+
+def test_club_picker_dismisses_with_none_when_quit_without_saving(monkeypatch, tmp_path):
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.setenv("PCC_USER", "user@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    _fake_fetch_ok(monkeypatch)
+
+    async def scenario():
+        app = _HostApp("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_quit_screen()
+            await pilot.pause()
+            assert app.result is None
+
+    asyncio.run(scenario())
+
+
 def test_club_picker_save_without_selection_shows_message(monkeypatch, tmp_path):
     (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
     monkeypatch.setenv("PCC_USER", "user@example.com")
@@ -240,12 +312,12 @@ def test_club_picker_save_without_selection_shows_message(monkeypatch, tmp_path)
     async def scenario():
         from textual.widgets import Static
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.click("#save")
             await pilot.pause()
-            assert "Pick a club" in str(app.query_one("#status", Static).content)
+            assert "Pick a club" in str(app.screen.query_one("#status", Static).content)
 
     asyncio.run(scenario())
 
@@ -260,16 +332,16 @@ def test_club_picker_save_rejects_a_slug_already_in_use(monkeypatch, tmp_path):
     async def scenario():
         from textual.widgets import Static
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.query_one("#search").value = "leipzig"
+            app.screen.query_one("#search").value = "leipzig"
             await pilot.pause()
-            app.on_option_list_option_selected(_fake_selected_event("0491605"))
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
             await pilot.pause()
             await pilot.click("#save")
             await pilot.pause()
-            assert "already exists" in str(app.query_one("#status", Static).content)
+            assert "already exists" in str(app.screen.query_one("#status", Static).content)
 
     asyncio.run(scenario())
 
@@ -284,10 +356,10 @@ def test_club_picker_footer_renders_translated_hint(monkeypatch, tmp_path):
     async def scenario():
         from src.club_picker import TranslatedFooter
 
-        app = ClubPickerApp("home-club", clubs_dir=tmp_path)
+        app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            footer = app.query_one(TranslatedFooter)
+            footer = app.screen.query_one(TranslatedFooter)
             assert "Beenden" in footer.render()
 
     asyncio.run(scenario())

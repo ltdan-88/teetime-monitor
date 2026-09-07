@@ -38,6 +38,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "picker.club_title": "Which club?",
         "picker.course_title": "Which course?",
+        "picker.search_for_a_club": "🔍 Search for a club…",
         "app.no_clubs": "No clubs saved yet — copy clubs/club.example.yaml first.",
         "app.no_club_id": "clubs/{slug}.yaml has no club_id set.",
         "table.time": "Time",
@@ -64,6 +65,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.prev_day": "Previous day",
         "binding.dismiss_banners": "Dismiss banners",
         "binding.switch": "Switch club/course",
+        "binding.cancel": "Back",
         "binding.theme": "Theme",
         "binding.quit": "Quit",
         "binding.language": "Language",
@@ -127,6 +129,7 @@ _STRINGS: dict[str, dict[str, str]] = {
     "de": {
         "picker.club_title": "Welcher Club?",
         "picker.course_title": "Welcher Platz?",
+        "picker.search_for_a_club": "🔍 Club suchen…",
         "app.no_clubs": "Noch kein Club gespeichert — zuerst clubs/club.example.yaml kopieren.",
         "app.no_club_id": "clubs/{slug}.yaml hat keine club_id.",
         "table.time": "Zeit",
@@ -153,6 +156,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.prev_day": "Vorheriger Tag",
         "binding.dismiss_banners": "Hinweise ausblenden",
         "binding.switch": "Club/Platz wechseln",
+        "binding.cancel": "Zurück",
         "binding.theme": "Design",
         "binding.quit": "Beenden",
         "binding.language": "Sprache",

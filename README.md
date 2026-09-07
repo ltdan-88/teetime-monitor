@@ -12,23 +12,24 @@ analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
 booking. The TUI's single-day detail screen (club/course picker, the tee sheet itself,
-confirming a booking, and the booking-watch banners) is real too, and so is a
-standalone searchable club picker (`club_picker.py`, added 2026-09-07) for adding
-clubs beyond your first one, plus a credentials setup screen (`credentials_screen.py`)
-it opens automatically the moment it needs a login and none is configured yet. The
-TUI also keeps its data current on its own now — it re-scrapes the active club's
-whole overview window once on open and periodically while it stays running, not just
-when `r` is pressed — see "Project structure" below. Still to come: the multi-day
-overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md)
-for the phased build plan and
+confirming a booking, and the booking-watch banners) is real too, and it can search
+pc caddie's own club directory inline (`club_picker.ClubSearchScreen`, added
+2026-09-07) — no separate command needed to add a club beyond your first one — plus
+a credentials setup screen (`credentials_screen.py`) it opens automatically the
+moment it needs a login and none is configured yet. The TUI also keeps its data
+current on its own now — it re-scrapes the active club's whole overview window once
+on open and periodically while it stays running, not just when `r` is pressed — see
+"Project structure" below. Still to come: the multi-day overview, ad hoc search, and
+crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
 - Save more than one club (`clubs/`), picking which one at startup — skipped
   automatically if you've only saved one. Add clubs beyond your first one by
-  searching pc caddie's own directory instead of hand-typing a numeric id — run
-  `python -m src.club_picker`, matching pc caddie's own in-app "Anlagenauswahl"
+  searching pc caddie's own directory instead of hand-typing a numeric id — from the
+  TUI's own switch-club menu (`s`, then "🔍 Search for a club…"), or standalone via
+  `python -m src.club_picker` — matching pc caddie's own in-app "Anlagenauswahl"
   feature (confirmed against real app screenshots, 2026-09-06)
 - Course picker for the 27-hole club's fixed options ("18 Loch Tee 1" / "9 Loch Tee 1" /
   "6 Loch Platz") — the actual weekly A/B/C loop combination just shows as an
@@ -61,7 +62,9 @@ for the phased build plan and
   for the rare same-day-booking timing gap — pre-filled from whatever row is
   highlighted and the course you're already viewing, not re-typed by hand
 - Switch club or course at any time from the tee sheet itself (`s`) — not just at
-  startup
+  startup. Its club list also offers "🔍 Search for a club…", so a brand-new club can
+  be found, saved, and switched to in that same menu — no separate command needed
+  first. `escape` backs out of any picker with nothing changed; `q` quits
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —
@@ -153,7 +156,7 @@ teetime-monitor/
 │   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
 │   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
 │   ├── settings_screen.py  # standalone Textual screen: edit preferences/interval (implemented)
-│   ├── club_picker.py      # standalone Textual screen: search pc caddie's directory, add a club (implemented)
+│   ├── club_picker.py      # search pc caddie's directory, add a club -- ClubSearchScreen (pushable from tui.py) + a thin standalone wrapper (implemented)
 │   ├── credentials_screen.py # Textual screen (standalone or pushed): set PCC_USER/PCC_PASS (implemented)
 │   ├── env_file.py         # read/write .env KEY=value pairs in place (implemented)
 │   ├── translated_footer.py # shared bilingual footer widget, used by every screen (implemented)

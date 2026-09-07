@@ -730,6 +730,45 @@ new `params` column round-tripping). 240 tests passing (was 224).
   the same fill ratio, one past and one future): the past slot's occupancy rendered
   in a visibly muted, desaturated tone against the upcoming slot's vivid one. 3 new
   tests — 319 tests passing (was 316).
+- **Search for a club inline, and a way to back out of a picker (added 2026-09-07,
+  direct feedback: "I want to be able to switch clubs on the fly. It is a hassle if
+  you need to first save clubs into the config" and "how do I quit from club/course
+  picker or return to the schedule?")**: two related fixes.
+  - `club_picker.py`'s interactive UI was extracted from its own standalone
+    `ClubPickerApp` into a plain `Screen[str | None]`, `ClubSearchScreen` — dismisses
+    with the newly saved slug, or `None` if backed out without saving. `ClubPickerApp`
+    is now a thin wrapper pushing it, same shape as `credentials_screen.py`'s own
+    `CredentialsApp`/`CredentialsScreen` split. `tui.py`'s `ClubPickerScreen` gained
+    an `offer_search` flag that appends a "🔍 Search for a club…" entry
+    (`_SEARCH_FOR_CLUB_ID` sentinel) to the option list; picking it pushes
+    `ClubSearchScreen` right there, authenticating with whichever club is already
+    known (any saved club's credentials work platform-wide). The switch flow's own
+    `_pick_club_or_search()` always shows this picker now — even with only one club
+    saved — specifically so the search entry stays reachable; `_start()`'s own
+    `_pick_club()` keeps skipping the picker when there's nothing to choose between,
+    unchanged, since that's still the right behavior for a fast, automatic launch.
+    A newly found club goes straight into course-picking for it, no need to
+    re-select it from the (now-updated) club list. One more frozen-default bug
+    caught while wiring this up: `ClubSearchScreen.__init__`'s `clubs_dir` parameter
+    still used a class-definition-time default (`= club_config.CLUBS_DIR`) — fine for
+    the screen's original standalone-only use, but wrong now that `tui.py` also
+    constructs it directly without passing `clubs_dir` at all; fixed with the same
+    None-sentinel pattern already used for `env_path`/`template_path`.
+  - `ClubPickerScreen` and `CoursePickerScreen` both gained `escape` (dismiss with
+    `None`, changing nothing) and `q` (quit the whole app) bindings — there was
+    previously no way to back out of either screen at all short of force-quitting.
+    `_start()` and the switch flow both now handle a `None` result: at startup
+    (nothing to return to) it exits the app; from the switch flow (there's a real
+    schedule to go back to) it simply leaves the current `DayDetailScreen` untouched,
+    not popping or replacing anything until a club *and* course are both actually
+    chosen.
+
+  Verified live in tmux: the search entry appears even with only one club saved;
+  selecting it correctly logs in and fetches the real (faked) directory; searching
+  filters live. 9 new tests (2 in `test_club_picker.py` for `ClubSearchScreen`'s own
+  dismiss-with-slug/`None` behavior, 7 in `test_tui.py` for the picker
+  escape/cancel bindings and the full switch-and-search integration) — 328 tests
+  passing (was 319).
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key

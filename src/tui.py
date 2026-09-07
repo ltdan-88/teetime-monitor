@@ -84,6 +84,22 @@ can trigger it. Runs in a background thread (`run_worker(..., thread=True)`) so
 scraping the whole window doesn't freeze the UI; `r` stays a synchronous, single-day,
 always-immediate manual override on `DayDetailScreen` itself, exactly as before —
 the two are independent, not one replacing the other.
+
+Switching club/course + searching for a new club on the fly (added 2026-09-07,
+direct feedback: "how can i switch to a different course from the time schedule
+menu?" followed by "I want to be able to switch clubs on the fly. It is a hassle if
+you need to first save clubs into the config"): `s` on `DayDetailScreen` opens
+`TeetimeApp.action_switch_club_or_course()` — always shows the club picker (even
+with just one club saved) and the course picker (ignoring `default_course`), since
+an explicit switch means actively choosing. That club picker now also offers
+"🔍 Search for a club…", pushing `club_picker.ClubSearchScreen` right there (using
+whichever club is already known to log in — one login works across the whole
+platform) so a brand-new club can be found, saved, and switched to in one
+continuous flow, no separate `python -m src.club_picker` command or app restart
+needed. Every picker screen (`ClubPickerScreen`, `CoursePickerScreen`) also gained
+`escape` (back out with nothing changed) and `q` (quit the whole app) bindings —
+previously there was no way to back out of one short of force-quitting, per direct
+feedback: "how do I quit from club/course picker or return to the schedule?"
 """
 
 from datetime import date as date_cls
@@ -98,6 +114,7 @@ from textual.widgets.option_list import Option
 from . import club_config, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
+from .club_picker import ClubSearchScreen
 from .models import ConfirmedBooking
 from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, _holes_from_course_label, scrape_schedule
@@ -159,27 +176,59 @@ def _dim_if(text: str, condition: bool) -> str:
     return f"[dim]{text}[/]" if condition else text
 
 
-class ClubPickerScreen(Screen[str]):
-    """Pick a saved club — only shown when more than one is saved."""
+# Sentinel id for ClubPickerScreen's "search for a club" entry — added 2026-09-07,
+# direct feedback: "I want to be able to switch clubs on the fly," a hassle before
+# this since adding a club meant leaving the running TUI to run club_picker.py by
+# hand. Distinguishable from a real slug since it can never collide with one --
+# club_config.py's slugs are plain filenames, none of which look like this.
+_SEARCH_FOR_CLUB_ID = "__search_for_a_club__"
 
-    def __init__(self, club_slugs: list[str]) -> None:
+
+class ClubPickerScreen(Screen[str | None]):
+    """Pick a saved club — shown whenever more than one is saved, or (via
+    `offer_search`) whenever `TeetimeApp.action_switch_club_or_course()` explicitly
+    requests it, so the "search for a club" entry is reachable even with only one
+    club currently saved (see `_SEARCH_FOR_CLUB_ID` above). `escape` dismisses with
+    `None` (cancel — direct feedback 2026-09-07: "how do I quit from club/course
+    picker or return to the schedule?" — there was previously no way to back out of
+    this screen at all short of quitting the whole app); `q` quits the whole app,
+    matching `DayDetailScreen`'s own convention."""
+
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+
+    def __init__(self, club_slugs: list[str], offer_search: bool = False) -> None:
         super().__init__()
         self.club_slugs = club_slugs
+        self.offer_search = offer_search
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label(i18n.t("picker.club_title"))
-        yield OptionList(*[Option(slug, id=slug) for slug in self.club_slugs])
-        yield Footer()
+        options = [Option(slug, id=slug) for slug in self.club_slugs]
+        if self.offer_search:
+            options.append(Option(i18n.t("picker.search_for_a_club"), id=_SEARCH_FOR_CLUB_ID))
+        yield OptionList(*options)
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         self.dismiss(event.option.id)
 
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
-class CoursePickerScreen(Screen[str]):
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
+class CoursePickerScreen(Screen[str | None]):
     """Pick a course — only shown when the club has no valid `default_course` set and
     more than one course exists (COURSE_ALIASES is a fixed 3-option picker, not a
-    rotating list — see scraper.py's module docstring)."""
+    rotating list — see scraper.py's module docstring). Same `escape`/`q` bindings as
+    `ClubPickerScreen` — see that class's own docstring."""
+
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
     def __init__(self, courses: list[str]) -> None:
         super().__init__()
@@ -189,10 +238,16 @@ class CoursePickerScreen(Screen[str]):
         yield Header()
         yield Label(i18n.t("picker.course_title"))
         yield OptionList(*[Option(course, id=course) for course in self.courses])
-        yield Footer()
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         self.dismiss(event.option.id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_quit(self) -> None:
+        self.app.exit()
 
 
 class ConfirmBookingScreen(Screen[bool]):
@@ -487,8 +542,28 @@ class TeetimeApp(App[None]):
             self.pop_screen()
             self.push_screen(replacement)
 
-    async def _pick_club(self, slugs: list[str]) -> str:
+    async def _pick_club(self, slugs: list[str]) -> str | None:
+        """Startup's own picker — skips the screen entirely (returns the one slug
+        directly) when there's nothing to choose between, matching the fast,
+        mostly-automatic launch this app has always aimed for. Can still return
+        `None` if the (only-shown-when-ambiguous) picker itself is cancelled."""
         return slugs[0] if len(slugs) == 1 else await self.push_screen_wait(ClubPickerScreen(slugs))
+
+    async def _pick_club_or_search(self, slugs: list[str]) -> str | None:
+        """The switch flow's own club-picking step — always shows the picker, even
+        with only one club saved, specifically so its "search for a club" entry is
+        reachable (direct feedback 2026-09-07: "I want to be able to switch clubs on
+        the fly," a hassle before this since adding one meant leaving the running
+        TUI to run club_picker.py separately). Picking that entry pushes
+        `ClubSearchScreen` right here, logging in with whichever club is already
+        known (any saved club's credentials work platform-wide, confirmed
+        2026-09-05) — the newly saved club (or `None`, if backed out without saving)
+        becomes the result either way, continuing straight into course-picking for
+        it rather than looping back to re-show this list."""
+        choice = await self.push_screen_wait(ClubPickerScreen(slugs, offer_search=True))
+        if choice != _SEARCH_FOR_CLUB_ID:
+            return choice
+        return await self.push_screen_wait(ClubSearchScreen(slugs[0]))
 
     async def _start(self) -> None:
         slugs = club_config.list_clubs()
@@ -497,6 +572,9 @@ class TeetimeApp(App[None]):
             return
 
         slug = await self._pick_club(slugs)
+        if slug is None:
+            self.exit()
+            return
 
         config = club_config.load_club_config(slug)
         club_id = config.get("club_id")
@@ -512,6 +590,9 @@ class TeetimeApp(App[None]):
             course = courses[0]
         else:
             course = await self.push_screen_wait(CoursePickerScreen(courses))
+            if course is None:
+                self.exit()
+                return
 
         await self.push_screen(DayDetailScreen(club_id, slug, course, _initial_date(club_id, course)))
 
@@ -541,20 +622,31 @@ class TeetimeApp(App[None]):
         Deliberately does *not* reuse `_start()`'s own skip-shortcuts: that's the
         right behavior for a fast, mostly-automatic launch, but an explicit request
         to switch means actively choosing is the point — so this always shows the
-        club picker (if more than one club is saved) and always shows the course
-        picker (ignoring `default_course`, though a club with only one course still
-        skips it — there's nothing to choose there either way)."""
+        club picker (via `_pick_club_or_search()`, which also offers searching for a
+        new one) and always shows the course picker (ignoring `default_course`,
+        though a club with only one course still skips it — there's nothing to
+        choose there either way). Backing out at any step (`escape` on a picker, or
+        quitting `ClubSearchScreen` without saving) leaves the current schedule
+        exactly as it was — nothing is popped or replaced until a club *and* course
+        are both actually chosen."""
         slugs = club_config.list_clubs()
         if not slugs:
             return
-        slug = await self._pick_club(slugs)
+        slug = await self._pick_club_or_search(slugs)
+        if slug is None:
+            return
         config = club_config.load_club_config(slug)
         club_id = config.get("club_id")
         if not club_id:
             return
 
         courses = list(COURSE_ALIASES)
-        course = courses[0] if len(courses) == 1 else await self.push_screen_wait(CoursePickerScreen(courses))
+        if len(courses) == 1:
+            course = courses[0]
+        else:
+            course = await self.push_screen_wait(CoursePickerScreen(courses))
+            if course is None:
+                return
 
         self._club_slug = slug
         self._club_config = config
