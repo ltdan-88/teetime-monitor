@@ -55,7 +55,11 @@ crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan 
   Real names only show for people on your pc caddie friends list (a native pc caddie
   feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
   real site. Today's own already-passed slots are dimmed rather than hidden — still
-  visible for reference, but a clear visual cue you can't book them anymore
+  visible for reference, but a clear visual cue you can't book them anymore. A slot
+  that already matches your saved availability rules (and isn't rained/wind/dark
+  out) gets a "★" next to its time — the deterministic half of Phase 3's
+  recommendation engine, applied to today's view directly rather than waiting on the
+  full multi-day overview screen
 - Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
@@ -131,6 +135,38 @@ python -m src.settings_screen my-club              # adjust availability/weather
 python -m src.scrape_once                          # one-off scrape of every saved club's overview window
 python -m src.tui                                  # the tee sheet itself, single-day detail view
 ```
+
+The TUI's own auto-refresh (see "Planned capabilities" above) covers history while
+it's open, but pc caddie hides past tee sheets entirely — any day nobody opens the
+app is a permanent gap otherwise. To keep `scrape_once` running unattended too (on
+macOS, via `launchd`, checking every 15 minutes and self-throttling per club's own
+configured interval):
+
+```bash
+cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.teetimemonitor.scrape</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/teetime-monitor/.venv/bin/python</string>
+        <string>-m</string><string>src.scrape_once</string>
+    </array>
+    <key>WorkingDirectory</key><string>/path/to/teetime-monitor</string>
+    <key>StartInterval</key><integer>900</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>~/Library/Logs/teetime-monitor.log</string>
+    <key>StandardErrorPath</key><string>~/Library/Logs/teetime-monitor.log</string>
+</dict>
+</plist>
+EOF
+launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
+```
+
+Check on it with `cat ~/Library/Logs/teetime-monitor.log` (empty means no errors);
+remove it later with `launchctl unload ...` plus deleting the plist file.
 
 `tui.py`'s multi-day overview, ad hoc search, and crowd-heatmap screens aren't built
 yet — see "Project structure" above for what's real today versus still a stub.

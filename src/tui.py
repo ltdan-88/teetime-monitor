@@ -111,11 +111,12 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, scrape_once, storage
+from . import club_config, recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .club_picker import ClubSearchScreen
-from .models import ConfirmedBooking
+from .search import search as search_slots
+from .models import ConfirmedBooking, Schedule
 from .scrape_once import _db_path
 from .scraper import COURSE_ALIASES, _holes_from_course_label, scrape_schedule
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
@@ -357,6 +358,16 @@ class DayDetailScreen(Screen[None]):
         self.club_slug = club_slug
         self.course = course
         self.date = date
+        # Each real row's own plain slot.time, in table order -- kept separate from
+        # what's actually rendered in the Time column (which can carry "[dim]"/"★"
+        # decoration) so _selected_slot_time() reads the real value back, not
+        # whatever markup happens to be on screen. Found live 2026-09-07 while adding
+        # the "★" recommended-slot marker: an existing test caught it picking up the
+        # literal "★ 14:00" text instead of "14:00" -- a latent fragility in reading
+        # display text back out of the table that the dimming feature had already
+        # introduced without anyone noticing (a past slot's confirm pre-fill would
+        # have picked up "[dim]11:10[/]" verbatim).
+        self._row_times: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -383,6 +394,7 @@ class DayDetailScreen(Screen[None]):
         self._set_title()
         table = self.query_one(DataTable)
         table.clear()
+        self._row_times = []
         schedule = storage.load_latest_schedule(self.course, self.date, path=self.db_path)
         if schedule is None or not schedule.slots:
             table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"))
@@ -395,9 +407,13 @@ class DayDetailScreen(Screen[None]):
         # played it), just not something you can act on anymore. `None` on any other
         # date, so a future/past *day* never dims itself against today's clock.
         now = _NOW_HHMM() if self.date == _TODAY() else None
+        recommended_times = self._recommended_times(schedule)
         for slot in schedule.slots:
+            self._row_times.append(slot.time)
             is_past = now is not None and slot.time < now
             time_cell = _dim_if(slot.time, is_past)
+            if slot.time in recommended_times and not is_past:
+                time_cell = f"★ {time_cell}"
             if slot.block_reason is not None:
                 table.add_row(time_cell, f"[dim]{slot.block_reason}[/]", "")
                 continue
@@ -407,6 +423,33 @@ class DayDetailScreen(Screen[None]):
             occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
             players = ", ".join(slot.players) if slot.players else ""
             table.add_row(time_cell, occupancy, _dim_if(players, is_past and bool(players)))
+
+    def _recommended_times(self, schedule: Schedule) -> set[str]:
+        """Which of this schedule's own slot times pass your saved availability rules
+        right now — marked with a leading "★" in the Time column. A lightweight step
+        toward real recommendations (ROADMAP.md Phase 3's search.py/recommend.py)
+        without needing the full multi-day overview screen first, which still needs a
+        mockup sign-off before it's built.
+
+        Reuses the exact same deterministic pipeline `recommend.weekly_picks()` uses
+        for the (still-unbuilt) multi-day screen — `search.search()` for party
+        size/time-window/buffer, then `recommend.exclude_unplayable()` for
+        weather/daylight — just applied to this one already-loaded `Schedule` instead
+        of the whole overview window. Best-effort: a club with no `availability` block
+        configured, or a schedule with no weather attached yet, just means nothing
+        gets marked — never an error shown to the user. `sun_times` specifically is
+        never set on a schedule loaded this way (storage.py doesn't persist it — see
+        its own module docstring), so the daylight half of `exclude_unplayable()`
+        can't actually exclude anything here; only the weather half can. A known,
+        accepted gap, not a silent one."""
+        try:
+            config = club_config.load_club_config(self.club_slug)
+        except FileNotFoundError:
+            return set()
+        criteria = recommend.default_criteria_from_config(config)
+        candidates = search_slots([schedule], criteria)
+        playable = recommend.exclude_unplayable(candidates, [schedule], config)
+        return {candidate.slot.time for candidate in playable}
 
     def refresh_banners(self) -> None:
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
@@ -452,13 +495,17 @@ class DayDetailScreen(Screen[None]):
     def _selected_slot_time(self) -> str | None:
         """The currently highlighted row's own time, if a real slot is selected —
         direct feedback 2026-09-07: confirming a tee time shouldn't require
-        re-typing what you already picked by moving the cursor there. None for the
-        "no data yet" placeholder row (time "—") or an empty table."""
+        re-typing what you already picked by moving the cursor there. Reads
+        `self._row_times` (each row's plain, undecorated slot.time, tracked
+        separately in `load_schedule()`) rather than parsing the Time column's own
+        rendered text — that text can carry "[dim]"/"★" markup once a slot is past
+        or recommended, which very nearly leaked into this exact field verbatim
+        before an existing test caught it. `None` for the "no data yet" placeholder
+        row (nothing in `_row_times` at all) or an empty table."""
         table = self.query_one(DataTable)
-        if table.row_count == 0 or not table.is_valid_row_index(table.cursor_row):
+        if not (0 <= table.cursor_row < len(self._row_times)):
             return None
-        time = str(table.get_row_at(table.cursor_row)[0])
-        return time if time and time != "—" else None
+        return self._row_times[table.cursor_row]
 
     def action_next_day(self) -> None:
         self.date = (date_cls.fromisoformat(self.date) + timedelta(days=1)).isoformat()

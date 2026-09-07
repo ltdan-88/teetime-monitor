@@ -6,6 +6,8 @@ from textual.app import App
 from textual.widgets import DataTable, Input, OptionList, Static
 
 from src import i18n, scrape_once, storage, theme, tui
+from src.club_config import list_clubs as _real_list_clubs
+from src.club_config import load_club_config as _real_load_club_config
 from src.models import Schedule, Slot
 
 
@@ -34,6 +36,22 @@ def _no_background_scraping(monkeypatch):
     was added. A no-op by default; a test that specifically wants to exercise the
     real wiring overrides `scrape_once.scrape_due_for_club` itself locally."""
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_club_config_by_default(monkeypatch):
+    """`DayDetailScreen._recommended_times()` (added 2026-09-07) calls
+    `club_config.load_club_config(self.club_slug)` on every `load_schedule()` --
+    every test here built via `_day_detail()` directly (not through a real
+    `TeetimeApp`) never mocks that, and `_day_detail()`'s own default slug
+    ("musterhausen") happens to match a real file this developer's own machine has
+    on disk at `clubs/musterhausen.yaml` — meaning every such test would otherwise
+    silently read real personal config off disk instead of running hermetically.
+    Defaults to an empty config (no availability rules configured -> nothing gets
+    marked recommended, the same as a genuinely blank club); a test that wants to
+    exercise the recommendation-marking feature itself overrides this locally,
+    same layering as `_no_background_scraping` above."""
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: {})
 
 
 class _HostApp(App):
@@ -229,6 +247,153 @@ def test_day_detail_dims_a_blocked_past_slot_too(tmp_path, monkeypatch):
             row = app.screen.query_one(DataTable).get_row_at(0)
             assert row[0] == "[dim]15:30[/]"
             assert "Golf Beginner Kurs" in row[1]
+
+    _run(scenario())
+
+
+# --- Recommended-slot marking ("★") -- a lightweight step toward real
+# recommendations (ROADMAP.md Phase 3), applied to the single-day view already built
+# rather than waiting on the multi-day overview screen's own mockup sign-off ----------
+
+_RECOMMEND_CONFIG = {
+    "availability": {
+        "min_open_spots": 1,
+        "weekday_window": {"after": "10:00"},
+        "weekend_window": {"after": "10:00"},
+    }
+}
+
+
+def test_day_detail_marks_slots_matching_availability_with_a_star(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: _RECOMMEND_CONFIG)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[
+                Slot(time="09:00", booked=0, capacity=4),  # before the configured window
+                Slot(time="14:00", booked=0, capacity=4),  # within the window, open
+            ],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            rows = [table.get_row_at(i) for i in range(2)]
+            assert rows[0][0] == "09:00"
+            assert rows[1][0] == "★ 14:00"
+
+    _run(scenario())
+
+
+def test_day_detail_does_not_star_a_fully_booked_slot(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: _RECOMMEND_CONFIG)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=4, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).get_row_at(0)[0] == "14:00"
+
+    _run(scenario())
+
+
+def test_day_detail_does_not_star_a_past_matching_slot(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: _RECOMMEND_CONFIG)
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "15:00")
+    storage.save_schedule(
+        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail(date="2026-09-07"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            # Still dimmed (it's past), but not starred -- recommending something
+            # already gone doesn't make sense.
+            assert row[0] == "[dim]14:00[/]"
+
+    _run(scenario())
+
+
+def test_day_detail_does_not_star_a_slot_with_bad_weather(tmp_path, monkeypatch):
+    from src.models import WeatherPoint
+
+    config = {
+        "availability": _RECOMMEND_CONFIG["availability"],
+        "preferences": {"avoid_rain": True},
+    }
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: config)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="14:00", booked=0, capacity=4)],
+            weather=[WeatherPoint(time="14:00", precipitation_probability=90, precipitation_mm=5.0)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).get_row_at(0)[0] == "14:00"  # not starred
+
+    _run(scenario())
+
+
+def test_day_detail_no_availability_config_means_no_stars(tmp_path, monkeypatch):
+    # The autouse _no_real_club_config_by_default fixture already returns {} by
+    # default -- this test just makes that behavior explicit and named.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).get_row_at(0)[0] == "14:00"
+
+    _run(scenario())
+
+
+def test_day_detail_action_confirm_prefills_clean_time_for_a_starred_slot(tmp_path, monkeypatch):
+    # Regression test: the confirm form must get the plain "14:00" back, never the
+    # decorated "★ 14:00" that's actually rendered in the table.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: _RECOMMEND_CONFIG)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one(DataTable).get_row_at(0)[0] == "★ 14:00"  # sanity check
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.screen.query_one("#time", Input).value == "14:00"
 
     _run(scenario())
 
@@ -899,14 +1064,18 @@ def test_switch_action_search_for_a_club_adds_and_switches_to_it(tmp_path, monke
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     (tmp_path / "clubs").mkdir()
     (tmp_path / "clubs" / "home-club.yaml").write_text("club_id: '0000001'\ndefault_course: '18 Loch Tee 1'\n")
-    real_list_clubs, real_load_club_config = tui.club_config.list_clubs, tui.club_config.load_club_config
     monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
     # ClubSearchScreen calls these with an explicit clubs_dir; tui.py's own _start()/
     # _do_switch_club_or_course() call them with none at all -- accept and ignore
-    # whatever's passed, always resolving against this test's own tmp_path.
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: real_list_clubs(tmp_path / "clubs"))
+    # whatever's passed, always resolving against this test's own tmp_path. Uses the
+    # module-level _real_list_clubs/_real_load_club_config (captured at import time,
+    # before any autouse fixture could have already replaced tui.club_config's own
+    # attributes) rather than grabbing "the real function" off tui.club_config here --
+    # by this point in the test, that name is already whatever an earlier-applied
+    # autouse fixture patched it to, not the true original.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
     monkeypatch.setattr(
-        tui.club_config, "load_club_config", lambda slug, *a, **k: real_load_club_config(slug, tmp_path / "clubs")
+        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
     )
     monkeypatch.setenv("PCC_USER", "user@example.com")
     monkeypatch.setenv("PCC_PASS", "hunter2")

@@ -769,6 +769,44 @@ new `params` column round-tripping). 240 tests passing (was 224).
   dismiss-with-slug/`None` behavior, 7 in `test_tui.py` for the picker
   escape/cancel bindings and the full switch-and-search integration) — 328 tests
   passing (was 319).
+- **A first taste of Phase 3 recommendations on today's own view (added 2026-09-07,
+  after setting up scheduled background scraping via `launchd` — a real cron/launchd
+  job was finally installed this session, closing the "history can't be backfilled"
+  risk for good — the user asked to "continue with the next items")**: rather than
+  wait on Phase 4's multi-day overview screen (still gated on a mockup sign-off),
+  `DayDetailScreen.load_schedule()` now reuses the exact same deterministic pipeline
+  `recommend.weekly_picks()` already uses — `search.search()` for party
+  size/time-window/buffer, then `recommend.exclude_unplayable()` for weather/daylight
+  — applied to just the one already-loaded `Schedule` instead of the whole overview
+  window (`_recommended_times()`). A matching, still-upcoming, non-past slot gets a
+  "★" prefix in the Time column. A club with no `availability` block configured, or
+  a schedule with no weather attached, just means nothing gets marked — never an
+  error. One accepted, disclosed gap: `sun_times` isn't persisted by storage.py (see
+  its own module docstring), so a `Schedule` loaded this way never has it — the
+  daylight half of `exclude_unplayable()` can never actually exclude anything here,
+  only the weather half can.
+
+  A real, if narrow, bug surfaced building this: `DayDetailScreen.action_confirm()`
+  was reading a selected row's time back out of the Time column's own *rendered*
+  text — which, once dimming shipped, could already carry `[dim]...[/]` markup that
+  would have leaked verbatim into the confirm form's time field for any past slot,
+  unnoticed until the "★" prefix made an existing test actually catch it (asserting
+  `"14:00"` and getting `"★ 14:00"` back). Fixed properly: `DayDetailScreen` now
+  tracks each row's own plain `slot.time` separately (`self._row_times`, populated
+  in `load_schedule()`) rather than ever parsing decorated display text back out.
+
+  Also caught and fixed a test-isolation gap this feature's own tests exposed:
+  `_recommended_times()` calls `club_config.load_club_config(self.club_slug)` on
+  every `load_schedule()`, and most existing `DayDetailScreen` tests build the
+  screen directly (not through a real `TeetimeApp`) without ever mocking that —
+  `_day_detail()`'s own default slug ("musterhausen") happens to match a real file
+  this developer's own machine has on disk, meaning every such test was silently
+  reading real personal config off disk. Fixed with a new autouse fixture
+  (`_no_real_club_config_by_default`) returning an empty config unless a test
+  overrides it locally. Verified live in tmux with a schedule mixing past, future,
+  fully-booked, and in-window-but-past slots: only the one truly-recommendable slot
+  got the star, confirmed against the real rendered colors (not just the underlying
+  markup string). 6 new tests — 334 tests passing (was 328).
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key
@@ -1048,11 +1086,15 @@ much emptier" instead of ranking blind.
   settings, and aggregated history all pass through `ai_assist.py` calls. Model choice
   per call is configurable specifically so cost is a dial you control, not a decision
   made for you.
-- **History can't be backfilled.** pc caddie hides past tee sheets, so any day that's
-  neither scraped nor confirmed via the Phase 1 prompt is a permanent gap — not
-  something a later phase can go back and fix. The scheduled scrape script exists
-  specifically to minimize this, and per the confirmed-bookings revision above, needs
-  to run more than once a day to also catch same-day bookings before they're gone.
+- ~~History can't be backfilled.~~ **Mitigated 2026-09-07**: pc caddie still hides
+  past tee sheets, so any day neither scraped nor confirmed is still a permanent
+  gap — but `scrape_once.py` is no longer only ever run by hand or from an open TUI.
+  A real `launchd` job (`~/Library/LaunchAgents/com.teetimemonitor.scrape.plist`,
+  firing every 15 minutes, `_should_scrape()` still throttling what's actually
+  fetched) now keeps it running unattended on this machine regardless of whether the
+  TUI is ever opened that day — the standing installation step every earlier
+  mention of this risk explicitly left for "the user's own call" has now actually
+  been made.
 - **Public-holiday API coverage varies by country**, and there's no universal free
   school-vacation API at all — `calendar.country_code` and `vacation_ranges` may need
   more manual upkeep than the rest of the config, depending on the club's region.

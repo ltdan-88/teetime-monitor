@@ -42,12 +42,17 @@ desired interval:
 entry with no arguments covers everything currently configured, throttled per
 course/date as above.
 
-Not installed as an actual cron/launchd job by this session — that's a standing,
-persistent change and stays the user's call to make (and verify paths/venv for)
-themselves. As of 2026-09-07, `tui.py` also calls `scrape_due_for_club()` directly
-for whichever club it's showing — once on open and again on a timer while it stays
-running — so a cron job isn't the only way this happens anymore either; see that
-module's own "Auto-refresh" docstring note.
+Installed as a real `launchd` job on 2026-09-07 (`~/Library/LaunchAgents/
+com.teetimemonitor.scrape.plist`, firing every 15 minutes via `StartInterval`,
+`_should_scrape()` still throttling what's actually fetched) — the standing,
+persistent change every earlier version of this note left for "the user's own call"
+has now actually been made. `tui.py` also calls `scrape_due_for_club()` directly for
+whichever club it's showing — once on open and again on a timer while it stays
+running — so a cron/launchd job isn't the only way this happens either; see that
+module's own "Auto-refresh" docstring note. Between the two, history keeps
+accumulating whether or not the TUI is ever opened on a given day, closing out the
+"history can't be backfilled" risk this project has flagged since Phase 1 was first
+scoped.
 """
 
 from datetime import date as date_cls
