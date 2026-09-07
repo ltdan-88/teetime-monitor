@@ -1233,6 +1233,39 @@ def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_p
     _run(scenario())
 
 
+def test_periodic_scrape_still_runs_for_a_club_visited_without_saving_it(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-07: "I selected a random club... the tee times don't
+    # automatically refresh, I had to hit 'r'". Root cause: an unsaved club's config
+    # is {} (nothing to load club_id back out of), and scrape_due_for_club() silently
+    # does nothing at all without a club_id in the config it's handed -- auto-refresh
+    # was never running for any club that wasn't a saved favorite, the exact case the
+    # same-day favorites rework was supposed to make first-class.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])  # no favorites at all
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    calls = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: calls.append(config) or [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.dismiss("0352002")  # a club reached by id, never saved
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CoursePickerScreen)
+            app.screen.dismiss("18 Loch Tee 1")
+            for _ in range(20):
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            assert calls and calls[0].get("club_id") == "0352002"
+
+    _run(scenario())
+
+
 def test_periodic_scrape_reloads_the_day_detail_screen_when_done(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")

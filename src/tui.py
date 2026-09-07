@@ -1185,7 +1185,17 @@ class TeetimeApp(App[None]):
             self.pop_screen()
         await self.push_screen(replacement)
         self._club_slug = slug
-        self._club_config = config
+        # `config` alone is {} for a club visited without saving it (no clubs/*.yaml
+        # to read `club_id` back out of), and `scrape_due_for_club()` needs `club_id`
+        # in the config it's handed — without it, it silently prints "no club_id set,
+        # skipping" and does nothing at all, on open and on every timer tick, for as
+        # long as this club stays active. Caught live 2026-09-07 ("I selected a
+        # random club... the tee times don't automatically refresh, I had to hit
+        # 'r'"): auto-refresh was never running for any unsaved club, the whole point
+        # of the same-day favorites rework. `club_id` is always known here directly
+        # (the function's own argument), so it's merged in regardless of whether the
+        # rest of `config` came from a real file or not.
+        self._club_config = {**config, "club_id": club_id}
         return True
 
     async def _start(self) -> None:
