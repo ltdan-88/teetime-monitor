@@ -153,6 +153,12 @@ def _fill_style(booked: int, capacity: int) -> str:
     return "green"
 
 
+def _dim_if(text: str, condition: bool) -> str:
+    """Wrap `text` in Rich's "dim" style when `condition` is true, otherwise leave it
+    plain — the shared building block behind `load_schedule()`'s past-slot dimming."""
+    return f"[dim]{text}[/]" if condition else text
+
+
 class ClubPickerScreen(Screen[str]):
     """Pick a saved club — only shown when more than one is saved."""
 
@@ -326,14 +332,26 @@ class DayDetailScreen(Screen[None]):
         if schedule is None or not schedule.slots:
             table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"))
             return
+        # Only today's own slots can already be in the past -- direct feedback
+        # 2026-09-07: "can you hide or make timeslots less visible that are in the
+        # past? ... I won't be able to make reservations for 11:10 or earlier
+        # today." Dimmed rather than hidden entirely, matching the existing
+        # block_reason rows' own style — a past slot is still real information (who
+        # played it), just not something you can act on anymore. `None` on any other
+        # date, so a future/past *day* never dims itself against today's clock.
+        now = _NOW_HHMM() if self.date == _TODAY() else None
         for slot in schedule.slots:
+            is_past = now is not None and slot.time < now
+            time_cell = _dim_if(slot.time, is_past)
             if slot.block_reason is not None:
-                table.add_row(slot.time, f"[dim]{slot.block_reason}[/]", "")
+                table.add_row(time_cell, f"[dim]{slot.block_reason}[/]", "")
                 continue
-            style = _fill_style(slot.booked, slot.capacity)
+            style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(
+                slot.booked, slot.capacity
+            )
             occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
             players = ", ".join(slot.players) if slot.players else ""
-            table.add_row(slot.time, occupancy, players)
+            table.add_row(time_cell, occupancy, _dim_if(players, is_past and bool(players)))
 
     def refresh_banners(self) -> None:
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)

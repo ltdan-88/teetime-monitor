@@ -151,6 +151,88 @@ def test_day_detail_shows_occupancy_and_players(tmp_path, monkeypatch):
     _run(scenario())
 
 
+# --- Past-slot dimming (2026-09-07, direct feedback: "can you hide or make
+# timeslots less visible that are in the past? ... now is 11:18, so I need a visible
+# feedback that I won't be able to make reservations for 11:10 or earlier today") ----
+
+
+def test_day_detail_dims_past_slots_on_todays_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "11:18")
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-07",
+            course="18 Loch Tee 1",
+            slots=[
+                Slot(time="09:00", booked=0, capacity=4),
+                Slot(time="11:10", booked=1, capacity=4, players=["Max Mustermann"]),
+                Slot(time="14:00", booked=2, capacity=4),
+            ],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail(date="2026-09-07"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            rows = [table.get_row_at(i) for i in range(3)]
+            assert rows[0][0] == "[dim]09:00[/]"
+            assert rows[1][0] == "[dim]11:10[/]"
+            assert rows[1][2] == "[dim]Max Mustermann[/]"
+            assert rows[2][0] == "14:00"  # still upcoming -- not dimmed
+
+    _run(scenario())
+
+
+def test_day_detail_does_not_dim_slots_on_a_different_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    # "Today" is tomorrow relative to this screen's own date -- late in the day, so
+    # every slot on this schedule would be "in the past" if the check didn't first
+    # confirm this screen is even showing today at all.
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-08")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "23:59")
+    storage.save_schedule(
+        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="06:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail(date="2026-09-07"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.get_row_at(0)[0] == "06:00"
+
+    _run(scenario())
+
+
+def test_day_detail_dims_a_blocked_past_slot_too(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "16:00")
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-07",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail(date="2026-09-07"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert row[0] == "[dim]15:30[/]"
+            assert "Golf Beginner Kurs" in row[1]
+
+    _run(scenario())
+
+
 def test_day_detail_shows_and_dismisses_booking_watch_banner(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_booking_change(
@@ -182,6 +264,10 @@ def test_day_detail_shows_and_dismisses_booking_watch_banner(tmp_path, monkeypat
 
 def test_day_detail_next_and_prev_day_reload_schedule(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    # Neither fixture date is "today" -- avoids load_schedule()'s past-slot dimming
+    # (see the dedicated tests for that below), which would otherwise collide with
+    # this test's own exact-text assertions once "today" catches up to 2026-09-07.
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2099-01-01")
     db = scrape_once._db_path("0000001")
     storage.save_schedule(
         Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="06:00", booked=0, capacity=4)]),

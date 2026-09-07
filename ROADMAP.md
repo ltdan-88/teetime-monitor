@@ -710,6 +710,26 @@ new `params` column round-tripping). 240 tests passing (was 224).
   a different course actually swapped the screen and re-scraped. 8 new tests (5 for
   the confirm pre-fill, 2 for the switch action, 1 for the status message) — 316
   tests passing (was 308).
+- **Dim today's own already-passed slots (added 2026-09-07, direct feedback: "can
+  you hide or make timeslots less visible that are in the past? For example now is
+  11:18, so I need a visible feedback that I won't be able to make reservations for
+  11:10 or earlier today")**: `DayDetailScreen.load_schedule()` now wraps a slot's
+  time, occupancy, and player names in Rich's `[dim]` style (new `_dim_if()` helper)
+  once its own time has already passed — but only when the screen is actually
+  showing *today* (`self.date == _TODAY()`); a future or past day never compares
+  itself against the current clock at all. Dimmed rather than hidden, matching the
+  existing block_reason rows' own style — a past slot is still real information
+  (who played it), just nothing you can act on anymore. New `_NOW_HHMM()` (added
+  alongside `_initial_date()` earlier the same day) supplies "now" the same
+  "patched as a whole in tests" way as `_TODAY()`. One existing test
+  (`test_day_detail_next_and_prev_day_reload_schedule`) happened to use a fixture
+  date that had, by the time this shipped, become literally "today" on this
+  machine's real clock — pinned `_TODAY()` there to a fixed value so the test
+  doesn't silently start failing again the next time the calendar catches up to a
+  fixture date. Verified live in tmux with a real color comparison (two slots at
+  the same fill ratio, one past and one future): the past slot's occupancy rendered
+  in a visibly muted, desaturated tone against the upcoming slot's vivid one. 3 new
+  tests — 319 tests passing (was 316).
 
 ## Phase 2 — Weather, daylight & calendar overlay
 - `weather.py` — client for [Open-Meteo](https://open-meteo.com/) (free, no API key

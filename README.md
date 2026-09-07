@@ -53,7 +53,8 @@ for the phased build plan and
 - Terminal table view: time slot, occupancy, player names, colored by fill ratio.
   Real names only show for people on your pc caddie friends list (a native pc caddie
   feature) — everyone else appears anonymized as "Member (handicap)", confirmed on the
-  real site
+  real site. Today's own already-passed slots are dimmed rather than hidden — still
+  visible for reference, but a clear visual cue you can't book them anymore
 - Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
