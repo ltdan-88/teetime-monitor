@@ -1126,16 +1126,52 @@ much emptier" instead of ranking blind.
   classification approach (positively recognize a name, don't just flag "unfamiliar
   text") should hold up, but is unverified against the actual case it exists for.
 - ~~The booking-date window (`overview_days`) is a fixed number in config.~~
-  **Confirmed a real risk, not yet mitigated, 2026-09-07**: the club's own tee-sheet
-  page ships its own "Date" `<select id="timetable_selection_date">` listing exactly
-  which days are currently bookable — confirmed live to genuinely differ per club
-  (Musterhausen: 5 weekdays out; Sonnenberg: only 4 days out) rather than being a
-  platform-wide constant. `overview_days` is still just a config number nothing
-  cross-checks against this — a club whose real window is narrower than its configured
-  `overview_days` will have scrape_once.py/tui.py request dates the site will reject
-  ("Selection invalid."), not silently truncate to what's actually open. Same shape of
-  fix as `fetch_course_aliases()` below would resolve it: parse this club's own
-  `<select>` on demand instead of trusting a configured number.
+  **Resolved 2026-09-07** by `scraper.fetch_available_dates()`, which reads the club's
+  own "Date" `<select id="timetable_selection_date">` — the list of days it is actually
+  taking bookings for. The cross-club sweep below measured this at **1 to 31 days**
+  across 79 real clubs (8 the most common), against a configured default of 5: the
+  fixed number was simultaneously asking some clubs for dates their site rejects
+  outright ("Selection invalid.") and ignoring most of the window the rest offer.
+  `scrape_once.scrape_due_for_club()` now uses the real window, capped by
+  `MAX_OVERVIEW_DAYS` (one club advertises 366 days), with `overview_days` kept as the
+  fallback for the 5-in-45 clubs whose page has no date selector at all.
+- **Only a sample of clubs has been verified, not all of them.** The sweep below covered
+  79 real clubs out of a directory of 1300+. It was also read-only and anonymous, so it
+  says nothing about how an authenticated view differs. It covers the failure modes that
+  actually showed up; it is not proof that none remain.
+
+### Cross-club validation sweep (2026-09-07)
+
+Everything in "Confirmed pc caddie markup reference" was written against one club, then
+a second. Direct feedback — that the scraper has to work for clubs the user can't check
+themselves — prompted checking it against a real spread instead: 79 clubs, sampled by
+probing public tee-sheet URLs across German, Swiss, Luxembourgish and Italian-speaking
+clubs (club ids turn out to be `0` + country calling code + a club number, so the space
+is samplable). Each was then run end-to-end through the actual parser. What it found:
+
+| Finding | Scale | Status |
+| --- | --- | --- |
+| No course selector at all (single-course clubs) | 18 of 39 with a tee sheet (46%) | Fixed — `SINGLE_COURSE_ALIASES` |
+| Course notes read as players' names | 27 of 45 clubs | Fixed — the colspan rule |
+| French/Italian anonymized-placeholder variants missing | 4 variants, every CH/LU club | Fixed — `KNOWN_ANONYMIZED_LABELS` |
+| No tee sheet published at all | 7 of 79 | Fixed — `NoTeeSheetError` |
+| Negative `data-seat_bookable` on over-full slots | 2 clubs | Fixed — clamped |
+| Bookable-date window varies 1–31 days | all | Fixed — `fetch_available_dates()` |
+| `data-status="past-time"`, a 5th undocumented value | 2950 of 3227 rows | Documented; already parsed correctly |
+| Seats per slot | 4 on all 39 | Now read from the header anyway |
+
+Held everywhere, no exceptions: `table.pcco-tt-timetable`, `tr.pcco-tt-time-person`, and
+the `data-time` / `data-status` / `data-seat_bookable` attributes.
+
+The most consequential of these is the first: a hard `NotImplementedError` for any club
+without an "Area" selector meant the tool simply did not work for nearly half of pc
+caddie's clubs, which no amount of testing against two clubs that both *have* one would
+ever have surfaced. The second is the most insidious — it silently fabricated data
+("Nur für Mitglieder", "Greenfee CHF 140.-" and similar becoming players' names), which
+would have quietly poisoned the crowd heatmap and every recommendation built on it.
+
+After the fixes, all 79 clubs either load correctly (72) or report cleanly that the club
+publishes no tee sheet (7).
 
 ~~How the 27-hole rotation is actually presented on the site is unverified~~ — resolved
 2026-09-05, see "Live site findings": a fixed 3-option course picker plus a separate

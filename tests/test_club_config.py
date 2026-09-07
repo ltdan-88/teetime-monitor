@@ -96,3 +96,71 @@ def test_module_import_loads_dotenv(monkeypatch):
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: calls.append((a, k)))
     importlib.reload(club_config_module)
     assert len(calls) == 1
+
+
+# --- Favorites (2026-09-07): "saving clubs makes only sense in the sense of
+# Favorites" -- a club is now reached by its numeric id, and a clubs/*.yaml is
+# optional extra settings, not a precondition for looking at the club ----------------
+
+
+def test_slug_for_club_id_finds_a_saved_club(tmp_path):
+    (tmp_path / "home.yaml").write_text("club_id: '0000001'\n")
+    assert club_config_module.slug_for_club_id("0000001", tmp_path) == "home"
+
+
+def test_slug_for_club_id_returns_none_for_an_unsaved_club(tmp_path):
+    # A club being visited without saving it -- a normal state now, not an error.
+    (tmp_path / "home.yaml").write_text("club_id: '0000001'\n")
+    assert club_config_module.slug_for_club_id("0352002", tmp_path) is None
+
+
+def test_slug_for_club_id_ignores_an_unreadable_favorite(tmp_path):
+    (tmp_path / "broken.yaml").write_text("club_id: [unclosed\n")
+    (tmp_path / "home.yaml").write_text("club_id: '0000001'\n")
+    assert club_config_module.slug_for_club_id("0000001", tmp_path) == "home"
+
+
+def test_add_favorite_writes_a_stub_named_after_the_club(tmp_path):
+    slug = club_config_module.add_favorite("0000001", "Golfclub Domäne Musterhausen e.V.", tmp_path)
+    assert slug == "golfclub-domane-musterhausen-e-v"
+    assert club_config_module.load_club_config(slug, tmp_path)["club_id"] == "0000001"
+
+
+def test_add_favorite_is_idempotent(tmp_path):
+    first = club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
+    second = club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
+    assert first == second
+    assert club_config_module.list_clubs(tmp_path) == [first]  # no duplicate file
+
+
+def test_add_favorite_falls_back_to_the_club_id_without_a_name(tmp_path):
+    assert club_config_module.add_favorite("0000001", clubs_dir=tmp_path) == "club-0000001"
+
+
+def test_add_favorite_avoids_clobbering_a_same_named_file(tmp_path):
+    (tmp_path / "musterhausen.yaml").write_text("club_id: '0111111'\n")
+    slug = club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
+    assert slug == "musterhausen-2"
+    assert club_config_module.load_club_config("musterhausen", tmp_path)["club_id"] == "0111111"
+
+
+def test_remove_favorite_deletes_the_file_and_returns_the_slug(tmp_path):
+    club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
+    assert club_config_module.remove_favorite("0000001", tmp_path) == "musterhausen"
+    assert club_config_module.list_clubs(tmp_path) == []
+
+
+def test_remove_favorite_returns_none_for_an_unsaved_club(tmp_path):
+    assert club_config_module.remove_favorite("0352002", tmp_path) is None
+
+
+def test_is_favorite_reflects_add_and_remove(tmp_path):
+    assert club_config_module.is_favorite("0000001", tmp_path) is False
+    club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
+    assert club_config_module.is_favorite("0000001", tmp_path) is True
+    club_config_module.remove_favorite("0000001", tmp_path)
+    assert club_config_module.is_favorite("0000001", tmp_path) is False
+
+
+def test_slugify_folds_umlauts_and_punctuation():
+    assert club_config_module.slugify("Golfclub Domäne Musterhausen e.V.") == "golfclub-domane-musterhausen-e-v"

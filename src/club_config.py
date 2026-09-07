@@ -32,6 +32,7 @@ project root's `.env` regardless of the caller's current working directory.
 """
 
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -41,6 +42,22 @@ load_dotenv()
 
 CLUBS_DIR = Path("clubs")
 EXAMPLE_FILENAME = "club.example.yaml"
+
+_SLUG_INVALID_CHARS = re.compile(r"[^a-z0-9]+")
+_UMLAUT_FOLDS = {"ä": "a", "ö": "o", "ü": "u", "ß": "ss"}
+
+
+def slugify(name: str) -> str:
+    """A reasonable filename slug from a club's display name — e.g. "Golfclub Domäne
+    Musterhausen e.V." -> "golfclub-domane-musterhausen-e-v". Not guaranteed unique and
+    not a real transliteration; good enough as a filename and as a default the user can
+    edit. Moved here from club_picker.py 2026-09-07 so the favorites helpers below and
+    that screen share one implementation rather than drifting apart."""
+    normalized = name.lower()
+    for umlaut, plain in _UMLAUT_FOLDS.items():
+        normalized = normalized.replace(umlaut, plain)
+    slug = _SLUG_INVALID_CHARS.sub("-", normalized).strip("-")
+    return slug or "club"
 
 
 def list_clubs(clubs_dir: Path = CLUBS_DIR) -> list[str]:
@@ -82,6 +99,66 @@ def new_club_stub(club_id: str) -> dict:
     DEFAULT_AVOID_RAIN_*) until filled in by hand or via settings_screen.py. See
     clubs/club.example.yaml for the fully annotated reference of what's available."""
     return {"club_id": club_id, "default_course": "", "default_date": "today"}
+
+
+def slug_for_club_id(club_id: str, clubs_dir: Path | None = None) -> str | None:
+    """The saved slug for a club's numeric pc caddie id, if it's a favorite.
+
+    Added 2026-09-07 with the "favorites, not required setup" rework: the TUI now
+    reaches a club by its numeric id (picked from the directory, or typed in), and only
+    afterwards asks whether that club happens to be saved — the reverse of the old flow,
+    where a slug was the only way in and every club had to be saved first. Returns None
+    for a club being visited without saving it, which is a normal state now, not an
+    error."""
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    wanted = str(club_id).strip()
+    for slug in list_clubs(directory):
+        try:
+            config = load_club_config(slug, directory)
+        except (OSError, yaml.YAMLError):
+            continue  # an unreadable/malformed favorite shouldn't break club lookup
+        if str(config.get("club_id", "")).strip() == wanted:
+            return slug
+    return None
+
+
+def is_favorite(club_id: str, clubs_dir: Path | None = None) -> bool:
+    """Whether this club is saved. "Favorite" and "has a clubs/*.yaml" are the same
+    thing — the file is still where a club's own settings live, it's just no longer a
+    precondition for looking at the club at all."""
+    return slug_for_club_id(club_id, clubs_dir) is not None
+
+
+def add_favorite(club_id: str, name: str = "", clubs_dir: Path | None = None) -> str:
+    """Save a club as a favorite and return its slug. A no-op returning the existing
+    slug if it's already saved, so toggling twice can't create a duplicate file (the
+    exact mistake made by hand during the first real end-to-end test on 2026-09-06,
+    when the club picker saved a second copy of the home club)."""
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    existing = slug_for_club_id(club_id, directory)
+    if existing is not None:
+        return existing
+    base = slugify(name) if name else f"club-{club_id}"
+    slug, n = base, 2
+    while (directory / f"{slug}.yaml").exists():
+        slug, n = f"{base}-{n}", n + 1
+    directory.mkdir(parents=True, exist_ok=True)
+    save_club_config(slug, new_club_stub(club_id), directory)
+    return slug
+
+
+def remove_favorite(club_id: str, clubs_dir: Path | None = None) -> str | None:
+    """Un-favorite a club, returning the slug removed (or None if it wasn't saved).
+
+    Deletes that club's `clubs/*.yaml` and with it any preferences stored in it —
+    scraped history in `data/<club_id>.db` is keyed by club id, not slug, and is
+    deliberately left alone, so re-favoriting the club later still has its history."""
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    slug = slug_for_club_id(club_id, directory)
+    if slug is None:
+        return None
+    (directory / f"{slug}.yaml").unlink(missing_ok=True)
+    return slug
 
 
 def resolve_credentials(club_id: str) -> tuple[str, str]:

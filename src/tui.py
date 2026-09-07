@@ -10,10 +10,14 @@ this screen against the already-agreed mockups before building further, rather t
 guessing blind at three more screens' worth of layout).
 
 Startup flow:
-1. Club picker (`ClubPickerScreen`) — skipped automatically if only one club is saved
-   under `clubs/*.yaml` (or none: exits with a clear message instead of crashing).
-2. Course picker (`CoursePickerScreen`) — skipped if the club's YAML sets a valid
-   `default_course`, or if there's only one course to choose from at all.
+1. Club browser (`ClubBrowserScreen`) — the home screen. Search pc caddie's whole club
+   directory, pick a favorite, or type a club id straight in; no club has to be saved
+   to config first. Reworked 2026-09-07 on direct feedback that requiring a club to be
+   saved before you could even look at it was backwards, and that saving one should
+   only ever mean "favorite" (`f` toggles that, right on this screen).
+2. Course picker (`CoursePickerScreen`) — skipped if the club's saved YAML (if it has
+   one) sets a valid `default_course`, or if the club has only one course at all —
+   which is 46% of them, per the cross-club sweep in scraper.py's module docstring.
 3. `DayDetailScreen` — the actual tee sheet, opening on today's date unless
    `_initial_date()` finds today's own cached schedule already fully in the past
    (see that function's docstring — direct feedback 2026-09-07: showing "today" once
@@ -89,14 +93,12 @@ Switching club/course + searching for a new club on the fly (added 2026-09-07,
 direct feedback: "how can i switch to a different course from the time schedule
 menu?" followed by "I want to be able to switch clubs on the fly. It is a hassle if
 you need to first save clubs into the config"): `s` on `DayDetailScreen` opens
-`TeetimeApp.action_switch_club_or_course()` — always shows the club picker (even
-with just one club saved) and the course picker (ignoring `default_course`), since
-an explicit switch means actively choosing. That club picker now also offers
-"🔍 Search for a club…", pushing `club_picker.ClubSearchScreen` right there (using
-whichever club is already known to log in — one login works across the whole
-platform) so a brand-new club can be found, saved, and switched to in one
-continuous flow, no separate `python -m src.club_picker` command or app restart
-needed. Every picker screen (`ClubPickerScreen`, `CoursePickerScreen`) also gained
+`TeetimeApp.action_switch_club_or_course()` — which opens the very same
+`ClubBrowserScreen` the app launches into, so switching mid-session and choosing at
+launch behave identically (search the whole directory, jump straight to a club id,
+favorite with `f`). The course picker is always shown too, ignoring
+`default_course`, since an explicit switch means actively choosing. Every picker
+screen (`ClubBrowserScreen`, `CoursePickerScreen`) also gained
 `escape` (back out with nothing changed) and `q` (quit the whole app) bindings —
 previously there was no way to back out of one short of force-quitting, per direct
 feedback: "how do I quit from club/course picker or return to the schedule?"
@@ -111,14 +113,18 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, recommend, scrape_once, storage
+from . import club_config, club_directory, recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
-from .club_picker import ClubSearchScreen
 from .search import search as search_slots
 from .models import ConfirmedBooking, Schedule
 from .scrape_once import _db_path
-from .scraper import _holes_from_course_label, fetch_course_aliases, scrape_schedule
+from .scraper import (
+    NoTeeSheetError,
+    _holes_from_course_label,
+    fetch_course_aliases,
+    scrape_schedule,
+)
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 # How often the running app rechecks whether anything's due for a background
@@ -177,46 +183,208 @@ def _dim_if(text: str, condition: bool) -> str:
     return f"[dim]{text}[/]" if condition else text
 
 
-# Sentinel id for ClubPickerScreen's "search for a club" entry — added 2026-09-07,
-# direct feedback: "I want to be able to switch clubs on the fly," a hassle before
-# this since adding a club meant leaving the running TUI to run club_picker.py by
-# hand. Distinguishable from a real slug since it can never collide with one --
-# club_config.py's slugs are plain filenames, none of which look like this.
-_SEARCH_FOR_CLUB_ID = "__search_for_a_club__"
+class ClubBrowserScreen(Screen[str | None]):
+    """Pick any club on the platform, by numeric pc caddie id. The app's home screen.
 
+    Replaces the old "pick one of your saved clubs" flow (2026-09-07, direct feedback):
+    having to save a club to `clubs/*.yaml` before you could even look at it was
+    backwards — launching should just let you choose a club and a course, and saving one
+    should only mean "favorite". Three ways in, so a missing directory cache or missing
+    credentials is never a dead end (see club_directory.py's module docstring):
 
-class ClubPickerScreen(Screen[str | None]):
-    """Pick a saved club — shown whenever more than one is saved, or (via
-    `offer_search`) whenever `TeetimeApp.action_switch_club_or_course()` explicitly
-    requests it, so the "search for a club" entry is reachable even with only one
-    club currently saved (see `_SEARCH_FOR_CLUB_ID` above). `escape` dismisses with
-    `None` (cancel — direct feedback 2026-09-07: "how do I quit from club/course
-    picker or return to the schedule?" — there was previously no way to back out of
-    this screen at all short of quitting the whole app); `q` quits the whole app,
-    matching `DayDetailScreen`'s own convention."""
+    - An empty search box lists your favorites, which need no directory and no login.
+    - Typing searches the cached club directory, once it's been fetched.
+    - Typing a club id (e.g. "0000001") offers that club directly — no cache, no login,
+      because tee sheets are public. This is also what lets a brand-new install reach a
+      club before any credentials exist, the bootstrapping gap the old picker couldn't
+      close.
 
-    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
-    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+    Dismisses with the chosen club's numeric id, or `None` if backed out. `f` toggles
+    whether the highlighted club is a favorite; `r` refreshes the directory cache
+    (the one action here that does need a login)."""
 
-    def __init__(self, club_slugs: list[str], offer_search: bool = False) -> None:
+    CSS = """
+    #club-search { margin: 0 2; }
+    #club-results { height: 1fr; margin: 0 2; }
+    #club-status { padding: 0 2; color: $text-muted; }
+    """
+
+    BINDINGS = [
+        ("escape", "cancel", "Back"),
+        ("f", "toggle_favorite", "Favorite"),
+        ("r", "refresh_directory", "Refresh list"),
+        ("q", "quit", "Quit"),
+    ]
+    _FOOTER_BINDINGS = [
+        ("escape", "binding.cancel"),
+        ("f", "binding.favorite"),
+        ("r", "binding.refresh_directory"),
+        ("q", "binding.quit"),
+    ]
+
+    def __init__(self, allow_cancel: bool = True, initial_status: str = "") -> None:
         super().__init__()
-        self.club_slugs = club_slugs
-        self.offer_search = offer_search
+        self.allow_cancel = allow_cancel
+        self.initial_status = initial_status
+        self._directory: list[tuple[str, str]] = []
+        self._names: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Label(i18n.t("picker.club_title"))
-        options = [Option(slug, id=slug) for slug in self.club_slugs]
-        if self.offer_search:
-            options.append(Option(i18n.t("picker.search_for_a_club"), id=_SEARCH_FOR_CLUB_ID))
-        yield OptionList(*options)
+        yield Input(placeholder=i18n.t("picker.club_search_placeholder"), id="club-search")
+        yield OptionList(id="club-results")
+        yield Static("", id="club-status")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
+    def on_mount(self) -> None:
+        self._directory = club_directory.load_cached_directory()
+        self._show_favorites()
+        if self.initial_status:
+            self.query_one("#club-status", Static).update(self.initial_status)
+
+    # -- listing -----------------------------------------------------------------
+
+    def _favorites(self) -> list[tuple[str, str]]:
+        entries = []
+        for slug in club_config.list_clubs():
+            config = club_config.load_club_config(slug)
+            club_id = config.get("club_id")
+            if club_id:
+                entries.append((str(club_id), slug))
+        return entries
+
+    def _show_entries(
+        self, entries: list[tuple[str, str]], status: str, store_names: bool = True
+    ) -> None:
+        # Not named `_render`: that's an existing method on Textual's own Widget,
+        # and overriding it with a different signature breaks rendering outright --
+        # the third such collision in this file (see `_auto_refresh` and
+        # `_pending_message` above). Prefix private helpers distinctively here.
+        results = self.query_one("#club-results", OptionList)
+        results.clear_options()
+        self._names = dict(entries) if store_names else {}
+        for club_id, name in entries:
+            star = "★ " if club_config.is_favorite(club_id) else "  "
+            results.add_option(Option(f"{star}[{club_id}] {name}", id=club_id))
+        self.query_one("#club-status", Static).update(status)
+
+    def _show_favorites(self) -> None:
+        favorites = self._favorites()
+        if favorites:
+            self._show_entries(favorites, i18n.t("picker.favorites_hint", count=len(self._directory)))
+        else:
+            self._show_entries([], i18n.t("picker.no_favorites_hint"))
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "club-search":
+            return
+        query = event.value.strip()
+        if not query:
+            self._show_favorites()
+            return
+        # A typed club id wins over a name search -- it's unambiguous, and it's the one
+        # path that works with no directory cache at all.
+        club_id = club_directory.looks_like_club_id(query)
+        if club_id is not None:
+            # store_names=False: "open this club" is a prompt, not the club's name —
+            # without this it ended up as the tee sheet's own title (caught live).
+            self._show_entries(
+                [(club_id, i18n.t("picker.open_by_id"))],
+                i18n.t("picker.enter_to_open"),
+                store_names=False,
+            )
+            return
+        matches = club_directory.search(self._directory, query)
+        if matches:
+            self._show_entries(matches, i18n.t("club_picker.match_count", count=len(matches)))
+        elif self._directory:
+            self._show_entries([], i18n.t("club_picker.no_matches"))
+        else:
+            self._show_entries([], i18n.t("picker.no_directory_yet"))
+
+    # -- actions -----------------------------------------------------------------
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter in the search box opens the first (or highlighted) result.
+
+        Without this, typing a club id showed the right single result but Enter did
+        nothing: focus stays in the Input, so neither Enter nor the arrow keys reach
+        the OptionList, and the screen looked broken at exactly the moment it was
+        working. Caught in a live run, not by the tests — which drive the list
+        directly and so never exercised the keyboard path a person actually uses."""
+        if event.input.id != "club-search":
+            return
+        results = self.query_one("#club-results", OptionList)
+        if results.option_count == 0:
+            return
+        index = results.highlighted if results.highlighted is not None else 0
+        self._choose(results.get_option_at_index(index).id)
+
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        self.dismiss(event.option.id)
+        self._choose(event.option.id)
+
+    def _choose(self, club_id: str) -> None:
+        # Hand the club's display name up to the app, so the tee sheet can show it —
+        # a club reached from the directory has no saved slug to title itself with.
+        name = self._names.get(club_id, "")
+        if name and hasattr(self.app, "_club_names"):
+            self.app._club_names[club_id] = name
+        self.dismiss(club_id)
+
+    def _highlighted_club_id(self) -> str | None:
+        """The club `f` should act on. Falls back to the first result when nothing is
+        explicitly highlighted — with focus still in the search box (the normal case
+        right after typing) Textual highlights nothing, and without this fallback `f`
+        silently did nothing at exactly the moment the one obvious target was on
+        screen. Same reasoning as `on_input_submitted()`."""
+        results = self.query_one("#club-results", OptionList)
+        if results.option_count == 0:
+            return None
+        index = results.highlighted if results.highlighted is not None else 0
+        try:
+            return results.get_option_at_index(index).id
+        except Exception:  # noqa: BLE001 -- a stale index just means "nothing picked"
+            return None
+
+    def action_toggle_favorite(self) -> None:
+        club_id = self._highlighted_club_id()
+        if club_id is None:
+            return
+        status = self.query_one("#club-status", Static)
+        if club_config.is_favorite(club_id):
+            club_config.remove_favorite(club_id)
+            status.update(i18n.t("picker.unfavorited", club_id=club_id))
+        else:
+            club_config.add_favorite(club_id, self._names.get(club_id, ""))
+            status.update(i18n.t("picker.favorited", club_id=club_id))
+        # Re-render so the ★ updates, keeping whatever list is currently shown.
+        query = self.query_one("#club-search", Input).value.strip()
+        if query:
+            self.on_input_changed(Input.Changed(self.query_one("#club-search", Input), query))
+        else:
+            self._show_favorites()
+
+    def action_refresh_directory(self) -> None:
+        """Re-fetch the platform club list. The only action on this screen that needs a
+        login — everything else here works without one (see club_directory.py)."""
+        status = self.query_one("#club-status", Static)
+        credentials = club_directory.any_credentials()
+        if credentials is None:
+            status.update(i18n.t("picker.directory_needs_login"))
+            return
+        status.update(i18n.t("club_picker.fetching"))
+        club_id, username, password = credentials
+        try:
+            self._directory = club_directory.refresh_directory(club_id, username, password)
+        except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
+            status.update(i18n.t("club_picker.fetch_failed", error=exc))
+            return
+        status.update(i18n.t("picker.directory_refreshed", count=len(self._directory)))
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        if self.allow_cancel:
+            self.dismiss(None)
 
     def action_quit(self) -> None:
         self.app.exit()
@@ -228,7 +396,7 @@ class CoursePickerScreen(Screen[str | None]):
     club's own `fetch_course_aliases()` (not a rotating list, but not universal
     across clubs either — see scraper.py's module docstring for why a second real
     club needed this fixed 2026-09-07). Same `escape`/`q` bindings as
-    `ClubPickerScreen` — see that class's own docstring."""
+    `ClubBrowserScreen` — see that class's own docstring."""
 
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
@@ -354,10 +522,14 @@ class DayDetailScreen(Screen[None]):
         ("q", "binding.quit"),
     ]
 
-    def __init__(self, club_id: str, club_slug: str, course: str, date: str) -> None:
+    def __init__(self, club_id: str, club_slug: str | None, course: str, date: str,
+                 club_name: str = "") -> None:
         super().__init__()
         self.club_id = club_id
+        # None for a club being visited without saving it — an ordinary state since
+        # the 2026-09-07 favorites rework, not an error (see ClubBrowserScreen).
         self.club_slug = club_slug
+        self.club_name = club_name
         self.course = course
         self.date = date
         # Each real row's own plain slot.time, in table order -- kept separate from
@@ -390,7 +562,11 @@ class DayDetailScreen(Screen[None]):
         return _db_path(self.club_id)
 
     def _set_title(self) -> None:
-        self.title = f"{self.club_slug} — {self.course} — {self.date}"
+        # Prefer the club's own name/slug, but a club reached straight by id has
+        # neither — fall back to the id rather than showing "None".
+        label = self.club_name or self.club_slug or self.club_id
+        star = "★ " if self.club_slug else ""
+        self.title = f"{star}{label} — {self.course} — {self.date}"
 
     def load_schedule(self) -> None:
         self._set_title()
@@ -444,6 +620,8 @@ class DayDetailScreen(Screen[None]):
         its own module docstring), so the daylight half of `exclude_unplayable()`
         can't actually exclude anything here; only the weather half can. A known,
         accepted gap, not a silent one."""
+        if self.club_slug is None:
+            return set()  # a club being visited, not saved — no availability rules
         try:
             config = club_config.load_club_config(self.club_slug)
         except FileNotFoundError:
@@ -547,6 +725,20 @@ class TeetimeApp(App[None]):
 
     TITLE = "teetime-monitor"
 
+    def __init__(self) -> None:
+        super().__init__()
+        # Display names for clubs picked from the directory, so the tee sheet's title
+        # can say "Golfclub Domäne Musterhausen e.V." rather than a bare numeric id for
+        # a club that isn't saved and therefore has no slug to show instead.
+        self._club_names: dict[str, str] = {}
+        # A message from a failed/empty club pick, shown on the club list it sends the
+        # user back to (there's no other screen to put it on at that point). NOT named
+        # `_pending_message`: that's an existing attribute on Textual's own MessagePump
+        # (the one-message peek buffer), and shadowing it with a plain string breaks
+        # every screen's message loop with a bare AttributeError deep inside Textual --
+        # the same collision class as the `_auto_refresh` one documented above.
+        self._club_list_message: str = ""
+
     def on_mount(self) -> None:
         theme_module.apply_theme(self)
         i18n.apply_language()
@@ -591,69 +783,89 @@ class TeetimeApp(App[None]):
             self.pop_screen()
             self.push_screen(replacement)
 
-    async def _pick_club(self, slugs: list[str]) -> str | None:
-        """Startup's own picker — skips the screen entirely (returns the one slug
-        directly) when there's nothing to choose between, matching the fast,
-        mostly-automatic launch this app has always aimed for. Can still return
-        `None` if the (only-shown-when-ambiguous) picker itself is cancelled."""
-        return slugs[0] if len(slugs) == 1 else await self.push_screen_wait(ClubPickerScreen(slugs))
+    async def _pick_course(self, club_id: str, config: dict, always_ask: bool) -> str | None:
+        """This club's own course list, fetched live (see scraper.fetch_course_aliases),
+        reduced to a single choice. Returns `""` to mean "the club has no tee sheet"
+        and `None` to mean "backed out / couldn't fetch", so callers can tell those two
+        genuinely different outcomes apart — one is a fact about the club, the other is
+        a transient failure or a deliberate cancel.
 
-    async def _pick_club_or_search(self, slugs: list[str]) -> str | None:
-        """The switch flow's own club-picking step — always shows the picker, even
-        with only one club saved, specifically so its "search for a club" entry is
-        reachable (direct feedback 2026-09-07: "I want to be able to switch clubs on
-        the fly," a hassle before this since adding one meant leaving the running
-        TUI to run club_picker.py separately). Picking that entry pushes
-        `ClubSearchScreen` right here, logging in with whichever club is already
-        known (any saved club's credentials work platform-wide, confirmed
-        2026-09-05) — the newly saved club (or `None`, if backed out without saving)
-        becomes the result either way, continuing straight into course-picking for
-        it rather than looping back to re-show this list."""
-        choice = await self.push_screen_wait(ClubPickerScreen(slugs, offer_search=True))
-        if choice != _SEARCH_FOR_CLUB_ID:
-            return choice
-        return await self.push_screen_wait(ClubSearchScreen(slugs[0]))
-
-    async def _start(self) -> None:
-        slugs = club_config.list_clubs()
-        if not slugs:
-            self.exit(message=i18n.t("app.no_clubs"))
-            return
-
-        slug = await self._pick_club(slugs)
-        if slug is None:
-            self.exit()
-            return
-
-        config = club_config.load_club_config(slug)
-        club_id = config.get("club_id")
-        if not club_id:
-            self.exit(message=i18n.t("app.no_club_id", slug=slug))
-            return
-
+        `always_ask` is what separates the two callers: launching should be fast and
+        mostly automatic (honor `default_course`), while explicitly asking to switch
+        means actively choosing is the whole point."""
+        status = None
+        if isinstance(self.screen, DayDetailScreen):
+            status = self.screen.query_one("#status", Static)
         try:
             courses = list(fetch_course_aliases(club_id))
+        except NoTeeSheetError:
+            message = i18n.t("app.no_tee_sheet", club_id=club_id)
+            if status is not None:
+                status.update(message)
+            else:
+                self._club_list_message = message
+            return ""
         except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
-            # (no network, site down, a wrong club_id) and shouldn't crash the app
-            # over it — there's nothing left to show without a course list at all.
-            self.exit(message=i18n.t("app.course_fetch_failed", error=exc))
-            return
+            # (no network, site down, a wrong club id) and shouldn't crash the app.
+            message = i18n.t("app.course_fetch_failed", error=exc)
+            if status is not None:
+                status.update(message)
+            else:
+                self._club_list_message = message
+            return None
+
         default_course = config.get("default_course")
-        if default_course in courses:
-            course = default_course
-        elif len(courses) == 1:
-            course = courses[0]
-        else:
-            course = await self.push_screen_wait(CoursePickerScreen(courses))
-            if course is None:
-                self.exit()
-                return
+        if not always_ask and default_course in courses:
+            return default_course
+        if len(courses) == 1:
+            return courses[0]  # nothing to choose between
+        return await self.push_screen_wait(CoursePickerScreen(courses))
 
-        await self.push_screen(DayDetailScreen(club_id, slug, course, _initial_date(club_id, course)))
+    async def _open_club(self, club_id: str, always_ask_course: bool) -> bool:
+        """Take a chosen club id all the way to its tee sheet. True if a
+        `DayDetailScreen` was actually opened.
 
+        The club's saved config is looked up *from* its id rather than the other way
+        round (`club_config.slug_for_club_id()`) — since the 2026-09-07 favorites
+        rework a club reached from the directory usually has no saved file at all, and
+        that's a normal state: it just means empty config and all the existing
+        per-setting fallbacks."""
+        slug = club_config.slug_for_club_id(club_id)
+        config = club_config.load_club_config(slug) if slug else {}
+        course = await self._pick_course(club_id, config, always_ask=always_ask_course)
+        if not course:
+            return False
+
+        replacement = DayDetailScreen(
+            club_id, slug, course, _initial_date(club_id, course), club_name=self._club_names.get(club_id, "")
+        )
+        if isinstance(self.screen, DayDetailScreen):
+            self.pop_screen()
+        await self.push_screen(replacement)
         self._club_slug = slug
         self._club_config = config
+        return True
+
+    async def _start(self) -> None:
+        """Open straight into "pick a club" — no saved club required (2026-09-07,
+        direct feedback that having to save a club before looking at it was backwards;
+        see `ClubBrowserScreen`). `allow_cancel=False` because this is the home screen
+        at launch: there's nothing behind it to go back to, so `escape` shouldn't drop
+        the user onto a blank app."""
         self._periodic_scrape_running = False
+        while True:
+            club_id = await self.push_screen_wait(
+                ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)
+            )
+            self._club_list_message = ""
+            if club_id is None:
+                self.exit()
+                return
+            if await self._open_club(club_id, always_ask_course=False):
+                break
+            # A club with no tee sheet, a cancelled course picker, or a failed fetch —
+            # go back to the club list with the reason shown, rather than exiting the
+            # whole app over one bad pick.
         self._periodic_scrape()
         self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
 
@@ -673,51 +885,20 @@ class TeetimeApp(App[None]):
         self.run_worker(self._do_switch_club_or_course(), exclusive=True, group="switch")
 
     async def _do_switch_club_or_course(self) -> None:
-        """The actual picker flow for `action_switch_club_or_course()` above.
-        Deliberately does *not* reuse `_start()`'s own skip-shortcuts: that's the
-        right behavior for a fast, mostly-automatic launch, but an explicit request
-        to switch means actively choosing is the point — so this always shows the
-        club picker (via `_pick_club_or_search()`, which also offers searching for a
-        new one) and always shows the course picker (ignoring `default_course`,
-        though a club with only one course still skips it — there's nothing to
-        choose there either way). Backing out at any step (`escape` on a picker, or
-        quitting `ClubSearchScreen` without saving) leaves the current schedule
-        exactly as it was — nothing is popped or replaced until a club *and* course
-        are both actually chosen."""
-        slugs = club_config.list_clubs()
-        if not slugs:
-            return
-        slug = await self._pick_club_or_search(slugs)
-        if slug is None:
-            return
-        config = club_config.load_club_config(slug)
-        club_id = config.get("club_id")
-        if not club_id:
-            return
+        """The actual picker flow for `action_switch_club_or_course()` above — the same
+        club browser the app launches into, so switching mid-session and choosing at
+        launch behave identically (including favoriting, searching, and jumping to a
+        club by id).
 
-        try:
-            courses = list(fetch_course_aliases(club_id))
-        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
-            # (no network, site down, a wrong club_id); unlike _start()'s own version
-            # of this, there's already a working schedule on screen here, so the
-            # right move is a status message and backing out of the switch, not
-            # tearing the whole app down over it.
-            self.screen.query_one("#status", Static).update(
-                i18n.t("app.course_fetch_failed", error=exc)
-            )
+        Deliberately does *not* reuse `_start()`'s `default_course` shortcut: an
+        explicit request to switch means actively choosing is the point. A club with
+        only one course still skips the course picker — there's nothing to choose.
+        Backing out at any step leaves the current schedule exactly as it was; nothing
+        is popped or replaced until a club *and* a course are both actually chosen."""
+        club_id = await self.push_screen_wait(ClubBrowserScreen(allow_cancel=True))
+        if club_id is None:
             return
-        if len(courses) == 1:
-            course = courses[0]
-        else:
-            course = await self.push_screen_wait(CoursePickerScreen(courses))
-            if course is None:
-                return
-
-        self._club_slug = slug
-        self._club_config = config
-        replacement = DayDetailScreen(club_id, slug, course, _initial_date(club_id, course))
-        self.pop_screen()
-        await self.push_screen(replacement)
+        await self._open_club(club_id, always_ask_course=True)
         self._periodic_scrape()
 
     def _periodic_scrape(self) -> None:

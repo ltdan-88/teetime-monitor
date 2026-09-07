@@ -9,6 +9,11 @@ from src.models import ConfirmedBooking, Schedule, Slot
 # these are Musterhausen's own confirmed real values, reused as fake test data.
 _FAKE_COURSES = {"18 Loch Tee 1": "COUB", "9 Loch Tee 1": "COU1", "6 Loch Platz": "COU6"}
 
+# scrape_due_for_club() also reads the club's own bookable-date window off its tee sheet
+# now (fetch_available_dates() -- confirmed 2026-09-07 to range from 1 to 31 days across
+# real clubs, against a configured default of 5), so that needs mocking too.
+_FAKE_DATES = ["2026-09-07", "2026-09-08"]
+
 
 def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
@@ -182,6 +187,7 @@ def test_scrape_due_for_club_skips_and_returns_empty_when_no_club_id(tmp_path, m
 def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
     fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
@@ -189,7 +195,7 @@ def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_pat
 
     result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
-    assert result == [fake_change] * len(_FAKE_COURSES)
+    assert result == [fake_change] * (len(_FAKE_COURSES) * len(_FAKE_DATES))
 
 
 def test_scrape_due_for_club_skips_club_and_returns_empty_when_course_fetch_fails(tmp_path, monkeypatch, capsys):
@@ -209,6 +215,7 @@ def test_scrape_due_for_club_skips_club_and_returns_empty_when_course_fetch_fail
 def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     calls = []
 
@@ -223,13 +230,14 @@ def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path,
     result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
     assert result == []
-    assert len(calls) == len(_FAKE_COURSES) - 1  # every other course still ran
+    assert len(calls) == (len(_FAKE_COURSES) - 1) * len(_FAKE_DATES)  # every other course still ran
     assert "failed" in capsys.readouterr().out
 
 
 def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
     monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
     monkeypatch.setattr(
         scrape_once.club_config,
@@ -252,6 +260,7 @@ def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     # pass that same config straight to run() rather than making run() re-read it.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
     monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
     club_config_dict = {"club_id": "0000001", "overview_days": 1}
     monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda slug: club_config_dict)
@@ -337,3 +346,72 @@ def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monk
 
     saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db_path)
     assert saved == booking
+
+
+def test_scrape_due_for_club_uses_the_clubs_own_booking_window(tmp_path, monkeypatch):
+    # The club's real bookable dates win over the configured overview_days -- a fixed 5
+    # was both asking some clubs for dates their site rejects and ignoring most of the
+    # window others offer (1 to 31 days observed across 79 real clubs, 2026-09-07).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates",
+                        lambda club_id: ["2026-09-07", "2026-09-08", "2026-09-09"])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    seen = []
+    monkeypatch.setattr(scrape_once, "run",
+                        lambda club_id, course, date, config, slug: seen.append(date) or [])
+
+    scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 1})
+
+    assert seen == ["2026-09-07", "2026-09-08", "2026-09-09"]
+
+
+def test_scrape_due_for_club_caps_an_absurdly_long_booking_window(tmp_path, monkeypatch):
+    # One real club advertises 366 days of tee sheets; scraping a year every pass is
+    # not what "the overview window" means.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates",
+                        lambda club_id: [f"2026-10-{d:02d}" for d in range(1, 31)])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    seen = []
+    monkeypatch.setattr(scrape_once, "run",
+                        lambda club_id, course, date, config, slug: seen.append(date) or [])
+
+    scrape_once.scrape_due_for_club("c", {"club_id": "0000001"})
+
+    assert len(seen) == scrape_once.MAX_OVERVIEW_DAYS
+
+
+def test_scrape_due_for_club_falls_back_to_overview_days_without_a_date_selector(tmp_path, monkeypatch):
+    # 5 of 45 clubs swept have no date selector on the page at all.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    seen = []
+    monkeypatch.setattr(scrape_once, "run",
+                        lambda club_id, course, date, config, slug: seen.append(date) or [])
+
+    scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 3})
+
+    assert len(seen) == 3
+
+
+def test_scrape_due_for_club_still_scrapes_when_the_date_window_fetch_fails(tmp_path, monkeypatch):
+    # A failed window lookup falls back to overview_days rather than skipping the club.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+
+    def boom(club_id):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", boom)
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    seen = []
+    monkeypatch.setattr(scrape_once, "run",
+                        lambda club_id, course, date, config, slug: seen.append(date) or [])
+
+    scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 2})
+
+    assert len(seen) == 2

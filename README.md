@@ -11,26 +11,40 @@ the deterministic recommendation engine, the three Claude API calls, local-histo
 analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
-booking. The TUI's single-day detail screen (club/course picker, the tee sheet itself,
-confirming a booking, and the booking-watch banners) is real too, and it can search
-pc caddie's own club directory inline (`club_picker.ClubSearchScreen`, added
-2026-09-07) — no separate command needed to add a club beyond your first one — plus
-a credentials setup screen (`credentials_screen.py`) it opens automatically the
-moment it needs a login and none is configured yet. The TUI also keeps its data
-current on its own now — it re-scrapes the active club's whole overview window once
-on open and periodically while it stays running, not just when `r` is pressed — see
-"Project structure" below. Still to come: the multi-day overview, ad hoc search, and
-crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+booking. The TUI's single-day detail screen (the tee sheet itself, confirming a
+booking, and the booking-watch banners) is real too, and it now opens straight into a
+club browser: search pc caddie's whole club directory, pick a favorite, or just type a
+club id — nothing has to be saved to config first, and saving a club only ever means
+"favorite" (`f`). There's also a credentials setup screen (`credentials_screen.py`) it
+opens automatically the moment it needs a login and none is configured yet. The TUI
+keeps its data current on its own — it re-scrapes the active club's whole booking
+window once on open and periodically while it stays running, not just when `r` is
+pressed — see "Project structure" below.
+
+The scraper was checked against **79 real pc caddie clubs** on 2026-09-07 (not just
+the two it was built against), across German, Swiss, Luxembourgish and
+Italian-speaking clubs; every one of them now either loads correctly or reports
+cleanly that the club publishes no tee sheet. See `src/scraper.py`'s module docstring
+for what that sweep found and fixed — several of the failures were serious, including
+one that made the tool unusable for nearly half of all clubs. Still to come: the
+multi-day overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
 [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
-- Save more than one club (`clubs/`), picking which one at startup — skipped
-  automatically if you've only saved one. Add clubs beyond your first one by
-  searching pc caddie's own directory instead of hand-typing a numeric id — from the
-  TUI's own switch-club menu (`s`, then "🔍 Search for a club…"), or standalone via
-  `python -m src.club_picker` — matching pc caddie's own in-app "Anlagenauswahl"
-  feature (confirmed against real app screenshots, 2026-09-06)
+- Open the app, pick a club, pick a course — in that order, with no setup step in
+  front of it. The club browser is the home screen: an empty search box lists your
+  favorites, typing searches pc caddie's whole club directory, and typing a club id
+  (e.g. `0000001`) jumps straight to that club. `f` toggles a club as a favorite,
+  `s` reopens the same browser from the tee sheet to switch clubs mid-session
+- Favorites (`clubs/*.yaml`) are exactly that — a shortcut and a place to keep a
+  club's own settings, never a precondition for looking at a club. Only favorites are
+  scraped on a schedule, which is what keeps a club you merely glanced at from
+  accumulating history you didn't ask for
+- The club directory needs one login to download (pc caddie doesn't publish it), so
+  it's fetched once and cached locally, refreshed on demand with `r`. Favorites and
+  typed club ids both work with no login and no cached list at all — including on a
+  brand-new install, which the old flow couldn't do
 - Course picker showing each club's own real options, fetched live from that club's
   tee-sheet page rather than assumed — confirmed 2026-09-07 that this genuinely
   differs per club: a first club's 27-hole "18 Loch Tee 1" / "9 Loch Tee 1" /
@@ -124,20 +138,26 @@ See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
 ```bash
 pip install -e .
-playwright install chromium
-cp clubs/club.example.yaml clubs/my-club.yaml      # fill in club id, coordinates, etc.
-                                                    # (your first club only -- see club_picker.py below
-                                                    # for adding the rest by searching, not hand-typing)
+python -m src.tui                                  # that's it -- opens on the club browser
+```
 
+No club has to be configured first: type a club id (or search, once you've downloaded
+the directory) and you're on its tee sheet. Everything below is optional, in the order
+you're likely to want it:
+
+```bash
 python -m src.credentials_screen                   # set PCC_USER/PCC_PASS from the UI -- creates .env
                                                     # for you if it doesn't exist yet (still add
-                                                    # ANTHROPIC_API_KEY to it by hand afterward)
-python -m src.club_picker my-club                   # search pc caddie's directory to add another club --
-                                                    # opens the credentials screen above automatically
-                                                    # first if you skipped it
-python -m src.settings_screen my-club              # adjust availability/weather preferences + scrape interval
-python -m src.scrape_once                          # one-off scrape of every saved club's overview window
-python -m src.tui                                  # the tee sheet itself, single-day detail view
+                                                    # ANTHROPIC_API_KEY to it by hand afterward).
+                                                    # Needed to download the club directory (press 'r'
+                                                    # in the club browser) and to read "My Reservations"
+cp clubs/club.example.yaml clubs/my-club.yaml      # a favorite's own settings -- coordinates for the
+                                                    # weather overlay, availability rules, thresholds.
+                                                    # Pressing 'f' in the club browser writes a minimal
+                                                    # version of this for you; copy the template over it
+                                                    # when you want the annotated reference
+python -m src.settings_screen my-club              # ...or edit those from the UI instead
+python -m src.scrape_once                          # one-off scrape of every favorite's booking window
 ```
 
 The TUI's own auto-refresh (see "Planned capabilities" above) covers history while
@@ -189,7 +209,8 @@ teetime-monitor/
 │   ├── spec-v1.md              # original single-session spec (historical)
 │   └── pccaddie-markup-notes.md # example HTML snippets for the real site's markup
 ├── src/
-│   ├── club_config.py      # multi-club: list/load/save clubs, resolve credentials (implemented)
+│   ├── club_config.py      # favorites: list/load/save clubs, resolve credentials (implemented)
+│   ├── club_directory.py   # locally cached pc caddie club directory + club-id parsing (implemented)
 │   ├── scraper.py          # direct-URL fetch, login, parsing (implemented, verified live)
 │   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings (implemented)
 │   ├── scrape_once.py      # headless scheduled scrape, adjustable per-club interval (implemented)
@@ -210,7 +231,7 @@ teetime-monitor/
 │   ├── theme.py            # 10 color themes, same set as brew-launcher (implemented)
 │   ├── i18n.py             # English/German UI text lookup (implemented)
 │   ├── user_config.py      # shared KEY=value config file, used by theme.py + i18n.py (implemented)
-│   └── tui.py               # main Textual app: club/course pickers, day detail (implemented);
+│   └── tui.py               # main Textual app: club browser, course picker, day detail (implemented);
 │                            #   multi-day overview, search, heatmap screens (not yet built)
 └── tests/
     ├── test_models.py
@@ -222,6 +243,7 @@ teetime-monitor/
     ├── test_recommend.py
     ├── test_settings_screen.py
     ├── test_club_picker.py
+    ├── test_club_directory.py
     ├── test_credentials_screen.py
     ├── test_env_file.py
     ├── test_weather.py

@@ -80,6 +80,34 @@ server-side rather than fetched per keystroke (confirmed via `read_network_reque
 while inspecting live: nothing fires as you type in the site's own search box). This
 is what backs `club_picker.py`'s searchable "add a club by name" screen — see that
 module and `_parse_club_directory_html()`.
+
+**Cross-club validation (2026-09-07)** — everything above was written against two real
+clubs, so it was checked against a spread of 45 more, sampled across German, Swiss,
+Luxembourgish and Italian-speaking clubs by probing public tee-sheet URLs (club ids
+are `0` + country calling code + a club number: 049 = DE, 041 = CH, 0352 = LU). What
+held, and what didn't:
+
+- Held everywhere: `table.pcco-tt-timetable`, `tr.pcco-tt-time-person`, and the
+  `data-time` / `data-status` / `data-seat_bookable` attributes — present and populated
+  on all 3227 rows scanned, no exceptions. Seats per slot was 4 on every club (now read
+  off the header anyway, see `_capacity_from_table()`).
+- **Nearly half of clubs have no course selector at all** — 18 of the 39 with a working
+  tee sheet. They run a single course and address it with no `alias` parameter. This
+  had been a hard `NotImplementedError`, i.e. the tool was unusable for 46% of clubs.
+- **Six clubs publish no tee sheet at all.** Now `NoTeeSheetError`, a plain explainable
+  state rather than a crash.
+- **Four more anonymized-placeholder variants** (French and Italian, long and short
+  form) — without them, every occupied slot at a Swiss or Luxembourgish club was
+  reporting the placeholder text as a player's real name.
+- **Course notes were being read as player names** on 27 of 45 clubs — see the colspan
+  rule in `_parse_slot_row()`, the structural fix for it.
+- **The bookable-date window is wildly per-club**: 1 to 31 days across the sample, most
+  commonly 8, against a configured default of 5 — see `fetch_available_dates()`.
+
+Two limits of that sweep, stated rather than glossed: it was read-only and anonymous
+(so it says nothing about how a *friend's* real name renders — still unconfirmed, see
+ROADMAP.md), and 45 clubs is a sample, not the whole platform. It covers the failure
+modes that actually showed up, not a proof that none remain.
 """
 
 import re
@@ -120,15 +148,31 @@ _SEATS_FREE_RE = re.compile(r"seats-free-(\d)")
 # exactly the risk the module docstring already flagged; ai_assist.classify_booking_label()
 # is the intended fallback for the next variant that isn't in this set yet.
 KNOWN_ANONYMIZED_LABELS = {
-    "Namensanzeige nach dem Login",  # German (long form), the server's default locale
-    "Belegt",  # German (short form) — caught live 2026-09-06
-    "Please login to see names",  # English, seen when the browser session was set to EN
-    "Occupied",  # English, logged in but not a friend — seen 2026-09-05
+    # German — the server's default locale
+    "Namensanzeige nach dem Login",  # long form
+    "Belegt",  # short form — caught live 2026-09-06
+    # English — seen with the browser session set to EN
+    "Please login to see names",  # long form
+    "Occupied",  # short form, logged in but not a friend — seen 2026-09-05
+    # French / Italian — added 2026-09-07 by the cross-club sweep (see module
+    # docstring's "Cross-club validation"). Swiss and Luxembourgish clubs serve the
+    # same page in their own locale, and without these four the placeholder text was
+    # being read as a real player's name on every occupied slot those clubs have.
+    "Veuillez faire le login pour visualiser les noms",  # French, long form
+    "Occupe",  # French, short form
+    "Per visualizzare i nomi bisogna fare il login",  # Italian, long form
+    "Occupato",  # Italian, short form
 }
 
 # data-status values confirmed 2026-09-06.
 STATUS_BOOKABLE = "bookable"  # at least one seat free (data-seat_bookable > 0)
 STATUS_OCCUPIED = "occupied"  # fully booked (data-seat_bookable == 0)
+STATUS_PAST_TIME = "past-time"  # already-passed slot on today's own sheet — found by
+# the 2026-09-07 cross-club sweep, where it was by far the most common status of all
+# (2950 of 3227 rows scanned). Not a block: `data-seat_bookable` stays accurate on
+# these rows, so they parse exactly like a normal row and are deliberately *not* in
+# `_NON_OCCUPANCY_STATUSES` — a past slot that really was fully booked is real history,
+# which is the whole point of storing every scrape. tui.py dims them at display time.
 STATUS_BLOCK_TIME = "block-time"  # event/lesson/guest block — not real occupancy
 STATUS_DISABLE_TIME = "disable-time"  # advance-booking-window notice — also not real
 # occupancy, just "not bookable yet" (see ROADMAP.md "Known risks"). Caught live
@@ -159,42 +203,119 @@ def parse_seats_free(time_cell_class: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _parse_slot_row(row: Tag) -> Slot:
+def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: bool = False) -> Slot:
     """Parse one <tr class="pcco-tt-time-person"> into a Slot. Pure function over an
-    already-parsed row — no I/O — so it's tested directly against fixture HTML."""
+    already-parsed row — no I/O — so it's tested directly against fixture HTML.
+
+    `capacity` is this club's own seats-per-slot, read off its table header by
+    `_capacity_from_table()` rather than assumed — see `SEATS_PER_SLOT`.
+
+    `authenticated` says whether the page was fetched with a logged-in session. It
+    decides what an unrecognized seat-cell text means, which is genuinely ambiguous
+    without it: logged in it can be a friend's real name (the whole point of
+    `players`), logged out it never can be, because pc caddie only reveals names to a
+    logged-in friend. `scrape_schedule()` fetches anonymously and so passes False —
+    which is why `players` is always empty in practice today. Wiring an authenticated
+    tee-sheet fetch through is what would make friend detection real; see ROADMAP.md's
+    still-open "what an actual friend's booking looks like" risk.
+
+    **The colspan rule** (confirmed 2026-09-07 across 39 real clubs, see the module
+    docstring's "Cross-club validation"): a genuinely occupied seat is its own
+    `<td>` with *no* `colspan`, one per booked player. pc caddie merges whatever seats
+    are still free into a single trailing `<td colspan="N">` — and that merged cell is
+    very often *not* empty, carrying a course note instead ("Nur für Mitglieder",
+    "Platzpflege", "Greenfee CHF 140.-", "Keine Startzeit erforderlich!"). The earlier
+    version of this function only skipped that cell when its text was blank, so on 27
+    of the 45 clubs swept, ordinary course notes were being recorded as players' real
+    names. Reading only non-colspan cells as seats fixes that structurally, rather than
+    by trying to keep a list of every note any club might write."""
     time = row.get("data-time")
     status = row.get("data-status")
     seat_bookable_attr = row.get("data-seat_bookable")
 
     if seat_bookable_attr is not None:
-        free = int(seat_bookable_attr)
+        try:
+            free = int(seat_bookable_attr)
+        except ValueError:
+            free = 0
     else:
         # Fallback: read the time cell's class instead (see parse_seats_free).
         time_cell = row.find("td")
         classes = " ".join(time_cell.get("class", [])) if time_cell else ""
         free = parse_seats_free(classes) or 0
 
-    booked = SEATS_PER_SLOT - free
+    # `data-seat_bookable` can go negative on a genuinely over-full slot — found
+    # 2026-09-07 on two real clubs, one reporting "-12" on a row that visibly showed
+    # its 4 seats all taken (a waiting list, or a group booked past the normal seat
+    # count). Taken at face value that produced a nonsensical "16/4 booked"; clamping
+    # to the real seat range reports it as the full slot it plainly is.
+    free = max(0, min(capacity, free))
+    booked = capacity - free
 
     if status in _NON_OCCUPANCY_STATUSES:
         reason_span = row.select_one(".tt-show-name")
         reason = reason_span.get_text(strip=True) if reason_span else None
-        return Slot(time=time, booked=booked, capacity=SEATS_PER_SLOT, block_reason=reason)
+        return Slot(time=time, booked=booked, capacity=capacity, block_reason=reason)
 
     players: list[str] = []
-    for span in row.select(".tt-show-name"):
+    note: str | None = None
+    for cell in row.find_all("td"):
+        span = cell.select_one(".tt-show-name")
+        if span is None:
+            continue
         text = span.get_text(strip=True)
         if not text:
-            continue  # the merged empty-seat placeholder — not a real position
+            continue
+        if cell.get("colspan") is not None:
+            # The merged free-seat cell — a course note at most, never a player.
+            note = text
+            continue
         if text in KNOWN_ANONYMIZED_LABELS:
             continue  # anonymized member booking — already counted in `booked`
-        players.append(text)  # not a known placeholder — presumably a friend's real name
+        if authenticated:
+            players.append(text)  # a friend's real name — only ever visible logged in
+        else:
+            # A real seat cell whose text isn't a known placeholder, read anonymously.
+            # pc caddie only ever reveals real names to a logged-in friend (confirmed
+            # on the site's own account page: "Only names of friends are visible to
+            # you"), so this can't be a name — it's a club writing a note into a seat
+            # cell ("Greenfee CHF 140.-", "Maximale Handicap-Summe 144", "Nur für
+            # Mitglieder"). Recorded as a note, for the same reason `block_reason`
+            # exists. Across the 79-club sweep this rule turned ~50 fabricated
+            # "players" into notes and lost no real names, because there were none to
+            # lose: `scrape_schedule()` doesn't log in.
+            note = text
 
-    return Slot(time=time, booked=booked, capacity=SEATS_PER_SLOT, players=players)
+    return Slot(time=time, booked=booked, capacity=capacity, players=players, block_reason=note)
+
+
+_SEAT_HEADER_RE = re.compile(r"^-\s*\d+\s*-$")
+
+
+def _capacity_from_table(table: Tag) -> int:
+    """Seats per slot for this club, counted off its own table header ("Zeit | - 1 - |
+    - 2 - | - 3 - | - 4 -"). Locale-independent — the header's first cell is localized
+    ("Zeit"/"Ora"/"Heure") but the seat columns are just numbers in dashes.
+
+    Every one of the 39 real clubs swept 2026-09-07 turned out to be 4, so this
+    currently always agrees with `SEATS_PER_SLOT` — read from the page anyway rather
+    than hardcoded, since it's the club's own fact and costs nothing to check, and
+    falls back to `SEATS_PER_SLOT` if the header isn't recognizable."""
+    header = table.find("tr")
+    if header is None:
+        return SEATS_PER_SLOT
+    seats = sum(
+        1 for cell in header.find_all(["th", "td"]) if _SEAT_HEADER_RE.match(cell.get_text(strip=True))
+    )
+    return seats or SEATS_PER_SLOT
 
 
 def parse_schedule_html(
-    html: str, date: str, course: str, available_courses: list[str] | None = None
+    html: str,
+    date: str,
+    course: str,
+    available_courses: list[str] | None = None,
+    authenticated: bool = False,
 ) -> Schedule:
     """Parse a fetched tee-sheet page into a Schedule. Pure function, no I/O — the
     network fetch lives in scrape_schedule() so this half is directly testable against
@@ -207,7 +328,14 @@ def parse_schedule_html(
     course names now."""
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("table.pcco-tt-timetable")
-    slots = [_parse_slot_row(row) for row in table.select("tr.pcco-tt-time-person")] if table else []
+    if table is None:
+        slots = []
+    else:
+        capacity = _capacity_from_table(table)
+        slots = [
+            _parse_slot_row(row, capacity, authenticated)
+            for row in table.select("tr.pcco-tt-time-person")
+        ]
     events = sorted({s.block_reason for s in slots if s.block_reason})
     return Schedule(
         date=date,
@@ -328,6 +456,25 @@ def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
     return bookings
 
 
+class NoTeeSheetError(Exception):
+    """This club's pc caddie page has no online tee sheet at all.
+
+    Not a parsing failure and not a bug — 6 of the 45 real clubs swept 2026-09-07
+    simply don't offer online tee-time booking (some were PC CADDIE's own demo/test
+    clubs). There's nothing for this tool to show for such a club, so callers surface
+    this as a plain "this club doesn't publish a tee sheet" message rather than an
+    error traceback or an empty screen that looks broken."""
+
+
+# The single implicit course used for a club whose tee sheet has no "Area" selector —
+# see `_parse_course_aliases_html()`. An empty alias code means "send no alias param at
+# all", which `club_url()` already handles. Deliberately a fixed, untranslated string:
+# it's stored in SQLite as a course identifier (storage.py keys schedules by course
+# name), so it has to stay stable regardless of the UI language in use at the time.
+SINGLE_COURSE_NAME = "Course"
+SINGLE_COURSE_ALIASES: dict[str, str] = {SINGLE_COURSE_NAME: ""}
+
+
 def _parse_course_aliases_html(html: str) -> dict[str, str]:
     """Parse the tee-sheet page's own "Area" `<select id="timetable_selection_alias">`
     into {display_name: alias_code} — confirmed live 2026-09-07 to be per-club, not
@@ -338,14 +485,22 @@ def _parse_course_aliases_html(html: str) -> dict[str, str]:
     "9-Loch Schleife", and "Kurzplatz"), with codes like A001/1810/1811/0901/0601 that
     share no pattern with Musterhausen's at all. Sending Musterhausen's codes to
     Sonnenberg's server is exactly why "it doesn't pull any data" — the alias simply
-    isn't one Sonnenberg recognizes."""
+    isn't one Sonnenberg recognizes.
+
+    **Not every club has this selector at all** — the single most common cross-club
+    failure found in the 2026-09-07 sweep: 18 of the 39 clubs with a working tee sheet
+    (46%) have no "Area" `<select>` whatsoever, because they only run one course. Their
+    tee sheet is perfectly scrapeable, just addressed with no `alias` parameter. Raising
+    for those, as this used to, made nearly half of pc caddie's clubs unusable. They now
+    get `SINGLE_COURSE_ALIASES` — one implicit course, empty alias code.
+
+    Whether the club publishes a tee sheet *at all* is a separate question, checked by
+    `fetch_course_aliases()` against the live page rather than here — a club can have a
+    course selector and still have no timetable behind it (2 of the 79 clubs swept)."""
     soup = BeautifulSoup(html, "html.parser")
     select = soup.find("select", id="timetable_selection_alias")
     if select is None:
-        raise NotImplementedError(
-            "fetch_course_aliases() didn't find the confirmed 'timetable_selection_alias' "
-            "<select> -- the real markup may have changed. See scraper.py's module docstring."
-        )
+        return dict(SINGLE_COURSE_ALIASES)
     aliases: dict[str, str] = {}
     for option in select.find_all("option"):
         value = option.get("value", "").strip()
@@ -354,7 +509,41 @@ def _parse_course_aliases_html(html: str) -> dict[str, str]:
         code = value.removeprefix("ALIAS|")
         name = option.get_text(strip=True)
         aliases[name] = code
-    return aliases
+    # A selector that exists but offers nothing parseable still means one playable
+    # course, not zero — same handling as a club with no selector at all.
+    return aliases or dict(SINGLE_COURSE_ALIASES)
+
+
+def _parse_available_dates_html(html: str) -> list[str]:
+    """Parse the tee sheet's own "Date" `<select id="timetable_selection_date">` into a
+    list of YYYY-MM-DD strings — exactly the days this club currently lets you book.
+
+    Confirmed 2026-09-07 to vary enormously per club: the 40 real clubs swept that
+    offered a date selector ranged from 1 day to 31, with 8 the single most common
+    value — against a `clubs/*.yaml` `overview_days` default of 5. Asking for a date
+    outside the window doesn't degrade gracefully either; the site returns a page with
+    no timetable and a "Selection invalid." notice, so guessing costs a wasted request
+    and an empty day. Returns [] if there's no date selector at all (5 of 45 clubs),
+    which callers treat as "fall back to the configured window"."""
+    soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="timetable_selection_date")
+    if select is None:
+        return []
+    dates = []
+    for option in select.find_all("option"):
+        value = option.get("value", "").strip()
+        if value.startswith("DAY|"):
+            dates.append(value.removeprefix("DAY|"))
+    return dates
+
+
+def fetch_available_dates(club_id: str) -> list[str]:
+    """The days this club is actually taking bookings for right now, straight from its
+    own tee sheet (no login needed, same public page as everything else here). See
+    `_parse_available_dates_html()` for why this can't be a configured constant."""
+    response = httpx.get(club_url(club_id, TEE_SHEET_CATEGORY), timeout=15, follow_redirects=True)
+    response.raise_for_status()
+    return _parse_available_dates_html(response.text)
 
 
 def fetch_course_aliases(club_id: str) -> dict[str, str]:
@@ -363,10 +552,21 @@ def fetch_course_aliases(club_id: str) -> dict[str, str]:
     as `scrape_schedule()` itself: the course selector is part of the same
     already-public tee-sheet page. Re-checked on demand rather than cached
     indefinitely, since there's no guarantee a club's own course lineup never
-    changes."""
+    changes.
+
+    Returns a single implicit course for a club that runs only one (46% of those
+    swept 2026-09-07 — see `_parse_course_aliases_html()`), and raises
+    `NoTeeSheetError` for one that publishes no tee sheet at all. That last check
+    lives here rather than in the pure parser because it needs the whole real page:
+    a club can offer a course selector and still have no timetable behind it, which
+    would otherwise surface as a course you can pick that then shows nothing."""
     url = club_url(club_id, TEE_SHEET_CATEGORY)
     response = httpx.get(url, timeout=15, follow_redirects=True)
     response.raise_for_status()
+    if BeautifulSoup(response.text, "html.parser").select_one("table.pcco-tt-timetable") is None:
+        raise NoTeeSheetError(
+            f"Club {club_id} doesn't publish an online tee sheet on pc caddie."
+        )
     return _parse_course_aliases_html(response.text)
 
 

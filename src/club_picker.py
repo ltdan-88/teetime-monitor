@@ -44,7 +44,6 @@ Bilingual like every other screen in this project (i18n.py); uses the shared
 `TranslatedFooter` from translated_footer.py, same as every other screen.
 """
 
-import re
 import sys
 from pathlib import Path
 from typing import Callable
@@ -74,20 +73,10 @@ def search_club_directory(directory: list[tuple[str, str]], query: str) -> list[
     return [(club_id, name) for club_id, name in directory if query in name.lower()]
 
 
-_SLUG_INVALID_CHARS = re.compile(r"[^a-z0-9]+")
-_UMLAUT_FOLDS = {"ä": "a", "ö": "o", "ü": "u", "ß": "ss"}
-
-
-def slugify(name: str) -> str:
-    """A reasonable starting filename slug from a club's display name — e.g. "Golfclub
-    Domäne Musterhausen e.V." -> "golfclub-domane-musterhausen-e-v". Just a default in
-    the Input the user can edit before saving, not guaranteed unique or a real
-    transliteration — good enough as a starting point, not attempted to be exact."""
-    normalized = name.lower()
-    for umlaut, plain in _UMLAUT_FOLDS.items():
-        normalized = normalized.replace(umlaut, plain)
-    slug = _SLUG_INVALID_CHARS.sub("-", normalized).strip("-")
-    return slug or "club"
+# Moved into club_config.py 2026-09-07 so the favorites helpers there share one
+# implementation with this screen; re-exported under its original name because this
+# module's own callers and tests already import it from here.
+slugify = club_config.slugify
 
 
 class ClubSearchScreen(Screen[str | None]):

@@ -124,7 +124,9 @@ def test_parse_slot_row_fully_booked_all_anonymized_variants():
 
 def test_parse_slot_row_real_name_is_kept_as_player():
     # A non-placeholder name (hypothetical friend booking, per docs/pccaddie-markup-
-    # notes.md's "not yet observed on the real site" example) must survive as a player.
+    # notes.md's "not yet observed on the real site" example) must survive as a player
+    # -- but only on an authenticated fetch, since pc caddie never shows a real name to
+    # a logged-out reader. See _parse_slot_row()'s `authenticated` parameter.
     row = _row(
         '<tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable" '
         'data-seat_bookable="3">'
@@ -134,10 +136,63 @@ def test_parse_slot_row_real_name_is_kept_as_player():
         '<td colspan="3"><span class="tt-show-name"></span></td>'
         "</tr>"
     )
-    slot = _parse_slot_row(row)
+    slot = _parse_slot_row(row, authenticated=True)
     assert slot.booked == 1
     assert slot.players == ["Max Mustermann"]
     assert slot.block_reason is None
+
+
+def test_parse_slot_row_unknown_seat_text_is_a_note_not_a_player_when_anonymous():
+    # The same markup read anonymously -- which is the only way scrape_schedule()
+    # ever reads it. Logged out, pc caddie shows no real names at all, so unrecognized
+    # seat text is a club's own note ("Greenfee CHF 140.-", "Nur fuer Mitglieder"):
+    # recording it as a player fabricated ~50 fake names across the 2026-09-07
+    # cross-club sweep.
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable" '
+        'data-seat_bookable="3">'
+        '<td class="seats-free-3 tt-grau"><time class="pcco-tt-timestamp">08:00</time></td>'
+        '<td><span class="tt-show-name">Greenfee CHF 140.-</span></td>'
+        '<td colspan="3"><span class="tt-show-name"></span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row)
+    assert slot.players == []
+    assert slot.block_reason == "Greenfee CHF 140.-"
+
+
+def test_parse_slot_row_merged_free_seat_cell_note_is_never_a_player():
+    # The colspan rule: pc caddie merges the still-free seats into one trailing
+    # <td colspan=N>, and that cell often carries a course note rather than being
+    # empty. Confirmed on 27 of 45 real clubs swept 2026-09-07.
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="08:20" data-status="bookable" '
+        'data-seat_bookable="2">'
+        '<td class="seats-free-2 tt-grau"><time class="pcco-tt-timestamp">08:20</time></td>'
+        '<td><span class="tt-show-name">Namensanzeige nach dem Login</span></td>'
+        '<td><span class="tt-show-name">Namensanzeige nach dem Login</span></td>'
+        '<td colspan="2"><span class="tt-show-name">Nur fuer Mitglieder</span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row)
+    assert slot.booked == 2  # the two real occupants, not the note
+    assert slot.players == []
+    assert slot.block_reason == "Nur fuer Mitglieder"
+
+
+def test_parse_slot_row_clamps_negative_seat_bookable():
+    # Two real clubs report a negative free-seat count on an over-full slot (one said
+    # "-12" on a row visibly showing all 4 seats taken). Taken literally that produced
+    # a nonsensical "16/4 booked".
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="11:00" data-status="past-time" '
+        'data-seat_bookable="-12">'
+        '<td class="seats-free-0 tt-grau"><time class="pcco-tt-timestamp">11:00</time></td>'
+        '<td><span class="tt-show-name">Namensanzeige nach dem Login</span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row)
+    assert (slot.booked, slot.capacity) == (4, 4)
 
 
 def test_parse_slot_row_block_time_event():
@@ -480,12 +535,12 @@ def test_parse_course_aliases_html_extracts_name_and_code():
     }
 
 
-def test_parse_course_aliases_html_raises_for_unrecognized_markup():
-    try:
-        _parse_course_aliases_html("<html><body>no select here</body></html>")
-        assert False, "expected NotImplementedError"
-    except NotImplementedError:
-        pass
+def test_parse_course_aliases_html_falls_back_to_one_implicit_course_without_a_selector():
+    # 18 of the 39 real clubs with a working tee sheet (46%) have no "Area" selector at
+    # all -- they run a single course, addressed with no alias parameter. Raising for
+    # those, as this used to, made nearly half of pc caddie's clubs unusable.
+    aliases = _parse_course_aliases_html("<html><body>no select here</body></html>")
+    assert aliases == {scraper_module.SINGLE_COURSE_NAME: ""}
 
 
 class _FakeGetResponse:
@@ -496,9 +551,13 @@ class _FakeGetResponse:
         pass
 
 
+_A_TIMETABLE = '<table class="pcco-tt-timetable"><tr><td>Zeit</td><td>- 1 -</td></tr></table>'
+
+
 def test_fetch_course_aliases_returns_this_clubs_own_options(monkeypatch):
     monkeypatch.setattr(
-        scraper_module.httpx, "get", lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML)
+        scraper_module.httpx, "get",
+        lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML + _A_TIMETABLE),
     )
 
     aliases = fetch_course_aliases("0000002")
@@ -508,3 +567,48 @@ def test_fetch_course_aliases_returns_this_clubs_own_options(monkeypatch):
     # Confirms this is genuinely per-club, not Musterhausen's own COURSE_ALIASES --
     # none of Sonnenberg's real names or codes match Musterhausen's at all.
     assert "18 Loch Tee 1" not in aliases
+
+
+def test_fetch_course_aliases_raises_no_tee_sheet_error_when_the_club_has_none(monkeypatch):
+    # 7 of the 79 clubs exercised end-to-end 2026-09-07 publish no tee sheet at all
+    # (some were PC CADDIE's own demo clubs). A club can even offer a course selector
+    # and still have no timetable behind it, which is why this is checked against the
+    # whole page rather than inferred from the selector's absence.
+    monkeypatch.setattr(
+        scraper_module.httpx, "get",
+        lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML),
+    )
+    try:
+        fetch_course_aliases("0499001")
+        assert False, "expected NoTeeSheetError"
+    except scraper_module.NoTeeSheetError:
+        pass
+
+
+def test_parse_available_dates_html_reads_the_clubs_own_booking_window():
+    # 1 to 31 days across the real clubs swept, against a configured default of 5.
+    html = """
+    <select id="timetable_selection_date">
+    <option value="DAY|2026-09-07">07.09.2026</option>
+    <option value="DAY|2026-09-08">08.09.2026</option>
+    <option value="">--</option>
+    </select>
+    """
+    assert scraper_module._parse_available_dates_html(html) == ["2026-09-07", "2026-09-08"]
+
+
+def test_parse_available_dates_html_returns_empty_without_a_date_selector():
+    assert scraper_module._parse_available_dates_html("<html></html>") == []
+
+
+def test_capacity_is_read_from_the_table_header_not_assumed():
+    html = """
+    <table class="pcco-tt-timetable">
+      <tr><th>Ora</th><th>- 1 -</th><th>- 2 -</th><th>- 3 -</th></tr>
+      <tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable"
+          data-seat_bookable="1"><td class="seats-free-1"></td></tr>
+    </table>
+    """
+    schedule = parse_schedule_html(html, date="2026-09-07", course="Course")
+    assert schedule.slots[0].capacity == 3  # not the usual 4
+    assert schedule.slots[0].booked == 2

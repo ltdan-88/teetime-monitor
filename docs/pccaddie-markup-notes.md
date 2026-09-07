@@ -247,3 +247,62 @@ observed but handled defensively), no table at all.
   above (the demo booking was solo) — presumably each person on their own line,
   matching the booking flow's "Person 1"/"Person 2"/etc., but not yet seen rendered
   back on this page.
+
+
+## Cross-club findings (2026-09-07, 79 real clubs)
+
+See ROADMAP.md "Cross-club validation sweep" for the full table. The two structural
+rules worth having here, since they're what a parser actually needs to get right:
+
+### A seat is a `<td>` without `colspan`; the merged cell is not a seat
+
+pc caddie renders each genuinely occupied seat as its own `<td>` (no `colspan`), then
+merges whatever seats are still free into one trailing `<td colspan="N">`. That merged
+cell is frequently **not** empty — it carries a course note. Reading every
+`.tt-show-name` as a player turns those notes into fabricated player names, which
+happened on 27 of 45 clubs checked.
+
+```html
+<!-- 2 seats taken, 2 free, and a club note in the merged free cell -->
+<tr class="pcco-tt-time-person" data-time="08:20" data-status="past-time" data-seat_bookable="2">
+  <td class="seats-free-2 tt-grau"><time>08:20</time></td>
+  <td><span class="tt-show-name">Namensanzeige nach dem Login</span></td>
+  <td><span class="tt-show-name">Namensanzeige nach dem Login</span></td>
+  <td colspan="2"><span class="tt-show-name">Nur für Mitglieder</span></td>
+</tr>
+```
+
+Real examples seen in that merged cell: `"Nur für Mitglieder"`, `"Platzpflege"`,
+`"Keine Startzeit erforderlich!"`, `"Blocco"`, `"Mo bis Do keine Startzeiten nötig"`,
+`"Course maintenance"`, `"Kurzfristige Carbuchung online nicht möglich. Ab Vortag 17 Uhr"`.
+
+Anonymized placeholders come in **four languages, two forms each** — all eight must be
+recognized or they read as real names:
+
+| Language | Long form | Short form |
+| --- | --- | --- |
+| German | `Namensanzeige nach dem Login` | `Belegt` |
+| English | `Please login to see names` | `Occupied` |
+| French | `Veuillez faire le login pour visualiser les noms` | `Occupe` |
+| Italian | `Per visualizzare i nomi bisogna fare il login` | `Occupato` |
+
+### Not every club has an "Area" selector, or a tee sheet at all
+
+18 of the 39 clubs with a working tee sheet have no `<select id="timetable_selection_alias">`
+whatsoever — they run one course, addressed by omitting the `alias` query parameter
+entirely. A further 7 clubs publish no `table.pcco-tt-timetable` at all (online booking
+not offered); a club can even have the course selector *and* no timetable behind it, so
+"does this club have a tee sheet" has to be answered from the table, not the selector.
+
+### Other per-club variation
+
+- `<select id="timetable_selection_date">` lists exactly the bookable days: **1 to 31**
+  across the sample. Requesting a date outside it returns a page with no timetable and a
+  "Selection invalid." notice.
+- The header row's first cell is localized (`Zeit` / `Ora` / `Heure`), but the seat
+  columns are always `- 1 -`, `- 2 -`, … — a locale-independent way to count seats per
+  slot (4 on every club checked).
+- `data-seat_bookable` can be **negative** on an over-full slot (`-1`, `-12` observed),
+  so it needs clamping to the real seat range.
+- `data-status="past-time"` is a fifth value beyond the four originally documented, and
+  by far the most common one on any given page. It parses like a normal row.

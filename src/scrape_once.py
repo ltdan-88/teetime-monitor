@@ -61,9 +61,20 @@ from pathlib import Path
 
 from . import booking_watch, club_config, storage
 from . import weather as weather_module
-from .scraper import LoginError, fetch_course_aliases, scrape_my_reservations, scrape_schedule
+from .scraper import (
+    LoginError,
+    fetch_available_dates,
+    fetch_course_aliases,
+    scrape_my_reservations,
+    scrape_schedule,
+)
 
 DATA_DIR = Path("data")
+
+# Upper bound on how many days one pass will scrape, however many the club itself
+# advertises — see scrape_due_for_club(). One real club offers 366 days of tee sheets;
+# fetching a year of them every pass is not what "the overview window" means.
+MAX_OVERVIEW_DAYS = 14
 
 # See "Adjustable scrape interval" above — overridable per club via
 # scrape_interval_minutes / scrape_interval_minutes_booked in its YAML.
@@ -237,11 +248,32 @@ def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingCh
     except Exception as exc:  # noqa: BLE001
         print(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
         return []
+
+    # The club's own bookable-date window, straight from its tee sheet, in preference
+    # to the configured `overview_days`. Confirmed 2026-09-07 across 79 real clubs to
+    # range from 1 day to 31 (8 being the most common) against a configured default of
+    # 5 — so the fixed number was simultaneously asking several clubs for dates their
+    # site rejects outright ("Selection invalid.") and never looking at most of the
+    # window the rest actually offer. `overview_days` stays the fallback for a club
+    # whose page has no date selector at all (5 of 45 in that sweep). The club's own
+    # window is still capped: one club advertised 366 days, and scraping a year of tee
+    # sheets every pass is not what "the overview window" means. The cap is
+    # MAX_OVERVIEW_DAYS, or the club's configured `overview_days` if that's been set
+    # higher deliberately.
+    dates = []
+    try:
+        dates = fetch_available_dates(club_id)
+    except Exception as exc:  # noqa: BLE001 — non-fatal, falls back to the config value
+        print(f"[scrape_once] {slug}: couldn't read its booking window ({exc}); using overview_days")
     overview_days = config.get("overview_days", 5)
-    today = date_cls.today()
+    if dates:
+        target_dates = dates[:max(overview_days, MAX_OVERVIEW_DAYS)]
+    else:
+        today = date_cls.today()
+        target_dates = [(today + timedelta(days=offset)).isoformat() for offset in range(overview_days)]
+
     changes: list[booking_watch.BookingChange] = []
-    for offset in range(overview_days):
-        target_date = (today + timedelta(days=offset)).isoformat()
+    for target_date in target_dates:
         for course in courses:
             if not _should_scrape(club_id, course, target_date, config):
                 continue

@@ -95,6 +95,20 @@ def _day_detail(club_id="0000001", club_slug="musterhausen", course="18 Loch Tee
     return tui.DayDetailScreen(club_id, club_slug, course, date)
 
 
+async def _reach_day_detail(app, pilot, club_id="0000001"):
+    """Drive the new club-first startup flow (2026-09-07) up to the tee sheet.
+
+    The app now always opens on `ClubBrowserScreen` — a club no longer has to be saved
+    to config before it can be looked at, so there's no "only one saved club, skip the
+    picker" shortcut at launch any more. Every test that wants a `DayDetailScreen` from
+    a real `TeetimeApp` goes through here."""
+    await pilot.pause()
+    assert isinstance(app.screen, tui.ClubBrowserScreen)
+    app.screen.dismiss(club_id)
+    await pilot.pause()
+    await pilot.pause()
+
+
 # --- _initial_date -- opens on tomorrow instead of today once today's own cached
 # schedule shows every slot has already passed (direct feedback 2026-09-07: showing
 # "today" once the course has closed for the day isn't useful) ------------------------
@@ -670,19 +684,149 @@ def test_day_detail_action_confirm_derives_holes_from_a_nine_hole_course(tmp_pat
     _run(scenario())
 
 
-# --- ClubPickerScreen / CoursePickerScreen ---------------------------------------------
+# --- ClubBrowserScreen / CoursePickerScreen --------------------------------------------
 
 
-def test_club_picker_dismisses_with_selected_slug():
+def test_club_browser_lists_favorites_and_dismisses_with_the_club_id(tmp_path, monkeypatch):
+    # An empty search box lists your favorites -- no directory and no login involved.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "guest-club"])
+    configs = {"home-club": {"club_id": "0000001"}, "guest-club": {"club_id": "0352001"}}
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: True)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
     async def scenario():
-        app = _HostApp(tui.ClubPickerScreen(["home-club", "guest-club"]))
+        app = _HostApp(tui.ClubBrowserScreen())
         async with app.run_test() as pilot:
             await pilot.pause()
             option_list = app.screen.query_one(OptionList)
+            assert option_list.option_count == 2
+            option_list.focus()  # focus starts in the search box, not the list
             option_list.highlighted = 1
+            await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
-            assert app.result == "guest-club"
+            # Dismisses with the club's numeric pc caddie id, not a local slug --
+            # the id is what every scraper call actually needs, and a club reached
+            # from the directory has no slug at all.
+            assert app.result == "0352001"
+
+    _run(scenario())
+
+
+def test_club_browser_offers_a_typed_club_id_directly(tmp_path, monkeypatch):
+    # The path that needs neither the directory cache nor credentials -- and the only
+    # way to reach a club on a brand-new install, before any login exists.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: False)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "000001"
+            await pilot.pause()
+            option_list = app.screen.query_one(OptionList)
+            assert option_list.option_count == 1
+            option_list.focus()  # focus starts in the search box, not the list
+            option_list.highlighted = 0
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.result == "0000001"  # normalized to 7 digits
+
+    _run(scenario())
+
+
+def test_club_browser_enter_in_the_search_box_opens_the_result(tmp_path, monkeypatch):
+    # Caught in a live run, not by the other tests here (which drive the OptionList
+    # directly): focus stays in the Input, so without an Input.Submitted handler
+    # typing a club id showed the right result and then Enter did nothing at all.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: False)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).focus()
+            await pilot.press(*"0352002")
+            await pilot.pause()
+            await pilot.press("enter")  # never leaves the search box
+            await pilot.pause()
+            assert app.result == "0352002"
+
+    _run(scenario())
+
+
+def test_club_browser_does_not_use_the_open_by_id_prompt_as_a_club_name(tmp_path, monkeypatch):
+    # "open this club" is a prompt, not a name -- it was ending up as the tee sheet's
+    # own window title for any club reached by id (caught live).
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: False)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "0352002"
+            await pilot.pause()
+            assert app.screen._names == {}
+
+    _run(scenario())
+
+
+def test_club_browser_searches_the_cached_directory_by_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: False)
+    monkeypatch.setattr(
+        tui.club_directory, "load_cached_directory",
+        lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V."), ("0000001", "Golfclub Musterhausen")],
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "leipzig"
+            await pilot.pause()
+            option_list = app.screen.query_one(OptionList)
+            assert option_list.option_count == 1
+            option_list.focus()  # focus starts in the search box, not the list
+            option_list.highlighted = 0
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.result == "0491605"
+
+    _run(scenario())
+
+
+def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
+    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory",
+                        lambda *a, **k: [("0000001", "Golfclub Musterhausen")])
+    added = []
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda club_id, *a, **k: club_id in added)
+    monkeypatch.setattr(tui.club_config, "add_favorite",
+                        lambda club_id, name="", *a, **k: added.append(club_id) or "slug")
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "musterhausen"
+            await pilot.pause()
+            # Deliberately does NOT set `highlighted` -- with focus still in the
+            # search box Textual highlights nothing, and `f` silently did nothing at
+            # exactly the moment the one obvious target was on screen (caught live).
+            app.screen.action_toggle_favorite()
+            await pilot.pause()
+            assert added == ["0000001"]
 
     _run(scenario())
 
@@ -702,27 +846,29 @@ def test_course_picker_dismisses_with_selected_course():
 # --- TeetimeApp startup flow ------------------------------------------------------------
 
 
-def test_app_skips_pickers_with_one_club_and_default_course(tmp_path, monkeypatch):
+def test_app_opens_the_club_browser_then_honors_default_course(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     # TeetimeApp.on_mount() applies a theme, which persists to disk -- redirect it
     # away from the real ~/.config/teetime-monitor/config for the duration of the test.
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            # The club browser is the home screen now, always -- but once a club is
+            # picked, a favorite's own default_course still skips the course picker.
+            await _reach_day_detail(app, pilot)
             screen = app.screen
             assert isinstance(screen, tui.DayDetailScreen)
             assert screen.course == "9 Loch Tee 1"
             assert screen.club_id == "0000001"
+            assert screen.club_slug == "home-club"  # resolved from the club id
 
     _run(scenario())
 
@@ -735,9 +881,9 @@ def test_app_skips_pickers_with_one_club_and_default_course(tmp_path, monkeypatc
 def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     club_cfg = {"club_id": "0000001", "default_course": "9 Loch Tee 1"}
-    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug: club_cfg)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: club_cfg)
 
     calls = []
 
@@ -750,6 +896,7 @@ def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_p
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot)
             for _ in range(20):
                 if calls:
                     break
@@ -762,18 +909,18 @@ def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_p
 def test_periodic_scrape_reloads_the_day_detail_screen_when_done(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: [])
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             screen = app.screen
             reload_calls = []
             monkeypatch.setattr(screen, "load_schedule", lambda: reload_calls.append("load"))
@@ -798,11 +945,11 @@ def test_periodic_scrape_reloads_the_day_detail_screen_when_done(tmp_path, monke
 def test_periodic_scrape_skips_a_new_pass_while_one_is_already_running(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
     calls = []
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: calls.append(1) or [])
@@ -810,6 +957,7 @@ def test_periodic_scrape_skips_a_new_pass_while_one_is_already_running(tmp_path,
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot)
             for _ in range(20):  # wait for the automatic on-open pass to finish
                 if calls:
                     break
@@ -833,11 +981,11 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
     # without blocking the UI (the whole point of running this in a thread).
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
     proceed = threading.Event()
     started = threading.Event()
@@ -852,7 +1000,7 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             await asyncio.get_event_loop().run_in_executor(None, started.wait, 2)
             await pilot.pause()
             assert "Refreshing" in str(app.screen.query_one("#status", Static).content)
@@ -875,27 +1023,25 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
 def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             assert isinstance(app.screen, tui.DayDetailScreen)
-            assert app.screen.course == "9 Loch Tee 1"  # the usual startup shortcut
+            assert app.screen.course == "9 Loch Tee 1"  # default_course, honored at launch
 
             await pilot.press("s")
             await pilot.pause()
-            # Explicitly switching always shows the club picker too now, even with
-            # only one club saved (so its "search for a club" entry stays reachable).
-            assert isinstance(app.screen, tui.ClubPickerScreen)
-            app.screen.dismiss("home-club")
+            # Switching opens the very same club browser the app launches into.
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.dismiss("0000001")
             await pilot.pause()
             # ...and always shows the course picker, even though default_course
             # would otherwise skip it.
@@ -914,29 +1060,25 @@ def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, mon
 def test_switch_action_shows_club_picker_when_multiple_clubs_saved(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club", "guest-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "guest-club"])
     configs = {
         "home-club": {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
         "guest-club": {"club_id": "0352001", "default_course": "18 Loch Tee 1"},
     }
-    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug: configs[slug])
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            assert isinstance(app.screen, tui.ClubPickerScreen)  # more than one saved
-            app.screen.dismiss("home-club")
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             assert isinstance(app.screen, tui.DayDetailScreen)
             assert app.screen.club_id == "0000001"
 
             await pilot.press("s")
             await pilot.pause()
-            assert isinstance(app.screen, tui.ClubPickerScreen)
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
 
-            app.screen.dismiss("guest-club")
+            app.screen.dismiss("0352001")
             await pilot.pause()
             assert isinstance(app.screen, tui.CoursePickerScreen)  # ignores default_course too
 
@@ -956,14 +1098,34 @@ def test_switch_action_shows_club_picker_when_multiple_clubs_saved(tmp_path, mon
 # schedule?" -- there was previously no way to back out short of force-quitting) ----
 
 
-def test_club_picker_screen_escape_dismisses_with_none():
+def test_club_browser_escape_dismisses_with_none(monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
     async def scenario():
-        app = _HostApp(tui.ClubPickerScreen(["home-club", "guest-club"]))
+        app = _HostApp(tui.ClubBrowserScreen(allow_cancel=True))
         async with app.run_test() as pilot:
             await pilot.pause()
             app.screen.action_cancel()
             await pilot.pause()
             assert app.result is None
+
+    _run(scenario())
+
+
+def test_club_browser_escape_does_nothing_when_cancel_is_disallowed(monkeypatch):
+    # At launch there's nothing behind the club list to go back to, so escape must
+    # not drop the user onto a blank app.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen(allow_cancel=False))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_cancel()
+            await pilot.pause()
+            assert app.result == "not dismissed yet"
 
     _run(scenario())
 
@@ -980,32 +1142,6 @@ def test_course_picker_screen_escape_dismisses_with_none():
     _run(scenario())
 
 
-def test_club_picker_screen_offers_search_option_only_when_requested():
-    async def scenario():
-        from textual.widgets import OptionList
-
-        app = _HostApp(tui.ClubPickerScreen(["home-club"], offer_search=True))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            options = app.screen.query_one(OptionList)
-            assert options.option_count == 2  # the real club + "search for a club"
-
-    _run(scenario())
-
-
-def test_club_picker_screen_omits_search_option_by_default():
-    async def scenario():
-        from textual.widgets import OptionList
-
-        app = _HostApp(tui.ClubPickerScreen(["home-club"]))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            options = app.screen.query_one(OptionList)
-            assert options.option_count == 1
-
-    _run(scenario())
-
-
 # --- Switching club/course: backing out at any step leaves the schedule unchanged,
 # and searching for a new club integrates directly into the same flow (2026-09-07,
 # direct feedback: "I want to be able to switch clubs on the fly. It is a hassle if
@@ -1015,24 +1151,23 @@ def test_club_picker_screen_omits_search_option_by_default():
 def test_switch_action_cancelling_club_picker_leaves_schedule_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             original_screen = app.screen
             assert isinstance(original_screen, tui.DayDetailScreen)
 
             await pilot.press("s")
             await pilot.pause()
-            assert isinstance(app.screen, tui.ClubPickerScreen)
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
             app.screen.action_cancel()
             await pilot.pause()
 
@@ -1045,23 +1180,22 @@ def test_switch_action_cancelling_club_picker_leaves_schedule_unchanged(tmp_path
 def test_switch_action_cancelling_course_picker_leaves_schedule_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             original_screen = app.screen
 
             await pilot.press("s")
             await pilot.pause()
-            app.screen.dismiss("home-club")  # the only real club
+            app.screen.dismiss("0000001")  # the only real club
             await pilot.pause()
             assert isinstance(app.screen, tui.CoursePickerScreen)
             app.screen.action_cancel()
@@ -1073,56 +1207,46 @@ def test_switch_action_cancelling_course_picker_leaves_schedule_unchanged(tmp_pa
     _run(scenario())
 
 
-def test_switch_action_search_for_a_club_adds_and_switches_to_it(tmp_path, monkeypatch):
-    from src import club_picker as club_picker_module
-
+def test_switch_action_reaches_an_unsaved_club_from_the_directory(tmp_path, monkeypatch):
+    """Switching to a club that was never saved to config -- the whole point of the
+    2026-09-07 rework. The old flow needed a club saved to clubs/*.yaml before it could
+    be opened at all; now a directory hit is enough, and saving is purely optional
+    (the `f` favorite toggle, tested separately)."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     (tmp_path / "clubs").mkdir()
     (tmp_path / "clubs" / "home-club.yaml").write_text("club_id: '0000001'\ndefault_course: '18 Loch Tee 1'\n")
     monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
-    # ClubSearchScreen calls these with an explicit clubs_dir; tui.py's own _start()/
-    # _do_switch_club_or_course() call them with none at all -- accept and ignore
-    # whatever's passed, always resolving against this test's own tmp_path. Uses the
-    # module-level _real_list_clubs/_real_load_club_config (captured at import time,
-    # before any autouse fixture could have already replaced tui.club_config's own
-    # attributes) rather than grabbing "the real function" off tui.club_config here --
-    # by this point in the test, that name is already whatever an earlier-applied
-    # autouse fixture patched it to, not the true original.
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
     monkeypatch.setattr(
         tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
     )
-    monkeypatch.setenv("PCC_USER", "user@example.com")
-    monkeypatch.setenv("PCC_PASS", "hunter2")
-    directory = [("0491605", "1. Golfclub Leipzig e.V.")]
-    monkeypatch.setattr(club_picker_module, "fetch_club_directory", lambda club_id, user, password: directory)
+    monkeypatch.setattr(
+        tui.club_directory, "load_cached_directory",
+        lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V.")],
+    )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.club_slug == "home-club"
 
             await pilot.press("s")
             await pilot.pause()
-            assert isinstance(app.screen, tui.ClubPickerScreen)
-            app.screen.dismiss(tui._SEARCH_FOR_CLUB_ID)
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.query_one("#club-search", Input).value = "leipzig"
             await pilot.pause()
-            assert isinstance(app.screen, tui.ClubSearchScreen)
-
-            app.screen.query_one("#search").value = "leipzig"
+            options = app.screen.query_one(OptionList)
+            assert options.option_count == 1
+            options.focus()
+            options.highlighted = 0
             await pilot.pause()
-            app.screen.on_option_list_option_selected(_fake_option_selected("0491605"))
-            await pilot.pause()
-            await pilot.click("#save")
-            await pilot.pause()
-            app.screen.action_quit_screen()
+            await pilot.press("enter")
             await pilot.pause()
 
-            # Straight into course-picking for the newly added club -- no need to
-            # re-select it from the (now-updated) club list.
+            # Straight into course-picking for a club that has no clubs/*.yaml at all.
             assert isinstance(app.screen, tui.CoursePickerScreen)
             app.screen.dismiss("9 Loch Tee 1")
             await pilot.pause()
@@ -1130,12 +1254,13 @@ def test_switch_action_search_for_a_club_adds_and_switches_to_it(tmp_path, monke
 
             assert isinstance(app.screen, tui.DayDetailScreen)
             assert app.screen.club_id == "0491605"
-            assert app.screen.club_slug == "1-golfclub-leipzig-e-v"
+            assert app.screen.club_slug is None  # visited, not saved
             assert app.screen.course == "9 Loch Tee 1"
 
     _run(scenario())
 
-    assert "1-golfclub-leipzig-e-v" in tui.club_config.list_clubs(tmp_path / "clubs")
+    # Nothing was written to config -- visiting a club must not save it.
+    assert tui.club_config.list_clubs(tmp_path / "clubs") == ["home-club"]
 
 
 def _fake_option_selected(option_id: str):
@@ -1150,7 +1275,7 @@ def _fake_option_selected(option_id: str):
 
 def test_app_exits_cleanly_with_no_clubs_saved(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -1167,7 +1292,7 @@ def test_app_exits_cleanly_with_no_clubs_saved(tmp_path, monkeypatch):
 def test_app_applies_resolved_theme_on_startup(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     theme.save_theme("nord", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -1180,7 +1305,7 @@ def test_app_applies_resolved_theme_on_startup(tmp_path, monkeypatch):
 
 def test_app_persists_theme_changes(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -1196,7 +1321,7 @@ def test_app_persists_theme_changes(tmp_path, monkeypatch):
 
 def test_app_persists_a_native_textual_theme_with_no_brew_launcher_equivalent(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: [])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -1266,18 +1391,17 @@ def test_confirm_booking_renders_german_labels_and_validation(tmp_path, monkeypa
 def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
+            await _reach_day_detail(app, pilot)
             assert i18n.get_language() == "en"  # default, per the autouse fixture
 
             app.action_switch_language()
