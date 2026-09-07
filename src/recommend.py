@@ -50,11 +50,10 @@ keys in its own YAML, but existing configs work unchanged. Worth the user's own
 sign-off on the actual numbers later; flagged rather than silently assumed.
 """
 
-import re
-
 from . import ai_assist, playability
 from . import weather as weather_module
 from .models import Schedule, SlotMatch, TimeWindow
+from .scraper import _holes_from_course_label
 from .search import SearchCriteria, search
 
 # See the module docstring's "genuine design gap" note — club.example.yaml's
@@ -91,23 +90,30 @@ def _schedule_for(candidate: SlotMatch, schedules: list[Schedule]) -> Schedule |
     return None
 
 
-def _holes_for_course(course: str) -> int:
-    """Course names are "18 Loch Tee 1" / "9 Loch Tee 1" / "6 Loch Platz" — pull the
-    leading number out directly rather than hardcoding a name-to-holes map, so a
-    differently-named club's course still works."""
-    match = re.search(r"(\d+)\s*Loch", course)
-    return int(match.group(1)) if match else 18
-
-
 def _round_duration_minutes(course: str, config: dict) -> int:
     """config["round_duration_minutes"] only has "nine"/"eighteen" keys (see
     clubs/club.example.yaml) — a genuinely 6-hole course (this club's "6 Loch Platz")
     has no dedicated bucket, so anything under 18 holes maps to "nine" as a reasonable
     proxy (a 6-hole round takes less time than a 9-hole one anyway, so this only ever
-    over-estimates the duration, never under-estimates it into an unsafe recommendation)."""
-    holes = _holes_for_course(course)
-    key = "eighteen" if holes >= 18 else "nine"
-    default = 240 if key == "eighteen" else 120
+    over-estimates the duration, never under-estimates it into an unsafe recommendation).
+
+    Reuses `scraper._holes_from_course_label()` rather than its own regex (found and
+    fixed 2026-09-07: the previous `r"(\\d+)\\s*Loch"` pattern required "Loch"
+    immediately after the number with no hyphen — silently failed to match a second
+    real club's own naming, e.g. "18-Loch Schleife", falling back to `18` for
+    literally every one of its courses, including its actual 9-hole and short-course
+    options). A genuinely unknown hole count (`None` — e.g. that same club's
+    "Kurzplatz", a short/pitch-and-putt course with no leading number at all) assumes
+    the *longer* 18-hole duration here specifically, not the "under 18 -> nine"
+    shortcut above: overestimating a round's length only ever costs a missed
+    recommendation, never approves a genuinely unsafe one — the opposite of what an
+    underestimate would risk."""
+    holes = _holes_from_course_label(course)
+    if holes is None:
+        key, default = "eighteen", 240
+    else:
+        key = "eighteen" if holes >= 18 else "nine"
+        default = 240 if key == "eighteen" else 120
     return config.get("round_duration_minutes", {}).get(key, default)
 
 

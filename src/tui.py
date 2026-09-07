@@ -118,7 +118,7 @@ from .club_picker import ClubSearchScreen
 from .search import search as search_slots
 from .models import ConfirmedBooking, Schedule
 from .scrape_once import _db_path
-from .scraper import COURSE_ALIASES, _holes_from_course_label, scrape_schedule
+from .scraper import _holes_from_course_label, fetch_course_aliases, scrape_schedule
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 # How often the running app rechecks whether anything's due for a background
@@ -224,8 +224,10 @@ class ClubPickerScreen(Screen[str | None]):
 
 class CoursePickerScreen(Screen[str | None]):
     """Pick a course — only shown when the club has no valid `default_course` set and
-    more than one course exists (COURSE_ALIASES is a fixed 3-option picker, not a
-    rotating list — see scraper.py's module docstring). Same `escape`/`q` bindings as
+    more than one course exists. The options themselves come from this specific
+    club's own `fetch_course_aliases()` (not a rotating list, but not universal
+    across clubs either — see scraper.py's module docstring for why a second real
+    club needed this fixed 2026-09-07). Same `escape`/`q` bindings as
     `ClubPickerScreen` — see that class's own docstring."""
 
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
@@ -629,7 +631,13 @@ class TeetimeApp(App[None]):
             self.exit(message=i18n.t("app.no_club_id", slug=slug))
             return
 
-        courses = list(COURSE_ALIASES)
+        try:
+            courses = list(fetch_course_aliases(club_id))
+        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
+            # (no network, site down, a wrong club_id) and shouldn't crash the app
+            # over it — there's nothing left to show without a course list at all.
+            self.exit(message=i18n.t("app.course_fetch_failed", error=exc))
+            return
         default_course = config.get("default_course")
         if default_course in courses:
             course = default_course
@@ -687,7 +695,17 @@ class TeetimeApp(App[None]):
         if not club_id:
             return
 
-        courses = list(COURSE_ALIASES)
+        try:
+            courses = list(fetch_course_aliases(club_id))
+        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
+            # (no network, site down, a wrong club_id); unlike _start()'s own version
+            # of this, there's already a working schedule on screen here, so the
+            # right move is a status message and backing out of the switch, not
+            # tearing the whole app down over it.
+            self.screen.query_one("#status", Static).update(
+                i18n.t("app.course_fetch_failed", error=exc)
+            )
+            return
         if len(courses) == 1:
             course = courses[0]
         else:

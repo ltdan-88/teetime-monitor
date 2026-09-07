@@ -31,9 +31,13 @@ crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan 
   TUI's own switch-club menu (`s`, then "🔍 Search for a club…"), or standalone via
   `python -m src.club_picker` — matching pc caddie's own in-app "Anlagenauswahl"
   feature (confirmed against real app screenshots, 2026-09-06)
-- Course picker for the 27-hole club's fixed options ("18 Loch Tee 1" / "9 Loch Tee 1" /
-  "6 Loch Platz") — the actual weekly A/B/C loop combination just shows as an
-  informational banner, confirmed by checking the real site rather than assumed
+- Course picker showing each club's own real options, fetched live from that club's
+  tee-sheet page rather than assumed — confirmed 2026-09-07 that this genuinely
+  differs per club: a first club's 27-hole "18 Loch Tee 1" / "9 Loch Tee 1" /
+  "6 Loch Platz" (with the actual weekly A/B/C loop combination shown as an
+  informational banner) turned out to be that club's own setup, not a platform-wide
+  default — a second real club's own options share no names or codes with the first
+  at all
 - Scrape the full tee sheet (all slots, booked and free) for a given course/date, with a
   scheduled background scrape too — pc caddie hides past tee sheets, so history can't be
   filled in later, and this keeps it building even on days you don't open the app.
@@ -247,10 +251,15 @@ now actually loaded into the environment (`club_config.py` calls `python-dotenv`
 there doing nothing looks identical to one that was never created. Club config files
 under `clubs/` are gitignored too, aside from the tracked `club.example.yaml`
 template. This is a
-personal tool built against one real club's actual portal — a live walkthrough
-(2026-09-05, see `ROADMAP.md` "Live site findings" and "Confirmed pc caddie markup
-reference") confirmed the tee sheet needs no login, and `scraper.py`'s tee-sheet
-scraping is now verified against the live site (2026-09-06). Login is implemented too
+personal tool, built against real pc caddie portals rather than assumed markup — a
+live walkthrough (2026-09-05, see `ROADMAP.md` "Live site findings" and "Confirmed pc
+caddie markup reference") confirmed the tee sheet needs no login, and `scraper.py`'s
+tee-sheet scraping is now verified against the live site (2026-09-06) — and, since a
+second real club was added 2026-09-07, verified to genuinely differ per club too:
+course names/alias codes and the booking-date window both turned out to be that
+club's own setup, not a platform-wide constant, so `scraper.fetch_course_aliases()`
+now reads each club's own options live instead of assuming any fixed set (see
+`ROADMAP.md` "Known risks"). Login is implemented too
 (2026-09-06) — the user logged into the real site themselves and Claude inspected the
 resulting form's HTML directly, never entering or seeing the actual password; it
 turned out to be a plain POST, no JavaScript, no CSRF token. `scrape_my_reservations()`

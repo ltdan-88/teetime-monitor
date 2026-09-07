@@ -173,6 +173,22 @@ should generalize to any pc caddie club, needing only a different `club_id` and 
 alias codes (which do differ per club — re-derive `COURSE_ALIASES` per club, don't
 assume Musterhausen's `COUB`/`COU1`/`COU6` are universal).
 
+**Course-alias re-derivation, actually implemented (2026-09-07)**: the "don't assume
+Musterhausen's are universal" warning above sat unimplemented until a second real club
+("Golf Club Sonnenberg e.V.", club_id `0000002`) got added and genuinely broke — see
+"Known risks" for the fix. Its confirmed real `<select id="timetable_selection_alias">`
+options: `ALIAS|A001` "18-Loch Schleife", `ALIAS|1810` "18-Loch Schleife (nur erste
+9-Loch)", `ALIAS|1811` "18-Loch-Schleife (nur zweite 9-Loch)", `ALIAS|0901` "9-Loch
+Schleife", `ALIAS|0601` "Kurzplatz" — five options, sharing no code or naming pattern
+with Musterhausen's `COUB`/`COU1`/`COU6`. Its date window is also narrower than
+Musterhausen's: `#timetable_selection_date` currently lists only 4 bookable days out,
+not 5 (see the new "booking-date window" risk entry — this part is still unmitigated).
+One further difference worth a closer look later, not yet analyzed: occupied-slot
+player labels on Sonnenberg carry a trailing hole-count suffix not seen on Musterhausen
+(e.g. "Occupied / Member (H.H) - 9H") — unconfirmed whether this could ever affect the
+`KNOWN_ANONYMIZED_LABELS`/`_parse_slot_row` matching logic, since every case observed
+so far still matched the existing anonymized pattern regardless.
+
 Differences observed between clubs (config, not platform, differences):
 - Course-selector presence varies — some clubs show one combined view with a per-slot
   "9H"/"18H" tag instead of Musterhausen's separate dropdown-per-course-alias page.
@@ -1109,10 +1125,36 @@ much emptier" instead of ranking blind.
   none of this account's friends had a booking during the walkthrough. The
   classification approach (positively recognize a name, don't just flag "unfamiliar
   text") should hold up, but is unverified against the actual case it exists for.
+- ~~The booking-date window (`overview_days`) is a fixed number in config.~~
+  **Confirmed a real risk, not yet mitigated, 2026-09-07**: the club's own tee-sheet
+  page ships its own "Date" `<select id="timetable_selection_date">` listing exactly
+  which days are currently bookable — confirmed live to genuinely differ per club
+  (Musterhausen: 5 weekdays out; Sonnenberg: only 4 days out) rather than being a
+  platform-wide constant. `overview_days` is still just a config number nothing
+  cross-checks against this — a club whose real window is narrower than its configured
+  `overview_days` will have scrape_once.py/tui.py request dates the site will reject
+  ("Selection invalid."), not silently truncate to what's actually open. Same shape of
+  fix as `fetch_course_aliases()` below would resolve it: parse this club's own
+  `<select>` on demand instead of trusting a configured number.
 
 ~~How the 27-hole rotation is actually presented on the site is unverified~~ — resolved
-2026-09-05, see "Live site findings": it's a fixed 3-option course picker plus a
-separate "Runde X+Y" banner, simpler than the rotating-dropdown risk this used to be.
+2026-09-05, see "Live site findings": a fixed 3-option course picker plus a separate
+"Runde X+Y" banner, simpler than the rotating-dropdown risk this used to be. **Half-
+corrected 2026-09-07**: "fixed" turned out to only mean *within* one club — a second
+real club added the same day ("Golf Club Sonnenberg e.V.") has a completely different
+5-option course lineup with its own alias codes, sharing no pattern with the first
+club's. The hardcoded `COURSE_ALIASES` this assumption produced was silently sending
+the wrong codes to every club but the one it was recorded from — "it doesn't pull any
+data" for Sonnenberg was the direct, user-reported symptom. Fixed by
+`scraper.fetch_course_aliases()`, which reads each club's own "Area" `<select>` live
+instead of trusting a recorded constant; `tui.py` and `scrape_once.py` both now call
+it per-club rather than importing `COURSE_ALIASES` directly. A related, independently-
+broken assumption surfaced fixing this: `recommend.py`'s own hole-count regex
+(`r"(\d+)\s*Loch"`) required "Loch" immediately after the number with no hyphen, so it
+silently failed to match Sonnenberg's own naming ("18-Loch Schleife") and fell back to
+a hardcoded 18 for every one of that club's courses, including its real 9-hole and
+short-course options — fixed by reusing `scraper._holes_from_course_label()` instead,
+which only ever matches a leading digit and so handles both naming styles.
 
 ## Out of scope (all phases)
 Booking/auto-booking, notifications, packaging/distribution, mobile support (pc

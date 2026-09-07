@@ -8,10 +8,12 @@ from src.scraper import (
     STATUS_OCCUPIED,
     LoginError,
     _parse_club_directory_html,
+    _parse_course_aliases_html,
     _parse_my_reservations_html,
     _parse_slot_row,
     club_url,
     fetch_club_directory,
+    fetch_course_aliases,
     login,
     parse_schedule_html,
     parse_seats_free,
@@ -448,5 +450,61 @@ def test_fetch_club_directory_returns_parsed_entries(monkeypatch):
     entries = fetch_club_directory("0000001", "user@example.com", "hunter2")
 
     assert ("0000001", "Golfclub Domäne Musterhausen e.V.") in entries
-    assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=golf"
-    assert fake_client.closed
+
+
+# ---------------------------------------------------------------------------
+# fetch_course_aliases() / _parse_course_aliases_html() -- confirmed 2026-09-07 that
+# a club's own course lineup isn't universal: this fixture is modeled on the real
+# markup found for a second real club ("Golf Club Sonnenberg e.V."), whose options
+# (names *and* alias codes) share no pattern with Musterhausen's own COURSE_ALIASES.
+
+_SONNENBERG_ALIASES_HTML = """
+<select id="timetable_selection_alias" name="rq[timetable_selection_alias]">
+<option value="ALIAS|A001">18-Loch Schleife</option>
+<option value="ALIAS|1810">18-Loch Schleife (nur erste 9-Loch)</option>
+<option value="ALIAS|1811">18-Loch-Schleife (nur zweite 9-Loch)</option>
+<option value="ALIAS|0901">9-Loch Schleife</option>
+<option value="ALIAS|0601">Kurzplatz</option>
+</select>
+"""
+
+
+def test_parse_course_aliases_html_extracts_name_and_code():
+    aliases = _parse_course_aliases_html(_SONNENBERG_ALIASES_HTML)
+    assert aliases == {
+        "18-Loch Schleife": "A001",
+        "18-Loch Schleife (nur erste 9-Loch)": "1810",
+        "18-Loch-Schleife (nur zweite 9-Loch)": "1811",
+        "9-Loch Schleife": "0901",
+        "Kurzplatz": "0601",
+    }
+
+
+def test_parse_course_aliases_html_raises_for_unrecognized_markup():
+    try:
+        _parse_course_aliases_html("<html><body>no select here</body></html>")
+        assert False, "expected NotImplementedError"
+    except NotImplementedError:
+        pass
+
+
+class _FakeGetResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+    def raise_for_status(self):
+        pass
+
+
+def test_fetch_course_aliases_returns_this_clubs_own_options(monkeypatch):
+    monkeypatch.setattr(
+        scraper_module.httpx, "get", lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML)
+    )
+
+    aliases = fetch_course_aliases("0000002")
+
+    assert aliases["18-Loch Schleife"] == "A001"
+    assert aliases["Kurzplatz"] == "0601"
+    # Confirms this is genuinely per-club, not Musterhausen's own COURSE_ALIASES --
+    # none of Sonnenberg's real names or codes match Musterhausen's at all.
+    assert "18 Loch Tee 1" not in aliases

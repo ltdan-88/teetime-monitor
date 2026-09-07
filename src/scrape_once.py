@@ -61,7 +61,7 @@ from pathlib import Path
 
 from . import booking_watch, club_config, storage
 from . import weather as weather_module
-from .scraper import COURSE_ALIASES, LoginError, scrape_my_reservations, scrape_schedule
+from .scraper import LoginError, fetch_course_aliases, scrape_my_reservations, scrape_schedule
 
 DATA_DIR = Path("data")
 
@@ -226,12 +226,23 @@ def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingCh
     if not club_id:
         print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
+    # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
+    # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
+    # universal, so a fixed COURSE_ALIASES silently scraped the wrong thing for a
+    # second real club added the same day. One bad club's fetch must not stop every
+    # other saved club (same stance as everything else in this function), so this is
+    # caught here and skipped, not left to propagate out of main()'s own loop.
+    try:
+        courses = fetch_course_aliases(club_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
+        return []
     overview_days = config.get("overview_days", 5)
     today = date_cls.today()
     changes: list[booking_watch.BookingChange] = []
     for offset in range(overview_days):
         target_date = (today + timedelta(days=offset)).isoformat()
-        for course in COURSE_ALIASES:
+        for course in courses:
             if not _should_scrape(club_id, course, target_date, config):
                 continue
             try:

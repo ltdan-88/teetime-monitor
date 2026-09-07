@@ -13,8 +13,14 @@ tested code, verified against the live site:
 - **No login needed** to read occupancy — only to see real names, "My Reservations,"
   and to book. Confirmed by fetching the live site with a bare `httpx.get()`, no
   cookies, no session.
-- Course selection is a fixed 3-option picker (confirmed aliases below), not a rotating
-  list — the weekly A/B/C loop combination shows as a separate "Runde X+Y" banner.
+- Course selection is a fixed picker (not a rotating list — the weekly A/B/C loop
+  combination shows as a separate "Runde X+Y" banner), but **the options themselves
+  are per-club, not universal**: `COURSE_ALIASES` below is Musterhausen's own
+  confirmed 3-option set (18/9/6-hole, codes COUB/COU1/COU6). Confirmed wrong for a
+  second real club added 2026-09-07 ("Golf Club Sonnenberg e.V.") — five options with
+  entirely different codes (A001/1810/1811/0901/0601) — see `fetch_course_aliases()`
+  for the fix: read this same club's own "Area" `<select>` on demand instead of
+  assuming any fixed set.
 - **Each `<tr class="pcco-tt-time-person">` carries clean `data-*` attributes** —
   `data-time`, `data-status` (`bookable` / `occupied` / `block-time` / `disable-time`),
   and `data-seat_bookable` (the free-seat count, as an integer) — found 2026-09-06 while
@@ -187,10 +193,18 @@ def _parse_slot_row(row: Tag) -> Slot:
     return Slot(time=time, booked=booked, capacity=SEATS_PER_SLOT, players=players)
 
 
-def parse_schedule_html(html: str, date: str, course: str) -> Schedule:
+def parse_schedule_html(
+    html: str, date: str, course: str, available_courses: list[str] | None = None
+) -> Schedule:
     """Parse a fetched tee-sheet page into a Schedule. Pure function, no I/O — the
     network fetch lives in scrape_schedule() so this half is directly testable against
-    fixture HTML without hitting the real site."""
+    fixture HTML without hitting the real site.
+
+    `available_courses` (added 2026-09-07, see `fetch_course_aliases()`'s own
+    docstring for why) defaults to `COURSE_ALIASES` — Musterhausen's own confirmed
+    set — only for backward compatibility with an older caller that doesn't pass a
+    real club's own list; `scrape_schedule()` itself always passes the club's actual
+    course names now."""
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("table.pcco-tt-timetable")
     slots = [_parse_slot_row(row) for row in table.select("tr.pcco-tt-time-person")] if table else []
@@ -200,7 +214,7 @@ def parse_schedule_html(html: str, date: str, course: str) -> Schedule:
         course=course,
         slots=slots,
         events=events,
-        available_courses=list(COURSE_ALIASES),
+        available_courses=available_courses if available_courses is not None else list(COURSE_ALIASES),
     )
 
 
@@ -259,8 +273,13 @@ def _parse_reservation_datetime(text: str) -> tuple[str, str]:
 
 
 def _holes_from_course_label(course: str) -> int | None:
-    """"18 Loch Tee 1" -> 18, "6 Loch Platz" -> 6 — every confirmed COURSE_ALIASES
-    label starts with its hole count."""
+    """"18 Loch Tee 1" -> 18, "6 Loch Platz" -> 6, "9-Loch Schleife" (a second real
+    club's own naming, confirmed 2026-09-07) -> 9 — every course name seen on either
+    club so far starts with its hole count, hyphen or space after the number either
+    way, which is why this matches on the leading digits alone rather than requiring
+    "Loch" immediately after them. Returns None (not a wrong guess) for a name with
+    no leading number at all, e.g. Sonnenberg's "Kurzplatz" (a short/pitch-and-putt
+    course) — genuinely unknown, not assumed to be any particular hole count."""
     match = re.match(r"(\d+)", course)
     return int(match.group(1)) if match else None
 
@@ -309,19 +328,71 @@ def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
     return bookings
 
 
-def scrape_schedule(club_id: str, course: str, date: str) -> Schedule:
+def _parse_course_aliases_html(html: str) -> dict[str, str]:
+    """Parse the tee-sheet page's own "Area" `<select id="timetable_selection_alias">`
+    into {display_name: alias_code} — confirmed live 2026-09-07 to be per-club, not
+    universal: `COURSE_ALIASES` above (Musterhausen's confirmed 18/9/6-hole set,
+    codes COUB/COU1/COU6) turned out to be specific to that one club. A second real
+    club added the same day ("Golf Club Sonnenberg e.V.") has a completely different
+    shape — five options ("18-Loch Schleife", its own front/back 9 split, a separate
+    "9-Loch Schleife", and "Kurzplatz"), with codes like A001/1810/1811/0901/0601 that
+    share no pattern with Musterhausen's at all. Sending Musterhausen's codes to
+    Sonnenberg's server is exactly why "it doesn't pull any data" — the alias simply
+    isn't one Sonnenberg recognizes."""
+    soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="timetable_selection_alias")
+    if select is None:
+        raise NotImplementedError(
+            "fetch_course_aliases() didn't find the confirmed 'timetable_selection_alias' "
+            "<select> -- the real markup may have changed. See scraper.py's module docstring."
+        )
+    aliases: dict[str, str] = {}
+    for option in select.find_all("option"):
+        value = option.get("value", "").strip()
+        if not value.startswith("ALIAS|"):
+            continue  # a blank placeholder option, if one exists
+        code = value.removeprefix("ALIAS|")
+        name = option.get_text(strip=True)
+        aliases[name] = code
+    return aliases
+
+
+def fetch_course_aliases(club_id: str) -> dict[str, str]:
+    """This club's own real course options, fetched fresh — not assumed from
+    `COURSE_ALIASES` (Musterhausen-only) or any other club's. No login needed, same
+    as `scrape_schedule()` itself: the course selector is part of the same
+    already-public tee-sheet page. Re-checked on demand rather than cached
+    indefinitely, since there's no guarantee a club's own course lineup never
+    changes."""
+    url = club_url(club_id, TEE_SHEET_CATEGORY)
+    response = httpx.get(url, timeout=15, follow_redirects=True)
+    response.raise_for_status()
+    return _parse_course_aliases_html(response.text)
+
+
+def scrape_schedule(club_id: str, course: str, date: str, course_aliases: dict[str, str] | None = None) -> Schedule:
     """Fetch the tee sheet (no login needed) and parse one day's full schedule.
 
     Implemented and verified 2026-09-06 against the real site (Musterhausen, club id
     0000001) — a plain `httpx.get()`, no Playwright/browser required for this call.
+
+    `course_aliases` (added 2026-09-07, once a second real club exposed
+    `COURSE_ALIASES` as Musterhausen-specific — see `fetch_course_aliases()`'s own
+    docstring) is this club's own {name: alias_code} mapping. A caller that already
+    has it (tui.py, scrape_once.py — both now fetch it once per club rather than
+    assuming the hardcoded constant) should pass it through; omitting it triggers a
+    live `fetch_course_aliases()` call here as a convenience default, at the cost of
+    one extra request.
     """
-    alias = COURSE_ALIASES.get(course)
+    if course_aliases is None:
+        course_aliases = fetch_course_aliases(club_id)
+    alias = course_aliases.get(course)
     if alias is None:
-        raise ValueError(f"Unknown course {course!r} — expected one of {list(COURSE_ALIASES)}")
+        raise ValueError(f"Unknown course {course!r} for club {club_id} — expected one of {list(course_aliases)}")
     url = club_url(club_id, TEE_SHEET_CATEGORY, date=date, alias=alias)
     response = httpx.get(url, timeout=15, follow_redirects=True)
     response.raise_for_status()
-    return parse_schedule_html(response.text, date=date, course=course)
+    return parse_schedule_html(response.text, date=date, course=course, available_courses=list(course_aliases))
 
 
 def scrape_overview_areas(club_id: str, date: str) -> dict[str, tuple[int, int]]:

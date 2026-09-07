@@ -54,6 +54,22 @@ def _no_real_club_config_by_default(monkeypatch):
     monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: {})
 
 
+@pytest.fixture(autouse=True)
+def _fake_course_aliases_by_default(monkeypatch):
+    """`TeetimeApp._start()`/`_do_switch_club_or_course()` (both updated 2026-09-07,
+    see scraper.py's module docstring on why a club's own course list can no longer be
+    assumed from a hardcoded constant) call `fetch_course_aliases(club_id)` live --
+    every test here that builds a real `TeetimeApp()` would otherwise make a real
+    network request against the live pc caddie site (real club_id "0000001" used
+    throughout this file, same test-isolation gap as `_no_background_scraping` above)
+    for every single course-picking step. Defaults to Musterhausen's own confirmed
+    real course set; a test exercising a *different* club's own courses (e.g. the
+    switch-flow tests that add a second, distinct club) overrides this locally."""
+    monkeypatch.setattr(
+        tui, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": "COUB", "9 Loch Tee 1": "COU1", "6 Loch Platz": "COU6"}
+    )
+
+
 class _HostApp(App):
     """Minimal App that just pushes one screen — Textual screens need a running App to
     mount into; this stands in for the real TeetimeApp so each screen can be tested in
@@ -954,7 +970,7 @@ def test_club_picker_screen_escape_dismisses_with_none():
 
 def test_course_picker_screen_escape_dismisses_with_none():
     async def scenario():
-        app = _HostApp(tui.CoursePickerScreen(list(tui.COURSE_ALIASES)))
+        app = _HostApp(tui.CoursePickerScreen(["18 Loch Tee 1", "9 Loch Tee 1"]))
         async with app.run_test() as pilot:
             await pilot.pause()
             app.screen.action_cancel()

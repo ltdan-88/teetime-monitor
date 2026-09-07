@@ -1,5 +1,6 @@
 from src.models import Schedule, Slot, SlotMatch, SunTimes, TimeWindow, WeatherPoint
 from src.recommend import (
+    _round_duration_minutes,
     default_criteria_from_config,
     exclude_unplayable,
     weekly_picks,
@@ -200,6 +201,28 @@ def test_exclude_unplayable_uses_nine_hole_duration_for_a_6_hole_course():
     # 18:00 + 90 min (nine-hole bucket) = 19:30, before sunset -- playable.
     # 18:00 + 240 min (eighteen-hole bucket) would finish at 22:00 -- would wrongly fail.
     assert exclude_unplayable([candidate], [schedule], config) == [candidate]
+
+
+def test_round_duration_minutes_matches_hyphenated_18_hole_course_name():
+    # Found and fixed 2026-09-07: the previous regex required "Loch" right after the
+    # number with no hyphen, so a second real club's own naming ("18-Loch Schleife")
+    # silently fell through to a hardcoded default instead of actually matching 18.
+    config = {"round_duration_minutes": {"nine": 120, "eighteen": 240}}
+    assert _round_duration_minutes("18-Loch Schleife", config) == 240
+
+
+def test_round_duration_minutes_matches_hyphenated_9_hole_course_name():
+    config = {"round_duration_minutes": {"nine": 120, "eighteen": 240}}
+    assert _round_duration_minutes("9-Loch Schleife", config) == 120
+
+
+def test_round_duration_minutes_assumes_the_safe_longer_duration_when_holes_unknown():
+    # "Kurzplatz" (a short/pitch-and-putt course) has no leading number at all -- an
+    # unknown hole count assumes the *longer* 18-hole duration, since overestimating a
+    # round's length only ever costs a missed recommendation, never approves a
+    # genuinely unsafe one.
+    config = {"round_duration_minutes": {"nine": 120, "eighteen": 240}}
+    assert _round_duration_minutes("Kurzplatz", config) == 240
 
 
 def test_exclude_unplayable_passes_through_candidate_with_no_matching_schedule():

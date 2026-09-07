@@ -3,6 +3,12 @@ from datetime import datetime, timedelta, timezone
 from src import booking_watch, scrape_once
 from src.models import ConfirmedBooking, Schedule, Slot
 
+# scrape_due_for_club() now fetches each club's own course list live (fetch_course_aliases()
+# -- see scraper.py's module docstring on why a hardcoded constant isn't safe across clubs)
+# rather than assuming a fixed set, so any test exercising that path needs this mocked --
+# these are Musterhausen's own confirmed real values, reused as fake test data.
+_FAKE_COURSES = {"18 Loch Tee 1": "COUB", "9 Loch Tee 1": "COU1", "6 Loch Platz": "COU6"}
+
 
 def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
@@ -175,6 +181,7 @@ def test_scrape_due_for_club_skips_and_returns_empty_when_no_club_id(tmp_path, m
 
 def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
     fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
@@ -182,16 +189,31 @@ def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_pat
 
     result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
-    assert result == [fake_change] * len(scrape_once.COURSE_ALIASES)
+    assert result == [fake_change] * len(_FAKE_COURSES)
+
+
+def test_scrape_due_for_club_skips_club_and_returns_empty_when_course_fetch_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    def fake_fetch(club_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", fake_fetch)
+
+    result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+
+    assert result == []
+    assert "couldn't load its course list" in capsys.readouterr().out
 
 
 def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     calls = []
 
     def fake_run(club_id, course, date, config, slug):
-        if course == list(scrape_once.COURSE_ALIASES)[0]:
+        if course == list(_FAKE_COURSES)[0]:
             raise RuntimeError("boom")
         calls.append(course)
         return []
@@ -201,12 +223,13 @@ def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path,
     result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
     assert result == []
-    assert len(calls) == len(scrape_once.COURSE_ALIASES) - 1  # every other course still ran
+    assert len(calls) == len(_FAKE_COURSES) - 1  # every other course still ran
     assert "failed" in capsys.readouterr().out
 
 
 def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
     monkeypatch.setattr(
         scrape_once.club_config,
@@ -228,6 +251,7 @@ def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     # main() already loads each club's config to check _should_scrape() -- it should
     # pass that same config straight to run() rather than making run() re-read it.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda: ["musterhausen"])
     club_config_dict = {"club_id": "0000001", "overview_days": 1}
     monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda slug: club_config_dict)
