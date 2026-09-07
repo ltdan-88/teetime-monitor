@@ -11,24 +11,27 @@ the deterministic recommendation engine, the three Claude API calls, local-histo
 analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
-booking. The TUI's single-day detail screen (the tee sheet itself, confirming a
-booking, and the booking-watch banners) is real too, and it now opens straight into a
-club browser: search pc caddie's whole club directory, pick a favorite, or just type a
-club id — nothing has to be saved to config first, and saving a club only ever means
-"favorite" (`f`). There's also a credentials setup screen (`credentials_screen.py`) it
-opens automatically the moment it needs a login and none is configured yet. The TUI
-keeps its data current on its own — it re-scrapes the active club's whole booking
-window once on open and periodically while it stays running, not just when `r` is
-pressed — see "Project structure" below.
+booking. The TUI opens straight into a club browser: search pc caddie's whole club
+directory, pick a favorite, or just type a club id — nothing has to be saved to config
+first, and saving a club only ever means "favorite" (`f`). Picking a club/course lands
+on the multi-day overview — the app's actual home screen (added 2026-09-07): one row
+per bookable day with weather, a heat-strip of how full the day is, and that day's own
+pick, plus "This week's picks" once you've set availability rules. Enter drills into
+the single-day tee sheet (confirming a booking, the booking-watch banners), `escape`
+pops back. There's also a credentials setup screen (`credentials_screen.py`) it opens
+automatically the moment it needs a login and none is configured yet. The TUI keeps
+its data current on its own — it re-scrapes the active club's whole booking window
+once on open and periodically while it stays running, not just when `r` is pressed —
+see "Project structure" below.
 
 The scraper was checked against **79 real pc caddie clubs** on 2026-09-07 (not just
 the two it was built against), across German, Swiss, Luxembourgish and
 Italian-speaking clubs; every one of them now either loads correctly or reports
 cleanly that the club publishes no tee sheet. See `src/scraper.py`'s module docstring
 for what that sweep found and fixed — several of the failures were serious, including
-one that made the tool unusable for nearly half of all clubs. Still to come: the
-multi-day overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
-[`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
+one that made the tool unusable for nearly half of all clubs. Still to come: ad hoc
+search and the crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased
+build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
@@ -76,8 +79,7 @@ multi-day overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`]
   visible for reference, but a clear visual cue you can't book them anymore. A slot
   that already matches your saved availability rules (and isn't rained/wind/dark
   out) gets a "★" next to its time — the deterministic half of Phase 3's
-  recommendation engine, applied to today's view directly rather than waiting on the
-  full multi-day overview screen
+  recommendation engine, the same pipeline behind the overview's own picks below
 - Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
@@ -107,7 +109,15 @@ multi-day overview, ad hoc search, and crowd-heatmap screens. See [`ROADMAP.md`]
   scrape interval without hand-editing YAML — run it with
   `python -m src.settings_screen <club-id>`. Built ahead of the main tee-sheet TUI,
   since these are the dials you'd actually want to reach for day to day
-- A 4-5 day at-a-glance overview as the home screen, drilling into single-day detail
+- A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
+  2026-09-07) — one row per day the club is actually taking bookings for right now
+  (not a fixed count: a club's real window ranges 1-31 days, checked live each
+  refresh), showing weather (or a tournament/rain-all-day flag in its place), a
+  six-block "heat strip" for how full 08:00-20:00 is, and that day's own pick — a
+  confirmed booking, a recommended ★ slot, or why neither applies. "This week's
+  picks" lists the same recommendations across every loaded day, shown only once
+  you've actually set availability rules. `enter` drills into that day's own
+  single-day detail table; `escape` there pops back
 - Search for the one-off exceptions: type in "3 players, weekdays only, after 15:00,
   20 min clear of other flights" and get a ranked list for that specific case. Party
   size and time windows are checked exactly (plain code); weighing rain/wind/
@@ -192,8 +202,8 @@ launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 Check on it with `cat ~/Library/Logs/teetime-monitor.log` (empty means no errors);
 remove it later with `launchctl unload ...` plus deleting the plist file.
 
-`tui.py`'s multi-day overview, ad hoc search, and crowd-heatmap screens aren't built
-yet — see "Project structure" above for what's real today versus still a stub.
+`tui.py`'s ad hoc search and the crowd-heatmap screen aren't built yet — see "Project
+structure" above for what's real today versus still a stub.
 
 ## Project structure
 
@@ -231,8 +241,8 @@ teetime-monitor/
 │   ├── theme.py            # 10 color themes, same set as brew-launcher (implemented)
 │   ├── i18n.py             # English/German UI text lookup (implemented)
 │   ├── user_config.py      # shared KEY=value config file, used by theme.py + i18n.py (implemented)
-│   └── tui.py               # main Textual app: club browser, course picker, day detail (implemented);
-│                            #   multi-day overview, search, heatmap screens (not yet built)
+│   └── tui.py               # main Textual app: club browser, course picker, multi-day
+│                            #   overview, day detail (implemented); search, heatmap (not yet built)
 └── tests/
     ├── test_models.py
     ├── test_club_config.py

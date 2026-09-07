@@ -8,7 +8,7 @@ from textual.widgets import DataTable, Input, OptionList, Static
 from src import i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
-from src.models import Schedule, Slot
+from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
 
 
 @pytest.fixture(autouse=True)
@@ -70,6 +70,19 @@ def _fake_course_aliases_by_default(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _fake_available_dates_by_default(monkeypatch):
+    """`OverviewScreen.load_overview()` (added 2026-09-07) calls
+    `fetch_available_dates(club_id)` live to know which of its day-rows are actually
+    open for booking -- every test here that reaches a real `OverviewScreen` would
+    otherwise make a real network request, same test-isolation gap as
+    `_fake_course_aliases_by_default` above. Defaults to "every attempted date is
+    open" (an empty real fetch result also means this, per that function's own
+    fallback, so this mirrors the common case) rather than a fixed list, since tests
+    seed schedules for whatever dates they need regardless."""
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+
 class _HostApp(App):
     """Minimal App that just pushes one screen — Textual screens need a running App to
     mount into; this stands in for the real TeetimeApp so each screen can be tested in
@@ -95,16 +108,31 @@ def _day_detail(club_id="0000001", club_slug="musterhausen", course="18 Loch Tee
     return tui.DayDetailScreen(club_id, club_slug, course, date)
 
 
-async def _reach_day_detail(app, pilot, club_id="0000001"):
-    """Drive the new club-first startup flow (2026-09-07) up to the tee sheet.
+async def _reach_overview(app, pilot, club_id="0000001"):
+    """Drive the club-first startup flow (2026-09-07) up to the multi-day overview --
+    the app's actual home screen once a club/course is picked.
 
     The app now always opens on `ClubBrowserScreen` — a club no longer has to be saved
     to config before it can be looked at, so there's no "only one saved club, skip the
-    picker" shortcut at launch any more. Every test that wants a `DayDetailScreen` from
-    a real `TeetimeApp` goes through here."""
+    picker" shortcut at launch any more."""
     await pilot.pause()
     assert isinstance(app.screen, tui.ClubBrowserScreen)
     app.screen.dismiss(club_id)
+    await pilot.pause()
+    await pilot.pause()
+    assert isinstance(app.screen, tui.OverviewScreen)
+
+
+async def _reach_day_detail(app, pilot, club_id="0000001"):
+    """As `_reach_overview()`, then drills into the first day row -- for the many
+    existing tests written against `DayDetailScreen` directly, from before
+    `OverviewScreen` (added 2026-09-07) became the actual screen a club/course pick
+    lands on."""
+    await _reach_overview(app, pilot, club_id)
+    table = app.screen.query_one(DataTable)
+    table.focus()  # cursor already defaults to row 0 -- today's own row
+    await pilot.pause()
+    await pilot.press("enter")
     await pilot.pause()
     await pilot.pause()
 
@@ -684,6 +712,305 @@ def test_day_detail_action_confirm_derives_holes_from_a_nine_hole_course(tmp_pat
     _run(scenario())
 
 
+def test_day_detail_escape_pops_back_to_the_overview_and_reloads_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        overview = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(overview)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            reload_calls = []
+            monkeypatch.setattr(overview, "load_overview", lambda: reload_calls.append("reload"))
+            await app.push_screen(_day_detail())
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.screen is overview
+            assert reload_calls == ["reload"]
+
+    _run(scenario())
+
+
+def test_day_detail_escape_pops_quietly_with_no_overview_underneath():
+    # Reached directly (a test, or any future standalone entry point) rather than
+    # via OverviewScreen's own drill-down -- popping back to whatever's actually
+    # there (here, the test harness's own blank base screen) must not raise, and
+    # load_overview() is simply never called since it isn't an OverviewScreen.
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, tui.DayDetailScreen)
+
+    _run(scenario())
+
+
+# --- OverviewScreen (ROADMAP.md Phase 4) -- pure helper functions first --------------
+
+
+def _weather(time, prob=10, temp=20.0):
+    return WeatherPoint(time=time, precipitation_probability=prob, temperature_c=temp)
+
+
+def test_heat_strip_blocks_colors_by_average_fill_ratio():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="08:10", booked=0, capacity=4),  # 08-10 window: open
+            Slot(time="10:10", booked=2, capacity=4),  # 10-12 window: mid
+            Slot(time="18:10", booked=4, capacity=4),  # 18-20 window: full
+        ],
+    )
+    blocks = tui._heat_strip_blocks(schedule)
+    assert blocks[0] == "open"
+    assert blocks[1] == "mid"
+    assert blocks[5] == "full"
+
+
+def test_heat_strip_blocks_is_blocked_with_no_real_slot_in_the_window():
+    # Nothing at all in 12-14, and an event fills every slot in 14-16 -- both read as
+    # "blocked", not a fill ratio that would be meaningless (0 slots) or misleading
+    # (an event isn't real occupancy, see scraper.py's module docstring).
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="14:10", booked=4, capacity=4, block_reason="Golf Beginner Kurs")],
+    )
+    blocks = tui._heat_strip_blocks(schedule)
+    assert blocks[2] == "blocked"  # 12-14, no slot at all
+    assert blocks[3] == "blocked"  # 14-16, only an event
+
+
+def test_is_rain_all_day_true_when_every_daytime_point_is_wet():
+    weather = [_weather("09:00", prob=80), _weather("15:00", prob=90)]
+    assert tui._is_rain_all_day(weather) is True
+
+
+def test_is_rain_all_day_false_when_only_part_of_the_day_is_wet():
+    weather = [_weather("09:00", prob=90), _weather("15:00", prob=5)]
+    assert tui._is_rain_all_day(weather) is False
+
+
+def test_is_rain_all_day_false_with_no_weather_at_all():
+    assert tui._is_rain_all_day([]) is False
+
+
+def test_weather_summary_shows_sun_icon_and_temp_range():
+    weather = [_weather("09:00", prob=5, temp=22.0), _weather("15:00", prob=10, temp=14.0)]
+    assert tui._weather_summary(weather) == "☀ 22°/14°"
+
+
+def test_weather_summary_shows_partial_cloud_icon_once_rain_is_plausible():
+    weather = [_weather("09:00", prob=40, temp=18.0)]
+    assert tui._weather_summary(weather).startswith("⛅")
+
+
+def test_weather_summary_none_without_daytime_forecast():
+    assert tui._weather_summary([]) is None
+
+
+def test_day_tag_prefers_a_tournament_over_rain_or_weather():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[],
+        weather=[_weather("09:00", prob=95)],
+        events=["Herbstturnier"],
+    )
+    assert tui._day_tag_or_weather(schedule) == "🏆 Herbstturnier"
+
+
+def test_day_tag_shows_rain_all_day_over_a_plain_weather_line():
+    schedule = Schedule(
+        date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=95)]
+    )
+    assert "rain all day" in tui._day_tag_or_weather(schedule)
+
+
+def test_day_tag_falls_back_to_the_weather_summary():
+    schedule = Schedule(
+        date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=5, temp=20.0)]
+    )
+    assert tui._day_tag_or_weather(schedule) == "☀ 20°/20°"
+
+
+def test_availability_pipeline_empty_without_availability_configured():
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+    assert tui._availability_pipeline(schedule, {}) == ([], [])
+
+
+def test_day_pick_text_shows_a_confirmed_booking_first():
+    booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00", source="manual")
+    text = tui._day_pick_text(None, {}, booking, has_pending_change=False)
+    assert "14:00" in text
+    assert "📌" in text
+    assert "⚠" not in text
+
+
+def test_day_pick_text_flags_a_pending_booking_watch_change():
+    booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00", source="manual")
+    text = tui._day_pick_text(None, {}, booking, has_pending_change=True)
+    assert "⚠" in text
+
+
+def test_day_pick_text_dash_without_availability_configured():
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+    assert tui._day_pick_text(schedule, {}, None, False) == "[dim]—[/]"
+
+
+def test_day_pick_text_stars_the_earliest_playable_match():
+    config = {"availability": {"weekday_window": {"after": "08:00"}}}
+    schedule = Schedule(
+        date="2026-09-07",  # a Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="10:00", booked=0, capacity=4), Slot(time="09:00", booked=0, capacity=4)],
+    )
+    assert tui._day_pick_text(schedule, config, None, False) == "[yellow]★[/] 09:00"
+
+
+def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"avoid_rain": True},
+    }
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4)],
+        weather=[_weather("09:00", prob=90)],
+    )
+    assert "no dry picks" in tui._day_pick_text(schedule, config, None, False)
+
+
+# --- OverviewScreen itself ------------------------------------------------------------
+
+
+def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 5  # club.example.yaml's overview_days default
+
+    _run(scenario())
+
+
+def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [tui._TODAY()])  # only today
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
+            assert "not open" in row[3]
+
+    _run(scenario())
+
+
+def test_overview_screen_shows_no_data_placeholder_for_an_unscraped_open_day(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert "…" in row[1]
+
+    _run(scenario())
+
+
+def test_overview_screen_hides_picks_section_without_availability_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: {})
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#picks", Static).content) == ""
+
+    _run(scenario())
+
+
+def test_overview_screen_shows_picks_once_availability_is_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config",
+        lambda slug, *a, **k: {"availability": {"weekday_window": {"after": "08:00"}}},
+    )
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            content = str(app.screen.query_one("#picks", Static).content)
+            assert "This week's picks" in content
+            assert "09:00" in content
+
+    _run(scenario())
+
+
+def test_overview_screen_row_selected_opens_that_dates_day_detail_screen(tmp_path, monkeypatch):
+    from datetime import date as date_cls
+    from datetime import timedelta
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    tomorrow = (date_cls.fromisoformat(tui._TODAY()) + timedelta(days=1)).isoformat()
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            table.focus()
+            await pilot.press("down")  # tomorrow's row
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert app.screen.date == tomorrow
+
+    _run(scenario())
+
+
+def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp_path, monkeypatch):
+    # club_slug=None (a club reached by id, never favorited) must not try to load a
+    # config file that doesn't exist -- same handling as DayDetailScreen's own.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#picks", Static).content) == ""
+
+    _run(scenario())
+
+
 # --- ClubBrowserScreen / CoursePickerScreen --------------------------------------------
 
 
@@ -995,12 +1322,22 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
         proceed.wait(timeout=2)
         return []
 
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", fake_scrape)
-
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
+            # Reach day detail first, on the fast no-op scrape the autouse fixture
+            # already installs -- only then swap in the slow one and trigger it
+            # directly (same pattern as the sibling periodic_scrape tests above).
+            # Racing the slow scrape against _reach_day_detail's own navigation
+            # (through OverviewScreen, added 2026-09-07) would show "Refreshing…" on
+            # whichever screen was current when the scrape *started*, not the one
+            # navigated to afterward -- a real but narrow inconsistency, not what
+            # this test is actually about.
             await _reach_day_detail(app, pilot)
+            monkeypatch.setattr(scrape_once, "scrape_due_for_club", fake_scrape)
+            app._periodic_scrape_running = False
+            app._periodic_scrape()
+
             await asyncio.get_event_loop().run_in_executor(None, started.wait, 2)
             await pilot.pause()
             assert "Refreshing" in str(app.screen.query_one("#status", Static).content)
@@ -1050,9 +1387,14 @@ def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, mon
             app.screen.dismiss("18 Loch Tee 1")
             await pilot.pause()
             await pilot.pause()
-            assert isinstance(app.screen, tui.DayDetailScreen)
+            # Switching lands back on the overview (its own home screen), not
+            # directly on a DayDetailScreen -- pops back to the app's base first,
+            # so the old DayDetailScreen this switch started from isn't left buried
+            # underneath.
+            assert isinstance(app.screen, tui.OverviewScreen)
             assert app.screen.course == "18 Loch Tee 1"
             assert app.screen.club_id == "0000001"
+            assert len(app.screen_stack) == 2  # base + the one fresh OverviewScreen
 
     _run(scenario())
 
@@ -1085,7 +1427,7 @@ def test_switch_action_shows_club_picker_when_multiple_clubs_saved(tmp_path, mon
             app.screen.dismiss("6 Loch Platz")
             await pilot.pause()
             await pilot.pause()
-            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert isinstance(app.screen, tui.OverviewScreen)
             assert app.screen.club_id == "0352001"
             assert app.screen.club_slug == "guest-club"
             assert app.screen.course == "6 Loch Platz"
@@ -1252,7 +1594,7 @@ def test_switch_action_reaches_an_unsaved_club_from_the_directory(tmp_path, monk
             await pilot.pause()
             await pilot.pause()
 
-            assert isinstance(app.screen, tui.DayDetailScreen)
+            assert isinstance(app.screen, tui.OverviewScreen)
             assert app.screen.club_id == "0491605"
             assert app.screen.club_slug is None  # visited, not saved
             assert app.screen.course == "9 Loch Tee 1"

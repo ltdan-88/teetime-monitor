@@ -1,13 +1,12 @@
-"""Textual app entry point — the single-day detail screen (ROADMAP.md Phase 1), plus
-club/course selection (Phase 0). Implemented 2026-09-06, once every module it depends
-on (storage.py, scraper.py, booking_watch.py, club_config.py) was real.
+"""Textual app entry point — the multi-day overview (ROADMAP.md Phase 4) and single-day
+detail screen (Phase 1), plus club/course selection (Phase 0). `DayDetailScreen`
+implemented 2026-09-06; `OverviewScreen` added 2026-09-07 once the clubhouse-overview
+mockup's design questions were resolved (see ROADMAP.md Phase 4 for that history).
 
-Not the full app yet — the Phase 4 multi-day overview, ad hoc search, and Phase 5
-heatmap screens aren't built (they depend on `scraper.scrape_overview_areas()` and
-`search.py`/`ai_assist.rank_slots()`/`analytics.crowd_heatmap()` being wired together
-for real use, not just unit-tested in isolation — a deliberate stopping point to check
-this screen against the already-agreed mockups before building further, rather than
-guessing blind at three more screens' worth of layout).
+Not the full app yet — ad hoc search and the Phase 5 crowd-heatmap screen aren't built
+(they depend on a typed-in-criteria form and `analytics.crowd_heatmap()` being wired
+into a real screen, not just unit-tested in isolation) — see `OverviewScreen`'s own
+docstring for why its footer deliberately doesn't bind `/` or `h` yet.
 
 Startup flow:
 1. Club browser (`ClubBrowserScreen`) — the home screen. Search pc caddie's whole club
@@ -18,10 +17,15 @@ Startup flow:
 2. Course picker (`CoursePickerScreen`) — skipped if the club's saved YAML (if it has
    one) sets a valid `default_course`, or if the club has only one course at all —
    which is 46% of them, per the cross-club sweep in scraper.py's module docstring.
-3. `DayDetailScreen` — the actual tee sheet, opening on today's date unless
-   `_initial_date()` finds today's own cached schedule already fully in the past
-   (see that function's docstring — direct feedback 2026-09-07: showing "today" once
-   the course has closed for the day isn't useful), in which case it opens on
+3. `OverviewScreen` — the actual home screen once a club/course is picked: one row per
+   attempted day (weekday + exact ISO date, weather or a tournament/rain tag, a
+   six-block "heat strip" for 08:00-20:00, and that day's own pick — a confirmed
+   booking, a recommended ★ slot, or why neither applies), plus "This week's picks"
+   below (only shown once `availability` rules are configured). Enter drills into:
+4. `DayDetailScreen` — one day's own tee sheet, opening on that exact date unless it's
+   today and `_initial_date()` finds today's own cached schedule already fully in the
+   past (see that function's docstring — direct feedback 2026-09-07: showing "today"
+   once the course has closed for the day isn't useful), in which case it opens on
    tomorrow instead. One row per slot: Time | Occupancy | Players (or a block reason
    in place of both, for an event/lesson/advance-booking-window row). `r` re-scrapes
    live (scraper.scrape_schedule() +
@@ -31,12 +35,14 @@ Startup flow:
    `c` opens `ConfirmBookingScreen`, a small form writing `storage.save_confirmed_booking()`
    — the manual fallback for the same-day-booking timing gap described in ROADMAP.md
    Phase 1, not the primary path (scrape_my_reservations() being real is). `x`
-   acknowledges any booking_watch.py banners currently shown. `q` quits.
+   acknowledges any booking_watch.py banners currently shown. `escape` pops back to
+   the overview above. `q` quits.
 
 Any unacknowledged `storage.load_unacknowledged_booking_changes()` rows show as banners
 at the top of the day-detail screen on open — this is what actually delivers the
 "warn me if my booking's situation changes" feature end to end: scrape_once.py detects
-and persists a change, this screen is what a person actually sees it in.
+and persists a change, this screen is what a person actually sees it in. The overview
+surfaces the same fact more compactly, as a "📌 HH:MM booked ⚠" pick for that day.
 
 Color themes (added 2026-09-06, "I'd like color themes like in brew launcher"): see
 theme.py for the 10 named themes and how they resolve/persist. Applied once at
@@ -122,6 +128,7 @@ from .scrape_once import _db_path
 from .scraper import (
     NoTeeSheetError,
     _holes_from_course_label,
+    fetch_available_dates,
     fetch_course_aliases,
     scrape_schedule,
 )
@@ -497,6 +504,318 @@ class ConfirmBookingScreen(Screen[bool]):
         self.dismiss(True)
 
 
+# --- OverviewScreen (ROADMAP.md Phase 4) -- the multi-day home screen, added
+# 2026-09-07 once the clubhouse-overview mockup's design questions were resolved.
+# Pure helper functions first (heat-strip coloring, weather/tag text, the shared
+# availability pipeline), then the screen itself. -------------------------------------
+
+_HEAT_STRIP_WINDOWS = [
+    ("08:00", "10:00"),
+    ("10:00", "12:00"),
+    ("12:00", "14:00"),
+    ("14:00", "16:00"),
+    ("16:00", "18:00"),
+    ("18:00", "20:00"),
+]
+
+# Same three fill-ratio thresholds as _fill_style() above, just averaged across
+# however many real (non-block_reason) slots fall in each 2-hour window instead of
+# judging one slot at a time.
+_HEAT_BLOCK_STYLES = {"open": "green", "mid": "yellow", "full": "bold red", "blocked": "dim"}
+
+# A day counts as "rain all day" for the overview's tag line when every daytime
+# forecast point is at least this likely to rain — a display heuristic, deliberately
+# separate from a club's own configured avoid_rain_probability_percent (recommend.py),
+# which governs the hard exclude_unplayable() filter, not this summary line.
+_RAIN_ALL_DAY_THRESHOLD_PERCENT = 70
+
+
+def _heat_strip_blocks(schedule: Schedule) -> list[str]:
+    """One "open"/"mid"/"full"/"blocked" class per 2-hour window across the day
+    (08:00-20:00). A window with no real slot in it at all (before opening, after
+    closing, or every slot in it is block_reason'd — an event/lesson/advance-booking
+    notice, not real occupancy) reports "blocked" rather than an average that would
+    be meaningless or misleading."""
+    blocks = []
+    for start, end in _HEAT_STRIP_WINDOWS:
+        real = [s for s in schedule.slots if start <= s.time < end and s.block_reason is None]
+        capacity = sum(s.capacity for s in real)
+        if not real or capacity <= 0:
+            blocks.append("blocked")
+            continue
+        ratio = sum(s.booked for s in real) / capacity
+        if ratio >= 1.0:
+            blocks.append("full")
+        elif ratio >= 0.5:
+            blocks.append("mid")
+        else:
+            blocks.append("open")
+    return blocks
+
+
+def _heat_strip_markup(schedule: Schedule) -> str:
+    return "".join(f"[{_HEAT_BLOCK_STYLES[block]}]■[/]" for block in _heat_strip_blocks(schedule))
+
+
+def _is_rain_all_day(weather: list) -> bool:
+    daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
+    if not daytime:
+        return False
+    return all((w.precipitation_probability or 0) >= _RAIN_ALL_DAY_THRESHOLD_PERCENT for w in daytime)
+
+
+def _weather_summary(weather: list) -> str | None:
+    """"☀ 24°/14°" for a dry day, "⛅ 21°/13°" once rain becomes plausible but isn't
+    the whole day (see _is_rain_all_day for that case, which replaces this line
+    entirely rather than combining with it). None with no daytime forecast at all —
+    a schedule that was never weather-attached (e.g. `location` not configured yet)."""
+    daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
+    temps = [w.temperature_c for w in daytime if w.temperature_c is not None]
+    if not daytime or not temps:
+        return None
+    avg_rain_chance = sum((w.precipitation_probability or 0) for w in daytime) / len(daytime)
+    icon = "☀" if avg_rain_chance < 20 else "⛅"
+    return f"{icon} {max(temps):.0f}°/{min(temps):.0f}°"
+
+
+def _day_tag_or_weather(schedule: Schedule) -> str:
+    """The card's second line: a tournament flag beats a rain-all-day flag beats a
+    plain weather summary — a tournament is the single most consequential fact about
+    a day (it's not just weather-uncomfortable, whole tee times are blocked), and
+    "it's raining all day anyway" is more useful at a glance than exact temperatures.
+    `schedule.events` names come straight from the scraped event/lesson label (see
+    scraper.py's module docstring) — untranslated, same as every other block_reason
+    text in this app, since it's the club's own text, not this app's UI chrome."""
+    if schedule.events:
+        return f"🏆 {schedule.events[0]}"
+    if _is_rain_all_day(schedule.weather):
+        return f"🌧 {i18n.t('overview.rain_all_day')}"
+    return _weather_summary(schedule.weather) or ""
+
+
+def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list]:
+    """(deterministic candidates, still-playable after weather/daylight exclusion)
+    for one schedule against a club's saved `availability` rules — the exact same
+    pipeline `recommend.weekly_picks()` uses, factored out so both the per-day pick
+    column below and `DayDetailScreen`'s own ★ marker derive from one place. `([],
+    [])` with no `availability` configured at all — nothing to check against, not an
+    error."""
+    if not config.get("availability"):
+        return [], []
+    criteria = recommend.default_criteria_from_config(config)
+    candidates = search_slots([schedule], criteria)
+    playable = recommend.exclude_unplayable(candidates, [schedule], config)
+    return candidates, playable
+
+
+def _day_pick_text(
+    schedule: Schedule | None, config: dict, confirmed: ConfirmedBooking | None, has_pending_change: bool
+) -> str:
+    """The overview's Pick column for one day, in priority order:
+
+    1. A confirmed booking for that date beats everything — it's not a suggestion,
+       it's what's actually happening. "⚠" alongside it means `booking_watch.py`
+       found an unacknowledged change since it was booked (see DayDetailScreen's own
+       banners for the detail).
+    2. Otherwise, if availability rules are configured and this day has a schedule to
+       check: a recommended "★ HH:MM" (the earliest still-playable match), or "no dry
+       picks" specifically when candidates existed before the weather/daylight check
+       but none survived it — worth saying explicitly rather than looking identical
+       to "nothing matches your rules at all".
+    3. A plain dash otherwise — no rules configured, no schedule yet, or genuinely no
+       candidates for the day (e.g. outside every configured time window)."""
+    if confirmed is not None and confirmed.time:
+        text = f"📌 {confirmed.time} {i18n.t('overview.booked')}"
+        if has_pending_change:
+            text += " [red]⚠[/]"
+        return text
+    if schedule is None or not config.get("availability"):
+        return "[dim]—[/]"
+    candidates, playable = _availability_pipeline(schedule, config)
+    if not candidates:
+        return "[dim]—[/]"
+    if playable:
+        return f"[yellow]★[/] {min(candidate.slot.time for candidate in playable)}"
+    return f"[dim italic]{i18n.t('overview.no_dry_picks')}[/]"
+
+
+OVERVIEW_MAX_PICKS_SHOWN = 5
+
+
+class OverviewScreen(Screen[None]):
+    """The multi-day at-a-glance home screen — one row per attempted day: weekday +
+    exact ISO date, weather (or a tournament/rain tag in its place), a six-block "heat
+    strip" showing how full 08:00-20:00 is in 2-hour windows, and that day's own pick.
+    "This week's picks" below lists the same recommendation across every loaded day —
+    shown only once `availability` rules are actually configured (direct feedback on
+    the mockup: an unconfigured club showing "no picks" on every single day would
+    read as broken, not just empty).
+
+    Data comes from whatever's already been scraped (`storage.load_latest_schedule()`
+    per day), same as `DayDetailScreen` — opening this screen never blocks on a live
+    fetch; `TeetimeApp._periodic_scrape()` (on open, and on a timer) is what keeps it
+    current, exactly as it already did for the single-day view.
+
+    How many days to attempt, and which of those are actually open for booking, are
+    two separate questions — see `_display_dates()` and `scraper.fetch_available_dates()`'s
+    own docstring for why a club's real booking window can be shorter (or longer)
+    than the configured `overview_days`; a day beyond it renders as "not open for
+    booking yet" rather than a misleadingly empty schedule.
+
+    Enter drills into `DayDetailScreen` for the highlighted day's exact date; escape
+    there pops back here (see that screen's `action_back_to_overview()`). Deliberately
+    doesn't yet bind `/` (ad hoc search) or `h` (crowd heatmap) — those are separate,
+    still-unbuilt screens (ROADMAP.md Phase 4/5); adding the keys now would promise
+    something that isn't there yet."""
+
+    BINDINGS = [
+        ("s", "switch", "Switch club/course"),
+        ("t", "command_palette", "Commands"),
+        ("q", "quit", "Quit"),
+    ]
+    _FOOTER_BINDINGS = [
+        ("s", "binding.switch"),
+        ("t", "binding.commands"),
+        ("q", "binding.quit"),
+    ]
+
+    def __init__(self, club_id: str, club_slug: str | None, course: str, club_name: str = "") -> None:
+        super().__init__()
+        self.club_id = club_id
+        # None for a club being visited without saving it (see ClubBrowserScreen) —
+        # an ordinary state, same as DayDetailScreen's own club_slug.
+        self.club_slug = club_slug
+        self.club_name = club_name
+        self.course = course
+        self._row_dates: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("", id="status")
+        yield DataTable(id="overview-table")
+        yield Static("", id="picks")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def on_mount(self) -> None:
+        table = self.query_one(DataTable)
+        table.add_columns(i18n.t("table.day"), i18n.t("table.weather"), i18n.t("table.heat"), i18n.t("table.pick"))
+        table.cursor_type = "row"
+        self._set_title()
+        self.load_overview()
+
+    @property
+    def db_path(self):
+        return _db_path(self.club_id)
+
+    def _set_title(self) -> None:
+        label = self.club_name or self.club_slug or self.club_id
+        star = "★ " if self.club_slug else ""
+        self.title = f"{star}{label} — {self.course}"
+
+    def _config(self) -> dict:
+        if self.club_slug is None:
+            return {}  # a club being visited, not saved — no per-club settings at all
+        try:
+            return club_config.load_club_config(self.club_slug)
+        except FileNotFoundError:
+            return {}
+
+    def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
+        """(every date to attempt a row for, the subset of those actually open for
+        booking). `overview_days` (config, default 5) is how many day-rows to
+        attempt, not a promise that all of them are bookable — a real fetch failure,
+        or a club whose page has no date selector at all, means "assume every
+        attempted date is open" (the old, pre-2026-09-07 behavior) rather than
+        greying out a window this call simply couldn't determine."""
+        display_days = config.get("overview_days", 5)
+        today = date_cls.fromisoformat(_TODAY())
+        dates = [(today + timedelta(days=offset)).isoformat() for offset in range(display_days)]
+        try:
+            open_dates = set(fetch_available_dates(self.club_id))
+        except Exception:  # noqa: BLE001 — see docstring: assume everything attempted is open
+            return dates, set(dates)
+        return (dates, open_dates) if open_dates else (dates, set(dates))
+
+    def load_overview(self) -> None:
+        config = self._config()
+        dates, open_dates = self._display_dates(config)
+        table = self.query_one(DataTable)
+        table.clear()
+        self._row_dates = []
+
+        confirmed_by_date = {
+            booking.date: booking
+            for booking in storage.load_all_confirmed_bookings(path=self.db_path)
+            if booking.course == self.course
+        }
+        pending_change_dates = {
+            change["date"] for change in storage.load_unacknowledged_booking_changes(path=self.db_path)
+        }
+
+        schedules: list[Schedule] = []
+        for one_date in dates:
+            self._row_dates.append(one_date)
+            weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
+            suffix = f" {i18n.t('overview.today_suffix')}" if one_date == _TODAY() else ""
+            day_cell = f"{weekday} {one_date}{suffix}"
+
+            if one_date not in open_dates:
+                table.add_row(
+                    f"[dim]{day_cell}[/]", "[dim]—[/]", "[dim]—[/]", f"[dim]{i18n.t('overview.not_open_yet')}[/]"
+                )
+                continue
+
+            schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
+            if schedule is not None and schedule.slots:
+                schedules.append(schedule)
+                weather_cell = _day_tag_or_weather(schedule) or "[dim]—[/]"
+                heat_cell = _heat_strip_markup(schedule)
+            else:
+                weather_cell = "[dim]…[/]"
+                heat_cell = "[dim]……[/]"
+            pick_cell = _day_pick_text(schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates)
+            table.add_row(day_cell, weather_cell, heat_cell, pick_cell)
+
+        self._update_picks(schedules, config)
+
+    def _update_picks(self, schedules: list[Schedule], config: dict) -> None:
+        picks_widget = self.query_one("#picks", Static)
+        if not config.get("availability"):
+            picks_widget.update("")  # resolved design question: only show once configured
+            return
+        picks = recommend.weekly_picks(schedules, config)
+        if not picks:
+            picks_widget.update(f"\n[dim]{i18n.t('overview.no_matches')}[/]")
+            return
+        lines = [f"\n[bold]{i18n.t('overview.picks_title')}[/]"]
+        for pick in picks[:OVERVIEW_MAX_PICKS_SHOWN]:
+            weekday = i18n.t(f"weekday.{date_cls.fromisoformat(pick.date).weekday()}")
+            line = f"[yellow]★[/] {weekday} {pick.date} · {pick.slot.time}"
+            if pick.reasons:
+                line += f"  [dim]{', '.join(pick.reasons)}[/]"
+            lines.append(line)
+        picks_widget.update("\n".join(lines))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if not (0 <= event.cursor_row < len(self._row_dates)):
+            return
+        date = self._row_dates[event.cursor_row]
+        self.app.push_screen(
+            DayDetailScreen(self.club_id, self.club_slug, self.course, date, club_name=self.club_name)
+        )
+
+    def action_switch(self) -> None:
+        # Same delegation as DayDetailScreen.action_switch() — push_screen_wait()
+        # needs to run on the App, see TeetimeApp.action_switch_club_or_course().
+        self.app.action_switch_club_or_course()
+
+    def action_command_palette(self) -> None:
+        self.app.action_command_palette()
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
 class DayDetailScreen(Screen[None]):
     """The single-day tee sheet: Time | Occupancy | Players, colored by fill ratio."""
 
@@ -507,6 +826,7 @@ class DayDetailScreen(Screen[None]):
         ("p", "prev_day", "Previous day"),
         ("s", "switch", "Switch club/course"),
         ("x", "dismiss_banners", "Dismiss banners"),
+        ("escape", "back_to_overview", "Overview"),
         ("t", "command_palette", "Commands"),
         ("q", "quit", "Quit"),
     ]
@@ -518,6 +838,7 @@ class DayDetailScreen(Screen[None]):
         ("p", "binding.prev_day"),
         ("s", "binding.switch"),
         ("x", "binding.dismiss_banners"),
+        ("escape", "binding.overview"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
     ]
@@ -604,31 +925,25 @@ class DayDetailScreen(Screen[None]):
 
     def _recommended_times(self, schedule: Schedule) -> set[str]:
         """Which of this schedule's own slot times pass your saved availability rules
-        right now — marked with a leading "★" in the Time column. A lightweight step
-        toward real recommendations (ROADMAP.md Phase 3's search.py/recommend.py)
-        without needing the full multi-day overview screen first, which still needs a
-        mockup sign-off before it's built.
+        right now — marked with a leading "★" in the Time column.
 
-        Reuses the exact same deterministic pipeline `recommend.weekly_picks()` uses
-        for the (still-unbuilt) multi-day screen — `search.search()` for party
-        size/time-window/buffer, then `recommend.exclude_unplayable()` for
-        weather/daylight — just applied to this one already-loaded `Schedule` instead
-        of the whole overview window. Best-effort: a club with no `availability` block
-        configured, or a schedule with no weather attached yet, just means nothing
-        gets marked — never an error shown to the user. `sun_times` specifically is
-        never set on a schedule loaded this way (storage.py doesn't persist it — see
-        its own module docstring), so the daylight half of `exclude_unplayable()`
-        can't actually exclude anything here; only the weather half can. A known,
-        accepted gap, not a silent one."""
+        Thin wrapper around the module-level `_availability_pipeline()` (factored out
+        2026-09-07 when `OverviewScreen`'s own per-day pick column needed the exact
+        same computation) — this method's only job is resolving `config` from
+        `club_slug`. Best-effort: a club with no `availability` block configured, or a
+        schedule with no weather attached yet, just means nothing gets marked — never
+        an error shown to the user. `sun_times` specifically is never set on a
+        schedule loaded this way (storage.py doesn't persist it — see its own module
+        docstring), so the daylight half of `exclude_unplayable()` can't actually
+        exclude anything here; only the weather half can. A known, accepted gap, not
+        a silent one."""
         if self.club_slug is None:
             return set()  # a club being visited, not saved — no availability rules
         try:
             config = club_config.load_club_config(self.club_slug)
         except FileNotFoundError:
             return set()
-        criteria = recommend.default_criteria_from_config(config)
-        candidates = search_slots([schedule], criteria)
-        playable = recommend.exclude_unplayable(candidates, [schedule], config)
+        _, playable = _availability_pipeline(schedule, config)
         return {candidate.slot.time for candidate in playable}
 
     def refresh_banners(self) -> None:
@@ -705,6 +1020,22 @@ class DayDetailScreen(Screen[None]):
     def action_quit(self) -> None:
         self.app.exit()
 
+    def action_back_to_overview(self) -> None:
+        """Pop back to whatever this day was pushed on top of — the `OverviewScreen`
+        it was drilled into from (added 2026-09-07 alongside that screen), which then
+        gets reloaded in case a scrape landed while drilled into this day. Guarded
+        against popping the very last screen in the stack (Textual disallows that),
+        which never happens via the real drill-down flow — `OverviewScreen` is always
+        underneath — but keeps `escape` harmless if this screen is ever reached some
+        other way (a test, or a future standalone entry point) with nothing real
+        below it."""
+        if len(self.app.screen_stack) <= 1:
+            return
+        self.app.pop_screen()
+        screen = self.app.screen
+        if isinstance(screen, OverviewScreen):
+            screen.load_overview()
+
     def action_switch(self) -> None:
         # Delegates to the App (same shape as action_command_palette below) since
         # re-opening the club/course pickers needs push_screen_wait(), which lives on
@@ -766,22 +1097,30 @@ class TeetimeApp(App[None]):
         new_lang = i18n.other_language(i18n.get_language())
         i18n.set_language(new_lang)
         i18n.save_language(new_lang)
-        self._rebuild_day_detail_screen()
+        self._rebuild_current_screen()
 
-    def _rebuild_day_detail_screen(self) -> None:
+    def _rebuild_current_screen(self) -> None:
         """Replace the current screen with a fresh instance of itself so every label,
         table header, and status message re-renders in the new language immediately —
         simpler and more reliable than a partial recompose that would also need to
-        manually re-run load_schedule()/refresh_banners() by hand. A no-op if the
-        current screen isn't DayDetailScreen (e.g. mid-picker when switching
-        language) — that screen is transient enough that the next one shown will
-        already use the new language, and this app deliberately doesn't chase every
-        transient screen's live re-render (see module docstring)."""
+        manually re-run load_schedule()/refresh_banners() (or load_overview()) by
+        hand. Handles both DayDetailScreen and OverviewScreen (renamed from
+        `_rebuild_day_detail_screen` 2026-09-07 once a second screen needed the same
+        treatment) — a no-op for anything else (e.g. mid-picker when switching
+        language), since those screens are transient enough that the next one shown
+        will already use the new language, and this app deliberately doesn't chase
+        every transient screen's live re-render (see module docstring)."""
         screen = self.screen
         if isinstance(screen, DayDetailScreen):
-            replacement = DayDetailScreen(screen.club_id, screen.club_slug, screen.course, screen.date)
-            self.pop_screen()
-            self.push_screen(replacement)
+            replacement = DayDetailScreen(
+                screen.club_id, screen.club_slug, screen.course, screen.date, club_name=screen.club_name
+            )
+        elif isinstance(screen, OverviewScreen):
+            replacement = OverviewScreen(screen.club_id, screen.club_slug, screen.course, club_name=screen.club_name)
+        else:
+            return
+        self.pop_screen()
+        self.push_screen(replacement)
 
     async def _pick_course(self, club_id: str, config: dict, always_ask: bool) -> str | None:
         """This club's own course list, fetched live (see scraper.fetch_course_aliases),
@@ -794,7 +1133,7 @@ class TeetimeApp(App[None]):
         mostly automatic (honor `default_course`), while explicitly asking to switch
         means actively choosing is the whole point."""
         status = None
-        if isinstance(self.screen, DayDetailScreen):
+        if isinstance(self.screen, (DayDetailScreen, OverviewScreen)):
             status = self.screen.query_one("#status", Static)
         try:
             courses = list(fetch_course_aliases(club_id))
@@ -822,24 +1161,27 @@ class TeetimeApp(App[None]):
         return await self.push_screen_wait(CoursePickerScreen(courses))
 
     async def _open_club(self, club_id: str, always_ask_course: bool) -> bool:
-        """Take a chosen club id all the way to its tee sheet. True if a
-        `DayDetailScreen` was actually opened.
+        """Take a chosen club id all the way to its multi-day overview. True if an
+        `OverviewScreen` was actually opened.
 
         The club's saved config is looked up *from* its id rather than the other way
         round (`club_config.slug_for_club_id()`) — since the 2026-09-07 favorites
         rework a club reached from the directory usually has no saved file at all, and
         that's a normal state: it just means empty config and all the existing
-        per-setting fallbacks."""
+        per-setting fallbacks.
+
+        Pops back to the app's own base screen first, however deep the current stack
+        is (e.g. drilled into a `DayDetailScreen` from the overview when `s` was
+        pressed) — so switching clubs never leaves a stale screen buried underneath
+        the new one."""
         slug = club_config.slug_for_club_id(club_id)
         config = club_config.load_club_config(slug) if slug else {}
         course = await self._pick_course(club_id, config, always_ask=always_ask_course)
         if not course:
             return False
 
-        replacement = DayDetailScreen(
-            club_id, slug, course, _initial_date(club_id, course), club_name=self._club_names.get(club_id, "")
-        )
-        if isinstance(self.screen, DayDetailScreen):
+        replacement = OverviewScreen(club_id, slug, course, club_name=self._club_names.get(club_id, ""))
+        while len(self.screen_stack) > 1:
             self.pop_screen()
         await self.push_screen(replacement)
         self._club_slug = slug
@@ -932,7 +1274,7 @@ class TeetimeApp(App[None]):
         if self._periodic_scrape_running:
             return
         self._periodic_scrape_running = True
-        if isinstance(self.screen, DayDetailScreen):
+        if isinstance(self.screen, (DayDetailScreen, OverviewScreen)):
             self.screen.query_one("#status", Static).update(i18n.t("status.refreshing"))
 
         def scrape_then_reload() -> None:
@@ -945,10 +1287,14 @@ class TeetimeApp(App[None]):
 
     def _finish_periodic_scrape(self) -> None:
         self._periodic_scrape_running = False
-        if isinstance(self.screen, DayDetailScreen):
-            self.screen.load_schedule()
-            self.screen.refresh_banners()
-            self.screen.query_one("#status", Static).update(i18n.t("status.refreshed"))
+        screen = self.screen
+        if isinstance(screen, DayDetailScreen):
+            screen.load_schedule()
+            screen.refresh_banners()
+            screen.query_one("#status", Static).update(i18n.t("status.refreshed"))
+        elif isinstance(screen, OverviewScreen):
+            screen.load_overview()
+            screen.query_one("#status", Static).update(i18n.t("status.refreshed"))
 
 
 def main() -> None:

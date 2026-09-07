@@ -967,7 +967,47 @@ view, just the settings form.
   a single request, rather than needing to loop over each course separately — a better
   primary source for this screen's condensed view than assembling it from the per-course
   detail pages, which are still what the Phase 1 drill-down uses.
-- **Search**: for the one-off cases that don't match your saved `availability` defaults
+
+**Implemented 2026-09-07, as `tui.OverviewScreen`** — the actual home screen once a
+club/course is picked, replacing the old "land straight on today's tee sheet" flow. One
+row per attempted day (a `DataTable`, same widget `DayDetailScreen` already uses, not a
+custom card grid — the mockup's cards were a design-conversation aid, not a pixel spec):
+weekday + exact ISO date (a direct, resolved mockup-feedback point: exact dates, not
+ambiguous MM/DD), weather-or-tag, a six-block "heat strip" for 08:00-20:00 colored by
+average fill ratio, and that day's own pick. Real deviations from the plan above, each
+for a concrete reason found while building it:
+- **Not the "Overview Areas" aggregate page** — reuses `storage.load_latest_schedule()`
+  per day for the *already-selected* course instead. That page's aggregate counts don't
+  carry enough detail for the pick column (a real recommendation needs actual slot
+  times, not just a busy/free ratio), and the per-course data was already being scraped
+  and stored for `DayDetailScreen`'s own drill-down — a second, separate data path for
+  the overview would mean two sources that could disagree.
+- **Tournament flag comes from `schedule.events`** (the block-reason names
+  `parse_schedule_html()` already collects from the tee sheet itself), not a separate
+  `ts_calendar` fetch — one real club during testing showed three different events
+  across five days straight off the tee sheet, with no second request needed.
+- **How many days to show is no longer a fixed "4-5 day" grid** — see the 2026-09-07
+  cross-club sweep (scraper.py's module docstring): a club's own bookable window ranges
+  1-31 days, so `overview_days` (config, still defaulting to 5) is how many day-rows to
+  *attempt*, and `scraper.fetch_available_dates()` decides per-refresh which of those
+  are actually open; a day beyond the real window renders as "not open for booking yet"
+  rather than a misleadingly empty row.
+- **"This week's picks" only shows once `availability` rules are actually configured** —
+  a "Still open" question from the mockup review, now resolved: showing "no picks"
+  under every single day on an unconfigured club would read as broken, not empty.
+- Drilling into a day is `enter` on the row; `escape` on `DayDetailScreen` pops back
+  and reloads the overview, in case a scrape landed while drilled into that day.
+
+29 new tests (`tests/test_tui.py`), including the pure heat-strip/weather-tag/pick-text
+helpers directly, not just through the screen. Verified live in tmux against a real,
+previously-unscraped club: real tournament names rendered as tags, the heat strip's
+green/yellow/bold-red coloring confirmed via raw ANSI capture (not just the underlying
+markup string), and the club's own narrower real window (4 days, not 5) correctly
+greyed out the 5th attempted row.
+
+- **Search** (not yet built — deliberately not bundled with the overview above, per the
+  mockup review's other resolved question that it should stay its own screen): for the
+  one-off cases that don't match your saved `availability` defaults
   — e.g. "just this once, 3 players, weekdays only, after 15:00, 20 minutes clear of any
   other flight." New keybinding opens a small form; `search.py`'s `SearchCriteria`
   covers:
