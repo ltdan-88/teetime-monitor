@@ -1,14 +1,24 @@
-"""A minimal Textual screen for editing a club's availability/weather preferences and
-scrape interval — built ahead of the full tee-sheet TUI (ROADMAP.md Phase 4), per
+"""A minimal Textual screen for editing your standing availability/weather preferences
+and scrape interval — built ahead of the full tee-sheet TUI (ROADMAP.md Phase 4), per
 direct feedback (2026-09-06) that these needed to be adjustable from the UI, not just
-by hand-editing a club's YAML.
+by hand-editing YAML.
 
 Deliberately narrow — a screen for exactly the settings that came up in that feedback:
 `availability` (min open spots, time windows, buffer), `preferences` (rain/wind/
 temperature thresholds, friend/crowd weighting), and the scrape interval added the
-same day. Everything else in a club's YAML (club_id, location, calendar, identity,
-ai_assist) stays hand-edited for now — those are set-once-at-setup values, not
-day-to-day dials.
+same day.
+
+**Global, not per-club** (reworked 2026-09-08, direct follow-up: "i also want the
+settings/preferences to be global and not tied to a specific club"). These were
+originally one block inside each club's own `clubs/*.yaml`, which meant re-entering
+the same standing rules into every second club you added — your own availability and
+weather comfort don't change depending on which course you're looking at, so that was
+never actually a per-club fact, just modeled as one. Now reads/writes
+`global_preferences.py`'s one shared file instead. Everything genuinely per-club
+(`club_id`, `location`, `calendar`, `overview_days`, `default_course`, `identity`,
+`ai_assist`, `round_duration_minutes`) still lives in `clubs/*.yaml`, untouched by
+this screen, and hand-edited for now — those are set-once-at-setup values, not
+day-to-day dials, and each one really does vary by club.
 
 `SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
 from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
@@ -16,13 +26,12 @@ from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, adde
 until then this really was only reachable as its own separate command, a genuine gap
 this whole module's own docstring used to describe as deliberate rather than naming as
 the limitation it was). Still runnable on its own too, via the thin `SettingsApp`
-wrapper: `python -m src.settings_screen <club-id>` (the clubs/*.yaml filename slug,
-not the pc caddie numeric id) — or with no argument if exactly one club is saved,
-matching the "skip the picker" convention used elsewhere in this project.
+wrapper: `python -m src.settings_screen` — no club argument any more, now that there's
+only one (global) settings set to open.
 
-Saving writes the whole config back via club_config.save_club_config() — see that
-function's docstring for the one known limitation (comments in the YAML file don't
-survive a save).
+Saving writes the whole file back via `global_preferences.save_preferences()` — see
+that function's docstring for the one known limitation carried over from
+`club_config.save_club_config()` (comments don't survive a save).
 
 Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
 label/button/status message goes through i18n.py, same as every other screen in this
@@ -40,7 +49,6 @@ small widget.
 """
 
 import copy
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -50,7 +58,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, Label, Static, Switch
 
-from . import club_config, i18n
+from . import global_preferences, i18n
 from . import theme as theme_module
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
@@ -196,10 +204,11 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
 
 
 class SettingsScreen(Screen[dict | None]):
-    """Edit one club's availability/preferences/scrape-interval settings and save them
-    back to its YAML file. Dismisses with the final config dict (whether or not a save
-    actually happened during the screen's lifetime — a caller that only cares "did a
-    save happen" should use `on_saved` instead, which only fires on an actual save)."""
+    """Edit your standing availability/preferences/scrape-interval settings and save
+    them back to the one shared file (see module docstring — no longer per-club).
+    Dismisses with the final config dict (whether or not a save actually happened
+    during the screen's lifetime — a caller that only cares "did a save happen"
+    should use `on_saved` instead, which only fires on an actual save)."""
 
     CSS = """
     #fields {
@@ -243,19 +252,19 @@ class SettingsScreen(Screen[dict | None]):
 
     def __init__(
         self,
-        club_id: str,
-        clubs_dir: Path | None = None,
+        preferences_file: Path | None = None,
         on_saved: Callable[[dict], None] | None = None,
     ) -> None:
         super().__init__()
-        self.club_id = club_id
         # Resolved at call time, not bound as a class-definition-time default -- see
         # env_file.py's module docstring for the frozen-default gotcha this avoids
-        # (a caller/test monkeypatching club_config.CLUBS_DIR after this module's own
-        # import must still be honored).
-        self.clubs_dir = clubs_dir if clubs_dir is not None else club_config.CLUBS_DIR
+        # (a caller/test monkeypatching global_preferences.PREFERENCES_FILE after
+        # this module's own import must still be honored).
+        self.preferences_file = (
+            preferences_file if preferences_file is not None else global_preferences.PREFERENCES_FILE
+        )
         self._on_saved = on_saved
-        self.config = club_config.load_club_config(club_id, self.clubs_dir)
+        self.config = global_preferences.load_preferences(self.preferences_file)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -296,7 +305,7 @@ class SettingsScreen(Screen[dict | None]):
             except ValueError as exc:
                 self.query_one("#status", Static).update(i18n.t("settings.not_saved", error=exc))
                 return
-            club_config.save_club_config(self.club_id, updated, self.clubs_dir)
+            global_preferences.save_preferences(updated, self.preferences_file)
             self.config = updated
             if self._on_saved is not None:
                 self._on_saved(updated)
@@ -305,37 +314,22 @@ class SettingsScreen(Screen[dict | None]):
 
 class SettingsApp(App[None]):
     """Thin standalone wrapper so SettingsScreen is runnable on its own:
-    `python -m src.settings_screen <club-id>`. Not used when the screen is pushed
-    from tui.py directly (`e` on OverviewScreen/DayDetailScreen) — that app supplies
-    its own theme/language setup and push_screen_wait() call directly."""
+    `python -m src.settings_screen`. No club argument any more (2026-09-08, once
+    these settings became global) — there's only ever the one shared settings set to
+    open. Not used when the screen is pushed from tui.py directly (`e` on
+    OverviewScreen/DayDetailScreen) — that app supplies its own theme/language setup
+    and push_screen_wait() call directly."""
 
     TITLE = "teetime-monitor"
-
-    def __init__(self, club_id: str) -> None:
-        super().__init__()
-        self.club_id = club_id
 
     def on_mount(self) -> None:
         theme_module.apply_theme(self)
         i18n.apply_language()
-        self.push_screen(SettingsScreen(self.club_id), lambda _config: self.exit())
+        self.push_screen(SettingsScreen(), lambda _config: self.exit())
 
 
 def main() -> None:
-    if len(sys.argv) > 1:
-        club_id = sys.argv[1]
-    else:
-        clubs = club_config.list_clubs()
-        if len(clubs) == 1:
-            club_id = clubs[0]
-        elif not clubs:
-            print("No clubs saved yet — copy clubs/club.example.yaml first.")
-            return
-        else:
-            print("More than one club saved — pass one: " + ", ".join(clubs))
-            return
-
-    SettingsApp(club_id).run()
+    SettingsApp().run()
 
 
 if __name__ == "__main__":

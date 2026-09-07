@@ -39,6 +39,19 @@ def _no_background_scraping(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_global_preferences_file(monkeypatch, tmp_path):
+    """`global_preferences.py` (added 2026-09-08, once availability/preferences
+    became shared across every club rather than per-club) is read by
+    `OverviewScreen`/`DayDetailScreen` on every load, and written by `SettingsScreen`
+    on save — both default to the real `~/.config/teetime-monitor/preferences.yaml`
+    when nothing overrides them. Caught live: a test that pressed `e`, edited a field,
+    and clicked save wrote for real to this developer's own home directory before
+    this fixture existed. Redirects the default to a throwaway path for every test
+    here; a test exercising the real file explicitly overrides this locally."""
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_club_config_by_default(monkeypatch):
     """`DayDetailScreen._recommended_times()` (added 2026-09-07) calls
     `club_config.load_club_config(self.club_slug)` on every `load_schedule()` --
@@ -867,6 +880,37 @@ def test_day_tag_falls_back_to_the_weather_summary():
     assert tui._day_tag_or_weather(schedule) == "☀ 20°/20°"
 
 
+def test_resolved_config_merges_global_preferences_over_club_settings(monkeypatch, tmp_path):
+    # Direct feedback 2026-09-08: "i also want the settings/preferences to be global
+    # and not tied to a specific club" -- availability/preferences come from the one
+    # shared file regardless of which club's own config is loaded alongside it.
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001", "overview_days": 7}
+    )
+    preferences_file = tmp_path / "preferences.yaml"
+    tui.global_preferences.save_preferences({"availability": {"min_open_spots": 3}}, preferences_file)
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", preferences_file)
+
+    config = tui._resolved_config("home-club")
+
+    assert config["club_id"] == "0000001"  # a genuinely per-club fact, untouched
+    assert config["overview_days"] == 7  # ditto
+    assert config["availability"]["min_open_spots"] == 3  # from the global file
+
+
+def test_resolved_config_still_applies_global_preferences_to_an_unsaved_club(monkeypatch, tmp_path):
+    # club_slug=None (a club reached by id, never favorited) has no per-club config at
+    # all, but your global availability rules still apply -- recommendations now work
+    # on a club you haven't favorited, which the old per-club-only design couldn't do.
+    preferences_file = tmp_path / "preferences.yaml"
+    tui.global_preferences.save_preferences({"availability": {"min_open_spots": 2}}, preferences_file)
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", preferences_file)
+
+    config = tui._resolved_config(None)
+
+    assert config["availability"]["min_open_spots"] == 2
+
+
 def test_availability_pipeline_empty_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     assert tui._availability_pipeline(schedule, {}) == ([], [])
@@ -1070,19 +1114,22 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
     # with nothing in the running app pointing at it. `e` now opens it directly.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    (tmp_path / "clubs").mkdir()
-    (tmp_path / "clubs" / "home-club.yaml").write_text("club_id: '0000001'\ndefault_course: '18 Loch Tee 1'\n")
-    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
+    preferences_file = tmp_path / "preferences.yaml"
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", preferences_file)
+    # Just enough of a favorite for _reach_overview() to skip the course picker --
+    # its own default_course is still a genuinely per-club fact, unaffected by
+    # availability/preferences becoming global.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
-        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "18 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
-            assert app.screen.club_slug == "home-club"
 
             await pilot.press("e")
             await pilot.pause()
@@ -1101,24 +1148,21 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
 
     _run(scenario())
 
-    saved = tui.club_config.load_club_config("home-club", tmp_path / "clubs")
+    saved = tui.global_preferences.load_preferences(preferences_file)
     assert saved["availability"]["min_open_spots"] == 3
 
 
-def test_edit_settings_favorites_an_unsaved_club_first(tmp_path, monkeypatch):
-    # Editing settings needs somewhere to save them -- a club reached without saving
-    # it gets favorited automatically the moment `e` is pressed, rather than sending
-    # the user to go find `f` on a different screen first.
+def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkeypatch):
+    # Direct same-day follow-up: "i also want the settings/preferences to be global
+    # and not tied to a specific club" -- unlike the old per-club design, opening
+    # settings on a club you haven't saved needs nothing special any more: there's
+    # no club-specific file to create, just the one shared settings file.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
-    (tmp_path / "clubs").mkdir()
-    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path / "clubs")
-    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(tmp_path / "clubs"))
-    monkeypatch.setattr(
-        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, tmp_path / "clubs")
-    )
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
     monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
-    slugs_seen = []
+    preferences_file = tmp_path / "preferences.yaml"
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", preferences_file)
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -1137,16 +1181,19 @@ def test_edit_settings_favorites_an_unsaved_club_first(tmp_path, monkeypatch):
             await pilot.press("e")
             await pilot.pause()
             assert isinstance(app.screen, tui.SettingsScreen)
+            await pilot.click("#save")
+            await pilot.pause()
             await pilot.press("q")
             await pilot.pause()
 
+            # Still unsaved -- editing global settings never favorites anything.
             assert isinstance(app.screen, tui.OverviewScreen)
-            assert app.screen.club_slug is not None  # favorited along the way
-            slugs_seen.append(app.screen.club_slug)
+            assert app.screen.club_slug is None
 
     _run(scenario())
 
-    assert tui.club_config.list_clubs(tmp_path / "clubs") == slugs_seen
+    assert preferences_file.exists()  # the global file was written...
+    assert not (tmp_path / "clubs").exists()  # ...and nothing club-specific was ever created
 
 
 def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):

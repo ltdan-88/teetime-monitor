@@ -3,8 +3,7 @@ import asyncio
 import pytest
 from textual.app import App
 
-from src import i18n
-from src.club_config import load_club_config
+from src import global_preferences, i18n
 from src.recommend import DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT
 from src.scrape_once import DEFAULT_SCRAPE_INTERVAL_MINUTES
 from src.settings_screen import (
@@ -133,12 +132,11 @@ def test_widget_values_to_config_raises_on_invalid_number():
 
 
 def test_settings_screen_loads_config_into_widgets(tmp_path):
-    (tmp_path / "home-club.yaml").write_text(
-        "club_id: '0000001'\navailability:\n  min_open_spots: 3\n"
-    )
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  min_open_spots: 3\n")
 
     async def scenario():
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test():
             widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             assert widget.value == "3"
@@ -155,10 +153,10 @@ def test_settings_screen_fields_fill_the_window_instead_of_the_button_row(tmp_pa
     # leaving most of a tall terminal as dead space below a stub of visible fields.
     # Asserts the actual resolved sizes in a tall terminal, not just that the CSS
     # text contains the right words.
-    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    preferences_file = tmp_path / "preferences.yaml"
 
     async def scenario():
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test(size=(80, 50)):
             fields = app.screen.query_one("#fields")
             buttons = app.screen.query_one("#buttons")
@@ -174,12 +172,13 @@ def test_settings_screen_fields_fill_the_window_instead_of_the_button_row(tmp_pa
 
 
 def test_settings_screen_save_writes_edited_value_to_disk(tmp_path):
-    (tmp_path / "home-club.yaml").write_text(
-        "club_id: '0000001'\navailability:\n  min_open_spots: 1\n"
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text(
+        "availability:\n  min_open_spots: 1\npreferences:\n  avoid_rain: true\n"
     )
 
     async def scenario():
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
             widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             widget.value = "3"
@@ -188,17 +187,17 @@ def test_settings_screen_save_writes_edited_value_to_disk(tmp_path):
 
     asyncio.run(scenario())
 
-    saved = load_club_config("home-club", tmp_path)
+    saved = global_preferences.load_preferences(preferences_file)
     assert saved["availability"]["min_open_spots"] == 3
-    assert saved["club_id"] == "0000001"  # untouched fields survive the save
+    assert saved["preferences"]["avoid_rain"] is True  # untouched fields survive the save
 
 
 def test_settings_screen_save_calls_on_saved_callback(tmp_path):
-    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    preferences_file = tmp_path / "preferences.yaml"
     seen = []
 
     async def scenario():
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path, on_saved=seen.append))
+        app = _HostApp(SettingsScreen(preferences_file, on_saved=seen.append))
         async with app.run_test() as pilot:
             await pilot.click("#save")
             await pilot.pause()
@@ -206,16 +205,15 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
     asyncio.run(scenario())
 
     assert len(seen) == 1
-    assert seen[0]["club_id"] == "0000001"
+    assert seen[0]["availability"]["min_open_spots"] == 1  # the default, since nothing was edited
 
 
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
-    (tmp_path / "home-club.yaml").write_text(
-        "club_id: '0000001'\navailability:\n  min_open_spots: 1\n"
-    )
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  min_open_spots: 1\n")
 
     async def scenario():
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
             widget = app.screen.query_one(f"#{_id('availability', 'min_open_spots')}")
             widget.value = "not a number"
@@ -225,7 +223,7 @@ def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     asyncio.run(scenario())
 
     # Unsaved -- the on-disk file still has the original value.
-    saved = load_club_config("home-club", tmp_path)
+    saved = global_preferences.load_preferences(preferences_file)
     assert saved["availability"]["min_open_spots"] == 1
 
 
@@ -238,13 +236,13 @@ def test_every_field_label_key_has_a_translation():
 
 
 def test_settings_screen_renders_german_labels_and_buttons(tmp_path):
-    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    preferences_file = tmp_path / "preferences.yaml"
     i18n.set_language("de")
 
     async def scenario():
         from textual.widgets import Button, Label
 
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
             await pilot.pause()
             labels = {str(label.content) for label in app.screen.query(Label)}
@@ -257,15 +255,14 @@ def test_settings_screen_renders_german_labels_and_buttons(tmp_path):
 
 
 def test_settings_screen_german_status_messages(tmp_path):
-    (tmp_path / "home-club.yaml").write_text(
-        "club_id: '0000001'\navailability:\n  min_open_spots: 1\n"
-    )
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  min_open_spots: 1\n")
     i18n.set_language("de")
 
     async def scenario():
         from textual.widgets import Static
 
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.click("#save")
@@ -276,13 +273,13 @@ def test_settings_screen_german_status_messages(tmp_path):
 
 
 def test_settings_screen_footer_renders_translated_hint(tmp_path):
-    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    preferences_file = tmp_path / "preferences.yaml"
     i18n.set_language("de")
 
     async def scenario():
         from src.settings_screen import TranslatedFooter
 
-        app = _HostApp(SettingsScreen("home-club", clubs_dir=tmp_path))
+        app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
             await pilot.pause()
             footer = app.screen.query_one(TranslatedFooter)

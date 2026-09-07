@@ -968,6 +968,41 @@ preferences changes can affect the ★ marker, the overview's pick column, and "
 week's picks" all at once. 6 new tests (2 integration-level through a real
 `TeetimeApp`, the rest the existing suite's own `SettingsScreen` tests updated for
 the `App`→`Screen` change).
+
+**Made global, same day** — direct same-day follow-up: "i also want the settings/
+preferences to be global and not tied to a specific club." Correct about what these
+actually are: your own standing availability and weather comfort are facts about
+*you*, not about any one club, so the per-club design meant re-entering the same
+rules into every second club you added, never actually a different answer. New
+`global_preferences.py` reads/writes one shared file
+(`~/.config/teetime-monitor/preferences.yaml`, same directory `user_config.py`
+already uses for theme/language — its own file rather than that module's flat
+`KEY=value` format, since this data is genuinely nested). `SettingsScreen` no longer
+takes a club argument at all — there's only the one settings set to open — and the
+"favorite this club first" behavior from the paragraph above is gone entirely, since
+there's no longer a club-specific file to need one for. `tui.py` gained
+`_resolved_config(club_slug)`, a shallow merge of a club's own genuinely-per-club
+settings with the global file on top, used everywhere `OverviewScreen`/
+`DayDetailScreen` previously read a club's `availability`/`preferences` directly — a
+side benefit found while wiring this up: recommendations now work on a club you
+haven't even favorited, since your global rules no longer need a per-club file to
+attach to. `scrape_once.py`'s `run()`/`scrape_due_for_club()` merge the same file in
+too, so the background scrape's booking-watch buffer check and scrape-interval
+throttling both use your current global settings regardless of which club they're
+scraping. `clubs/club.example.yaml` had its `availability`/`preferences`/
+`daylight_buffer_minutes`/`scrape_interval_minutes*` blocks removed accordingly;
+`location`, `overview_days`, `default_course`, `identity`, `ai_assist`, and
+`round_duration_minutes` stay per-club, since each of those is a genuine per-club
+fact. One real test-isolation gap caught while building this, same shape as several
+before it in this project: an early version of a new test opened settings through a
+real `TeetimeApp`, saved, and wrote directly to this developer's actual
+`~/.config/teetime-monitor/preferences.yaml` before an autouse fixture (mirroring the
+one already protecting `theme.CONFIG_FILE`) was added to redirect it in every test.
+7 new tests (`global_preferences.py` directly, `_resolved_config()`'s merge, and
+`scrape_once.run()` actually using the global buffer setting for a real
+`booking_watch` check). Verified live across two real, unrelated clubs sharing one
+fake home directory: writing an availability rule for one showed the same ★
+recommendation on a completely different club's own tee sheet.
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

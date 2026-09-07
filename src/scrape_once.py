@@ -59,7 +59,7 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import booking_watch, club_config, storage
+from . import booking_watch, club_config, global_preferences, storage
 from . import weather as weather_module
 from .scraper import (
     LoginError,
@@ -123,6 +123,11 @@ def run(
     is what `_sync_my_reservations()` needs to resolve this club's credentials
     (`club_config.resolve_credentials()` is keyed by slug, not the numeric `club_id`
     used everywhere else here).
+
+    Your global `availability`/`preferences` (2026-09-08 — no longer per-club, see
+    `global_preferences.py`) are merged on top of whatever `config` this call ends up
+    with either way, so `booking_watch.check_for_changes()`'s own buffer/preferences
+    checks below always see your current settings regardless of which club this is.
     """
     DATA_DIR.mkdir(exist_ok=True)
     db_path = _db_path(club_id)
@@ -130,6 +135,7 @@ def run(
         resolved_config, resolved_slug = _club_config_and_slug_for_id(club_id)
         config = config if config is not None else resolved_config
         slug = slug if slug is not None else resolved_slug
+    config = {**config, **global_preferences.load_preferences()}
 
     # The schedule as of the *previous* scrape, if any — needed as booking_watch's
     # "baseline" before this new scrape becomes "latest". None on the very first scrape
@@ -232,7 +238,13 @@ def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingCh
     note) — without needing a separately-scheduled process for that to happen at all.
     One course/date's own failure is caught and skipped, not fatal, same stance as
     `main()`'s own: it must not stop the rest of this club's window, let alone (from
-    `main()`) every other saved club."""
+    `main()`) every other saved club.
+
+    Merges your global `availability`/`preferences`/scrape-interval settings on top of
+    `config` right away (2026-09-08 — no longer per-club, see `global_preferences.py`)
+    since `_should_scrape()` below needs `scrape_interval_minutes` from them before
+    `run()` ever gets a chance to merge it again on its own."""
+    config = {**config, **global_preferences.load_preferences()}
     club_id = config.get("club_id")
     if not club_id:
         print(f"[scrape_once] {slug}: no club_id set in its config, skipping")

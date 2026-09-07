@@ -104,12 +104,15 @@ build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
   a busier course
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
   10:00, always solo") and the week's matching slots are highlighted automatically —
-  no need to search every time
-- A settings screen for adjusting availability/weather preferences and the scrape
-  interval without hand-editing YAML — press `e` from the overview or the tee sheet
-  itself, no separate command needed. Editing settings on a club you haven't saved
-  favorites it first, since that's exactly what having settings already means. Still
-  runnable on its own too via `python -m src.settings_screen <club-id>`
+  no need to search every time. **Global, not per-club** — your own availability and
+  weather comfort don't change depending on which course you're checking, so it's one
+  shared set of rules that applies everywhere, not something to re-enter for every
+  club you add
+- A settings screen for adjusting that availability/weather preferences and the
+  scrape interval without hand-editing YAML — press `e` from the overview or the tee
+  sheet itself, no separate command needed, and works the same regardless of which
+  club is active (or even whether one is saved as a favorite at all). Still runnable
+  on its own too via `python -m src.settings_screen`
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
@@ -162,12 +165,14 @@ python -m src.credentials_screen                   # set PCC_USER/PCC_PASS from 
                                                     # ANTHROPIC_API_KEY to it by hand afterward).
                                                     # Needed to download the club directory (press 'r'
                                                     # in the club browser) and to read "My Reservations"
-cp clubs/club.example.yaml clubs/my-club.yaml      # a favorite's own settings -- coordinates for the
-                                                    # weather overlay, availability rules, thresholds.
-                                                    # 'f' (favorite) or 'e' (settings) in the app write
-                                                    # a minimal version of this for you; copy the
-                                                    # template over it for the annotated reference
-python -m src.settings_screen my-club              # ...or edit those outside the running app
+cp clubs/club.example.yaml clubs/my-club.yaml      # a favorite's own set-once facts -- coordinates
+                                                    # for the weather overlay, course lineup, etc.
+                                                    # 'f' in the app writes a minimal version of this
+                                                    # for you; copy the template over it for the
+                                                    # annotated reference. Availability/weather
+                                                    # preferences and the scrape interval are global,
+                                                    # not club-specific -- 'e' in the app edits those
+python -m src.settings_screen                      # ...or edit those outside the running app
 python -m src.scrape_once                          # one-off scrape of every favorite's booking window
 ```
 
@@ -222,6 +227,7 @@ teetime-monitor/
 ├── src/
 │   ├── club_config.py      # favorites: list/load/save clubs, resolve credentials (implemented)
 │   ├── club_directory.py   # locally cached pc caddie club directory + club-id parsing (implemented)
+│   ├── global_preferences.py # shared availability/preferences/scrape-interval file, not per-club (implemented)
 │   ├── scraper.py          # direct-URL fetch, login, parsing (implemented, verified live)
 │   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings (implemented)
 │   ├── scrape_once.py      # headless scheduled scrape, adjustable per-club interval (implemented)
@@ -247,6 +253,7 @@ teetime-monitor/
 └── tests/
     ├── test_models.py
     ├── test_club_config.py
+    ├── test_global_preferences.py
     ├── test_scraper.py
     ├── test_storage.py
     ├── test_scrape_once.py
@@ -300,11 +307,15 @@ uses it to parse real reservation rows too, confirmed 2026-09-07 against an actu
 demo booking (both English and German date/time formats). Note that every AI call
 (booking-label classification, ranking, history summarization) sends data to
 Anthropic's API and costs a small amount per call — see "Known risks" in `ROADMAP.md`.
-Also note: `settings_screen.py` saves a club's whole config file on every save, so any
-hand-written comments in that club's own `clubs/*.yaml` (e.g. ones copied over from
-`club.example.yaml` when it was first created) won't survive — the checked-in
-`club.example.yaml` template itself is never touched, so it stays available as
-reference regardless.
+Also note: `settings_screen.py` saves its whole file on every save, so any hand-written
+comments in it won't survive — the checked-in `club.example.yaml` template itself is
+never touched, so it stays available as reference regardless.
+
+Your availability/weather preferences and scrape interval live at
+`~/.config/teetime-monitor/preferences.yaml` — one shared file, not per-club (moved
+there 2026-09-08; previously part of each club's own YAML). `location`, `overview_days`,
+`default_course`, `identity`, `ai_assist`, and `round_duration_minutes` stay in
+`clubs/*.yaml`, since each of those really is a per-club fact.
 
 Theme choice is separate from any club's YAML — it's a "how do I like my terminal to
 look" preference, not a per-club fact — and lives in its own file,

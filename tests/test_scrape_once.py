@@ -1,7 +1,20 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src import booking_watch, scrape_once
 from src.models import ConfirmedBooking, Schedule, Slot
+
+
+@pytest.fixture(autouse=True)
+def _no_real_global_preferences_file(monkeypatch, tmp_path):
+    """`run()`/`scrape_due_for_club()` both merge in `global_preferences.py`'s shared
+    settings unconditionally now (2026-09-08, once availability/preferences stopped
+    being per-club) — defaulting to the real `~/.config/teetime-monitor/preferences.yaml`
+    if nothing overrides it. Redirected to a throwaway path for every test here, same
+    reasoning/pattern as test_tui.py's identical fixture."""
+    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
+
 
 # scrape_due_for_club() now fetches each club's own course list live (fetch_course_aliases()
 # -- see scraper.py's module docstring on why a hardcoded constant isn't safe across clubs)
@@ -36,6 +49,51 @@ def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
         "18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001")
     )
     assert loaded.slots[0].booked == 1
+
+
+def test_run_uses_global_preferences_buffer_for_booking_watch(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-08: "i also want the settings/preferences to be global
+    # and not tied to a specific club" -- run()'s own booking_watch check (buffer
+    # minutes, weather preferences) now comes from the one shared file, merged on top
+    # of whatever per-club config it's handed, not from that config's own (now
+    # unused) availability/preferences keys.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    preferences_file = tmp_path / "preferences.yaml"
+    scrape_once.global_preferences.save_preferences(
+        {"availability": {"buffer_minutes": 45}}, preferences_file
+    )
+    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", preferences_file)
+
+    schedules = iter(
+        [
+            Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=1, capacity=4)]),
+            Schedule(
+                date="2026-09-06",
+                course="18 Loch Tee 1",
+                slots=[
+                    Slot(time="14:00", booked=1, capacity=4),
+                    Slot(time="14:30", booked=4, capacity=4),  # inside the global 45-min buffer
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date: next(schedules))
+
+    # Per-club config deliberately has no availability block at all -- if run() were
+    # still reading buffer_minutes from *this*, the neighbor-crowding check below
+    # would never fire.
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={"club_id": "0000001"})
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={"club_id": "0000001"})
+
+    # The 14:30 slot is a new, real booking -- inside the global 45-min buffer of the
+    # 14:00 confirmed booking, so it counts as "buffer_shrunk" -- only reachable at
+    # all if buffer_minutes actually came from the global file.
+    assert any(change.kind == "buffer_shrunk" for change in changes)
 
 
 def test_run_skips_my_reservations_when_no_credentials_configured(tmp_path, monkeypatch):
@@ -257,7 +315,10 @@ def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
 
 def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     # main() already loads each club's config to check _should_scrape() -- it should
-    # pass that same config straight to run() rather than making run() re-read it.
+    # pass that same config's content straight to run() rather than making run()
+    # re-read it. Not the exact same object any more (2026-09-08, once global
+    # preferences started getting merged in along the way -- see
+    # scrape_due_for_club()'s own docstring), so this checks content, not identity.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
@@ -277,7 +338,8 @@ def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     scrape_once.main()
 
     assert seen_configs
-    assert all(config is club_config_dict for config in seen_configs)
+    assert all(config.get("club_id") == "0000001" for config in seen_configs)
+    assert all(config.get("overview_days") == 1 for config in seen_configs)
     assert all(slug == "musterhausen" for slug in seen_slugs)
 
 

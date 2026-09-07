@@ -123,7 +123,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, club_directory, recommend, scrape_once, storage
+from . import club_config, club_directory, global_preferences, recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .search import search as search_slots
@@ -613,13 +613,34 @@ def _day_tag_or_weather(schedule: Schedule) -> str:
     return _weather_summary(schedule.weather) or ""
 
 
+def _resolved_config(club_slug: str | None) -> dict:
+    """This club's own settings (`location`, `overview_days`, `default_course`,
+    `identity`, `ai_assist`, `round_duration_minutes` — genuinely per-club facts),
+    with your global `availability`/`preferences`/scrape-interval settings shallow-
+    merged on top (added 2026-09-08, direct feedback: "i also want the settings/
+    preferences to be global and not tied to a specific club" — those aren't
+    per-club facts at all, so they overlay every club's own config rather than being
+    duplicated into each one). `club_slug is None` (a club being visited without
+    saving it) contributes nothing per-club, but still gets your global settings —
+    recommendations now work even on a club you haven't favorited, which the old
+    per-club-only design couldn't offer since there was nowhere for an unsaved club
+    to have availability rules at all."""
+    club_settings = {}
+    if club_slug is not None:
+        try:
+            club_settings = club_config.load_club_config(club_slug)
+        except FileNotFoundError:
+            club_settings = {}
+    return {**club_settings, **global_preferences.load_preferences()}
+
+
 def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list]:
     """(deterministic candidates, still-playable after weather/daylight exclusion)
-    for one schedule against a club's saved `availability` rules — the exact same
-    pipeline `recommend.weekly_picks()` uses, factored out so both the per-day pick
-    column below and `DayDetailScreen`'s own ★ marker derive from one place. `([],
-    [])` with no `availability` configured at all — nothing to check against, not an
-    error."""
+    for one schedule against your global `availability` rules (see
+    `_resolved_config()`) — the exact same pipeline `recommend.weekly_picks()` uses,
+    factored out so both the per-day pick column below and `DayDetailScreen`'s own ★
+    marker derive from one place. `([], [])` with no `availability` configured at
+    all — nothing to check against, not an error."""
     if not config.get("availability"):
         return [], []
     criteria = recommend.default_criteria_from_config(config)
@@ -692,14 +713,13 @@ class OverviewScreen(Screen[None]):
     screens (ROADMAP.md Phase 4/5); adding the keys now would promise something that
     isn't there yet.
 
-    `e` opens `SettingsScreen` for the active club (added 2026-09-08, direct
-    feedback: "i don't even know where to configure from the UI" — until then
-    `settings_screen.py` really was only reachable as its own separate command,
-    `python -m src.settings_screen <club-id>`, with nothing in the running app
-    pointing at it). A club being visited without saving it (`club_slug is None`)
-    gets favorited automatically the moment settings are opened on it — see
-    `TeetimeApp._do_edit_settings()` — since editing settings needs somewhere to
-    save them, and that's already what favoriting means."""
+    `e` opens `SettingsScreen` (added 2026-09-08, direct feedback: "i don't even know
+    where to configure from the UI" — until then `settings_screen.py` really was only
+    reachable as its own separate command, with nothing in the running app pointing
+    at it). Your availability/preferences are global, not per-club (same-day
+    follow-up: "i also want the settings/preferences to be global and not tied to a
+    specific club") — `e` opens the same one shared settings set regardless of which
+    club is active, or even whether one is favorited at all."""
 
     BINDINGS = [
         ("s", "switch", "Switch club/course"),
@@ -749,12 +769,7 @@ class OverviewScreen(Screen[None]):
         self.title = f"{star}{label} — {self.course}"
 
     def _config(self) -> dict:
-        if self.club_slug is None:
-            return {}  # a club being visited, not saved — no per-club settings at all
-        try:
-            return club_config.load_club_config(self.club_slug)
-        except FileNotFoundError:
-            return {}
+        return _resolved_config(self.club_slug)
 
     def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
         """(every date to attempt a row for, the subset of those actually open for
@@ -861,9 +876,8 @@ class OverviewScreen(Screen[None]):
 
     def action_edit_settings(self) -> None:
         # Delegates to the App for the same reason action_switch does above —
-        # opening SettingsScreen needs push_screen_wait(), and may also need to
-        # favorite this club first if it isn't one yet (see
-        # TeetimeApp._do_edit_settings()).
+        # opening SettingsScreen needs push_screen_wait(). See
+        # TeetimeApp.action_edit_settings()'s own docstring.
         self.app.action_edit_settings()
 
     def action_command_palette(self) -> None:
@@ -996,26 +1010,20 @@ class DayDetailScreen(Screen[None]):
             table.add_row(time_cell, occupancy, _dim_if(players, is_past and bool(players)))
 
     def _recommended_times(self, schedule: Schedule) -> set[str]:
-        """Which of this schedule's own slot times pass your saved availability rules
-        right now — marked with a leading "★" in the Time column.
+        """Which of this schedule's own slot times pass your global availability
+        rules right now — marked with a leading "★" in the Time column.
 
         Thin wrapper around the module-level `_availability_pipeline()` (factored out
         2026-09-07 when `OverviewScreen`'s own per-day pick column needed the exact
-        same computation) — this method's only job is resolving `config` from
-        `club_slug`. Best-effort: a club with no `availability` block configured, or a
+        same computation) — this method's only job is resolving `config` via
+        `_resolved_config()`. Best-effort: no `availability` configured at all, or a
         schedule with no weather attached yet, just means nothing gets marked — never
         an error shown to the user. `sun_times` specifically is never set on a
         schedule loaded this way (storage.py doesn't persist it — see its own module
         docstring), so the daylight half of `exclude_unplayable()` can't actually
         exclude anything here; only the weather half can. A known, accepted gap, not
         a silent one."""
-        if self.club_slug is None:
-            return set()  # a club being visited, not saved — no availability rules
-        try:
-            config = club_config.load_club_config(self.club_slug)
-        except FileNotFoundError:
-            return set()
-        _, playable = _availability_pipeline(schedule, config)
+        _, playable = _availability_pipeline(schedule, _resolved_config(self.club_slug))
         return {candidate.slot.time for candidate in playable}
 
     def refresh_banners(self) -> None:
@@ -1331,33 +1339,20 @@ class TeetimeApp(App[None]):
         self._periodic_scrape()
 
     def action_edit_settings(self) -> None:
-        """Open `SettingsScreen` for the active club — direct feedback 2026-09-08:
-        "i don't even know where to configure from the UI." Bound to `e` on both
-        `OverviewScreen` and `DayDetailScreen` (see their own `action_edit_settings()`,
-        which delegate here since `push_screen_wait()` lives on the App). Same worker
-        requirement/reasoning as `action_switch_club_or_course()` above."""
+        """Open `SettingsScreen` — direct feedback 2026-09-08: "i don't even know
+        where to configure from the UI." Bound to `e` on both `OverviewScreen` and
+        `DayDetailScreen` (see their own `action_edit_settings()`, which delegate here
+        since `push_screen_wait()` lives on the App). Same worker requirement/
+        reasoning as `action_switch_club_or_course()` above.
+
+        No club to resolve or favorite first any more (2026-09-08, same-day follow-up:
+        "i also want the settings/preferences to be global and not tied to a specific
+        club") — `SettingsScreen()` now always opens the one shared settings file
+        regardless of which club is active, or even whether one is favorited at all."""
         self.run_worker(self._do_edit_settings(), exclusive=True, group="settings")
 
     async def _do_edit_settings(self) -> None:
-        screen = self.screen
-        if not isinstance(screen, (DayDetailScreen, OverviewScreen)):
-            return  # settings only ever opens from one of these two, this is just a guard
-        club_id, slug, name = screen.club_id, screen.club_slug, screen.club_name
-        if slug is None:
-            # A club visited without saving it (see ClubBrowserScreen's own docstring
-            # on favorites) has nowhere to write settings to yet -- favoriting it here
-            # is exactly what "having settings" already means, so this does it
-            # automatically rather than sending the user to go find `f` on a
-            # different screen first just to come back and press `e` again.
-            slug = club_config.add_favorite(club_id, name)
-            screen.club_slug = slug
-            self._club_slug = slug
-        await self.push_screen_wait(SettingsScreen(slug))
-        # Re-read from disk rather than trusting SettingsScreen's own return value --
-        # club_id must always be present for the periodic background scrape to do
-        # anything at all (see the `_club_config` note in `_open_club()` above), and
-        # merging it back in here is cheaper than threading it through the screen.
-        self._club_config = {**club_config.load_club_config(slug), "club_id": club_id}
+        await self.push_screen_wait(SettingsScreen())
         # A saved availability/preferences change should be reflected immediately --
         # not just on the next scheduled reload -- since it can change the ★ marker,
         # the overview's per-day pick column, and "This week's picks" all at once.

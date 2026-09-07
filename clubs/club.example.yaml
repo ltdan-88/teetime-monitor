@@ -24,7 +24,7 @@ location:
 
 # Public holidays + school-vacation periods (Phase 2) — both tend to mean a busier
 # course, factored into the Phase 5 crowd heatmap and the avoid_predicted_crowd
-# preference below.
+# preference (now part of the shared global settings, see below).
 calendar:
   # ISO 3166-1 alpha-2 country code (e.g. "AT", "DE", "CH") — public holidays are
   # fetched automatically via the free Nager.Date API (https://date.nager.at/), no key
@@ -39,26 +39,13 @@ calendar:
 # How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 
-# How often scrape_once.py's scheduled run actually re-scrapes a given course/date, in
-# minutes — it can run as often as your cron/launchd job fires, but skips a
-# course/date that isn't due yet, so firing that job frequently doesn't mean hammering
-# the site every time. scrape_interval_minutes_booked applies once a date has a
-# confirmed booking on it: freshness matters much more once you actually have
-# something to protect (see booking_watch.py) than for the general far-future browsing
-# window. Added 2026-09-06 after feedback that once-or-twice-a-day was too infrequent,
-# especially for dates you've actually booked.
-scrape_interval_minutes: 360          # 6 hours, for dates with no confirmed booking
-scrape_interval_minutes_booked: 60    # 1 hour, once you have a confirmed booking
-
 # Estimated round duration, used to work out whether a tee time finishes before sunset
-# (Phase 2 playability highlight). Tune to your own/your group's typical pace.
+# (Phase 2 playability highlight). Tune to your own/your group's typical pace. Not
+# moved to the shared global settings below since a round genuinely can take a
+# different amount of time on a different course.
 round_duration_minutes:
   nine: 120
   eighteen: 240
-
-# Safety margin subtracted before sunset — a round "finishing at sunset" isn't really
-# playable, so this pads the cutoff earlier.
-daylight_buffer_minutes: 30
 
 # Your own name, used for personal stats (Phase 5). `friends` may turn out to be
 # unnecessary — pc caddie has its own native friends list (manage it in the site itself,
@@ -69,39 +56,14 @@ identity:
   my_name: ""
   friends: []
 
-# Your standing availability rules (Phase 3) — hard filters, applied automatically to
-# every day in the overview so the week's recommended slots show up without you typing
-# a search. Same shape as the ad hoc search form (Phase 4), just saved as your default.
-# Example below: workdays only after 17:00, weekends only after 10:00, always solo.
-# Leave a window out entirely (e.g. delete weekend_window) to skip that day type.
-availability:
-  min_open_spots: 1            # 1 = "always play alone"
-  weekday_window:
-    after: "17:00"
-  weekend_window:
-    after: "10:00"
-  buffer_minutes: 20            # min gap to the nearest other booked flight
-
-# Soft scoring weights (Phase 3 + 4) — how to rank slots that already pass the hard
-# availability filter above. Shared by both the automatic weekly picks and ad hoc search.
-#
-# avoid_rain/avoid_wind are just on/off switches here, but recommend.py's
-# exclude_unplayable() (the deterministic *hard* filter, not the AI ranking step) needs
-# an actual number to compare against once one of them is true. Found as a genuine gap
-# while implementing that function 2026-09-06 -- resolved with sensible defaults
-# (50% rain probability, 1mm rain, 30kph wind) rather than blocking on it, but override
-# them here if those aren't right for you:
-# avoid_rain_probability_percent: 50
-# avoid_rain_mm: 1.0
-# avoid_wind_kph: 30
-preferences:
-  avoid_rain: true
-  avoid_wind: true
-  avoid_temp_below_c: 5
-  avoid_temp_above_c: 32
-  prioritize_friends: true
-  avoid_predicted_crowd: true   # steer away from the Phase 5 heatmap's busy windows,
-                                 # once there's enough history for it to say anything
+# Your standing availability rules, weather comfort preferences, and scrape interval
+# used to live here per-club — moved 2026-09-08 to one shared file instead (direct
+# feedback: "i also want the settings/preferences to be global and not tied to a
+# specific club" — your own availability and weather comfort don't change depending on
+# which course you're checking, so duplicating them into every club's own YAML was
+# never actually right). See `global_preferences.py`'s module docstring for where that
+# file lives, or just press `e` from the running app (`OverviewScreen`/
+# `DayDetailScreen`) — it edits that shared file directly, no manual YAML needed.
 
 # ai_assist.py (see ROADMAP.md "AI placement" note) — this is the actual mechanism
 # behind tee-sheet parsing, recommendation ranking, and history summarization, not an
