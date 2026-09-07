@@ -227,6 +227,32 @@ def test_day_detail_shows_occupancy_and_players(tmp_path, monkeypatch):
     _run(scenario())
 
 
+def test_day_detail_shows_a_placeholder_for_a_block_reason_with_no_label(tmp_path, monkeypatch):
+    # Direct feedback (a real screenshot): "why am I seeing timeslots without any
+    # occupancies?" -- a real block-time row (confirmed live, Sonnenberg 2026-09-08)
+    # can have an empty label ("" -- still not real occupancy, just nothing shown on
+    # the site itself to say why), which rendered as a blank, confusing-looking row
+    # before this fallback existed.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="10:00", booked=4, capacity=4, block_reason="")],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert "not bookable" in row[1]
+
+    _run(scenario())
+
+
 # --- Past-slot dimming (2026-09-07, direct feedback: "can you hide or make
 # timeslots less visible that are in the past? ... now is 11:18, so I need a visible
 # feedback that I won't be able to make reservations for 11:10 or earlier today") ----

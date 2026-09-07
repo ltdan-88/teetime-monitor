@@ -225,6 +225,23 @@ def test_parse_slot_row_disable_time_advance_booking_window():
     assert slot.players == []
 
 
+def test_parse_slot_row_block_time_with_an_empty_label():
+    # Confirmed live 2026-09-08 (Sonnenberg): a real block-time row whose merged
+    # free-seat cell has no text at all -- blocked, with nothing shown on the site
+    # itself to say why. Faithfully "" (not None -- still not real occupancy); a
+    # display fallback is tui.py's own job, not this parser's.
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="10:00" data-status="block-time" '
+        'data-seat_bookable="4">'
+        '<td class="seats-free-4 tt-rot"><time class="pcco-tt-timestamp">10:00</time></td>'
+        '<td colspan="4"><span class="tt-show-name"></span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row)
+    assert slot.block_reason == ""
+    assert slot.players == []
+
+
 def test_parse_slot_row_falls_back_to_seats_free_class_without_data_attr():
     # No data-seat_bookable at all — parse_seats_free() on the time cell's class is the
     # documented fallback path.

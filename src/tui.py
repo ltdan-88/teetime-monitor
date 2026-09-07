@@ -951,7 +951,20 @@ class DayDetailScreen(Screen[None]):
             if slot.time in recommended_times and not is_past:
                 time_cell = f"★ {time_cell}"
             if slot.block_reason is not None:
-                table.add_row(time_cell, f"[dim]{slot.block_reason}[/]", "")
+                # A real, confirmed case (Sonnenberg, 2026-09-08): pc caddie's own
+                # merged free-seat cell for a block-time/disable-time row can be
+                # genuinely *empty* — blocked, but with no label at all shown on the
+                # site itself. `slot.block_reason` faithfully stores that as `""`
+                # (not `None` — the row still isn't real occupancy), but rendering
+                # `""` directly produced a blank, confusing-looking row here — direct
+                # feedback: "why am I seeing timeslots without any occupancies?".
+                # Substituted with a plain translated placeholder at display time
+                # only; the underlying `""` is left alone everywhere else (already
+                # handled correctly: `Schedule.events`/the overview's heat-strip both
+                # already test block_reason by truthiness/`is None`, not by display
+                # text).
+                reason_text = slot.block_reason or i18n.t("table.not_bookable")
+                table.add_row(time_cell, f"[dim]{reason_text}[/]", "")
                 continue
             style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(
                 slot.booked, slot.capacity

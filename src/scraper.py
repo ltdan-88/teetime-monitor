@@ -31,7 +31,14 @@ tested code, verified against the live site:
   was found later the same day, live: an "advance booking window" notice (e.g. "4 Tage
   im Voraus ab 20 Uhr buchbar") — also not real occupancy, just "not bookable yet." Both
   statuses are handled identically (`_NON_OCCUPANCY_STATUSES` below), matching how
-  ROADMAP.md already designed callers to treat any `block_reason`.
+  ROADMAP.md already designed callers to treat any `block_reason`. **Either status can
+  carry an empty label** — confirmed live 2026-09-08 (Sonnenberg): a real `block-time`
+  row whose merged free-seat cell has no text in it at all, blocked with nothing shown
+  on the site itself to say why. `Slot.block_reason` stores that faithfully as `""`
+  (not `None` — the row still isn't real occupancy, and every other consumer here
+  already tests it correctly either by `is None` or by truthiness), but a caller
+  rendering it as-is for display needs its own fallback text — see `tui.py`'s
+  `DayDetailScreen.load_schedule()` for the one place that needed one.
 - Free/empty player positions aren't individually rendered — pc caddie merges them into
   one trailing `<td colspan="N">` containing an *empty* `.tt-show-name` span. Iterating
   `.tt-show-name` spans and skipping any with blank text correctly gets just the real
