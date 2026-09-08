@@ -158,9 +158,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "club_picker.slug_required": "Enter a filename first.",
         "club_picker.slug_taken": "clubs/{slug}.yaml already exists — pick another name.",
         "club_picker.pick_first": "Pick a club from the list first.",
-        "club_picker.saved": (
-            "Saved clubs/{slug}.yaml — edit it to add location, calendar, and preferences "
-            "(see club.example.yaml)."
+        "club_picker.saved_with_location": (
+            "Saved clubs/{slug}.yaml — found a location for weather automatically "
+            "(worth double-checking it in the file); calendar/preferences still up to you."
+        ),
+        "club_picker.saved_no_location": (
+            "Saved clubs/{slug}.yaml — couldn't find a location automatically; add one by "
+            "hand for weather, plus calendar/preferences (see club.example.yaml)."
         ),
         "credentials.title": "pc caddie login",
         "credentials.intro": (
@@ -297,9 +301,13 @@ _STRINGS: dict[str, dict[str, str]] = {
         "club_picker.slug_required": "Bitte zuerst einen Dateinamen eingeben.",
         "club_picker.slug_taken": "clubs/{slug}.yaml existiert bereits — bitte einen anderen Namen wählen.",
         "club_picker.pick_first": "Bitte zuerst einen Club aus der Liste auswählen.",
-        "club_picker.saved": (
-            "clubs/{slug}.yaml gespeichert — Standort, Kalender und Einstellungen bitte "
-            "ergänzen (siehe club.example.yaml)."
+        "club_picker.saved_with_location": (
+            "clubs/{slug}.yaml gespeichert — Standort für Wetter automatisch gefunden "
+            "(bitte in der Datei prüfen); Kalender/Einstellungen weiterhin optional."
+        ),
+        "club_picker.saved_no_location": (
+            "clubs/{slug}.yaml gespeichert — kein Standort automatisch gefunden; bitte für "
+            "Wetter sowie Kalender/Einstellungen manuell ergänzen (siehe club.example.yaml)."
         ),
         "credentials.title": "pc caddie Anmeldung",
         "credentials.intro": (

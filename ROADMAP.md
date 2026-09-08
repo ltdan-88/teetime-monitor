@@ -884,6 +884,64 @@ as a tournament). Not yet wired into anything else — no caller populates a clu
 `identity`/day-type view yet, since that's tui.py/analytics.py territory (Phases 4/5),
 still stubs.
 
+**Automatic `location` lookup, 2026-09-08** — real user report: "why don't i
+currently see any weather forecast?" Root cause found by direct inspection, not
+guesswork: none of this developer's own three saved clubs had ever had `location`
+filled in at all (`club_config.new_club_stub()` never sets it — every consumer
+just silently no-ops without it, `_attach_weather()`'s own docstring already said
+so), so weather had genuinely never been fetched for any of them, ever, with
+nothing in the app saying why. Direct follow-up once that was explained: "can the
+scraper find out location data and fill it in automatically on the fly?"
+
+Checked what pc caddie itself exposes first, live, before writing anything: the
+tee-sheet page's own footer links to an "Impressum" (German legal imprint), but
+that's the *platform vendor's* address (PC CADDIE://online GmbH, Bad Oldesloe),
+not each club's; the club directory is plain `[club_id] Name` pairs, no city or
+address anywhere. A general-purpose geocoder that only knows place names (Open-
+Meteo's own, already used for `location`'s actual coordinates) returns nothing for
+a golf club's business name — that kind of service is built for towns, not
+venues.
+
+New `geocode.py` uses OpenStreetMap's free Nominatim geocoder instead, which does
+index individual mapped features (including many golf courses tagged
+`leisure=golf_course`) — but pc caddie's own club names broke it outright at
+first: querying the *exact* name pc caddie gives a club ("Golf Club Sonnenberg
+e.V.", "Golfclub Domäne Musterhausen e.V.", "Nippenburg Golfclub GmbH") returned
+zero results for all three real clubs tested live. Fixed with two normalizations,
+`_normalize_query()`: drop the German legal-entity suffix ("e.V.", "GmbH", ...),
+since OSM's own tagging never carries one, and merge a two-word/hyphenated "Golf
+Club"/"Golf-Club" into the single word "Golfclub" OSM actually uses — confirmed
+live that word order and extra descriptive words ("Domäne") don't matter once
+those two are fixed, all three clubs then resolved correctly.
+
+Wired into `club_picker.py`'s save flow (the one moment a club's real name is
+known and nothing's been geocoded for it yet) — `find_club_location()` runs
+automatically on every save, merging a `location` block into the new stub when
+something's found, with the status line saying plainly whether it worked or not
+either way. Deliberately best-effort, not a precise pin: of the three real clubs
+tested, one matched the actual golf-course feature directly, two matched a
+different nearby feature that happened to reference the club's name in its own (a
+campsite, a parking area) — acceptable for what this feeds (a weather forecast,
+where being a few hundred meters to a kilometer off the real clubhouse changes
+nothing), not a substitute for the real address if precision ever mattered for
+something else. Deliberately not back-filled onto already-saved clubs — a
+one-time, one-directional lookup at save time is all this needs while there's no
+real user base yet whose existing clubs would need retrofitting.
+
+16 new tests (`test_geocode.py`'s `_normalize_query()`/`find_club_location()`
+cases, plus `test_club_picker.py` covering the save-flow wiring itself), two
+confirmed to genuinely fail when temporarily reverted (the `location` never
+merged into the saved stub; the geocoder called with the club's raw, un-normalized
+name) before being restored. A real test-isolation gap caught building this, same
+shape as several before it in this project: a spy on `httpx.get` showed the very
+first version of the save-flow test actually reaching the live Nominatim service
+before an autouse fixture (mirroring `test_tui.py`'s own
+`_fake_course_aliases_by_default`) was added to redirect every test in the file.
+Verified live at every level: `find_club_location()` itself against the real
+service for all three real club names (each now resolves); the full
+stub-plus-location save pipeline end to end into a scratch directory (never the
+real `clubs/`).
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

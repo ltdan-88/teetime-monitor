@@ -21,6 +21,19 @@ def _english_ui(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_geocoding_by_default(monkeypatch):
+    """`on_button_pressed()`'s save handler calls `geocode.find_club_location()`
+    (added 2026-09-08) on every save -- every test here that reaches the save
+    button would otherwise make a real network request to the live Nominatim
+    service, same test-isolation gap this project has caught before (e.g.
+    `_fake_course_aliases_by_default` in test_tui.py). Confirmed live once, then
+    fixed: a spy on `httpx.get` showed a real request actually leaving before this
+    fixture existed. Defaults to "nothing found" (`None`) -- a test exercising the
+    "location found" path overrides this locally."""
+    monkeypatch.setattr(club_picker.geocode, "find_club_location", lambda name: None)
+
+
+@pytest.fixture(autouse=True)
 def _restore_pcc_env():
     # CredentialsScreen (pushed automatically when credentials are missing) writes
     # directly to os.environ on save -- bypassing monkeypatch's own undo tracking.
@@ -255,6 +268,95 @@ def test_club_picker_save_writes_new_club_stub(monkeypatch, tmp_path):
     saved = load_club_config("1-golfclub-leipzig-e-v", tmp_path)
     assert saved["club_id"] == "0491605"
     assert "1-golfclub-leipzig-e-v" in list_clubs(tmp_path)
+
+
+# --- Automatic weather location (2026-09-08, direct follow-up: "can the scraper find
+# out location data and fill it in automatically on the fly?" -> "yes please build it
+# in, it should be automatic for any future club i add") --------------------------
+
+
+def test_club_picker_save_fills_in_a_location_when_found(monkeypatch, tmp_path):
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.setenv("PCC_USER", "user@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    _fake_fetch_ok(monkeypatch)
+    monkeypatch.setattr(club_picker.geocode, "find_club_location", lambda name: (50.1234567, 8.1234567))
+
+    async def scenario():
+        from textual.widgets import Static
+
+        app = _HostApp("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search").value = "leipzig"
+            await pilot.pause()
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+            assert "automatically" in str(app.screen.query_one("#status", Static).content)
+
+    asyncio.run(scenario())
+
+    saved = load_club_config("1-golfclub-leipzig-e-v", tmp_path)
+    assert saved["location"] == {"lat": 50.1234567, "lon": 8.1234567}
+
+
+def test_club_picker_save_status_message_when_location_not_found(monkeypatch, tmp_path):
+    # The autouse `_no_real_geocoding_by_default` fixture already makes every save
+    # in this file behave this way -- this test just confirms the actual status
+    # text and that no `location` key gets written when nothing was found.
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.setenv("PCC_USER", "user@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    _fake_fetch_ok(monkeypatch)
+
+    async def scenario():
+        from textual.widgets import Static
+
+        app = _HostApp("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search").value = "leipzig"
+            await pilot.pause()
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+            assert "couldn't find" in str(app.screen.query_one("#status", Static).content)
+
+    asyncio.run(scenario())
+
+    saved = load_club_config("1-golfclub-leipzig-e-v", tmp_path)
+    assert "location" not in saved
+
+
+def test_club_picker_save_passes_the_clubs_own_name_to_the_geocoder(monkeypatch, tmp_path):
+    # A real, if easy-to-make, mistake: passing the club_id or the search query
+    # instead of the actual selected club's own name.
+    (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
+    monkeypatch.setenv("PCC_USER", "user@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    _fake_fetch_ok(monkeypatch)
+    seen_names = []
+    monkeypatch.setattr(
+        club_picker.geocode, "find_club_location", lambda name: seen_names.append(name) or None
+    )
+
+    async def scenario():
+        app = _HostApp("home-club", clubs_dir=tmp_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search").value = "leipzig"
+            await pilot.pause()
+            app.screen.on_option_list_option_selected(_fake_selected_event("0491605"))
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    assert seen_names == ["1. Golfclub Leipzig e.V."]
 
 
 def test_club_picker_dismisses_with_the_saved_slug_on_quit(monkeypatch, tmp_path):

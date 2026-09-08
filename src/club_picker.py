@@ -36,9 +36,12 @@ caddie's own exact-substring, umlaut-sensitive behavior confirmed live 2026-09-0
 their equivalent field (see scraper.py's module docstring). A deliberate, friendlier
 deviation, not an unnoticed gap.
 
-Saving writes only `club_config.new_club_stub(club_id)` — see that function's
-docstring for why everything besides `club_id` is left for the user to fill in by
-hand or via settings_screen.py.
+Saving writes `club_config.new_club_stub(club_id)`, plus a best-effort `location`
+(2026-09-08, `geocode.find_club_location()` against the club's own name — see that
+module's docstring for what pc caddie itself doesn't expose, and why this can't be
+a guaranteed-precise pin) if one was found. Everything else is still left for the
+user to fill in by hand or via settings_screen.py — see `new_club_stub()`'s own
+docstring.
 
 Bilingual like every other screen in this project (i18n.py); uses the shared
 `TranslatedFooter` from translated_footer.py, same as every other screen.
@@ -55,7 +58,7 @@ from textual.widgets import Button, Header, Input, Static
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from . import club_config, env_file, i18n
+from . import club_config, env_file, geocode, i18n
 from . import theme as theme_module
 from .credentials_screen import CredentialsScreen
 from .scraper import fetch_club_directory
@@ -232,12 +235,24 @@ class ClubSearchScreen(Screen[str | None]):
         if slug in club_config.list_clubs(self.clubs_dir):
             status.update(i18n.t("club_picker.slug_taken", slug=slug))
             return
-        club_id, _name = self.selected
-        club_config.save_club_config(slug, club_config.new_club_stub(club_id), self.clubs_dir)
+        club_id, name = self.selected
+        stub = club_config.new_club_stub(club_id)
+        # Best-effort automatic weather location (2026-09-08, direct follow-up:
+        # "can the scraper find out location data and fill it in automatically on
+        # the fly?" -- pc caddie itself has nothing usable, so this is a one-off
+        # OpenStreetMap lookup on the club's own name instead; see geocode.py's
+        # module docstring for what was checked before landing on that approach,
+        # and why it's a best-effort location, not a guaranteed-precise one).
+        location = geocode.find_club_location(name)
+        if location is not None:
+            lat, lon = location
+            stub["location"] = {"lat": lat, "lon": lon}
+        club_config.save_club_config(slug, stub, self.clubs_dir)
         self._saved_slug = slug
         if self._on_saved is not None:
             self._on_saved(slug)
-        status.update(i18n.t("club_picker.saved", slug=slug))
+        saved_key = "club_picker.saved_with_location" if location is not None else "club_picker.saved_no_location"
+        status.update(i18n.t(saved_key, slug=slug))
 
     def action_quit_screen(self) -> None:
         self.dismiss(self._saved_slug)
