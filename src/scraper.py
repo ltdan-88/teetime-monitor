@@ -317,6 +317,28 @@ def _capacity_from_table(table: Tag) -> int:
     return seats or SEATS_PER_SLOT
 
 
+def _event_names(rows: list[Tag]) -> list[str]:
+    """Day-level event names for `Schedule.events` — only genuine `block-time` rows
+    (an actual lesson/tournament/guest block occupying a slot), never `disable-time`
+    ones (an advance-booking-window notice, e.g. "4 Tage im Voraus ab 20 Uhr buchbar
+    (KP)") — that's a per-slot booking-window mechanic, not a day-level event at all,
+    and was incorrectly flooding into `events` before this fix (2026-09-08, direct
+    feedback questioning why the overview's Weather column was showing things that
+    plainly weren't events). `Slot.block_reason` itself still stores either status's
+    label identically (see module docstring) — this is a separate, narrower read of
+    the same rows for a different purpose, not a change to per-slot parsing."""
+    names = set()
+    for row in rows:
+        if row.get("data-status") != STATUS_BLOCK_TIME:
+            continue
+        reason_span = row.select_one(".tt-show-name")
+        if reason_span:
+            reason = reason_span.get_text(strip=True)
+            if reason:
+                names.add(reason)
+    return sorted(names)
+
+
 def parse_schedule_html(
     html: str,
     date: str,
@@ -336,14 +358,12 @@ def parse_schedule_html(
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("table.pcco-tt-timetable")
     if table is None:
-        slots = []
+        slots, events = [], []
     else:
         capacity = _capacity_from_table(table)
-        slots = [
-            _parse_slot_row(row, capacity, authenticated)
-            for row in table.select("tr.pcco-tt-time-person")
-        ]
-    events = sorted({s.block_reason for s in slots if s.block_reason})
+        rows = table.select("tr.pcco-tt-time-person")
+        slots = [_parse_slot_row(row, capacity, authenticated) for row in rows]
+        events = _event_names(rows)
     return Schedule(
         date=date,
         course=course,

@@ -1157,6 +1157,49 @@ only `data/0000002.db` — no `clubs/` directory at all, confirming this never
 requires saving the club; a second call (with the network call itself made to
 raise, to prove it) returns the same coordinates straight from the cache.
 
+**The Weather column's tournament icon relabeled, same session** ("not really
+sure why it is listing events in the weather column"): explained the existing,
+deliberate design (a day with something blocking its tee sheet is shown ahead
+of weather, on the theory that it's the more consequential fact), but the
+question exposed a real overclaim underneath it. `schedule.events` — and from
+there `_day_tag_or_weather()`'s 🏆 icon — was built from *any* non-empty
+`block-time` reason at all, with nothing to tell a genuine competitive
+tournament apart from a routine ladies'/members' day or a maintenance closure;
+pc caddie's own tee sheet doesn't publish that distinction anywhere, and
+`scrape_events_calendar()` (the one source that plausibly could) has been an
+unimplemented stub since Phase 1. A trophy specifically claims "competition" —
+more than this app can actually verify from real data. Also found while
+checking this: `disable-time` reasons (advance-booking-window notices, e.g. "4
+Tage im Voraus ab 20 Uhr buchbar (KP)") were flooding into `events` right
+alongside real block-time ones — a booking-window mechanic is never a
+day-level event at all, and this wasn't just a display glitch: `events`
+also feeds `analytics.py`'s `has_tournament` day-type classification
+(`calendar_context.classify_day()`), so an advance-booking notice was silently
+able to mislabel an ordinary day as a "tournament day" for crowd-heatmap
+grouping purposes too, not merely showing up wrong in one column.
+
+Fixed both: new `scraper._event_names()` reads `events` directly off
+`block-time` rows only (never `disable-time`), factored out of
+`parse_schedule_html()` rather than derived from already-flattened `Slot`
+objects (which don't carry which status produced their `block_reason`) — a
+blank block-time label (a real, confirmed case, see `_parse_slot_row`'s own
+docstring) is excluded here too, same as before. `_day_tag_or_weather()`'s
+icon changed from 🏆 to 📌 — deliberately generic, since `events` is
+genuinely just "the club published a reason a slot isn't normally bookable
+today," not a confirmed competition. Left `calendar_context.py`'s own
+"tournament" day-type name and priority ordering untouched — that's a
+separate, working, already-documented classification bucket, not itself
+what was reported wrong.
+
+7 new/changed tests across `test_scraper.py` (`_event_names()`'s own cases:
+block-time included, disable-time excluded, blank labels excluded, dedup+sort;
+the existing full-page integration test updated to expect only the genuine
+event) and `test_tui.py` (the icon change). Verified live: a fabricated page
+with both a real block-time event and a disable-time notice on the same day
+now reports only the genuine event in `schedule.events`, rendered as "📌
+Dienstag-Ladies" in the overview cell — the notice no longer appears at all.
+526 tests passing (was 522).
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

@@ -7,6 +7,7 @@ from src.scraper import (
     STATUS_DISABLE_TIME,
     STATUS_OCCUPIED,
     LoginError,
+    _event_names,
     _parse_club_directory_html,
     _parse_course_aliases_html,
     _parse_my_reservations_html,
@@ -297,8 +298,11 @@ def test_parse_schedule_html_full_page():
     # invariant the live 1092-slot sweep (2026-09-06) confirmed against production data.
     assert all(slot.players == [] for slot in schedule.slots)
 
-    # Both non-occupancy statuses show up as events, distinguishable from real crowding.
-    assert schedule.events == ["4 Tage im Voraus ab 20 Uhr buchbar (KP)", "Golf Beginner Kurs"]
+    # Only the genuine block-time row counts as a day-level event -- disable-time is
+    # just a booking-window notice, not a day-level event, and must not show up here
+    # (2026-09-08 fix: it was incorrectly flooding into events/the overview's Weather
+    # column before this).
+    assert schedule.events == ["Golf Beginner Kurs"]
 
     open_slot, full_slot, blocked_slot, disabled_slot = schedule.slots
     assert (open_slot.booked, open_slot.capacity) == (0, 4)
@@ -311,6 +315,53 @@ def test_parse_schedule_html_missing_table_returns_empty_schedule():
     schedule = parse_schedule_html("<html><body>no table here</body></html>", date="2026-09-06", course="18 Loch Tee 1")
     assert schedule.slots == []
     assert schedule.events == []
+
+
+# _event_names() -- factored out 2026-09-08 so schedule.events only ever reflects a
+# genuine block-time row, never a disable-time advance-booking notice (that had been
+# silently flooding into events, and from there into the overview's Weather column
+# and calendar_context's "tournament" day-type classification, both of which treat any
+# non-empty events as a day-level flag).
+
+
+def test_event_names_includes_block_time_reasons():
+    rows = [
+        _row(
+            '<tr data-status="block-time"><td colspan="4">'
+            '<span class="tt-show-name">Herbstturnier</span></td></tr>'
+        )
+    ]
+    assert _event_names(rows) == ["Herbstturnier"]
+
+
+def test_event_names_excludes_disable_time_reasons():
+    # An advance-booking-window notice is a per-slot booking-window mechanic, not a
+    # day-level event -- must never show up here even though it does carry a
+    # block_reason on the Slot itself.
+    rows = [
+        _row(
+            '<tr data-status="disable-time"><td colspan="4">'
+            '<span class="tt-show-name">4 Tage im Voraus ab 20 Uhr buchbar (KP)</span>'
+            "</td></tr>"
+        )
+    ]
+    assert _event_names(rows) == []
+
+
+def test_event_names_excludes_blank_block_time_labels():
+    # A real block-time row can carry an empty label (confirmed live 2026-09-08,
+    # Sonnenberg) -- an empty string isn't a meaningful event name to show.
+    rows = [_row('<tr data-status="block-time"><td colspan="4"><span class="tt-show-name"></span></td></tr>')]
+    assert _event_names(rows) == []
+
+
+def test_event_names_deduplicates_and_sorts():
+    rows = [
+        _row('<tr data-status="block-time"><td><span class="tt-show-name">Zebra Cup</span></td></tr>'),
+        _row('<tr data-status="block-time"><td><span class="tt-show-name">Alpha Cup</span></td></tr>'),
+        _row('<tr data-status="block-time"><td><span class="tt-show-name">Zebra Cup</span></td></tr>'),
+    ]
+    assert _event_names(rows) == ["Alpha Cup", "Zebra Cup"]
 
 
 # ---------------------------------------------------------------------------

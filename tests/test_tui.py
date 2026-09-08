@@ -1036,7 +1036,7 @@ def test_weather_summary_none_without_daytime_forecast():
     assert tui._weather_summary([]) is None
 
 
-def test_day_tag_prefers_a_tournament_over_rain_or_weather():
+def test_day_tag_prefers_an_event_over_rain_or_weather():
     schedule = Schedule(
         date="2026-09-07",
         course="18 Loch Tee 1",
@@ -1044,7 +1044,13 @@ def test_day_tag_prefers_a_tournament_over_rain_or_weather():
         weather=[_weather("09:00", prob=95)],
         events=["Herbstturnier"],
     )
-    assert tui._day_tag_or_weather(schedule) == "🏆 Herbstturnier"
+    # 📌, not 🏆 -- 2026-09-08 direct feedback questioning why non-weather text
+    # showed in the Weather column at all: `events` is genuinely just "the club
+    # published a reason a slot isn't normally bookable," which is often a real
+    # tournament but just as often a routine ladies'/members' day or a maintenance
+    # closure -- nothing in the scraped data actually distinguishes the two, so a
+    # trophy specifically claiming "competition" overclaimed what this can tell.
+    assert tui._day_tag_or_weather(schedule) == "📌 Herbstturnier"
 
 
 def test_day_tag_shows_rain_all_day_over_a_plain_weather_line():

@@ -141,7 +141,7 @@ crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan a
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
-  refresh), showing weather (or a tournament/rain-all-day flag in its place), a
+  refresh), showing weather (or a 📌 day-note/rain-all-day flag in its place), a
   six-block "heat strip" for how full 08:00-20:00 is, and that day's own pick — a
   confirmed booking, a recommended ★ slot, or why neither applies. "This week's
   picks" lists the same recommendations across every loaded day, shown only once

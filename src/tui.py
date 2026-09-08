@@ -18,7 +18,7 @@ Startup flow:
    one) sets a valid `default_course`, or if the club has only one course at all —
    which is 46% of them, per the cross-club sweep in scraper.py's module docstring.
 3. `OverviewScreen` — the actual home screen once a club/course is picked: one row per
-   attempted day (weekday + exact ISO date, weather or a tournament/rain tag, a
+   attempted day (weekday + exact ISO date, weather or a day-note/rain tag, a
    six-block "heat strip" for 08:00-20:00, and that day's own pick — a confirmed
    booking, a recommended ★ slot, or why neither applies), plus "This week's picks"
    below (only shown once `availability` rules are configured). The cursor starts on
@@ -677,15 +677,28 @@ def _weather_summary(weather: list) -> str | None:
 
 
 def _day_tag_or_weather(schedule: Schedule) -> str:
-    """The card's second line: a tournament flag beats a rain-all-day flag beats a
-    plain weather summary — a tournament is the single most consequential fact about
-    a day (it's not just weather-uncomfortable, whole tee times are blocked), and
-    "it's raining all day anyway" is more useful at a glance than exact temperatures.
-    `schedule.events` names come straight from the scraped event/lesson label (see
-    scraper.py's module docstring) — untranslated, same as every other block_reason
-    text in this app, since it's the club's own text, not this app's UI chrome."""
+    """The card's second line: a day-note flag beats a rain-all-day flag beats a
+    plain weather summary — a day with something blocking its tee sheet is the single
+    most consequential fact about it (it's not just weather-uncomfortable, whole tee
+    times are unavailable), and "it's raining all day anyway" is more useful at a
+    glance than exact temperatures. `schedule.events` names come straight from the
+    scraped block-reason label (see `scraper._event_names()`) — untranslated, same as
+    every other block_reason text in this app, since it's the club's own text, not
+    this app's UI chrome.
+
+    The icon (📌, not 🏆) is deliberately generic: `events` is genuinely just "the
+    club published a reason a slot isn't normally bookable today," which is very
+    often a real tournament ("AK 50 Herren") but just as often a routine ladies'/
+    members' day or a maintenance closure — nothing in the scraped data actually
+    distinguishes a competitive event from a routine one (see ROADMAP.md's "Known
+    risks" — no separate tournament-calendar source is implemented), so a trophy
+    specifically claiming "competition" overclaimed what this app can actually tell.
+    Changed 2026-09-08, direct feedback questioning why non-weather text was showing
+    in a column literally labeled "Weather" at all — kept as a flag rather than
+    dropped, since a blocked tee sheet is still more useful to see at a glance than
+    that day's forecast."""
     if schedule.events:
-        return f"🏆 {schedule.events[0]}"
+        return f"📌 {schedule.events[0]}"
     if _is_rain_all_day(schedule.weather):
         return f"🌧 {i18n.t('overview.rain_all_day')}"
     return _weather_summary(schedule.weather) or ""
@@ -812,7 +825,7 @@ OVERVIEW_MAX_PICKS_SHOWN = 5
 
 class OverviewScreen(Screen[None]):
     """The multi-day at-a-glance home screen — one row per attempted day: weekday +
-    exact ISO date, weather (or a tournament/rain tag in its place), a six-block "heat
+    exact ISO date, weather (or a day-note/rain tag in its place), a six-block "heat
     strip" showing how full 08:00-20:00 is in 2-hour windows, and that day's own pick.
     "This week's picks" below lists the same recommendation across every loaded day —
     shown only once `availability` rules are actually configured (direct feedback on
