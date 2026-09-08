@@ -29,9 +29,9 @@ the two it was built against), across German, Swiss, Luxembourgish and
 Italian-speaking clubs; every one of them now either loads correctly or reports
 cleanly that the club publishes no tee sheet. See `src/scraper.py`'s module docstring
 for what that sweep found and fixed — several of the failures were serious, including
-one that made the tool unusable for nearly half of all clubs. Still to come: ad hoc
-search and the crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased
-build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
+one that made the tool unusable for nearly half of all clubs. Still to come: the
+crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
+[`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
 
 ## Planned capabilities
 
@@ -135,11 +135,13 @@ build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
   picks" lists the same recommendations across every loaded day, shown only once
   you've actually set availability rules. `enter` drills into that day's own
   single-day detail table; `escape` there pops back
-- Search for the one-off exceptions: type in "3 players, weekdays only, after 15:00,
-  20 min clear of other flights" and get a ranked list for that specific case. Party
-  size and time windows are checked exactly (plain code); weighing rain/wind/
-  temperature/friends into a ranking with plain-language reasons is the same AI call
-  behind the automatic weekly picks
+- Search for the one-off exceptions (`/` from the overview): a small form, pre-filled
+  from your saved availability so you're tweaking one case rather than typing
+  everything from scratch — e.g. "just this once, 3 players, weekdays only, after
+  15:00" — searched across every day already loaded, no fresh scrape. Party size,
+  time windows, and the before/after buffer are checked exactly (plain code); the
+  weather/daylight sanity check and the same AI ranking behind the automatic weekly
+  picks both still apply on top
 - A crowd heatmap — historical occupancy grouped by day type (workday, weekend, public
   holiday, vacation, tournament), so a future vacation-week Monday gets compared
   against other vacation days, not typical Mondays. The raw numbers are plain
@@ -221,8 +223,8 @@ launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 Check on it with `cat ~/Library/Logs/teetime-monitor.log` (empty means no errors);
 remove it later with `launchctl unload ...` plus deleting the plist file.
 
-`tui.py`'s ad hoc search and the crowd-heatmap screen aren't built yet — see "Project
-structure" above for what's real today versus still a stub.
+`tui.py`'s crowd-heatmap screen isn't built yet — see "Project structure" above for
+what's real today versus still a stub.
 
 ## Project structure
 
@@ -262,7 +264,7 @@ teetime-monitor/
 │   ├── i18n.py             # English/German UI text lookup (implemented)
 │   ├── user_config.py      # shared KEY=value config file, used by theme.py + i18n.py (implemented)
 │   └── tui.py               # main Textual app: club browser, course picker, multi-day
-│                            #   overview, day detail (implemented); search, heatmap (not yet built)
+│                            #   overview, day detail, ad hoc search (implemented); heatmap (not yet built)
 └── tests/
     ├── test_models.py
     ├── test_club_config.py

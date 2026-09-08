@@ -1231,23 +1231,52 @@ green/yellow/bold-red coloring confirmed via raw ANSI capture (not just the unde
 markup string), and the club's own narrower real window (4 days, not 5) correctly
 greyed out the 5th attempted row.
 
-- **Search** (not yet built — deliberately not bundled with the overview above, per the
-  mockup review's other resolved question that it should stay its own screen): for the
-  one-off cases that don't match your saved `availability` defaults
-  — e.g. "just this once, 3 players, weekdays only, after 15:00, 20 minutes clear of any
-  other flight." New keybinding opens a small form; `search.py`'s `SearchCriteria`
-  covers:
+- **Search** (implemented 2026-09-08, see below — deliberately not bundled with the
+  overview above, per the mockup review's other resolved question that it should stay
+  its own screen): for the one-off cases that don't match your saved `availability`
+  defaults — e.g. "just this once, 3 players, weekdays only, after 15:00." New
+  keybinding opens a small form; `search.py`'s `SearchCriteria` covers:
   - **Party size** (`min_open_spots`) — enough open spots in the slot for your group
   - **Separate workday/weekend time windows** (`weekday_window` / `weekend_window`) —
     a day type with no window set is skipped entirely, so leaving one out means "only
     the other day type"
-  - **Buffer from other flights** (`buffer_minutes`) — a minimum gap to the nearest
-    other booked flight, both before and after, so your group isn't squeezed between
-    two other groups
+  - **Buffer from other flights** (`buffer_before_minutes`/`buffer_after_minutes`,
+    split 2026-09-08 — see this same day's entry above) — a minimum gap to the
+    nearest other booked flight ahead of you and behind you, checked separately
   - Hard filters run as plain deterministic code (`search.py`), same as Phase 3; the
     matches are then ranked by the same `ai_assist.rank_slots()` call Phase 3 uses, with
     the typed-in criteria's candidates in place of the saved-default ones — same engine,
     different input.
+
+**Implemented, same session** ("what should we build next?" → "ad hoc search screen
+(Recommended)", from a short menu of the remaining backlog): new `tui.SearchScreen`,
+pushed from `OverviewScreen` via `/` (reserved for exactly this since the screen's
+own docstring first flagged it as "not yet built," 2026-09-07). Backend needed zero
+new code — `search.py`, `recommend.exclude_unplayable()`, and `ai_assist.rank_slots()`
+were all already real and fully tested — so the actual work was wiring a form to the
+existing pipeline: `recommend.weekly_picks()` was refactored into a general
+`ranked_matches(schedules, criteria, config)` (the same three-step pipeline, just
+taking an explicit `SearchCriteria` instead of deriving one from a club's saved
+`availability`), with `weekly_picks()` now a two-line wrapper calling it with the
+usual default criteria — confirmed behavior-preserving (`weekly_picks()`'s own
+existing tests all still pass unchanged). The form itself reuses
+`settings_screen.py`'s own `HOUR_CHOICES`/`MINUTE_CHOICES`/`MIN_OPEN_SPOTS_CHOICES`/
+`BUFFER_CHOICES` directly, for the same look, the same 05:00-21:00 hour trim, and the
+same "can't hold an invalid value" guarantee — pre-filled from your saved global
+availability defaults (edit from there for this one case, not type everything from
+scratch), and searches whatever days `OverviewScreen` already has loaded
+(`self._schedules`), not a fresh scrape. `escape`/`q` dismiss back to the overview /
+quit the whole app respectively, matching `ClubBrowserScreen`/`CoursePickerScreen`'s
+convention for a screen that's part of the main flow (not `SettingsScreen`'s own
+"q closes just this screen," since that one's also runnable standalone). 9 new tests
+in `test_tui.py` plus 1 in `test_recommend.py`, two confirmed to genuinely fail when
+temporarily reverted (the `/` binding removed; the typed-in criteria ignored in
+favor of the config's own saved defaults) before being restored. Verified live
+against a real, previously-unscraped club (Sonnenberg, 0000002) in a fully isolated
+sandbox (`PYTHONPATH` pointed at the repo, `cwd` a scratch directory, so `clubs/`/
+`data/` never touch the real project's own): reached the search screen from the real
+running app, confirmed the pre-filled blanks and dropdown ranges render correctly
+against real loaded data.
 
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs

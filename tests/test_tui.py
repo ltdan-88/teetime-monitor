@@ -1213,6 +1213,7 @@ def test_overview_screen_footer_says_enter_opens_a_day(tmp_path, monkeypatch):
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "enter" in text and "Open" in text
             assert "Settings" in text
+            assert "Search" in text  # `/` -- SearchScreen, added 2026-09-08
 
     _run(scenario())
 
@@ -1228,6 +1229,177 @@ def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp
         async with app.run_test() as pilot:
             await pilot.pause()
             assert str(app.screen.query_one("#picks", Static).content) == ""
+
+    _run(scenario())
+
+
+# --- SearchScreen (ROADMAP.md Phase 4, ad hoc search -- "we should build the ad hoc
+# search screen next", 2026-09-08) -------------------------------------------------
+
+
+def test_overview_screen_slash_opens_search_screen(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("/")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SearchScreen)
+
+    _run(scenario())
+
+
+def _search_screen(schedules=None, config=None):
+    return tui.SearchScreen(schedules or [], config or {})
+
+
+def test_search_screen_prefills_from_saved_availability(tmp_path):
+    config = {
+        "availability": {
+            "min_open_spots": 3,
+            "weekday_window": {"after": "17:00"},
+            "buffer_before_minutes": 20,
+            "buffer_after_minutes": 10,
+        }
+    }
+
+    async def scenario():
+        app = _HostApp(_search_screen(config=config))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#search-min-open-spots").value == "3"
+            assert app.screen.query_one("#search-weekday-after-hh").value == "17"
+            assert app.screen.query_one("#search-weekday-after-mm").value == "00"
+            assert app.screen.query_one("#search-buffer-before").value == "20"
+            assert app.screen.query_one("#search-buffer-after").value == "10"
+            # Nothing saved for the weekend window -- both dropdowns start blank.
+            assert app.screen.query_one("#search-weekend-after-hh").value == ""
+
+    _run(scenario())
+
+
+def test_search_screen_prefill_falls_back_to_the_old_single_buffer_key(tmp_path):
+    config = {"availability": {"buffer_minutes": 15}}
+
+    async def scenario():
+        app = _HostApp(_search_screen(config=config))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#search-buffer-before").value == "15"
+            assert app.screen.query_one("#search-buffer-after").value == "15"
+
+    _run(scenario())
+
+
+def test_search_screen_hour_dropdown_excludes_implausible_hours():
+    async def scenario():
+        from textual.widgets import Select
+
+        app = _HostApp(_search_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            hour_select = app.screen.query_one("#search-weekday-after-hh", Select)
+            offered = hour_select._legal_values - {""}
+            assert "02" not in offered
+            assert "05" in offered
+            assert "21" in offered
+
+    _run(scenario())
+
+
+def test_search_screen_runs_search_and_shows_results():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4)],
+    )
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 1
+            row = table.get_row_at(0)
+            assert row[1] == "09:00"
+            assert row[2] == "18 Loch Tee 1"
+
+    _run(scenario())
+
+
+def test_search_screen_uses_typed_in_criteria_not_saved_defaults():
+    # The whole point of ad hoc search -- "just this once," not your saved rules.
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="18:00", booked=0, capacity=4)],
+    )
+    # A saved default that would only ever match the evening slot.
+    config = {"availability": {"weekday_window": {"after": "17:00"}}}
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule], config=config))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # Override the pre-filled 17:00 with a morning window instead.
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            app.screen.query_one("#search-weekday-before-hh").value = "12"
+            app.screen.query_one("#search-weekday-before-mm").value = "00"
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 1
+            assert table.get_row_at(0)[1] == "09:00"
+
+    _run(scenario())
+
+
+def test_search_screen_shows_no_matches_message():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=4, capacity=4)],  # fully booked
+    )
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 0
+            assert app.screen.query_one("#search-status", Static).content
+
+    _run(scenario())
+
+
+def test_search_screen_cancel_dismisses_without_running():
+    async def scenario():
+        app = _HostApp(_search_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#cancel")
+            await pilot.pause()
+            assert app.result is None
+
+    _run(scenario())
+
+
+def test_search_screen_footer_renders_translated_hints():
+    async def scenario():
+        app = _HostApp(_search_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "Back" in text
+            assert "Quit" in text
 
     _run(scenario())
 

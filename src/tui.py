@@ -118,18 +118,26 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
 from textual.app import App, ComposeResult, SystemCommand
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Static
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
 from . import club_config, club_directory, global_preferences, recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
+from .search import SearchCriteria
+from .search import resolve_buffer_minutes
 from .search import search as search_slots
-from .models import ConfirmedBooking, Schedule
+from .models import ConfirmedBooking, Schedule, TimeWindow
 from .scrape_once import _db_path
-from .settings_screen import SettingsScreen
+from .settings_screen import (
+    BUFFER_CHOICES,
+    HOUR_CHOICES,
+    MIN_OPEN_SPOTS_CHOICES,
+    MINUTE_CHOICES,
+    SettingsScreen,
+)
 from .scraper import (
     NoTeeSheetError,
     _holes_from_course_label,
@@ -716,10 +724,17 @@ class OverviewScreen(Screen[None]):
     itself is Textual's own built-in `DataTable` behavior, not a `BINDINGS` entry this
     screen declares — the same reason it never showed up in the footer on its own,
     fixed by listing it explicitly in `_FOOTER_BINDINGS` (see `ClubBrowserScreen`'s own
-    docstring for the direct feedback this responds to). Deliberately doesn't yet bind
-    `/` (ad hoc search) or `h` (crowd heatmap) — those are separate, still-unbuilt
-    screens (ROADMAP.md Phase 4/5); adding the keys now would promise something that
-    isn't there yet.
+    docstring for the direct feedback this responds to). `/` opens `SearchScreen`
+    (Phase 4's ad hoc search, wired in 2026-09-08 once its own backend --
+    `search.py`'s hard filters, `recommend.exclude_unplayable()`,
+    `ai_assist.rank_slots()` -- already existed fully tested; `recommend.ranked_matches()`
+    is the same three-step pipeline `weekly_picks()` uses, just taking an explicit
+    typed-in `SearchCriteria` instead of deriving one from your saved defaults),
+    searching across whatever days are already loaded here (`self._schedules`), not
+    a fresh scrape. `h` (Phase 5's crowd heatmap) still isn't bound — that one's
+    backend (`analytics.crowd_heatmap()`) is real and tested too, but needs a few
+    weeks of accumulated scrapes to actually say anything useful, so it's a
+    separate, still-unbuilt screen for now.
 
     `e` opens `SettingsScreen` (added 2026-09-08, direct feedback: "i don't even know
     where to configure from the UI" — until then `settings_screen.py` really was only
@@ -730,6 +745,7 @@ class OverviewScreen(Screen[None]):
     club is active, or even whether one is favorited at all."""
 
     BINDINGS = [
+        ("/", "search", "Search"),
         ("s", "switch", "Switch club/course"),
         ("e", "edit_settings", "Settings"),
         ("t", "command_palette", "Commands"),
@@ -737,6 +753,7 @@ class OverviewScreen(Screen[None]):
     ]
     _FOOTER_BINDINGS = [
         ("enter", "binding.open"),
+        ("/", "binding.search"),
         ("s", "binding.switch"),
         ("e", "binding.settings"),
         ("t", "binding.commands"),
@@ -746,6 +763,10 @@ class OverviewScreen(Screen[None]):
     def __init__(self, club_id: str, club_slug: str | None, course: str, club_name: str = "") -> None:
         super().__init__()
         self.club_id = club_id
+        # Whatever load_overview() last actually loaded -- SearchScreen (`/`) reuses
+        # this rather than re-hitting storage itself, same "opening a screen should
+        # be instant" rule every other screen in this app already follows.
+        self._schedules: list[Schedule] = []
         # None for a club being visited without saving it (see ClubBrowserScreen) —
         # an ordinary state, same as DayDetailScreen's own club_slug.
         self.club_slug = club_slug
@@ -849,6 +870,7 @@ class OverviewScreen(Screen[None]):
         if target_date in self._row_dates:
             table.move_cursor(row=self._row_dates.index(target_date))
 
+        self._schedules = schedules
         self._update_picks(schedules, config)
 
     def _update_picks(self, schedules: list[Schedule], config: dict) -> None:
@@ -877,6 +899,9 @@ class OverviewScreen(Screen[None]):
             DayDetailScreen(self.club_id, self.club_slug, self.course, date, club_name=self.club_name)
         )
 
+    def action_search(self) -> None:
+        self.app.push_screen(SearchScreen(self._schedules, self._config()))
+
     def action_switch(self) -> None:
         # Same delegation as DayDetailScreen.action_switch() — push_screen_wait()
         # needs to run on the App, see TeetimeApp.action_switch_club_or_course().
@@ -890,6 +915,224 @@ class OverviewScreen(Screen[None]):
 
     def action_command_palette(self) -> None:
         self.app.action_command_palette()
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
+def _time_window_row(label_key: str, base_id: str, current_value: str | None) -> ComposeResult:
+    """One label + hour/minute-dropdown-pair row, shared by every time-window field
+    on `SearchScreen` below -- the exact same hour/minute `Select` pattern
+    settings_screen.py's own `optional_time` fields use (including the
+    05:00-21:00 hour range trim, via the shared `HOUR_CHOICES`/`MINUTE_CHOICES`
+    imported from there), just built here directly since this screen has a fixed,
+    small set of time fields rather than a generic `FIELDS` list to iterate.
+    `current_value` is a plain "HH:MM" string or `None` ("not set"), same
+    convention as everywhere else in this app that stores a time window."""
+    hh, _, mm = (current_value or "").partition(":")
+    hour_options = HOUR_CHOICES if hh in {value for _, value in HOUR_CHOICES} else [(hh, hh), *HOUR_CHOICES]
+    minute_options = (
+        MINUTE_CHOICES if mm in {value for _, value in MINUTE_CHOICES} else [(mm, mm), *MINUTE_CHOICES]
+    )
+    with Horizontal(classes="field-row"):
+        yield Label(i18n.t(label_key), classes="field-label")
+        with Horizontal(classes="field-time-group"):
+            yield Select(
+                hour_options, value=hh, allow_blank=False, compact=True, id=f"{base_id}-hh", classes="time-part"
+            )
+            yield Static(":", classes="field-time-sep")
+            yield Select(
+                minute_options, value=mm, allow_blank=False, compact=True, id=f"{base_id}-mm", classes="time-part"
+            )
+
+
+class SearchScreen(Screen[None]):
+    """Ad hoc search (ROADMAP.md Phase 4) — "just this once" criteria that don't
+    match your saved defaults, added 2026-09-08 once its own backend (`search.py`'s
+    hard filters, `recommend.exclude_unplayable()`, `ai_assist.rank_slots()` — all
+    already real and fully tested) just needed a screen wired up to it. Pushed
+    from `OverviewScreen` via `/`.
+
+    Pre-filled from your saved global availability defaults (edit from there for
+    this one case, not type everything from scratch) — same fields, same dropdowns
+    (hour range trimmed to 05:00-21:00, buffer in 10-minute steps) as
+    `settings_screen.py`'s own, reusing its `HOUR_CHOICES`/`MINUTE_CHOICES`/
+    `MIN_OPEN_SPOTS_CHOICES`/`BUFFER_CHOICES` directly for a consistent look and
+    the same "can't hold an invalid value" guarantee a dropdown gives over free
+    text. A saved value outside a dropdown's presets still loads and stays
+    selectable, same generic handling as every dropdown in this app.
+
+    Runs against whatever days `OverviewScreen` already has loaded
+    (`self.schedules`, handed in at construction), not a fresh scrape — opening
+    this screen, and running a search from it, should both stay instant, same as
+    everything else in this app. `recommend.ranked_matches()` is the exact
+    three-step pipeline `weekly_picks()` already uses for your saved defaults,
+    just handed this screen's own typed-in `SearchCriteria` instead.
+
+    `escape`/`q` both dismiss back to the overview and quit the whole app
+    respectively — same convention as `ClubBrowserScreen`/`CoursePickerScreen`
+    (screens pushed as part of the main flow, not a standalone-capable task screen
+    like `SettingsScreen`), since this screen is reached from, and returns to,
+    `OverviewScreen` the same way those are.
+    """
+
+    CSS = """
+    #search-fields {
+        padding: 1 2;
+        height: auto;
+    }
+    .field-row {
+        height: 1;
+        align: left middle;
+    }
+    .field-label {
+        width: 32;
+        content-align: right middle;
+        padding-right: 2;
+    }
+    .field-input {
+        width: 20;
+    }
+    .field-time-group {
+        width: auto;
+        height: 1;
+    }
+    .time-part {
+        width: 8;
+    }
+    .field-time-sep {
+        width: 1;
+        content-align: center middle;
+    }
+    #search-results {
+        height: 1fr;
+        margin: 0 2;
+    }
+    #search-status {
+        padding: 0 2;
+        color: $text-muted;
+    }
+    #buttons {
+        padding: 1 2;
+        align: right middle;
+    }
+    """
+
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+
+    def __init__(self, schedules: list[Schedule], config: dict) -> None:
+        super().__init__()
+        self.schedules = schedules
+        self.config = config
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        availability = self.config.get("availability", {})
+        weekday_window = availability.get("weekday_window") or {}
+        weekend_window = availability.get("weekend_window") or {}
+        with VerticalScroll(id="search-fields"):
+            with Horizontal(classes="field-row"):
+                yield Label(i18n.t("settings.field.min_open_spots"), classes="field-label")
+                min_open_spots = str(availability.get("min_open_spots", 1))
+                spots_options = MIN_OPEN_SPOTS_CHOICES
+                if min_open_spots not in {value for _, value in spots_options}:
+                    spots_options = [(min_open_spots, min_open_spots), *spots_options]
+                yield Select(
+                    spots_options,
+                    value=min_open_spots,
+                    allow_blank=False,
+                    compact=True,
+                    id="search-min-open-spots",
+                    classes="field-input",
+                )
+            yield from _time_window_row("settings.field.weekday_after", "search-weekday-after", weekday_window.get("after"))
+            yield from _time_window_row(
+                "settings.field.weekday_before", "search-weekday-before", weekday_window.get("before")
+            )
+            yield from _time_window_row("settings.field.weekend_after", "search-weekend-after", weekend_window.get("after"))
+            yield from _time_window_row(
+                "settings.field.weekend_before", "search-weekend-before", weekend_window.get("before")
+            )
+            for label_key, widget_id, direction in (
+                ("settings.field.buffer_before_minutes", "search-buffer-before", "before"),
+                ("settings.field.buffer_after_minutes", "search-buffer-after", "after"),
+            ):
+                with Horizontal(classes="field-row"):
+                    yield Label(i18n.t(label_key), classes="field-label")
+                    current = str(resolve_buffer_minutes(availability, direction, 0))
+                    buffer_options = BUFFER_CHOICES
+                    if current not in {value for _, value in buffer_options}:
+                        buffer_options = [(current, current), *buffer_options]
+                    yield Select(
+                        buffer_options,
+                        value=current,
+                        allow_blank=False,
+                        compact=True,
+                        id=widget_id,
+                        classes="field-input",
+                    )
+        yield DataTable(id="search-results")
+        yield Static("", id="search-status")
+        with Horizontal(id="buttons"):
+            yield Button(i18n.t("button.cancel"), id="cancel")
+            yield Button(i18n.t("search.button"), id="run", variant="success")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def on_mount(self) -> None:
+        table = self.query_one("#search-results", DataTable)
+        table.add_columns(
+            i18n.t("search.table.date"),
+            i18n.t("table.time"),
+            i18n.t("search.table.course"),
+            i18n.t("search.table.notes"),
+        )
+
+    def _time_value(self, base_id: str) -> str | None:
+        hh = self.query_one(f"#{base_id}-hh").value
+        mm = self.query_one(f"#{base_id}-mm").value
+        return f"{hh}:{mm or '00'}" if hh else None
+
+    def _build_criteria(self) -> SearchCriteria:
+        weekday_after = self._time_value("search-weekday-after")
+        weekday_before = self._time_value("search-weekday-before")
+        weekend_after = self._time_value("search-weekend-after")
+        weekend_before = self._time_value("search-weekend-before")
+        return SearchCriteria(
+            min_open_spots=int(self.query_one("#search-min-open-spots").value),
+            weekday_window=TimeWindow(after=weekday_after, before=weekday_before)
+            if (weekday_after or weekday_before)
+            else None,
+            weekend_window=TimeWindow(after=weekend_after, before=weekend_before)
+            if (weekend_after or weekend_before)
+            else None,
+            buffer_before_minutes=int(self.query_one("#search-buffer-before").value),
+            buffer_after_minutes=int(self.query_one("#search-buffer-after").value),
+        )
+
+    def _run_search(self) -> None:
+        criteria = self._build_criteria()
+        matches = recommend.ranked_matches(self.schedules, criteria, self.config)
+        table = self.query_one("#search-results", DataTable)
+        table.clear()
+        status = self.query_one("#search-status", Static)
+        if not matches:
+            status.update(i18n.t("search.no_matches"))
+            return
+        status.update("")
+        for match in matches:
+            weekday = i18n.t(f"weekday.{date_cls.fromisoformat(match.date).weekday()}")
+            table.add_row(f"{weekday} {match.date}", match.slot.time, match.course, ", ".join(match.reasons))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel":
+            self.action_cancel()
+            return
+        if event.button.id == "run":
+            self._run_search()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
     def action_quit(self) -> None:
         self.app.exit()

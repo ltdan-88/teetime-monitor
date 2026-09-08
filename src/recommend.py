@@ -195,8 +195,11 @@ def exclude_unplayable(
     return playable
 
 
-def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
-    """Best-ranked matches for the week, using your saved default availability.
+def ranked_matches(schedules: list[Schedule], criteria: SearchCriteria, config: dict) -> list[SlotMatch]:
+    """Search + exclude_unplayable + (best-effort) AI ranking for a given
+    `SearchCriteria` -- the general form `weekly_picks()` below is built on
+    (factored out 2026-09-08, Phase 4's ad hoc search screen: same three-step
+    pipeline, just with typed-in criteria in place of your saved defaults).
 
     Steps 1+2 (search + exclude_unplayable) are the deterministic baseline and always
     run for real. Step 3 (ai_assist.rank_slots) is a genuine improvement, not a
@@ -207,7 +210,6 @@ def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
     falls back to returning the filtered list as-is (unranked, no `reasons`) rather
     than raising — a short sane list beats no list at all.
     """
-    criteria = default_criteria_from_config(config)
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
 
@@ -228,3 +230,11 @@ def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
         )
     except Exception:
         return playable
+
+
+def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
+    """Best-ranked matches for the week, using your saved default availability --
+    see `ranked_matches()` above for the actual three-step pipeline this just
+    supplies the usual criteria to."""
+    criteria = default_criteria_from_config(config)
+    return ranked_matches(schedules, criteria, config)

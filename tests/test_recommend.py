@@ -3,6 +3,7 @@ from src.recommend import (
     _round_duration_minutes,
     default_criteria_from_config,
     exclude_unplayable,
+    ranked_matches,
     weekly_picks,
 )
 from src.search import SearchCriteria
@@ -243,6 +244,27 @@ def test_exclude_unplayable_passes_through_candidate_with_no_matching_schedule()
         date="2026-09-06", course="18 Loch Tee 1", slot=Slot(time="08:00", booked=0, capacity=4), score=0.0
     )
     assert exclude_unplayable([candidate], [], {}) == [candidate]
+
+
+def test_ranked_matches_uses_the_given_criteria_not_the_configs_own_availability():
+    # Phase 4's ad hoc search screen: a typed-in one-off criteria, deliberately
+    # different from whatever's saved as this config's own "availability" block --
+    # ranked_matches() must actually use the criteria it's handed, not silently
+    # re-derive one from config (which weekly_picks() does instead, and shouldn't
+    # here).
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="18:00", booked=0, capacity=4)],
+    )
+    # This config's own saved default would only match the evening slot...
+    config = {"availability": {"weekday_window": {"after": "17:00"}}}
+    # ...but the ad hoc criteria asks for something else entirely: a morning slot.
+    criteria = SearchCriteria(weekday_window=TimeWindow(after="08:00", before="12:00"))
+
+    matches = ranked_matches([schedule], criteria, config)
+
+    assert [m.slot.time for m in matches] == ["09:00"]
 
 
 def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
