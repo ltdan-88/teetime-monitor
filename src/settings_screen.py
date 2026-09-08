@@ -46,6 +46,15 @@ four `Collapsible` sections (Availability / Weather / Priorities / Timing &
 scraping); and Save/Quit are right-aligned, Quit-then-Save, matching the ordinary
 OS-dialog "Cancel ... Save" convention instead of hugging the window's left edge.
 
+**Narrow-window fallback** (same-day follow-up: "I'd like that made more flexible
+too" — the side-by-side label/field layout above needs roughly 70 columns and had
+nowhere to shrink to below that, clipping the field clean off screen). This Textual
+version has no CSS media query, so `on_resize()`/`_update_narrow_class()` measure
+the screen's actual width and toggle a `-narrow` class; while set, every field row
+switches from side-by-side to label-above-field (both full width) via the
+`SettingsScreen.-narrow` CSS rules below — taller, but nothing is ever hidden or
+cut off, which matters more at a narrow width than staying compact does.
+
 Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
 label/button/status message goes through i18n.py, same as every other screen in this
 project. `SettingsApp` applies the resolved theme/language on startup for the
@@ -66,6 +75,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
@@ -383,6 +393,29 @@ class SettingsScreen(Screen[dict | None]):
         border: none;
         height: 1;
     }
+    /* Narrow-window fallback (direct follow-up, 2026-09-08, to the row-height fix
+       above): a 42-column label next to a 20-column field needs roughly 65+ columns
+       total once #fields' own padding and Collapsible's left padding are counted --
+       below that the two-column layout above had nowhere to shrink to and started
+       clipping the field clean off screen. Textual has no CSS media query in this
+       version, so `_update_narrow_class()` below measures the real width itself and
+       toggles this `-narrow` class; while set, every field row switches from
+       side-by-side to label-above-field, each spanning the full row -- more rows
+       per field again, but nothing is ever hidden or cut off, which matters more at
+       a narrow width than staying compact does. */
+    SettingsScreen.-narrow .field-row {
+        layout: vertical;
+        height: auto;
+        align: left top;
+    }
+    SettingsScreen.-narrow .field-label {
+        width: 100%;
+        content-align: left middle;
+        padding: 0;
+    }
+    SettingsScreen.-narrow .field-input {
+        width: 100%;
+    }
     #status {
         padding: 0 2;
         color: $text-muted;
@@ -413,6 +446,15 @@ class SettingsScreen(Screen[dict | None]):
     BINDINGS = [("q", "quit_screen", "Quit")]
     _FOOTER_BINDINGS = [("q", "binding.quit")]
 
+    # Below this width the side-by-side label/field layout has nowhere left to
+    # shrink to (see the CSS comment above `.-narrow` for the arithmetic) -- picked
+    # empirically by resizing a live terminal down column by column until a
+    # `Select` field's own dropdown arrow started getting clipped off (at 70-71
+    # columns, one to two columns before the row overflowed outright), not derived
+    # from a formula, since Collapsible's own padding and Textual's own
+    # text-measurement aren't exposed cheaply enough to compute this ahead of time.
+    NARROW_WIDTH_THRESHOLD = 72
+
     def __init__(
         self,
         preferences_file: Path | None = None,
@@ -428,6 +470,19 @@ class SettingsScreen(Screen[dict | None]):
         )
         self._on_saved = on_saved
         self.config = global_preferences.load_preferences(self.preferences_file)
+
+    def on_mount(self) -> None:
+        self._update_narrow_class(self.size.width)
+
+    def on_resize(self, event: events.Resize) -> None:
+        # `events.Resize` doesn't bubble (see Textual's own docstring for it), so
+        # this has to live directly on the Screen -- it's the widget that's
+        # actually resized when the terminal window is, not something a child
+        # widget further down would ever receive on its own.
+        self._update_narrow_class(event.size.width)
+
+    def _update_narrow_class(self, width: int) -> None:
+        self.set_class(width < self.NARROW_WIDTH_THRESHOLD, "-narrow")
 
     def compose(self) -> ComposeResult:
         yield Header()

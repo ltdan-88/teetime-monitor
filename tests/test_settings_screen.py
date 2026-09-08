@@ -387,6 +387,55 @@ def test_settings_screen_groups_fields_into_labeled_sections(tmp_path):
     asyncio.run(scenario())
 
 
+def test_settings_screen_stacks_label_above_field_in_a_narrow_window(tmp_path):
+    # Direct follow-up, same day: "I'd like that made more flexible too" -- the
+    # side-by-side label/field layout needs roughly 70 columns and had nowhere to
+    # shrink to below that, clipping the field clean off screen. Below the
+    # threshold, the row switches to label-above-field (both full width) instead.
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test(size=(80, 50)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert not screen.has_class("-narrow")
+            row = screen.query_one(f"#{_id('availability', 'buffer_minutes')}").parent
+            # Side by side at a comfortable width -- one row.
+            assert row.size.height == 1
+
+            await pilot.resize_terminal(50, 50)
+            await pilot.pause()
+            assert screen.has_class("-narrow")
+            # Label-above-field now -- the row genuinely grew taller, not just a
+            # class name flipping with nothing visibly different.
+            assert row.size.height > 1
+
+            # And it un-narrows again once there's room, rather than getting stuck.
+            await pilot.resize_terminal(80, 50)
+            await pilot.pause()
+            assert not screen.has_class("-narrow")
+            assert row.size.height == 1
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_narrow_layout_never_clips_a_field_off_screen(tmp_path):
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test(size=(50, 50)) as pilot:
+            await pilot.pause()
+            widget = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}")
+            # Fully inside the 50-column screen -- not pushed past its right edge,
+            # which is what the fixed 42+20-column layout used to do below ~70
+            # columns.
+            assert widget.region.right <= 50
+
+    asyncio.run(scenario())
+
+
 def test_settings_screen_footer_renders_translated_hint(tmp_path):
     preferences_file = tmp_path / "preferences.yaml"
     i18n.set_language("de")

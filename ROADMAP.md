@@ -1070,6 +1070,26 @@ global settings screen, delivered as a numbered list:
 genuine, not just CSS-text assertions — each measures real resolved widget positions/
 sizes through Textual's own test harness. Verified live in an isolated sandbox
 (`HOME` pointed at a scratch directory, never the real `~/.config/teetime-monitor/`).
+
+**Narrow-window fallback, same-day follow-up** ("I'd like that made more flexible
+too", in response to the "not attempted" note closing point 6 above) — the settings
+form's fixed 42-column label + 20-column field layout needed roughly 70+ columns
+and had nowhere to shrink to below that, so a narrower window clipped the field
+clean off screen rather than reflowing. This version of Textual has no CSS media
+query, so `SettingsScreen.on_resize()` measures the screen's own actual width and
+toggles a `-narrow` class; while set, `SettingsScreen.-narrow`'s CSS rules switch
+every field row from side-by-side to label-above-field (both spanning the full
+width) — taller per field, but nothing hidden or cut off, which matters more at a
+narrow width than staying compact does. The exact threshold (72 columns) was found
+empirically, not calculated: resized a live terminal down column by column and
+found a `Select` field's own dropdown arrow started getting clipped at 70-71,
+before the row would have overflowed outright. 2 new tests (435 total, was 433),
+both confirmed to genuinely fail against real resolved widget heights/positions
+when the fix was temporarily reverted (`-narrow` never applied; a field pushed
+past the right edge of a 50-column screen) before being restored. Verified live
+across several widths from 30 to 80 columns in an isolated sandbox — including the
+exact 71/72 boundary, and an extreme 30-column case that stayed fully visible
+(labels wrapping, nothing cut off) rather than breaking outright.
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days
