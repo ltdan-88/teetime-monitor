@@ -8,11 +8,20 @@ That request is correct about what these actually are: your own standing availab
 thresholds are facts about *you*, not about any one club — the old design required
 re-entering the same rules into every club's own YAML, which only ever meant "the same
 answer, typed in twice" for a second club, never a genuinely different one. `location`,
-`calendar`, `overview_days`, `default_course`, `identity`, `ai_assist`, and
-`round_duration_minutes` stay in `clubs/*.yaml` — each of those *is* a real per-club
-fact (coordinates, course lineup, model choice) — only the fields
-`settings_screen.py`'s own form edits move here: `availability`, `preferences`,
-`daylight_buffer_minutes`, `scrape_interval_minutes`, `scrape_interval_minutes_booked`.
+`calendar`, `overview_days`, `default_course`, `identity`, and `round_duration_minutes`
+stay in `clubs/*.yaml` — each of those *is* a real per-club fact (coordinates, course
+lineup) — only the fields `settings_screen.py`'s own form edits move here:
+`availability`, `preferences`, `ai_assist`, `daylight_buffer_minutes`,
+`scrape_interval_minutes`, `scrape_interval_minutes_booked`.
+
+`ai_assist` joined this list the same day, direct follow-up right after discussing
+turning AI ranking on for the first time: "the ai feature should be an option in the
+settings menu." Originally kept per-club on the theory that model choice is a
+cost/quality tradeoff that varies by club — in practice nothing about wanting AI
+ranking on or off actually does, and the request itself was for one switch, not a
+per-club dial. A club's own `ai_assist` block in `clubs/*.yaml` (if one predates this)
+still works as a fallback via `_resolved_config()`'s shallow merge — it just no longer
+wins once this file has actually set one.
 
 Stored at `~/.config/teetime-monitor/preferences.yaml` — the same directory
 `user_config.py` already uses for the equally-global theme/language choice, just its

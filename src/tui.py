@@ -734,8 +734,8 @@ def _location_for_club(club_id: str, club_name: str) -> dict | None:
 
 def _resolved_config(club_slug: str | None, club_id: str | None = None, club_name: str = "") -> dict:
     """This club's own settings (`location`, `overview_days`, `default_course`,
-    `identity`, `ai_assist`, `round_duration_minutes` — genuinely per-club facts),
-    with your global `availability`/`preferences`/scrape-interval settings shallow-
+    `identity`, `round_duration_minutes` — genuinely per-club facts), with your
+    global `availability`/`preferences`/`ai_assist`/scrape-interval settings shallow-
     merged on top (added 2026-09-08, direct feedback: "i also want the settings/
     preferences to be global and not tied to a specific club" — those aren't
     per-club facts at all, so they overlay every club's own config rather than being

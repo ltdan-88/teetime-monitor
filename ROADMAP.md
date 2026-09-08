@@ -1650,6 +1650,47 @@ paid API calls every time the overview loads, not just one — worth knowing bef
 opting in, and worth revisiting (e.g. batching per-day calls into one) if the answer
 turns out to be yes.
 
+**`ai_assist` moved from per-club to the shared settings screen, same day** ("Sounds
+fine, the ai feature should be an option in the settings menu" — the direct answer,
+once the cost trade-off above was laid out). This reverses a deliberate design
+decision from the 2026-09-08 "make settings global" rework, which explicitly kept
+`ai_assist` in `clubs/*.yaml` on the theory that model choice is a per-club
+cost/quality tradeoff. In practice nothing about wanting AI ranking on or off (or
+which model) actually varies by club here, and the request itself was for one
+switch, not a per-club dial — the same shape of correction `availability`/
+`preferences` already went through that same day.
+
+`settings_screen.py` gained a fifth `Collapsible` group ("AI ranking") with two new
+fields: `ai_assist.enabled` (a `Switch`, same as any other "bool" field) and
+`ai_assist.model` (a `Select` of the real Claude model families available at the
+time — opus-5/sonnet-5/haiku-4.5 — defaulting to `ai_assist.DEFAULT_MODEL`). The
+model field needed a genuinely new `Field.kind` — `"str"` — since every existing kind
+("int"/"optional_float"/"optional_time"/"bool") assumes a number, flag, or time; a
+model id is just a plain string, passed through unparsed with a blank falling back to
+the default. Composed for free through the *existing* generic "a field with `choices`
+renders as a `Select`" branch in `compose()` — no special-casing needed there, since
+that check was already `kind`-agnostic. `_resolved_config()`'s existing shallow merge
+(global overrides a club's own YAML) means a club file that still has `ai_assist` set
+directly keeps working as a fallback; it just no longer wins once the shared settings
+file has actually set one. `clubs/club.example.yaml`'s own `ai_assist:` block was
+commented out with a pointer, matching the exact precedent already set for
+`availability`/`preferences` in that same file — and its comment was also corrected
+along the way: it used to claim `ai_assist` was "the actual mechanism behind
+tee-sheet parsing" too, which was already stale (`classify_booking_label()` has never
+actually been called from `scraper.py`'s real parsing path — the deterministic rules
+turned out sufficient in practice; only `rank_slots()` is a real, wired-in caller
+today).
+
+10 new tests in `test_settings_screen.py` (the new "str" kind's own parsing/fallback
+cases, the two fields' defaults/round-trip, a full render-and-save scenario through
+the real Switch/Select widgets), one existing test updated for the new group. Four
+confirmed to genuinely fail when temporarily reverted (a plain `NoMatches` error —
+the fields not rendering at all — rather than a wrong-value assertion, since nothing
+about "str" existed yet to revert to a subtly-broken state). Verified live in an
+isolated sandbox: the real settings screen shows "AI ranking" as its own section,
+`AI-ranked recommendations` (Switch) and `AI model` (dropdown, `claude-opus-5`
+preselected) both render and scroll into view correctly alongside every other group.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and

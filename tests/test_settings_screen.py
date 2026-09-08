@@ -120,6 +120,43 @@ def test_widget_values_to_config_optional_float_blank_means_none():
     assert updated["preferences"]["avoid_temp_below_c"] is None
 
 
+# ai_assist -- moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai
+# feature should be an option in the settings menu." Also the first "str"-kind field
+# (a Claude model id, not a number/flag/time).
+
+
+def test_config_to_widget_values_ai_assist_defaults():
+    from src.ai_assist import DEFAULT_MODEL
+
+    values = config_to_widget_values({})
+    assert values[_id("ai_assist", "enabled")] is False
+    assert values[_id("ai_assist", "model")] == DEFAULT_MODEL
+
+
+def test_config_to_widget_values_reflects_saved_ai_assist():
+    config = {"ai_assist": {"enabled": True, "model": "claude-haiku-4-5-20251001"}}
+    values = config_to_widget_values(config)
+    assert values[_id("ai_assist", "enabled")] is True
+    assert values[_id("ai_assist", "model")] == "claude-haiku-4-5-20251001"
+
+
+def test_widget_values_to_config_parses_edited_ai_assist():
+    values = config_to_widget_values({})
+    values[_id("ai_assist", "enabled")] = True
+    values[_id("ai_assist", "model")] = "claude-sonnet-5"
+    updated = widget_values_to_config({}, values)
+    assert updated["ai_assist"] == {"enabled": True, "model": "claude-sonnet-5"}
+
+
+def test_widget_values_to_config_str_field_blank_falls_back_to_default():
+    from src.ai_assist import DEFAULT_MODEL
+
+    values = config_to_widget_values({})
+    values[_id("ai_assist", "model")] = "   "
+    updated = widget_values_to_config({}, values)
+    assert updated["ai_assist"]["model"] == DEFAULT_MODEL
+
+
 def test_widget_values_to_config_drops_the_old_single_buffer_key_once_saved():
     # A config saved before the 2026-09-08 before/after split -- once the new keys
     # are written (every save does, since they're ordinary "int" fields), the old
@@ -236,6 +273,34 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
 
     assert len(seen) == 1
     assert seen[0]["availability"]["min_open_spots"] == 1  # the default, since nothing was edited
+
+
+def test_settings_screen_ai_assist_fields_render_and_save(tmp_path):
+    # Direct request, 2026-09-08: "the ai feature should be an option in the settings
+    # menu." The toggle is a Switch (same as any other "bool" field), the model
+    # choice a Select (same generic "kind has choices -> dropdown" rendering every
+    # other limited field here already gets -- no special-casing needed for "str").
+    from textual.widgets import Select, Switch
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            enabled_widget = app.screen.query_one(f"#{_id('ai_assist', 'enabled')}")
+            model_widget = app.screen.query_one(f"#{_id('ai_assist', 'model')}")
+            assert isinstance(enabled_widget, Switch)
+            assert isinstance(model_widget, Select)
+            enabled_widget.value = True
+            model_widget.value = "claude-haiku-4-5-20251001"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["ai_assist"] == {"enabled": True, "model": "claude-haiku-4-5-20251001"}
 
 
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
@@ -411,7 +476,7 @@ def test_settings_screen_groups_fields_into_labeled_sections(tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause()
             titles = {str(c.title) for c in app.screen.query(Collapsible)}
-            assert titles == {"Availability", "Weather", "Priorities", "Timing & scraping"}
+            assert titles == {"Availability", "Weather", "Priorities", "AI ranking", "Timing & scraping"}
             # Expanded by default -- these are settings you're here to look at.
             assert all(not c.collapsed for c in app.screen.query(Collapsible))
             # A field genuinely lives inside its labeled group, not just anywhere.

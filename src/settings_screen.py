@@ -16,9 +16,21 @@ weather comfort don't change depending on which course you're looking at, so tha
 never actually a per-club fact, just modeled as one. Now reads/writes
 `global_preferences.py`'s one shared file instead. Everything genuinely per-club
 (`club_id`, `location`, `calendar`, `overview_days`, `default_course`, `identity`,
-`ai_assist`, `round_duration_minutes`) still lives in `clubs/*.yaml`, untouched by
-this screen, and hand-edited for now — those are set-once-at-setup values, not
-day-to-day dials, and each one really does vary by club.
+`round_duration_minutes`) still lives in `clubs/*.yaml`, untouched by this screen, and
+hand-edited for now — those are set-once-at-setup values, not day-to-day dials, and
+each one really does vary by club.
+
+`ai_assist` (whether recommendations get AI-ranked, and which model) joined the
+global side the same day, direct request right after discussing turning it on for
+the first time: "the ai feature should be an option in the settings menu." It was
+originally kept per-club deliberately ("which model to spend on which call is a
+cost/quality tradeoff that's yours to set" — see an earlier version of
+`global_preferences.py`'s own docstring), but nothing about wanting AI ranking on or
+off actually varies by club here, and the ask itself was for one switch, not a
+per-club dial — same shape of correction as the availability/weather move above.
+`_resolved_config()`'s existing shallow merge (global overrides a club's own YAML)
+means a club file that still has its own `ai_assist` block keeps working as a
+fallback; it just no longer wins once this screen has actually set one.
 
 `SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
 from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
@@ -115,6 +127,7 @@ from textual.widgets import Button, Collapsible, Header, Input, Label, Select, S
 
 from . import global_preferences, i18n
 from . import theme as theme_module
+from .ai_assist import DEFAULT_MODEL
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
@@ -171,6 +184,12 @@ MIN_OPEN_SPOTS_CHOICES = [(str(n), str(n)) for n in (1, 2, 3, 4)]
 # Direct follow-up (2026-09-08, after the before/after buffer split): "split it
 # like in your recommendation, and make it a dropdown in 10 minute increments."
 BUFFER_CHOICES = _int_choices(0, 10, 20, 30, 40, 50, 60)
+# Added 2026-09-08 alongside settings.field.ai_assist_model -- the real Claude model
+# family names available at the time this was wired in (see ai_assist.DEFAULT_MODEL),
+# not an exhaustive list of every model Anthropic has ever shipped. Displayed as their
+# own raw names rather than through _int_choices()'s " min" formatting -- there's no
+# unit to append here, the id itself is the whole label.
+AI_MODEL_CHOICES = [(model, model) for model in ("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001")]
 
 # Direct follow-up (2026-09-08): "can you at least split the input boxes for the
 # time ranges into something like hh:mm?" -- each "optional_time" field below (a
@@ -207,7 +226,12 @@ class Field:
     "optional_float" -> parsed as a float, blank means "not set" (None), for
     thresholds that are legitimately optional (e.g. no temperature floor at all);
     "optional_time" -> held as a raw "HH:MM" string or blank -> None;
-    "bool" -> Switch.
+    "bool" -> Switch;
+    "str" -> a plain string, unparsed, blank falls back to `default` -- added
+    2026-09-08 for `ai_assist.model` (a Claude model id), the first field here that
+    isn't a number/flag/time. Always paired with `choices` in practice (a free-text
+    model name would invite typos a fixed-choice quality/cost dropdown avoids), but
+    nothing about "str" itself requires that.
 
     `choices`, when set, renders this field as a `Select` dropdown instead of a
     free-text `Input` -- see FIELDS below for which fields qualify (a small, known
@@ -239,6 +263,7 @@ GROUP_ORDER = [
     "settings.group.availability",
     "settings.group.weather",
     "settings.group.priorities",
+    "settings.group.ai",
     "settings.group.timing",
 ]
 
@@ -340,6 +365,30 @@ FIELDS: list[Field] = [
         "settings.group.priorities",
         False,
     ),
+    # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
+    # be an option in the settings menu" -- ai_assist was originally kept per-club
+    # ("which model to spend on which call is a cost/quality tradeoff that's yours to
+    # set" -- see global_preferences.py's own docstring), but nothing about wanting AI
+    # ranking on or off actually varies by club for this developer, and the explicit
+    # ask was for one on/off switch, not a per-club dial. `_resolved_config()`'s
+    # existing shallow merge (global preferences override a club's own YAML) means a
+    # club file that still has its own `ai_assist` block keeps working as a fallback
+    # -- this only takes priority once actually set here.
+    Field(
+        "settings.field.ai_assist_enabled",
+        ("ai_assist", "enabled"),
+        "bool",
+        "settings.group.ai",
+        False,
+    ),
+    Field(
+        "settings.field.ai_assist_model",
+        ("ai_assist", "model"),
+        "str",
+        "settings.group.ai",
+        DEFAULT_MODEL,
+        choices=AI_MODEL_CHOICES,
+    ),
     Field(
         "settings.field.daylight_buffer",
         ("daylight_buffer_minutes",),
@@ -432,6 +481,9 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
         elif field.kind == "optional_time":
             text = str(raw).strip()
             _set_path(updated, field.path, text if text else None)
+        elif field.kind == "str":
+            text = str(raw).strip()
+            _set_path(updated, field.path, text if text else field.default)
 
     # A time window with neither "after" nor "before" set means "no window at all"
     # (see search.py's SearchCriteria docstring: a day type with no window configured

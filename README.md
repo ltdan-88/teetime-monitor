@@ -128,16 +128,23 @@ spec.
   sheet itself, no separate command needed, and works the same regardless of which
   club is active (or even whether one is saved as a favorite at all). Still runnable
   on its own too via `python -m src.settings_screen`. Fields are grouped into
-  collapsible sections (Availability / Weather / Priorities / Timing & scraping);
-  ones with only a handful of sensible values (party size, the daylight buffer, both
-  scrape intervals, and the buffer to nearby flights in 10-minute steps) are
-  dropdowns rather than free text, so they can't hold a typo; the weekday/weekend
-  time windows are hour and minute dropdowns rather than typing "17:00" by hand,
-  with the hour list itself trimmed to 05:00-21:00 — no golf club is open at 2am;
-  Save/Quit sit right-aligned like an ordinary dialog's buttons, not hugging the
-  window's left edge. Below about 72 columns wide, each field switches to
-  label-above-field instead of side-by-side, so nothing gets clipped in a narrow
-  terminal window
+  collapsible sections (Availability / Weather / Priorities / AI ranking / Timing &
+  scraping); ones with only a handful of sensible values (party size, the daylight
+  buffer, both scrape intervals, the buffer to nearby flights in 10-minute steps, and
+  the AI model itself) are dropdowns rather than free text, so they can't hold a
+  typo; the weekday/weekend time windows are hour and minute dropdowns rather than
+  typing "17:00" by hand, with the hour list itself trimmed to 05:00-21:00 — no golf
+  club is open at 2am; Save/Quit sit right-aligned like an ordinary dialog's buttons,
+  not hugging the window's left edge. Below about 72 columns wide, each field
+  switches to label-above-field instead of side-by-side, so nothing gets clipped in a
+  narrow terminal window
+- AI-ranked recommendations (`ai_assist.enabled`) are a plain on/off switch in that
+  same settings screen, with the Claude model as its own dropdown right below it —
+  moved there from `clubs/*.yaml` on request, since wanting this on or off never
+  actually varied by club. Off by default: with a real Anthropic API key configured,
+  turning it on means a real, paid API call every time a recommendation gets
+  computed — once per visible day on the overview, plus once for the weekly digest —
+  not just a free quality bump, worth knowing before opting in
 - The buffer to nearby flights is two separate settings, not one — how much clearance
   you want to the group ahead of you (who might be slow) and to the group behind you
   (who might be crowding in) aren't the same concern, so each has its own dial
@@ -351,11 +358,13 @@ Also note: `settings_screen.py` saves its whole file on every save, so any hand-
 comments in it won't survive — the checked-in `club.example.yaml` template itself is
 never touched, so it stays available as reference regardless.
 
-Your availability/weather preferences and scrape interval live at
+Your availability/weather preferences, AI-ranking choice, and scrape interval live at
 `~/.config/teetime-monitor/preferences.yaml` — one shared file, not per-club (moved
-there 2026-09-08; previously part of each club's own YAML). `location`, `overview_days`,
-`default_course`, `identity`, `ai_assist`, and `round_duration_minutes` stay in
-`clubs/*.yaml`, since each of those really is a per-club fact.
+there 2026-09-08; previously part of each club's own YAML — `ai_assist` followed the
+same day, once turning it on for the first time raised the question of where it
+belonged). `location`, `overview_days`, `default_course`, `identity`, and
+`round_duration_minutes` stay in `clubs/*.yaml`, since each of those really is a
+per-club fact.
 
 Theme choice is separate from any club's YAML — it's a "how do I like my terminal to
 look" preference, not a per-club fact — and lives in its own file,
