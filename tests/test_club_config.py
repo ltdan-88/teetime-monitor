@@ -1,6 +1,7 @@
 import importlib
 
 import dotenv
+import pytest
 
 from src import club_config as club_config_module
 from src.club_config import (
@@ -10,6 +11,17 @@ from src.club_config import (
     resolve_credentials,
     save_club_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_geocoding_by_default(monkeypatch):
+    """`add_favorite()` (via `new_club_stub_with_location()`, added 2026-09-08) calls
+    `geocode.find_club_location()` on every save -- every test here that calls
+    `add_favorite()` with a real name would otherwise make a real network request to
+    the live Nominatim service, same test-isolation gap already caught and fixed in
+    test_club_picker.py. Defaults to "nothing found" (`None`) -- a test exercising
+    the "location found" path overrides this locally."""
+    monkeypatch.setattr(club_config_module.geocode, "find_club_location", lambda name: None)
 
 
 def test_list_clubs_excludes_example_template(tmp_path):
@@ -152,6 +164,43 @@ def test_remove_favorite_deletes_the_file_and_returns_the_slug(tmp_path):
 
 def test_remove_favorite_returns_none_for_an_unsaved_club(tmp_path):
     assert club_config_module.remove_favorite("0352002", tmp_path) is None
+
+
+def test_add_favorite_fills_in_a_location_when_the_geocoder_finds_one(monkeypatch, tmp_path):
+    # Real gap found and fixed 2026-09-08: this is the path tui.py's `f`-to-favorite
+    # actually calls -- the app's everyday, one-keypress way to save a club -- which
+    # originally built its own plain new_club_stub() and skipped the location lookup
+    # entirely, even though club_picker.py's separate "search the whole directory"
+    # screen already had it. Caught live: re-adding a club through `f` still showed
+    # no weather forecast.
+    monkeypatch.setattr(
+        club_config_module.geocode, "find_club_location", lambda name: (50.1234567, 8.1234567)
+    )
+    slug = club_config_module.add_favorite("0000002", "Golf Club Sonnenberg e.V.", tmp_path)
+    assert club_config_module.load_club_config(slug, tmp_path)["location"] == {
+        "lat": 50.1234567,
+        "lon": 8.1234567,
+    }
+
+
+def test_add_favorite_passes_the_clubs_own_name_to_the_geocoder(monkeypatch, tmp_path):
+    seen_names = []
+    monkeypatch.setattr(
+        club_config_module.geocode, "find_club_location", lambda name: seen_names.append(name) or None
+    )
+    club_config_module.add_favorite("0000002", "Golf Club Sonnenberg e.V.", tmp_path)
+    assert seen_names == ["Golf Club Sonnenberg e.V."]
+
+
+def test_add_favorite_skips_geocoding_without_a_name(monkeypatch, tmp_path):
+    # A club favorited by typed-in id alone (never seen in a directory search) has
+    # no name to geocode with -- must not even attempt a lookup.
+    def fail_if_called(name):
+        raise AssertionError("should never be called without a name")
+
+    monkeypatch.setattr(club_config_module.geocode, "find_club_location", fail_if_called)
+    slug = club_config_module.add_favorite("0000002", clubs_dir=tmp_path)
+    assert "location" not in club_config_module.load_club_config(slug, tmp_path)
 
 
 def test_is_favorite_reflects_add_and_remove(tmp_path):

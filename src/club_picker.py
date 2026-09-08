@@ -36,12 +36,15 @@ caddie's own exact-substring, umlaut-sensitive behavior confirmed live 2026-09-0
 their equivalent field (see scraper.py's module docstring). A deliberate, friendlier
 deviation, not an unnoticed gap.
 
-Saving writes `club_config.new_club_stub(club_id)`, plus a best-effort `location`
-(2026-09-08, `geocode.find_club_location()` against the club's own name — see that
-module's docstring for what pc caddie itself doesn't expose, and why this can't be
-a guaranteed-precise pin) if one was found. Everything else is still left for the
-user to fill in by hand or via settings_screen.py — see `new_club_stub()`'s own
-docstring.
+Saving writes `club_config.new_club_stub_with_location(club_id, name)` — the same
+best-effort weather-`location` lookup (2026-09-08, `geocode.find_club_location()`
+against the club's own name — see that module's docstring for what pc caddie
+itself doesn't expose, and why this can't be a guaranteed-precise pin) that
+`tui.py`'s own `f`-to-favorite goes through too, via `club_config.add_favorite()`
+(see that function's docstring for why the lookup had to be factored out to
+`new_club_stub_with_location()` rather than living only here). Everything else is
+still left for the user to fill in by hand or via settings_screen.py — see
+`new_club_stub()`'s own docstring.
 
 Bilingual like every other screen in this project (i18n.py); uses the shared
 `TranslatedFooter` from translated_footer.py, same as every other screen.
@@ -58,7 +61,7 @@ from textual.widgets import Button, Header, Input, Static
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 
-from . import club_config, env_file, geocode, i18n
+from . import club_config, env_file, i18n
 from . import theme as theme_module
 from .credentials_screen import CredentialsScreen
 from .scraper import fetch_club_directory
@@ -236,22 +239,21 @@ class ClubSearchScreen(Screen[str | None]):
             status.update(i18n.t("club_picker.slug_taken", slug=slug))
             return
         club_id, name = self.selected
-        stub = club_config.new_club_stub(club_id)
-        # Best-effort automatic weather location (2026-09-08, direct follow-up:
+        # Best-effort automatic weather location, shared with tui.py's own
+        # `f`-to-favorite path via club_config.add_favorite() -- see
+        # new_club_stub_with_location()'s own docstring for why this needed to be
+        # factored out rather than living only here (2026-09-08 direct follow-up:
         # "can the scraper find out location data and fill it in automatically on
         # the fly?" -- pc caddie itself has nothing usable, so this is a one-off
         # OpenStreetMap lookup on the club's own name instead; see geocode.py's
         # module docstring for what was checked before landing on that approach,
         # and why it's a best-effort location, not a guaranteed-precise one).
-        location = geocode.find_club_location(name)
-        if location is not None:
-            lat, lon = location
-            stub["location"] = {"lat": lat, "lon": lon}
+        stub = club_config.new_club_stub_with_location(club_id, name)
         club_config.save_club_config(slug, stub, self.clubs_dir)
         self._saved_slug = slug
         if self._on_saved is not None:
             self._on_saved(slug)
-        saved_key = "club_picker.saved_with_location" if location is not None else "club_picker.saved_no_location"
+        saved_key = "club_picker.saved_with_location" if "location" in stub else "club_picker.saved_no_location"
         status.update(i18n.t(saved_key, slug=slug))
 
     def action_quit_screen(self) -> None:

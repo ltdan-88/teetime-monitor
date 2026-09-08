@@ -942,6 +942,30 @@ service for all three real club names (each now resolves); the full
 stub-plus-location save pipeline end to end into a scratch directory (never the
 real `clubs/`).
 
+**A second, more commonly used gap in the same feature, same day**: the user
+removed and re-added their real clubs to test the new automatic lookup, then
+reported "I still don't see any weather forecast. Shouldn't that be visible in
+the tee time overview?" Root cause: `tui.py`'s `f`-to-favorite — `ClubBrowserScreen`,
+the app's actual everyday, one-keypress way to save a club, not the "search the
+whole directory" screen — calls `club_config.add_favorite()` directly, which built
+its own plain `new_club_stub()` and never went anywhere near the geocoding lookup
+at all. The earlier work above only ever wired it into `club_picker.py`'s own
+separate save flow. Fixed by factoring the lookup into a new
+`club_config.new_club_stub_with_location(club_id, name)`, used by *both*
+`add_favorite()` and `club_picker.py`'s own screen (which now calls it too,
+instead of duplicating the same four lines) — one shared place for "create a new
+club's starting config," so a location lookup added to it again in the future
+can't miss one of the two paths the way this one did. 3 new tests in
+`test_club_config.py`, one confirmed to genuinely fail when temporarily reverted.
+A real test-isolation gap here too, same shape as the first: `test_club_config.py`
+had several existing `add_favorite()` tests passing real club names with nothing
+mocking `geocode.find_club_location()` at all — fixed with the same kind of
+autouse fixture as `test_club_picker.py`'s own, confirmed this time by spying on
+`httpx.get` across the *entire* test suite in one run, not just one file, and
+seeing zero real requests. Verified live again, this time through the actual
+`add_favorite()` path itself (not a hand-rolled equivalent): a real club name,
+saved into a scratch directory, comes back with a real geocoded `location`.
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

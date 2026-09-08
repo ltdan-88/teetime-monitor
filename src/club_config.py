@@ -38,6 +38,8 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from . import geocode
+
 load_dotenv()
 
 CLUBS_DIR = Path("clubs")
@@ -129,11 +131,37 @@ def is_favorite(club_id: str, clubs_dir: Path | None = None) -> bool:
     return slug_for_club_id(club_id, clubs_dir) is not None
 
 
+def new_club_stub_with_location(club_id: str, name: str = "") -> dict:
+    """`new_club_stub()` plus a best-effort geocoded `location` if `name` is given
+    and something was found (2026-09-08 — see `geocode.py`'s module docstring for
+    what this lookup can and can't do). Factored out so both ways of adding a club
+    get the same treatment: `add_favorite()` below (`tui.py`'s `f`-to-favorite, the
+    app's everyday one-keypress way to save a club) and `club_picker.py`'s own
+    "search the whole directory, save as a new file" screen. `name` is blank
+    whenever the caller has no name to geocode with (e.g. a club favorited by
+    typed-in id alone, never seen in a directory search) — skipped in that case,
+    same as a blank name is skipped anywhere else in this project."""
+    stub = new_club_stub(club_id)
+    location = geocode.find_club_location(name) if name else None
+    if location is not None:
+        lat, lon = location
+        stub["location"] = {"lat": lat, "lon": lon}
+    return stub
+
+
 def add_favorite(club_id: str, name: str = "", clubs_dir: Path | None = None) -> str:
     """Save a club as a favorite and return its slug. A no-op returning the existing
     slug if it's already saved, so toggling twice can't create a duplicate file (the
     exact mistake made by hand during the first real end-to-end test on 2026-09-06,
-    when the club picker saved a second copy of the home club)."""
+    when the club picker saved a second copy of the home club).
+
+    Real gap found and fixed 2026-09-08: the automatic weather-location lookup
+    (`new_club_stub_with_location()` above) originally only lived in
+    `club_picker.py`'s own save flow — this function, the one `tui.py`'s
+    `f`-to-favorite actually calls (the app's more commonly used, one-keypress way
+    to save a club), built its own plain `new_club_stub()` directly and skipped it
+    entirely. Caught live: re-adding a club through `f` still showed no weather
+    forecast, the exact symptom the lookup was built to fix."""
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     existing = slug_for_club_id(club_id, directory)
     if existing is not None:
@@ -143,7 +171,7 @@ def add_favorite(club_id: str, name: str = "", clubs_dir: Path | None = None) ->
     while (directory / f"{slug}.yaml").exists():
         slug, n = f"{base}-{n}", n + 1
     directory.mkdir(parents=True, exist_ok=True)
-    save_club_config(slug, new_club_stub(club_id), directory)
+    save_club_config(slug, new_club_stub_with_location(club_id, name), directory)
     return slug
 
 

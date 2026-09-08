@@ -4,7 +4,7 @@ import os
 import pytest
 from textual.app import App
 
-from src import club_picker, i18n
+from src import club_config, club_picker, i18n
 from src.club_config import list_clubs, load_club_config
 from src.club_picker import ClubSearchScreen, search_club_directory, slugify
 
@@ -22,15 +22,18 @@ def _english_ui(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _no_real_geocoding_by_default(monkeypatch):
-    """`on_button_pressed()`'s save handler calls `geocode.find_club_location()`
+    """`on_button_pressed()`'s save handler calls
+    `club_config.new_club_stub_with_location()` -> `geocode.find_club_location()`
     (added 2026-09-08) on every save -- every test here that reaches the save
     button would otherwise make a real network request to the live Nominatim
     service, same test-isolation gap this project has caught before (e.g.
     `_fake_course_aliases_by_default` in test_tui.py). Confirmed live once, then
     fixed: a spy on `httpx.get` showed a real request actually leaving before this
     fixture existed. Defaults to "nothing found" (`None`) -- a test exercising the
-    "location found" path overrides this locally."""
-    monkeypatch.setattr(club_picker.geocode, "find_club_location", lambda name: None)
+    "location found" path overrides this locally. Patched on `club_config` (where
+    the lookup actually lives, shared with `tui.py`'s own `f`-to-favorite path via
+    `add_favorite()`), not `club_picker` itself."""
+    monkeypatch.setattr(club_config.geocode, "find_club_location", lambda name: None)
 
 
 @pytest.fixture(autouse=True)
@@ -280,7 +283,7 @@ def test_club_picker_save_fills_in_a_location_when_found(monkeypatch, tmp_path):
     monkeypatch.setenv("PCC_USER", "user@example.com")
     monkeypatch.setenv("PCC_PASS", "hunter2")
     _fake_fetch_ok(monkeypatch)
-    monkeypatch.setattr(club_picker.geocode, "find_club_location", lambda name: (50.1234567, 8.1234567))
+    monkeypatch.setattr(club_config.geocode, "find_club_location", lambda name: (50.1234567, 8.1234567))
 
     async def scenario():
         from textual.widgets import Static
@@ -340,7 +343,7 @@ def test_club_picker_save_passes_the_clubs_own_name_to_the_geocoder(monkeypatch,
     _fake_fetch_ok(monkeypatch)
     seen_names = []
     monkeypatch.setattr(
-        club_picker.geocode, "find_club_location", lambda name: seen_names.append(name) or None
+        club_config.geocode, "find_club_location", lambda name: seen_names.append(name) or None
     )
 
     async def scenario():
