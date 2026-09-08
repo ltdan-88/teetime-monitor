@@ -1031,6 +1031,53 @@ seeing zero real requests. Verified live again, this time through the actual
 `add_favorite()` path itself (not a hand-rolled equivalent): a real club name,
 saved into a scratch directory, comes back with a real geocoded `location`.
 
+**A third, real gap in the same feature — found only after the fix above still
+didn't work for the actual user, twice** ("i followed your instructions but still
+see no weather data"): `ClubBrowserScreen._favorites()` was handing back the file
+*slug* as if it were the club's display name, for any club shown via the plain
+favorites list (the default view — an empty search box) rather than a live
+directory search. A slug ("golfclub-domane-musterhausen-e-v": lowercase,
+hyphenated, umlauts folded away, "e.V." mangled into "-e-v") reads close enough to
+a real name to go unnoticed in the UI itself — this is genuinely how the favorites
+list has *always* rendered a club's name, not a new bug — but it's a confirmed dead
+end for `geocode.find_club_location()`, which needs the real name to have any
+chance of matching. So the exact sequence recommended to actually fix the user's
+real "no weather" problem (unfavorite, then refavorite, from that same plain
+list) fed the geocoder a string that could never have worked, twice in a row.
+
+Fixed at the source rather than patched around: `club_config.new_club_stub()`
+gained an optional `name` parameter, persisted as a real `name` key once it's
+genuinely known (a directory search, or `club_picker.py`'s own screen already
+supply one) — `new_club_stub_with_location()` now threads it through.
+`ClubBrowserScreen._favorites()` reads that back (`config.get("name") or slug`,
+falling back to the slug only for a favorite saved before this fix existed) —
+fixing the geocoding dead end *and*, as a side effect, a real display bug that
+had just never been reported: the favorites list itself has been showing the raw
+slug as every favorited club's own name the whole time.
+
+Also surfaced along the way, worth knowing rather than a dead end for future
+testing: `club_config.list_clubs()`/`load_club_config()`/`save_club_config()`
+still take a frozen `clubs_dir: Path = CLUBS_DIR` default (the exact gotcha
+`add_favorite()`/`is_favorite()`'s own `None`-sentinel pattern already avoids) —
+harmless for the real app (which never needs to override `CLUBS_DIR` after
+import), but it means patching `club_config.CLUBS_DIR` alone doesn't reach these
+three in a test; they need to be substituted directly (see this file's own
+`_wire_real_club_config_to()` test helper). Not fixed here — a real, valid future
+cleanup, but out of scope for closing today's actual bug.
+
+And a related, separate rough edge worth knowing about, not itself a bug: typing
+a plain numeric club id into the search box (as opposed to searching by name)
+deliberately never supplies a name at all (`store_names=False` — "open this club"
+is a prompt, not the club's name, see `on_input_changed()`'s own comment) — so
+re-adding a club that way still can't geocode either, correctly matching the
+existing "no name to geocode with" case, but easy to reach for by habit since it's
+the more familiar way to jump straight to a specific club.
+
+3 new tests, one confirmed to genuinely fail when the fix was temporarily
+reverted before being restored — and doing so reproduced the exact real symptom
+directly: the favorites list rendered the literal slug
+"★ [0000001] golfclub-domane-musterhausen-e-v" instead of the real club name.
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

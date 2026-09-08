@@ -327,12 +327,22 @@ class ClubBrowserScreen(Screen[str | None]):
     # -- listing -----------------------------------------------------------------
 
     def _favorites(self) -> list[tuple[str, str]]:
+        # `config.get("name")` -- the club's real display name, if it was ever
+        # actually known (a directory search, or club_picker.py's own screen) and
+        # so persisted by club_config.new_club_stub() (2026-09-08). Real bug found
+        # live: this used to hand back `slug` here unconditionally -- close enough
+        # to read at a glance, but a confirmed dead end for
+        # geocode.find_club_location() (which this same value feeds into on an
+        # un/re-favorite from this exact list), and this project's own no-op
+        # geocoding tests for a "typed-in id, no known name" club would have caught
+        # it immediately had the slug not looked so plausibly name-shaped. Falls
+        # back to `slug` only for a favorite saved before this fix existed.
         entries = []
         for slug in club_config.list_clubs():
             config = club_config.load_club_config(slug)
             club_id = config.get("club_id")
             if club_id:
-                entries.append((str(club_id), slug))
+                entries.append((str(club_id), config.get("name") or slug))
         return entries
 
     def _show_entries(

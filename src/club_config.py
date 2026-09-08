@@ -92,15 +92,30 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) ->
         yaml.safe_dump(config, f, sort_keys=False)
 
 
-def new_club_stub(club_id: str) -> dict:
+def new_club_stub(club_id: str, name: str = "") -> dict:
     """A minimal starting config for a club just picked via club_picker.py — only
     `club_id` comes from pc caddie's own directory; every other field (location,
     calendar, availability, preferences, ...) is a personal fact the picker has no way
     to know, and stays whatever each consumer already falls back to when it's missing
     (see e.g. scrape_once.py's DEFAULT_SCRAPE_INTERVAL_MINUTES, recommend.py's
     DEFAULT_AVOID_RAIN_*) until filled in by hand or via settings_screen.py. See
-    clubs/club.example.yaml for the fully annotated reference of what's available."""
-    return {"club_id": club_id, "default_course": "", "default_date": "today"}
+    clubs/club.example.yaml for the fully annotated reference of what's available.
+
+    `name` (added 2026-09-08) is the club's real display name, persisted as `name`
+    when known — a real bug found live: `tui.ClubBrowserScreen._favorites()` used to
+    hand the file *slug* (lowercase, hyphenated, umlauts folded away, "e.V."
+    mangled into "-e-v") to `add_favorite()` as if it were the name, for any club
+    reached from the plain favorites list (the default view, an empty search box)
+    rather than a live directory search — silently correct-looking in most places
+    (a slug reads close enough to a name at a glance) but a real, confirmed dead end
+    for `geocode.find_club_location()`, which needs the actual name to have any
+    chance of matching. Persisting the real name once it's genuinely known (a
+    directory search, or `club_picker.py`'s own screen) means a later un/re-favorite
+    from the plain list can find it again here instead of falling back to the slug."""
+    stub = {"club_id": club_id, "default_course": "", "default_date": "today"}
+    if name:
+        stub["name"] = name
+    return stub
 
 
 def slug_for_club_id(club_id: str, clubs_dir: Path | None = None) -> str | None:
@@ -141,7 +156,7 @@ def new_club_stub_with_location(club_id: str, name: str = "") -> dict:
     whenever the caller has no name to geocode with (e.g. a club favorited by
     typed-in id alone, never seen in a directory search) — skipped in that case,
     same as a blank name is skipped anywhere else in this project."""
-    stub = new_club_stub(club_id)
+    stub = new_club_stub(club_id, name)
     location = geocode.find_club_location(name) if name else None
     if location is not None:
         lat, lon = location

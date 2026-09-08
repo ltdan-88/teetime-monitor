@@ -8,6 +8,7 @@ from textual.widgets import DataTable, Input, OptionList, Static
 from src import i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
+from src.club_config import save_club_config as _real_save_club_config
 from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
 
 
@@ -94,6 +95,19 @@ def _fake_available_dates_by_default(monkeypatch):
     fallback, so this mirrors the common case) rather than a fixed list, since tests
     seed schedules for whatever dates they need regardless."""
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_geocoding_by_default(monkeypatch):
+    """`club_config.add_favorite()` (via `new_club_stub_with_location()`, added
+    2026-09-08) calls `geocode.find_club_location()` on every save -- most tests in
+    this file mock `add_favorite()`/`club_config` itself entirely and never reach
+    real code here, but a test that deliberately exercises the real favoriting path
+    (e.g. to confirm `_favorites()` supplies the right name to it) would otherwise
+    risk a real network request to the live Nominatim service, same test-isolation
+    gap already caught and fixed in test_club_picker.py/test_club_config.py.
+    Defaults to "nothing found" (`None`)."""
+    monkeypatch.setattr(tui.club_config.geocode, "find_club_location", lambda name: None)
 
 
 class _HostApp(App):
@@ -1728,6 +1742,116 @@ def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
             assert added == ["0000001"]
 
     _run(scenario())
+
+
+# --- Real bug found live, 2026-09-08: un/re-favoriting a club from the plain
+# favorites list (the default view, no search typed) handed geocode.find_club_location()
+# the file *slug* instead of the club's real name, since ClubBrowserScreen._favorites()
+# used to return the slug as if it were the display name -- a confirmed dead end for
+# geocoding ("still no weather data" even after following the fix-it steps) --------
+
+
+def _wire_real_club_config_to(monkeypatch, clubs_dir):
+    """`club_config.list_clubs()`/`load_club_config()` still take a frozen
+    `clubs_dir: Path = CLUBS_DIR` default (bound at import time, unlike
+    `add_favorite()`/`is_favorite()`'s own `None`-sentinel pattern) -- patching
+    `club_config.CLUBS_DIR` alone doesn't reach them. Same wiring already used
+    further down this file (`test_day_detail_renders_german_table_headers...`);
+    factored out here since the tests below need the exact same thing."""
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: _real_list_clubs(clubs_dir))
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: _real_load_club_config(slug, clubs_dir)
+    )
+
+
+def test_favorites_shows_the_saved_name_not_the_slug(tmp_path, monkeypatch):
+    _wire_real_club_config_to(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    # A favorite saved with its real name persisted (2026-09-08's own fix) --
+    # not just the lowercase, hyphenated slug this file happens to be named after.
+    _real_save_club_config(
+        "golfclub-domane-musterhausen-e-v",
+        {"club_id": "0000001", "name": "Golfclub Domäne Musterhausen e.V."},
+        tmp_path,
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            option = app.screen.query_one(OptionList).get_option_at_index(0)
+            assert "Golfclub Domäne Musterhausen e.V." in str(option.prompt)
+            assert "golfclub-domane-musterhausen-e-v" not in str(option.prompt)
+
+    _run(scenario())
+
+
+def test_favorites_falls_back_to_the_slug_when_no_name_was_ever_saved(tmp_path, monkeypatch):
+    # A favorite saved before this fix existed -- no `name` key at all. Must not
+    # crash, and the slug is still better than nothing to show.
+    _wire_real_club_config_to(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    _real_save_club_config("home-club", {"club_id": "0000001"}, tmp_path)
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            option = app.screen.query_one(OptionList).get_option_at_index(0)
+            assert "home-club" in str(option.prompt)
+
+    _run(scenario())
+
+
+def test_unfavorite_then_refavorite_from_the_favorites_list_geocodes_with_the_real_name(
+    tmp_path, monkeypatch
+):
+    # The exact real-world sequence that broke: a club already favorited with its
+    # real name known sits on the plain favorites list (empty search box) --
+    # toggling it off and back on must still pass that real name to the geocoder,
+    # not the file's own slug.
+    _wire_real_club_config_to(monkeypatch, tmp_path)
+    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path)  # add_favorite/is_favorite's own default
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    _real_save_club_config(
+        "golfclub-domane-musterhausen-e-v",
+        {"club_id": "0000001", "name": "Golfclub Domäne Musterhausen e.V."},
+        tmp_path,
+    )
+    seen_names = []
+    monkeypatch.setattr(
+        tui.club_config.geocode, "find_club_location", lambda name: seen_names.append(name) or None
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            option_list = app.screen.query_one(OptionList)
+            option_list.focus()
+            option_list.highlighted = 0
+            await pilot.pause()
+            app.screen.action_toggle_favorite()  # unfavorite
+            await pilot.pause()
+            # This was the *only* favorite -- unfavoriting it emptied the list, so
+            # re-favoriting means finding it again by *name* (a search against the
+            # cached directory carries the real name back with it); typing the
+            # numeric id instead deliberately does not (`store_names=False`, see
+            # `on_input_changed()`'s own comment -- "open this club" is a prompt,
+            # not a name), so that path alone still can't geocode either.
+            app.screen._directory = [("0000001", "Golfclub Domäne Musterhausen e.V.")]
+            app.screen.query_one("#club-search", Input).value = "musterhausen"
+            await pilot.pause()
+            option_list = app.screen.query_one(OptionList)
+            option_list.focus()
+            option_list.highlighted = 0
+            await pilot.pause()
+            app.screen.action_toggle_favorite()  # re-favorite
+            await pilot.pause()
+
+    _run(scenario())
+
+    assert seen_names == ["Golfclub Domäne Musterhausen e.V."]
 
 
 def test_course_picker_footer_says_enter_opens_a_course():
