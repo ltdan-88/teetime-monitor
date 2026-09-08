@@ -61,6 +61,7 @@ from pathlib import Path
 
 from . import booking_watch, club_config, global_preferences, storage
 from . import weather as weather_module
+from .search import resolve_buffer_minutes
 from .scraper import (
     LoginError,
     fetch_available_dates,
@@ -152,12 +153,18 @@ def run(
     if baseline is not None:
         confirmed = storage.load_confirmed_booking(course, date, path=db_path)
         if confirmed is not None and confirmed.time is not None:
-            buffer_minutes = config.get("availability", {}).get("buffer_minutes", 20)
+            availability = config.get("availability", {})
+            # Split into before/after (2026-09-08, same day as search.py's own
+            # buffer split) -- see resolve_buffer_minutes()'s own docstring for the
+            # backward-compatible fallback to a still-single, un-split
+            # buffer_minutes key.
+            buffer_before = resolve_buffer_minutes(availability, "before", 20)
+            buffer_after = resolve_buffer_minutes(availability, "after", 20)
             holes_key = "eighteen" if confirmed.holes == 18 else "nine"
             round_duration = config.get("round_duration_minutes", {}).get(holes_key, 240)
             preferences = config.get("preferences", {})
             changes = booking_watch.check_for_changes(
-                confirmed, baseline, latest, buffer_minutes, round_duration, preferences
+                confirmed, baseline, latest, buffer_before, buffer_after, round_duration, preferences
             )
             for change in changes:
                 storage.save_booking_change(

@@ -14,7 +14,8 @@ def test_default_criteria_from_config_reads_availability_block():
             "min_open_spots": 3,
             "weekday_window": {"after": "17:00"},
             "weekend_window": {"after": "10:00"},
-            "buffer_minutes": 20,
+            "buffer_before_minutes": 20,
+            "buffer_after_minutes": 10,
         }
     }
 
@@ -24,8 +25,20 @@ def test_default_criteria_from_config_reads_availability_block():
         min_open_spots=3,
         weekday_window=TimeWindow(after="17:00"),
         weekend_window=TimeWindow(after="10:00"),
-        buffer_minutes=20,
+        buffer_before_minutes=20,
+        buffer_after_minutes=10,
     )
+
+
+def test_default_criteria_from_config_falls_back_to_the_old_single_buffer_key():
+    # A config saved before the 2026-09-08 before/after buffer split -- resolved
+    # through search.resolve_buffer_minutes(), not lost.
+    config = {"availability": {"buffer_minutes": 15}}
+
+    criteria = default_criteria_from_config(config)
+
+    assert criteria.buffer_before_minutes == 15
+    assert criteria.buffer_after_minutes == 15
 
 
 def test_default_criteria_from_config_defaults_when_missing():

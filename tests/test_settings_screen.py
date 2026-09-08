@@ -48,7 +48,8 @@ class _HostApp(App):
 def test_config_to_widget_values_uses_defaults_on_empty_config():
     values = config_to_widget_values({})
     assert values[_id("availability", "min_open_spots")] == "1"
-    assert values[_id("availability", "buffer_minutes")] == "0"
+    assert values[_id("availability", "buffer_before_minutes")] == "0"
+    assert values[_id("availability", "buffer_after_minutes")] == "0"
     assert values[_id("preferences", "avoid_rain")] is False
     assert values[_id("preferences", "avoid_rain_probability_percent")] == str(
         DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT
@@ -68,6 +69,23 @@ def test_config_to_widget_values_reflects_existing_config():
     assert values[_id("availability", "weekday_window", "before")] == ""
     assert values[_id("preferences", "avoid_rain")] is True
     assert values[_id("preferences", "avoid_rain_probability_percent")] == "80"
+
+
+def test_config_to_widget_values_falls_back_to_the_old_single_buffer_key():
+    # A config saved before the 2026-09-08 before/after split -- what this screen
+    # shows must match what the app actually does (search.resolve_buffer_minutes()'s
+    # same fallback), not just literally what's under the new keys yet.
+    config = {"availability": {"buffer_minutes": 15}}
+    values = config_to_widget_values(config)
+    assert values[_id("availability", "buffer_before_minutes")] == "15"
+    assert values[_id("availability", "buffer_after_minutes")] == "15"
+
+
+def test_config_to_widget_values_prefers_the_new_split_keys_when_present():
+    config = {"availability": {"buffer_minutes": 15, "buffer_before_minutes": 5, "buffer_after_minutes": 25}}
+    values = config_to_widget_values(config)
+    assert values[_id("availability", "buffer_before_minutes")] == "5"
+    assert values[_id("availability", "buffer_after_minutes")] == "25"
 
 
 # --- widget_values_to_config -------------------------------------------------
@@ -100,6 +118,18 @@ def test_widget_values_to_config_optional_float_blank_means_none():
     values[_id("preferences", "avoid_temp_below_c")] = ""
     updated = widget_values_to_config({}, values)
     assert updated["preferences"]["avoid_temp_below_c"] is None
+
+
+def test_widget_values_to_config_drops_the_old_single_buffer_key_once_saved():
+    # A config saved before the 2026-09-08 before/after split -- once the new keys
+    # are written (every save does, since they're ordinary "int" fields), the old
+    # single key would just be dead, confusing weight left in the file.
+    config = {"availability": {"buffer_minutes": 15}}
+    values = config_to_widget_values(config)
+    updated = widget_values_to_config(config, values)
+    assert "buffer_minutes" not in updated["availability"]
+    assert updated["availability"]["buffer_before_minutes"] == 15
+    assert updated["availability"]["buffer_after_minutes"] == 15
 
 
 def test_widget_values_to_config_drops_fully_empty_time_window():
@@ -209,17 +239,18 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
 
 
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
-    # min_open_spots (used here before 2026-09-08) became a Select dropdown that
-    # same day -- it can no longer even hold an invalid string, so this now targets
-    # buffer_minutes, one of the fields that stayed free text (see FIELDS' "choices"
-    # split in the module docstring).
+    # min_open_spots (used here before 2026-09-08) and buffer_minutes (used here
+    # before the same-day before/after split) both became Select dropdowns and can
+    # no longer even hold an invalid string -- this now targets avoid_wind_kph, one
+    # of the fields that stayed free text (see FIELDS' "choices" split in the
+    # module docstring).
     preferences_file = tmp_path / "preferences.yaml"
-    preferences_file.write_text("availability:\n  min_open_spots: 1\n  buffer_minutes: 5\n")
+    preferences_file.write_text("preferences:\n  avoid_wind_kph: 25\n")
 
     async def scenario():
         app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test() as pilot:
-            widget = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}")
+            widget = app.screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}")
             widget.value = "not a number"
             await pilot.click("#save")
             await pilot.pause()
@@ -228,7 +259,7 @@ def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
 
     # Unsaved -- the on-disk file still has the original value.
     saved = global_preferences.load_preferences(preferences_file)
-    assert saved["availability"]["buffer_minutes"] == 5
+    assert saved["preferences"]["avoid_wind_kph"] == 25
 
 
 # --- Language (bilingual UI) ----------------------------------------------------------
@@ -310,7 +341,7 @@ def test_settings_screen_field_rows_are_one_row_tall(tmp_path):
         app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test(size=(80, 50)) as pilot:
             await pilot.pause()
-            row = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}").parent
+            row = app.screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}").parent
             assert row.size.height == 1
 
     asyncio.run(scenario())
@@ -333,6 +364,9 @@ def test_settings_screen_limited_fields_render_as_dropdowns(tmp_path):
             await pilot.pause()
             assert isinstance(app.screen.query_one(f"#{_id('availability', 'min_open_spots')}"), Select)
             assert isinstance(app.screen.query_one(f"#{_id('daylight_buffer_minutes')}"), Select)
+            # The 2026-09-08 before/after buffer split -- also 10-minute-step dropdowns.
+            assert isinstance(app.screen.query_one(f"#{_id('availability', 'buffer_before_minutes')}"), Select)
+            assert isinstance(app.screen.query_one(f"#{_id('availability', 'buffer_after_minutes')}"), Select)
             # A genuine range stays free text.
             from textual.widgets import Input
 
@@ -400,7 +434,7 @@ def test_settings_screen_stacks_label_above_field_in_a_narrow_window(tmp_path):
             await pilot.pause()
             screen = app.screen
             assert not screen.has_class("-narrow")
-            row = screen.query_one(f"#{_id('availability', 'buffer_minutes')}").parent
+            row = screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}").parent
             # Side by side at a comfortable width -- one row.
             assert row.size.height == 1
 
@@ -427,7 +461,7 @@ def test_settings_screen_narrow_layout_never_clips_a_field_off_screen(tmp_path):
         app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test(size=(50, 50)) as pilot:
             await pilot.pause()
-            widget = app.screen.query_one(f"#{_id('availability', 'buffer_minutes')}")
+            widget = app.screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}")
             # Fully inside the 50-column screen -- not pushed past its right edge,
             # which is what the fixed 42+20-column layout used to do below ~70
             # columns.

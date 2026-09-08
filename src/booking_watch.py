@@ -24,6 +24,12 @@ ones `recommend.exclude_unplayable()` already resolves (booleans gating whether 
 check at all, numeric cutoffs with the same defaults) — see that module's docstring
 for why those cutoffs exist and aren't just the plain avoid_rain/avoid_wind booleans.
 
+`buffer_before_minutes`/`buffer_after_minutes` (split from one `buffer_minutes`,
+2026-09-08, same follow-up as search.py's own buffer split -- see that module's
+`SearchCriteria` docstring): the group teeing off before your booking and the one
+teeing off after it are checked against their own separate buffer now, not one
+symmetric number for both.
+
 Revised the same day, once the user spotted that a screenshot's banner text was still
 English-only after i18n.py landed: `BookingChange` now carries `params` (a plain dict
 of the values used to build `message`) alongside the already-rendered English
@@ -97,7 +103,13 @@ def _party_grew_change(booking: ConfirmedBooking, baseline_slot: Slot | None, la
     )
 
 
-def _neighbor_changes(booking: ConfirmedBooking, baseline: Schedule, latest: Schedule, buffer_minutes: int) -> list[BookingChange]:
+def _neighbor_changes(
+    booking: ConfirmedBooking,
+    baseline: Schedule,
+    latest: Schedule,
+    buffer_before_minutes: int,
+    buffer_after_minutes: int,
+) -> list[BookingChange]:
     changes: list[BookingChange] = []
     booking_time = datetime.strptime(booking.time, _TIME_FMT)
     baseline_by_time = {slot.time: slot for slot in baseline.slots}
@@ -105,11 +117,17 @@ def _neighbor_changes(booking: ConfirmedBooking, baseline: Schedule, latest: Sch
     for latest_slot in latest.slots:
         if latest_slot.time == booking.time:
             continue  # your own slot -- handled by _party_grew_change instead
-        if buffer_minutes <= 0:
-            continue
         slot_time = datetime.strptime(latest_slot.time, _TIME_FMT)
-        gap_minutes = abs((slot_time - booking_time).total_seconds()) / 60
-        if gap_minutes >= buffer_minutes:
+        gap_minutes = (slot_time - booking_time).total_seconds() / 60
+        # Split into two directions (2026-09-08, same follow-up as search.py's own
+        # buffer split): a slot teeing off *before* yours is the group ahead, one
+        # teeing off *after* is the group behind -- each checked against its own
+        # buffer rather than one symmetric number for both.
+        if gap_minutes < 0:
+            relevant_buffer, gap_minutes = buffer_before_minutes, -gap_minutes
+        else:
+            relevant_buffer = buffer_after_minutes
+        if relevant_buffer <= 0 or gap_minutes >= relevant_buffer:
             continue  # outside the buffer window -- not relevant to this booking
 
         baseline_slot = baseline_by_time.get(latest_slot.time)
@@ -206,7 +224,8 @@ def check_for_changes(
     booking: ConfirmedBooking,
     baseline: Schedule,
     latest: Schedule,
-    buffer_minutes: int,
+    buffer_before_minutes: int,
+    buffer_after_minutes: int,
     round_duration_minutes: int,
     preferences: dict | None = None,
 ) -> list[BookingChange]:
@@ -236,7 +255,7 @@ def check_for_changes(
     if party_grew is not None:
         changes.append(party_grew)
 
-    changes.extend(_neighbor_changes(booking, baseline, latest, buffer_minutes))
+    changes.extend(_neighbor_changes(booking, baseline, latest, buffer_before_minutes, buffer_after_minutes))
 
     weather_change = _weather_change(booking, baseline, latest, round_duration_minutes, preferences)
     if weather_change is not None:

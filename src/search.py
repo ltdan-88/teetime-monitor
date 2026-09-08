@@ -42,7 +42,16 @@ class SearchCriteria:
     weekday_window: TimeWindow | None = None  # Mon-Fri, e.g. after "17:00"
     weekend_window: TimeWindow | None = None  # Sat-Sun, e.g. after "10:00"
 
-    buffer_minutes: int = 0  # min gap to the nearest other booked flight, either side
+    # Split into two directions (2026-09-08 direct follow-up, after being asked
+    # "does a symmetric buffer make sense or should it be adjustable
+    # asymmetrically?" -- the group ahead of you slowing your own pace and the
+    # group behind you crowding you from behind aren't the same concern, so one
+    # symmetric number either over- or under-protects against whichever direction
+    # you actually care about): min gap to the nearest other booked flight teeing
+    # off *before* you (the group ahead) and *after* you (the group behind),
+    # respectively.
+    buffer_before_minutes: int = 0
+    buffer_after_minutes: int = 0
 
 
 def _window_for_date(date: str, criteria: SearchCriteria) -> TimeWindow | None:
@@ -66,16 +75,37 @@ def _is_another_flight(slot: Slot) -> bool:
     return slot.booked > 0 or slot.block_reason is not None
 
 
-def _has_buffer_clearance(slot: Slot, other_slots: list[Slot], buffer_minutes: int) -> bool:
-    if buffer_minutes <= 0:
+def resolve_buffer_minutes(availability: dict, direction: str, default: int = 0) -> int:
+    """Reads `availability["buffer_{direction}_minutes"]` (direction is "before" or
+    "after"), falling back to the old single `buffer_minutes` key (used for both
+    directions) if the direction-specific one isn't set -- a config saved before
+    the 2026-09-08 before/after split, or hand-edited against the old docs, keeps
+    behaving exactly as it did rather than silently losing its buffer protection
+    entirely (both directions would otherwise quietly default to 0/"no buffer")."""
+    direction_key = f"buffer_{direction}_minutes"
+    if direction_key in availability:
+        return availability[direction_key]
+    return availability.get("buffer_minutes", default)
+
+
+def _has_buffer_clearance(
+    slot: Slot, other_slots: list[Slot], buffer_before_minutes: int, buffer_after_minutes: int
+) -> bool:
+    if buffer_before_minutes <= 0 and buffer_after_minutes <= 0:
         return True
     slot_time = datetime.strptime(slot.time, _TIME_FMT)
     for other in other_slots:
         if other is slot or not _is_another_flight(other):
             continue
         other_time = datetime.strptime(other.time, _TIME_FMT)
-        gap_minutes = abs((other_time - slot_time).total_seconds()) / 60
-        if gap_minutes < buffer_minutes:
+        gap_minutes = (other_time - slot_time).total_seconds() / 60
+        # >= 0 / <= 0 (not a plain < 0 / > 0 split) so an exact-same-time neighbor
+        # (gap_minutes == 0) is checked against both directions rather than neither
+        # -- matches the old abs()-based check, which always failed a zero gap
+        # whenever any buffer was set at all.
+        if gap_minutes <= 0 and buffer_before_minutes > 0 and -gap_minutes < buffer_before_minutes:
+            return False
+        if gap_minutes >= 0 and buffer_after_minutes > 0 and gap_minutes < buffer_after_minutes:
             return False
     return True
 
@@ -96,7 +126,9 @@ def search(schedules: list[Schedule], criteria: SearchCriteria) -> list[SlotMatc
                 continue
             if not _within_window(slot.time, window):
                 continue
-            if not _has_buffer_clearance(slot, schedule.slots, criteria.buffer_minutes):
+            if not _has_buffer_clearance(
+                slot, schedule.slots, criteria.buffer_before_minutes, criteria.buffer_after_minutes
+            ):
                 continue
             matches.append(SlotMatch(date=schedule.date, course=schedule.course, slot=slot, score=0.0))
     return matches

@@ -66,6 +66,17 @@ is really two widgets -- `widget_values_to_config()` still receives one plain
 "HH:MM" string per field, same as before this change, since `_read_widget_values()`
 recombines the two dropdowns' values before handing them off.
 
+**Buffer split into before/after** (same-day follow-up, after being asked whether a
+symmetric buffer actually made sense: "split it like in your recommendation, and
+make it a dropdown in 10 minute increments"). The one `buffer_minutes` field became
+two -- `buffer_before_minutes`/`buffer_after_minutes` in `search.py`'s
+`SearchCriteria` and everywhere that reads `availability` -- since the group ahead
+of you slowing your pace and the group behind you crowding in aren't the same
+concern. Both render here as `Select` dropdowns in 10-minute steps (`BUFFER_CHOICES`
+below), the same treatment as `min_open_spots`/the scrape intervals. See
+`search.resolve_buffer_minutes()`'s own docstring for how a config saved before
+this split (still just `buffer_minutes`) keeps working unchanged.
+
 Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
 label/button/status message goes through i18n.py, same as every other screen in this
 project. `SettingsApp` applies the resolved theme/language on startup for the
@@ -103,6 +114,7 @@ from .scrape_once import (
     DEFAULT_SCRAPE_INTERVAL_MINUTES,
     DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
 )
+from .search import resolve_buffer_minutes
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
 
@@ -146,6 +158,9 @@ DAYLIGHT_BUFFER_CHOICES = _int_choices(0, 15, 30, 45, 60, 90)
 SCRAPE_INTERVAL_NORMAL_CHOICES = _int_choices(5, 10, 15, 30, 60, 120, 360)
 SCRAPE_INTERVAL_BOOKED_CHOICES = _int_choices(15, 30, 60, 120, 240)
 MIN_OPEN_SPOTS_CHOICES = [(str(n), str(n)) for n in (1, 2, 3, 4)]
+# Direct follow-up (2026-09-08, after the before/after buffer split): "split it
+# like in your recommendation, and make it a dropdown in 10 minute increments."
+BUFFER_CHOICES = _int_choices(0, 10, 20, 30, 40, 50, 60)
 
 # Direct follow-up (2026-09-08): "can you at least split the input boxes for the
 # time ranges into something like hh:mm?" -- each "optional_time" field below (a
@@ -236,11 +251,20 @@ FIELDS: list[Field] = [
         "settings.group.availability",
     ),
     Field(
-        "settings.field.buffer_minutes",
-        ("availability", "buffer_minutes"),
+        "settings.field.buffer_before_minutes",
+        ("availability", "buffer_before_minutes"),
         "int",
         "settings.group.availability",
         0,
+        choices=BUFFER_CHOICES,
+    ),
+    Field(
+        "settings.field.buffer_after_minutes",
+        ("availability", "buffer_after_minutes"),
+        "int",
+        "settings.group.availability",
+        0,
+        choices=BUFFER_CHOICES,
     ),
     Field("settings.field.avoid_rain", ("preferences", "avoid_rain"), "bool", "settings.group.weather", False),
     Field(
@@ -333,13 +357,30 @@ def _time_widget_ids(field: Field) -> tuple[str, str]:
     return f"{base}-hh", f"{base}-mm"
 
 
+_BUFFER_PATHS = {
+    ("availability", "buffer_before_minutes"): "before",
+    ("availability", "buffer_after_minutes"): "after",
+}
+
+
 def config_to_widget_values(config: dict) -> dict[str, Any]:
     """What each field's widget should show, given a loaded club config. Pure
     function — kept separate from the widgets themselves so it's testable without a
     running Textual app."""
     values: dict[str, Any] = {}
     for field in FIELDS:
-        raw = _get_path(config, field.path, field.default)
+        if field.path in _BUFFER_PATHS:
+            # A config saved before the 2026-09-08 before/after split only has the
+            # old single buffer_minutes key -- plain _get_path() below would show
+            # "0" for both new dropdowns even though the buffer is actually still
+            # in effect (search.py/scrape_once.py both fall back to it too, via
+            # resolve_buffer_minutes() -- see that function's own docstring). Using
+            # the same fallback here means what this screen displays always
+            # matches what the app is actually doing, not just what's literally
+            # under the new key yet.
+            raw = resolve_buffer_minutes(config.get("availability", {}), _BUFFER_PATHS[field.path], field.default)
+        else:
+            raw = _get_path(config, field.path, field.default)
         if field.kind == "bool":
             values[_field_id(field)] = bool(raw)
         elif raw is None:
@@ -375,6 +416,16 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
         window = updated.get("availability", {}).get(window_key)
         if window is not None and window.get("after") is None and window.get("before") is None:
             del updated["availability"][window_key]
+
+    # Both new buffer_before_minutes/buffer_after_minutes keys are always written
+    # above (they're ordinary "int" fields, same as any other) -- once that's
+    # happened, an old single buffer_minutes key left over from before the split
+    # would just be dead, unread weight in the saved file, confusing to find later
+    # ("why doesn't editing this do anything?"). Dropped here rather than left to
+    # linger.
+    availability = updated.get("availability")
+    if availability is not None:
+        availability.pop("buffer_minutes", None)
 
     return updated
 

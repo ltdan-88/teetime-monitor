@@ -92,8 +92,51 @@ def test_run_uses_global_preferences_buffer_for_booking_watch(tmp_path, monkeypa
 
     # The 14:30 slot is a new, real booking -- inside the global 45-min buffer of the
     # 14:00 confirmed booking, so it counts as "buffer_shrunk" -- only reachable at
-    # all if buffer_minutes actually came from the global file.
+    # all if buffer_minutes actually came from the global file. Also doubles as
+    # coverage for search.resolve_buffer_minutes()'s back-compat fallback (this
+    # config only has the old single buffer_minutes key, not the 2026-09-08
+    # before/after split) running all the way through the real scrape_once.run()
+    # path, not just in isolation.
     assert any(change.kind == "buffer_shrunk" for change in changes)
+
+
+def test_run_uses_the_split_buffer_keys_directionally(tmp_path, monkeypatch):
+    # Direct follow-up, same day: "does a symmetric buffer make sense or should it
+    # be adjustable asymmetrically?" -> "split it like in your recommendation."
+    # buffer_after_minutes=0 here means a new booking *behind* the confirmed one
+    # shouldn't be flagged at all, even though it's well inside what a generous
+    # buffer_before would have caught the other way around.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    preferences_file = tmp_path / "preferences.yaml"
+    scrape_once.global_preferences.save_preferences(
+        {"availability": {"buffer_before_minutes": 45, "buffer_after_minutes": 0}}, preferences_file
+    )
+    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", preferences_file)
+
+    schedules = iter(
+        [
+            Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=1, capacity=4)]),
+            Schedule(
+                date="2026-09-06",
+                course="18 Loch Tee 1",
+                slots=[
+                    Slot(time="14:00", booked=1, capacity=4),
+                    Slot(time="14:30", booked=4, capacity=4),  # after the booking -- buffer_after=0
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date: next(schedules))
+
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={"club_id": "0000001"})
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={"club_id": "0000001"})
+
+    assert changes == []
 
 
 def test_run_skips_my_reservations_when_no_credentials_configured(tmp_path, monkeypatch):

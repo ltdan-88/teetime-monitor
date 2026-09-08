@@ -1111,6 +1111,49 @@ handling every other dropdown in this screen already uses. 4 new tests (439 tota
 was 435), one confirmed to genuinely fail (a broken combine step lost the saved
 value entirely) when temporarily reverted before being restored. Verified live at
 both a normal and a narrow (50-column, stacked) width.
+
+**Buffer split into before/after, same-day follow-up** ("does a symmetric buffer
+make sense or should it be adjustable asymmetrically?" -> "split it like in your
+recommendation, and make it a dropdown in 10 minute increments"). Real design
+question, not a bug report — walked through it before touching code: the group
+ahead of you slowing your pace and the group behind you crowding in aren't the
+same concern, so one symmetric `buffer_minutes` either over- or under-protects
+against whichever direction actually matters to a given person. Split into
+`buffer_before_minutes`/`buffer_after_minutes` everywhere `availability`'s buffer
+is read — `search.py`'s `SearchCriteria`/`_has_buffer_clearance()` (recommendations),
+`booking_watch.py`'s `_neighbor_changes()`/`check_for_changes()` (the post-booking
+"someone crowded you" alert), and the settings screen, where both render as
+`Select` dropdowns in 10-minute steps (`BUFFER_CHOICES`), same treatment as
+`min_open_spots`/the scrape intervals.
+
+Real backward-compatibility concern caught before shipping, not after: the actual
+`clubs/*.yaml` on this developer's own machine still has the old single
+`availability.buffer_minutes: 10` (never migrated when settings went global,
+since nothing had been saved through the new settings screen in production yet) —
+renaming the key outright would have silently dropped that real, currently-active
+10-minute buffer to zero in both directions, with no error to notice. Fixed with
+`search.resolve_buffer_minutes(availability, direction, default)`: reads the new
+direction-specific key if present, otherwise falls back to the old single key for
+both directions. Used at every read site (`recommend.py`, `scrape_once.py`) *and*
+in the settings screen's own `config_to_widget_values()` — the screen must show
+what the app is actually doing, not just what's literally under the new key yet,
+or opening it would show "0 min / 0 min" for someone whose real buffer is still
+faithfully being read as "10 min both ways." A save always writes the new keys
+(ordinary "int" fields) and now also drops the old `buffer_minutes` key once it
+does, so a saved file doesn't carry a dead, confusing leftover key forward.
+
+14 new tests (455 total, was 439) across `search.py`, `booking_watch.py`,
+`recommend.py`, `scrape_once.py`, and `settings_screen.py` — asymmetric cases
+specifically designed so a lazy "just use whichever buffer is bigger"
+implementation would still fail them (a close flight on the *unprotected* side
+must NOT be rejected, checked with no flight at all on the protected side, so
+there's nothing for a non-direction-aware shortcut to coincidentally get right).
+Confirmed genuinely by reverting three separate pieces in turn (the direction
+split itself, the settings-screen display fallback, the stale-key cleanup) and
+watching the corresponding tests fail before restoring each. Verified live: wrote
+a fake global preferences file with the old single key (mirroring this developer's
+own real, unmigrated club file) and confirmed the settings screen shows "10 min"
+on both new dropdowns, not "0 min."
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

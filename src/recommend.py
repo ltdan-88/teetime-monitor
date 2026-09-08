@@ -54,7 +54,7 @@ from . import ai_assist, playability
 from . import weather as weather_module
 from .models import Schedule, SlotMatch, TimeWindow
 from .scraper import _holes_from_course_label
-from .search import SearchCriteria, search
+from .search import SearchCriteria, resolve_buffer_minutes, search
 
 # See the module docstring's "genuine design gap" note — club.example.yaml's
 # avoid_rain/avoid_wind are booleans, not thresholds, so exclude_unplayable() needs its
@@ -79,7 +79,8 @@ def default_criteria_from_config(config: dict) -> SearchCriteria:
         min_open_spots=availability.get("min_open_spots", 1),
         weekday_window=_window("weekday_window"),
         weekend_window=_window("weekend_window"),
-        buffer_minutes=availability.get("buffer_minutes", 0),
+        buffer_before_minutes=resolve_buffer_minutes(availability, "before", 0),
+        buffer_after_minutes=resolve_buffer_minutes(availability, "after", 0),
     )
 
 
