@@ -1109,6 +1109,54 @@ reverted before being restored — and doing so reproduced the exact real sympto
 directly: the favorites list rendered the literal slug
 "★ [0000001] golfclub-domane-musterhausen-e-v" instead of the real club name.
 
+**A fourth reframe of the same feature, this time a genuine design change rather
+than a bug**: everything above still tied a club's location to *saving* it,
+because that's the only place the lookup ever ran. Live use exposed why that
+still wasn't enough. A real screenshot of a real, correctly-named club
+("Golfclub Sonnenberg e.V.") showed no weather at all, alongside "weather forecast
+is only available for the next 3 days" and "not really sure why it is listing
+events in the weather column." Checking the user's actual files (`clubs/`,
+`data/`) found the real cause of all three at once: `clubs/` had exactly one
+saved club, and Sonnenberg wasn't it — the 2026-09-07 favorites rework already
+lets any club be opened and scraped straight from search, without ever being
+favorited, and *that* path never ran the geocoding lookup at all, so an unsaved
+club had zero weather for every single day. Days 1–3 only looked like they had
+weather because `_day_tag_or_weather()` already shows a tournament name ahead of
+weather when one exists for that day (working as designed) — day 4 onward, with
+no tournament to mask it, showed the plain "—" that "no weather at all" actually
+looks like. Re-running the real geocode lookup for "Golfclub Sonnenberg e.V."
+confirmed it still resolves correctly (the most reliable of the three real clubs
+tested, matching the actual OSM golf-course feature directly) — nothing wrong
+with the geocoding itself, just that it had never been asked to run.
+
+Direct follow-up once this was explained: "I don't want to first save a club in
+order to see weather forecast... make saving a club to a bare minimum
+requirement, like in terms of favorites." So a club's location is no longer tied
+to being favorited at all. `storage.py` gained a `club_meta` table (one row,
+key `"location"`) in the same per-club db every club already gets the moment
+it's scraped, favorited or not — `save_location()`/`load_location()`. A new
+`tui._location_for_club(club_id, club_name)` checks that cache first, then
+geocodes live and caches the result on a genuine first-ever open, same
+one-lookup-per-club rule `new_club_stub_with_location()` already follows for the
+saved-club path. `_resolved_config()` (its `club_id`/`club_name` are both
+optional, so every unrelated caller is unaffected) fills in `location` from this
+whenever clubs/*.yaml has none — whether because there is no clubs/*.yaml at
+all, or because one exists but was saved before a location could be found.
+Wired into every place `_resolved_config()` already ran: `OverviewScreen`,
+`DayDetailScreen`'s pick-marking and manual refresh, and the app's own
+background periodic scrape.
+
+9 new tests across `test_storage.py` (the cache round-trips) and `test_tui.py`
+(the fallback itself — geocodes an unsaved club, reads the cache instead of
+re-geocoding, leaves an already-saved location alone, fills in a missing one
+even for a saved club, no crash without a name to geocode with), three
+confirmed to genuinely fail when temporarily reverted. Verified live in an
+isolated scratch directory against the real "Golfclub Sonnenberg e.V." /
+`0000002`: the first call geocodes and returns the real coordinates, creating
+only `data/0000002.db` — no `clubs/` directory at all, confirming this never
+requires saving the club; a second call (with the network call itself made to
+raise, to prove it) returns the same coordinates straight from the cache.
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

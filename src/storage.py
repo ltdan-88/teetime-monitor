@@ -110,6 +110,11 @@ CREATE TABLE IF NOT EXISTS booking_changes (
     detected_at TEXT NOT NULL, -- ISO 8601 timestamp
     acknowledged INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS club_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL        -- JSON-encoded
+);
 """
 
 
@@ -392,3 +397,32 @@ def acknowledge_booking_changes(ids: list[int], path: Path = DEFAULT_DB_PATH) ->
     init_db(path)
     with sqlite3.connect(path) as conn:
         conn.executemany("UPDATE booking_changes SET acknowledged = 1 WHERE id = ?", [(i,) for i in ids])
+
+
+def save_location(location: dict, path: Path = DEFAULT_DB_PATH) -> None:
+    """Cache a club's geocoded {"lat", "lon"} in its own db (added 2026-09-08, direct
+    feedback: "I don't want to first save a club in order to see weather forecast" —
+    a club can be opened and scraped without ever being favorited (see tui.py's
+    _open_club()), and it already gets this same per-club db file the moment it's
+    scraped, regardless of favorite status, so this is where its location lives too
+    now — not clubs/*.yaml, which a club like this may never have at all. A row here
+    persists across restarts the same way a favorited club's location does, just
+    without requiring the favorite."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO club_meta (key, value) VALUES ('location', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(location),),
+        )
+
+
+def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
+    """The {"lat", "lon"} save_location() cached for this club, or None if it's never
+    been geocoded (or this club has no db file yet at all)."""
+    if not path.exists():
+        return None
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute("SELECT value FROM club_meta WHERE key = 'location'").fetchone()
+    return json.loads(row[0]) if row else None

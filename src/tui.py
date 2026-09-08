@@ -123,7 +123,7 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, club_directory, global_preferences, recommend, scrape_once, storage
+from . import club_config, club_directory, geocode, global_preferences, recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .search import SearchCriteria
@@ -691,7 +691,34 @@ def _day_tag_or_weather(schedule: Schedule) -> str:
     return _weather_summary(schedule.weather) or ""
 
 
-def _resolved_config(club_slug: str | None) -> dict:
+def _location_for_club(club_id: str, club_name: str) -> dict | None:
+    """A club's {"lat", "lon"}, independent of whether it's ever been favorited
+    (2026-09-08, direct feedback: "I don't want to first save a club in order to see
+    weather forecast" — location used to only ever get looked up when a club was
+    saved, via club_config.new_club_stub_with_location(), so a club visited without
+    saving it (an ordinary state since the 2026-09-07 favorites rework — see
+    _open_club()) never got one at all, no matter how long you kept it open. Cached
+    in the club's own per-club db (storage.save_location/load_location) instead of
+    clubs/*.yaml, since that db already exists the moment a club is scraped,
+    regardless of favorite status — geocoded at most once per club, same one-time-
+    lookup rule new_club_stub_with_location() already follows, just keyed by the
+    club's db file instead of a saved config file."""
+    path = _db_path(club_id)
+    cached = storage.load_location(path=path)
+    if cached is not None:
+        return cached
+    if not club_name:
+        return None
+    location = geocode.find_club_location(club_name)
+    if location is None:
+        return None
+    lat, lon = location
+    found = {"lat": lat, "lon": lon}
+    storage.save_location(found, path=path)
+    return found
+
+
+def _resolved_config(club_slug: str | None, club_id: str | None = None, club_name: str = "") -> dict:
     """This club's own settings (`location`, `overview_days`, `default_course`,
     `identity`, `ai_assist`, `round_duration_minutes` — genuinely per-club facts),
     with your global `availability`/`preferences`/scrape-interval settings shallow-
@@ -699,16 +726,26 @@ def _resolved_config(club_slug: str | None) -> dict:
     preferences to be global and not tied to a specific club" — those aren't
     per-club facts at all, so they overlay every club's own config rather than being
     duplicated into each one). `club_slug is None` (a club being visited without
-    saving it) contributes nothing per-club, but still gets your global settings —
-    recommendations now work even on a club you haven't favorited, which the old
-    per-club-only design couldn't offer since there was nowhere for an unsaved club
-    to have availability rules at all."""
+    saving it) contributes nothing per-club from clubs/*.yaml, but still gets your
+    global settings — recommendations now work even on a club you haven't favorited,
+    which the old per-club-only design couldn't offer since there was nowhere for an
+    unsaved club to have availability rules at all.
+
+    `club_id`/`club_name` (added 2026-09-08, same feedback as `_location_for_club()`)
+    fill in `location` from that club's own per-club db when clubs/*.yaml has none —
+    whether because the club was never saved at all, or because it was saved before a
+    location could be found. Both default to falsy so every existing caller that
+    doesn't pass them keeps behaving exactly as before."""
     club_settings = {}
     if club_slug is not None:
         try:
             club_settings = club_config.load_club_config(club_slug)
         except FileNotFoundError:
             club_settings = {}
+    if "location" not in club_settings and club_id is not None:
+        location = _location_for_club(club_id, club_name)
+        if location is not None:
+            club_settings = {**club_settings, "location": location}
     return {**club_settings, **global_preferences.load_preferences()}
 
 
@@ -872,7 +909,7 @@ class OverviewScreen(Screen[None]):
         self.title = f"{star}{label} — {self.course}"
 
     def _config(self) -> dict:
-        return _resolved_config(self.club_slug)
+        return _resolved_config(self.club_slug, self.club_id, self.club_name)
 
     def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
         """(every date to attempt a row for, the subset of those actually open for
@@ -1380,7 +1417,7 @@ class DayDetailScreen(Screen[None]):
         closed: it used to be fetched at scrape time and silently dropped, so the
         daylight half of `exclude_unplayable()` could never actually exclude
         anything reached through this method)."""
-        _, playable = _availability_pipeline(schedule, _resolved_config(self.club_slug))
+        _, playable = _availability_pipeline(schedule, _resolved_config(self.club_slug, self.club_id, self.club_name))
         return {candidate.slot.time for candidate in playable}
 
     def refresh_banners(self) -> None:
@@ -1417,7 +1454,9 @@ class DayDetailScreen(Screen[None]):
         # point of persisting sun_times at all. Resolved fresh here (not the
         # session-cached TeetimeApp._club_config) for the same reason
         # _periodic_scrape() was fixed to do the same the same day.
-        _attach_weather(schedule, _resolved_config(self.club_slug), self.club_id, self.course, self.date)
+        _attach_weather(
+            schedule, _resolved_config(self.club_slug, self.club_id, self.club_name), self.club_id, self.course, self.date
+        )
         storage.save_schedule(schedule, path=self.db_path)
         status.update(i18n.t("status.refreshed"))
         self.load_schedule()
@@ -1773,8 +1812,16 @@ class TeetimeApp(App[None]):
                 # own file, because this exact call was still handing
                 # scrape_due_for_club() the config captured before that edit.
                 # club_id itself doesn't change for the session's active club, so
-                # it's still read from the snapshot rather than re-derived.
-                config = {**_resolved_config(self._club_slug), "club_id": self._club_config.get("club_id")}
+                # it's still read from the snapshot rather than re-derived. club_name
+                # (2026-09-08, same-day follow-up: "I don't want to first save a
+                # club in order to see weather forecast") lets an unsaved club's
+                # background scrape geocode+cache its own location too, not just a
+                # favorited one's.
+                club_id = self._club_config.get("club_id")
+                config = {
+                    **_resolved_config(self._club_slug, club_id, self._club_names.get(club_id, "")),
+                    "club_id": club_id,
+                }
                 self._club_config = config
                 scrape_once.scrape_due_for_club(self._club_slug, config)
             finally:

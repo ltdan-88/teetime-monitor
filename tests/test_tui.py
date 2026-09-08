@@ -1092,6 +1092,79 @@ def test_resolved_config_still_applies_global_preferences_to_an_unsaved_club(mon
     assert config["availability"]["min_open_spots"] == 2
 
 
+# _location_for_club/_resolved_config's club_id/club_name fallback -- added
+# 2026-09-08, direct feedback: "I don't want to first save a club in order to see
+# weather forecast." A club opened without ever being favorited used to never get a
+# location at all, since the lookup only ever ran at save time -- these now geocode
+# (and cache, in the club's own per-club db) on demand instead, regardless of
+# favorite status.
+
+
+def test_resolved_config_geocodes_an_unsaved_club_from_its_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: (48.78, 9.68))
+
+    config = tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
+
+    assert config["location"] == {"lat": 48.78, "lon": 9.68}
+
+
+def test_resolved_config_caches_the_geocoded_location_for_next_time(monkeypatch, tmp_path):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    calls = []
+    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: calls.append(name) or (48.78, 9.68))
+
+    tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
+    tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
+
+    assert calls == ["Golfclub Sonnenberg e.V."]  # geocoded once, read from cache the second time
+
+
+def test_resolved_config_skips_geocoding_without_a_name(monkeypatch, tmp_path):
+    # A club reached by typing its numeric id directly into search never has a name
+    # to geocode with (see club_picker.py's on_input_changed()) -- no crash, just no
+    # location, same as before this feature existed.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    def fail(name):
+        raise AssertionError("should not have tried to geocode without a name")
+
+    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+
+    config = tui._resolved_config(None, "0000002", "")
+
+    assert "location" not in config
+
+
+def test_resolved_config_does_not_override_a_location_already_saved(monkeypatch, tmp_path):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: {"location": {"lat": 1.0, "lon": 2.0}}
+    )
+
+    def fail(name):
+        raise AssertionError("should not have re-geocoded a club that already has a saved location")
+
+    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+
+    config = tui._resolved_config("home-club", "0000002", "Golfclub Sonnenberg e.V.")
+
+    assert config["location"] == {"lat": 1.0, "lon": 2.0}
+
+
+def test_resolved_config_fills_in_a_missing_location_even_for_a_saved_club(monkeypatch, tmp_path):
+    # A club saved before a location could be found (e.g. the geocoder failed at the
+    # time) isn't stuck without weather forever -- the same fallback applies whether
+    # or not clubs/*.yaml exists at all.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: {})
+    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: (48.78, 9.68))
+
+    config = tui._resolved_config("home-club", "0000002", "Golfclub Sonnenberg e.V.")
+
+    assert config["location"] == {"lat": 48.78, "lon": 9.68}
+
+
 def test_availability_pipeline_empty_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     assert tui._availability_pipeline(schedule, {}) == ([], [])

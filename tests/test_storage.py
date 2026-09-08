@@ -9,9 +9,11 @@ from src.storage import (
     load_all_confirmed_bookings,
     load_confirmed_booking,
     load_latest_schedule,
+    load_location,
     load_unacknowledged_booking_changes,
     save_booking_change,
     save_confirmed_booking,
+    save_location,
     save_schedule,
 )
 
@@ -395,3 +397,39 @@ def test_acknowledge_booking_changes_handles_empty_list(tmp_path):
     db = tmp_path / "teetime.db"
     acknowledge_booking_changes([], path=db)  # must not raise, e.g. on an empty db
     assert load_unacknowledged_booking_changes(path=db) == []
+
+
+# save_location/load_location -- added 2026-09-08, direct feedback: "I don't want to
+# first save a club in order to see weather forecast." A club's location now lives in
+# its own per-club db rather than clubs/*.yaml, so it works whether or not the club
+# was ever favorited.
+
+
+def test_load_location_is_none_for_a_club_never_geocoded(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_schedule(Schedule(course="18 Loch Tee 1", date="2026-09-08", slots=[]), path=db)
+
+    assert load_location(path=db) is None
+
+
+def test_load_location_is_none_when_the_db_file_does_not_exist_yet(tmp_path):
+    db = tmp_path / "never-scraped.db"
+
+    assert load_location(path=db) is None
+
+
+def test_save_and_load_location_round_trips(tmp_path):
+    db = tmp_path / "teetime.db"
+
+    save_location({"lat": 50.1234567, "lon": 8.1234567}, path=db)
+
+    assert load_location(path=db) == {"lat": 50.1234567, "lon": 8.1234567}
+
+
+def test_save_location_overwrites_a_previous_value(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_location({"lat": 1.0, "lon": 2.0}, path=db)
+
+    save_location({"lat": 3.0, "lon": 4.0}, path=db)
+
+    assert load_location(path=db) == {"lat": 3.0, "lon": 4.0}

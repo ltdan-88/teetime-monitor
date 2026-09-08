@@ -48,11 +48,12 @@ crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan a
   it's fetched once and cached locally, refreshed on demand with `r`. Favorites and
   typed club ids both work with no login and no cached list at all — including on a
   brand-new install, which the old flow couldn't do
-- Saving a new club automatically looks up a location for the weather overlay too
-  (pc caddie itself doesn't publish one anywhere) — a best-effort search against
-  OpenStreetMap's free Nominatim geocoder, using the club's own name. Not always
-  the exact clubhouse pin, but close enough for a weather forecast; the status line
-  says plainly whether it found one or not, and it's still editable by hand either way
+- Weather needs a location pc caddie itself doesn't publish anywhere, so any club you
+  open — favorited or not — gets one looked up automatically: a best-effort search
+  against OpenStreetMap's free Nominatim geocoder, using the club's own name, cached
+  after the first lookup so it isn't repeated on every visit. Not always the exact
+  clubhouse pin, but close enough for a forecast; still editable by hand in a
+  favorite's own YAML either way
 - Course picker showing each club's own real options, fetched live from that club's
   tee-sheet page rather than assumed — confirmed 2026-09-07 that this genuinely
   differs per club: a first club's 27-hole "18 Loch Tee 1" / "9 Loch Tee 1" /
