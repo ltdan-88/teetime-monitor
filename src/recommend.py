@@ -266,3 +266,31 @@ def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
     supplies the usual criteria to."""
     criteria = default_criteria_from_config(config)
     return ranked_matches(schedules, criteria, config)
+
+
+def diversify_by_day(picks: list[SlotMatch], max_count: int) -> list[SlotMatch]:
+    """At most one pick per date, in `picks`' own order (best-first once AI ranking is
+    on, otherwise `search()`'s natural chronological order) -- capped at `max_count`
+    distinct days.
+
+    Added 2026-09-08, direct feedback on a real overview screenshot: "This week's
+    picks" showed five different times, all on the same day, with the rest of the
+    week entirely absent. Root cause was `tui.OverviewScreen._update_picks()` simply
+    truncating `weekly_picks()`'s output to its first N entries -- and `search()`
+    walks schedules in date order, exhausting every matching slot in the *first* day
+    before ever looking at the next one, so a day with enough open slots to fill the
+    whole displayed list crowds out every other day, regardless of whether a later day
+    also has good options. This doesn't change what counts as a good slot (that's
+    still `ranked_matches()`'s job) -- it only changes which of the already-ranked
+    picks get shown, so the visible list actually reflects the whole week rather than
+    whichever single day happened to be scanned first."""
+    seen_dates: set[str] = set()
+    diversified: list[SlotMatch] = []
+    for pick in picks:
+        if pick.date in seen_dates:
+            continue
+        seen_dates.add(pick.date)
+        diversified.append(pick)
+        if len(diversified) >= max_count:
+            break
+    return diversified

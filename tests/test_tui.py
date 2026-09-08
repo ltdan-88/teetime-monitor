@@ -1195,14 +1195,42 @@ def test_day_pick_text_dash_without_availability_configured():
     assert tui._day_pick_text(schedule, {}, None, False) == "[dim]—[/]"
 
 
-def test_day_pick_text_stars_the_earliest_playable_match():
+def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
+    # No ai_assist.enabled at all -- _availability_pipeline()'s playable still comes
+    # back in search()'s own natural (chronological, real slots are always ordered
+    # this way) order, so "best" and "earliest" agree exactly as they did before
+    # ranked_matches() was wired in here.
     config = {"availability": {"weekday_window": {"after": "08:00"}}}
     schedule = Schedule(
         date="2026-09-07",  # a Monday
         course="18 Loch Tee 1",
-        slots=[Slot(time="10:00", booked=0, capacity=4), Slot(time="09:00", booked=0, capacity=4)],
+        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
     )
     assert tui._day_pick_text(schedule, config, None, False) == "[yellow]★[/] 09:00"
+
+
+def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
+    # Direct feedback, 2026-09-08: "why does it always recommend 16:00 on any other
+    # day?" -- once ai_assist.enabled is true, the star should reflect genuine
+    # judgment (here: a later, AI-preferred slot), not just the first chronological
+    # match, the same real ranking weekly_picks() already uses.
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "ai_assist": {"enabled": True},
+    }
+    schedule = Schedule(
+        date="2026-09-07",  # a Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
+    )
+
+    def fake_rank_slots(candidates, context, preferences, model):
+        # Reverse the order -- the later slot ranks first.
+        return list(reversed(candidates))
+
+    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
+
+    assert tui._day_pick_text(schedule, config, None, False) == "[yellow]★[/] 10:00"
 
 
 def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
@@ -1341,6 +1369,49 @@ def test_overview_screen_shows_picks_once_availability_is_configured(tmp_path, m
             content = str(app.screen.query_one("#picks", Static).content)
             assert "This week's picks" in content
             assert "09:00" in content
+
+    _run(scenario())
+
+
+def test_overview_screen_picks_spread_across_days_not_just_the_first_one(tmp_path, monkeypatch):
+    # Direct feedback on a real screenshot: "why does it only recommend tee times on
+    # Tuesday?" -- the first day alone had enough open slots to fill the whole
+    # displayed list, crowding out every other day. overview_days defaults to 5; give
+    # the first day 5 open slots and every other day exactly one, so a fix that
+    # actually diversifies must show all 5 distinct dates, not 5 times on day one.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config",
+        lambda slug, *a, **k: {"availability": {"weekday_window": {"after": "08:00"}, "weekend_window": {"after": "08:00"}}},
+    )
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    today = tui._TODAY()
+    from datetime import date as date_cls
+    from datetime import timedelta
+
+    dates = [(date_cls.fromisoformat(today) + timedelta(days=offset)).isoformat() for offset in range(5)]
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(
+            date=dates[0],
+            course="18 Loch Tee 1",
+            slots=[Slot(time=t, booked=0, capacity=4) for t in ["09:00", "09:10", "09:20", "09:30", "09:40"]],
+        ),
+        path=db_path,
+    )
+    for date in dates[1:]:
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+            path=db_path,
+        )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            content = str(app.screen.query_one("#picks", Static).content)
+            for date in dates:
+                assert date in content
 
     _run(scenario())
 

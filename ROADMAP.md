@@ -1594,6 +1594,62 @@ sandbox (`PYTHONPATH` pointed at the repo, `cwd` a scratch directory, so `clubs/
 running app, confirmed the pre-filled blanks and dropdown ranges render correctly
 against real loaded data.
 
+**Two real gaps in "This week's picks"/the daily ★ pick, found from a real
+screenshot**: "Can you explain why it only recommends tee times on Tuesday? Also,
+why does it always recommend 16:00 on any other day?" Both traced to the same root
+cause — `ai_assist.enabled` wasn't set for this club, so nothing was ever actually
+*ranking* candidates; the deterministic baseline alone was standing in as "the
+recommendation" everywhere.
+
+1. **"This week's picks" showed 5 times, all on the same day.** `tui.OverviewScreen.
+   _update_picks()` just truncated `weekly_picks()`'s output to its first
+   `OVERVIEW_MAX_PICKS_SHOWN` (5) entries — and `search.search()` walks schedules in
+   date order, exhausting every matching slot in the *first* day before ever looking
+   at the next one. A day with a wide enough window (here: 16:00-18:00 at 10-minute
+   intervals) easily has 5+ open slots on its own, so it fills the entire displayed
+   list and every other day in the week never gets a chance to appear, regardless of
+   whether it also had good options. Fixed with `recommend.diversify_by_day()`: at
+   most one pick per date, in the picks' own order (best-first once AI ranking is on,
+   otherwise chronological) — a pure, separately-tested function, not folded into
+   `weekly_picks()` itself, since the ad hoc search screen's own results table
+   deliberately shows every match for a typed-in query, not a diversified digest.
+2. **The daily ★ pick was always the literal earliest slot**, not a judged "best"
+   one — so once a saved window starts at 16:00 and that exact slot happens to be
+   open (the common case), it wins by default every single day, regardless of how the
+   rest of the window compares. `tui._availability_pipeline()` used to call
+   `search()` + `exclude_unplayable()` directly; now it calls
+   `recommend.ranked_matches()` instead — the exact same pipeline `weekly_picks()`
+   uses — so "the best slot for one day" and "the best slots for the week" can never
+   disagree about what counts as best. `_day_pick_text()` changed from
+   `min(candidate.slot.time for candidate in playable)` to `playable[0].slot.time`
+   accordingly. With `ai_assist.enabled` false (still this developer's own real
+   default), `ranked_matches()` returns exactly what `exclude_unplayable()` alone
+   would have, in the same order real scraped slots always come in (chronological) —
+   so this is behavior-preserving until AI ranking is actually turned on; only then
+   does the star start reflecting genuine judgment instead of plain chronological
+   order. `DayDetailScreen._recommended_times()` (which marks *every* good slot with
+   ★ in the day-detail table, not just one) was already order-independent — a plain
+   set built from `playable` — so it needed no change at all.
+
+6 new tests across `test_recommend.py` (`diversify_by_day()`'s own cases) and
+`test_tui.py` (the AI-ranked-vs-earliest distinction, and a real reproduction of the
+reported symptom: one day seeded with 5 open slots and four other days with one each,
+confirming the overview now shows all 5 distinct dates rather than 5 times on day
+one), two confirmed to genuinely fail when temporarily reverted — including a direct
+before/after capture of the exact reported symptom disappearing. Verified live in an
+isolated sandbox reproducing the real screenshot's own settings (16:00-18:00 weekday
+window): raw `weekly_picks()` output was five consecutive Tuesday times exactly as
+reported; `diversify_by_day()` turned that into one pick per day across four
+distinct dates.
+
+Turning `ai_assist.enabled` on itself was raised and deliberately left for the user
+to decide, not enabled silently: a real Anthropic API key is already configured on
+this machine, and with `ranked_matches()` now wired into *both* the daily pick (once
+per visible day) and the weekly digest, turning it on would mean several separate
+paid API calls every time the overview loads, not just one — worth knowing before
+opting in, and worth revisiting (e.g. batching per-day calls into one) if the answer
+turns out to be yes.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and

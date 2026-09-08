@@ -146,10 +146,13 @@ spec.
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
   refresh), showing weather (or a 📌 day-note/rain-all-day flag in its place), a
   six-block "heat strip" for how full 08:00-20:00 is, and that day's own pick — a
-  confirmed booking, a recommended ★ slot, or why neither applies. "This week's
-  picks" lists the same recommendations across every loaded day, shown only once
-  you've actually set availability rules. `enter` drills into that day's own
-  single-day detail table; `escape` there pops back
+  confirmed booking, a recommended ★ slot, or why neither applies. That slot is the
+  AI-ranked best match once `ai_assist.enabled` is on, otherwise the earliest one that
+  clears your rules — not a promise that it's the best *time of day*, just the first
+  one that isn't excluded. "This week's picks" below shows up to one recommendation
+  per day across the whole loaded window (not just whichever day happened to have the
+  most open slots), shown only once you've actually set availability rules. `enter`
+  drills into that day's own single-day detail table; `escape` there pops back
 - Search for the one-off exceptions (`/` from the overview): a small form, pre-filled
   from your saved availability so you're tweaking one case rather than typing
   everything from scratch — e.g. "just this once, 3 players, weekdays only, after

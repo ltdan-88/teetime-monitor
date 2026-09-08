@@ -764,17 +764,29 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
 
 
 def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list]:
-    """(deterministic candidates, still-playable after weather/daylight exclusion)
-    for one schedule against your global `availability` rules (see
-    `_resolved_config()`) — the exact same pipeline `recommend.weekly_picks()` uses,
-    factored out so both the per-day pick column below and `DayDetailScreen`'s own ★
-    marker derive from one place. `([], [])` with no `availability` configured at
-    all — nothing to check against, not an error."""
+    """(deterministic candidates, still-playable matches) for one schedule against
+    your global `availability` rules (see `_resolved_config()`) — factored out so both
+    the per-day pick column below and `DayDetailScreen`'s own ★ marker derive from one
+    place. `([], [])` with no `availability` configured at all — nothing to check
+    against, not an error.
+
+    `playable` goes through `recommend.ranked_matches()` (not a bare
+    `exclude_unplayable()`, as this used to call directly) — the exact same pipeline
+    `weekly_picks()` uses, so "the best slot for one day" can never disagree with "the
+    best slots for the week" about what counts as best. With `ai_assist.enabled`
+    false (the default), `ranked_matches()` returns exactly what `exclude_unplayable()`
+    alone would have — same items, same order — so this is a behavior-preserving
+    change until AI ranking is actually turned on; only then does `playable`'s order
+    start reflecting genuine judgment instead of plain chronological order. Direct
+    feedback this responds to (2026-09-08): "why does it always recommend 16:00 on
+    any other day?" — `_day_pick_text()` used to take the literal earliest playable
+    time, which is exactly 16:00 every day once a saved window starts at 16:00 and
+    that slot happens to be open, regardless of how good the rest of the window is."""
     if not config.get("availability"):
         return [], []
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
-    playable = recommend.exclude_unplayable(candidates, [schedule], config)
+    playable = recommend.ranked_matches([schedule], criteria, config)
     return candidates, playable
 
 
@@ -788,8 +800,10 @@ def _day_pick_text(
        found an unacknowledged change since it was booked (see DayDetailScreen's own
        banners for the detail).
     2. Otherwise, if availability rules are configured and this day has a schedule to
-       check: a recommended "★ HH:MM" (the earliest still-playable match), or a
-       specific "no dry picks"/"too dark to finish"/"nothing playable" message when
+       check: a recommended "★ HH:MM" (the best still-playable match — AI-ranked once
+       `ai_assist.enabled`, otherwise the earliest, see `_availability_pipeline()`'s
+       own docstring), or a specific "no dry picks"/"too dark to finish"/"nothing
+       playable" message when
        candidates existed before the weather/daylight check but none survived it —
        worth saying explicitly (and *accurately* — see `recommend.unplayable_reasons()`'s
        own docstring for a real mix-up this avoids) rather than looking identical to
@@ -807,7 +821,7 @@ def _day_pick_text(
     if not candidates:
         return "[dim]—[/]"
     if playable:
-        return f"[yellow]★[/] {min(candidate.slot.time for candidate in playable)}"
+        return f"[yellow]★[/] {playable[0].slot.time}"
     reasons = recommend.unplayable_reasons(candidates, [schedule], config)
     if reasons == {"daylight"}:
         message_key = "overview.no_daylight_picks"
@@ -1010,8 +1024,13 @@ class OverviewScreen(Screen[None]):
         if not picks:
             picks_widget.update(f"\n[dim]{i18n.t('overview.no_matches')}[/]")
             return
+        # diversify_by_day() (not a plain [:N] slice) -- otherwise a single day with
+        # enough open slots to fill the whole list crowds out the rest of the week
+        # entirely (2026-09-08 direct feedback: "why does it only recommend tee times
+        # on Tuesday?").
+        picks = recommend.diversify_by_day(picks, OVERVIEW_MAX_PICKS_SHOWN)
         lines = [f"\n[bold]{i18n.t('overview.picks_title')}[/]"]
-        for pick in picks[:OVERVIEW_MAX_PICKS_SHOWN]:
+        for pick in picks:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(pick.date).weekday()}")
             line = f"[yellow]★[/] {weekday} {pick.date} · {pick.slot.time}"
             if pick.reasons:

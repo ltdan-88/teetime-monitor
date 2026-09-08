@@ -2,6 +2,7 @@ from src.models import Schedule, Slot, SlotMatch, SunTimes, TimeWindow, WeatherP
 from src.recommend import (
     _round_duration_minutes,
     default_criteria_from_config,
+    diversify_by_day,
     exclude_unplayable,
     ranked_matches,
     unplayable_reasons,
@@ -401,3 +402,43 @@ def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_call_fails(monk
     assert len(picks) == 1
     assert picks[0].slot.time == "18:00"
     assert picks[0].score == 0.0  # untouched -- never actually ranked
+
+
+# diversify_by_day() -- added 2026-09-08, direct feedback on a real overview
+# screenshot: "why does it only recommend tee times on Tuesday?" -- a day with enough
+# open slots to fill the whole displayed list was crowding out the rest of the week.
+
+
+def _match(date, time):
+    return SlotMatch(date=date, course="18 Loch Tee 1", slot=Slot(time=time, booked=0, capacity=4), score=0.0)
+
+
+def test_diversify_by_day_keeps_only_the_first_pick_per_date():
+    picks = [_match("2026-09-08", "16:00"), _match("2026-09-08", "16:10"), _match("2026-09-09", "17:00")]
+
+    result = diversify_by_day(picks, max_count=5)
+
+    assert [(p.date, p.slot.time) for p in result] == [("2026-09-08", "16:00"), ("2026-09-09", "17:00")]
+
+
+def test_diversify_by_day_stops_at_max_count_distinct_days():
+    picks = [_match(f"2026-09-{8 + i:02d}", "16:00") for i in range(10)]  # 10 different days
+
+    result = diversify_by_day(picks, max_count=3)
+
+    assert len(result) == 3
+    assert [p.date for p in result] == ["2026-09-08", "2026-09-09", "2026-09-10"]
+
+
+def test_diversify_by_day_preserves_input_order():
+    # Order matters -- it's what AI ranking (or the plain chronological fallback)
+    # already decided is "best first"; diversify_by_day() must not re-sort it.
+    picks = [_match("2026-09-09", "17:00"), _match("2026-09-08", "16:00")]
+
+    result = diversify_by_day(picks, max_count=5)
+
+    assert [p.date for p in result] == ["2026-09-09", "2026-09-08"]
+
+
+def test_diversify_by_day_empty_input():
+    assert diversify_by_day([], max_count=5) == []
