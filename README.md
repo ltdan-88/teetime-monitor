@@ -29,9 +29,12 @@ the two it was built against), across German, Swiss, Luxembourgish and
 Italian-speaking clubs; every one of them now either loads correctly or reports
 cleanly that the club publishes no tee sheet. See `src/scraper.py`'s module docstring
 for what that sweep found and fixed — several of the failures were serious, including
-one that made the tool unusable for nearly half of all clubs. Still to come: the
-crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan and
-[`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
+one that made the tool unusable for nearly half of all clubs. `h` opens the crowd
+heatmap screen — for now a data-readiness view (how close each day type is to having
+enough history), since every real club here is still too early in accumulating that
+history for the colored grid itself to say much yet. See [`ROADMAP.md`](ROADMAP.md)
+for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original
+spec.
 
 ## Planned capabilities
 
@@ -156,10 +159,13 @@ crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan a
   picks both still apply on top
 - A crowd heatmap — historical occupancy grouped by day type (workday, weekend, public
   holiday, vacation, tournament), so a future vacation-week Monday gets compared
-  against other vacation days, not typical Mondays. The raw numbers are plain
-  aggregation; judging how much to trust a thin history for a rarer day type is an AI
-  call, and that's what steers the automatic picks and search away from
-  likely-overbooked windows
+  against other vacation days, not typical Mondays. Plain aggregation, with a minimum-
+  sample-size floor deciding how much of a thin, rarer-day-type history to actually
+  trust before it steers the automatic picks and search away from likely-overbooked
+  windows. `h` opens the heatmap screen: right now a readiness view (how many hours of
+  each day type have hit that floor, and how many samples each has so far), since
+  every real club here is still too early into accumulating history for the colored
+  grid itself to be worth showing yet — the same floor is what will decide when it is
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?")
 - Personal stats (days since you last played, rounds logged, and open-ended commentary
@@ -235,8 +241,9 @@ launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 Check on it with `cat ~/Library/Logs/teetime-monitor.log` (empty means no errors);
 remove it later with `launchctl unload ...` plus deleting the plist file.
 
-`tui.py`'s crowd-heatmap screen isn't built yet — see "Project structure" above for
-what's real today versus still a stub.
+`tui.py`'s crowd-heatmap screen (`h`) is real, but currently shows a data-readiness
+view rather than the colored grid itself — see "Project structure" above for what's
+real today versus still a stub.
 
 ## Project structure
 
@@ -272,12 +279,13 @@ teetime-monitor/
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (implemented)
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (implemented)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
-│   ├── analytics.py        # raw aggregation + crowd heatmap; ai_assist for interpretation (implemented)
+│   ├── analytics.py        # raw aggregation + crowd heatmap + readiness (implemented)
 │   ├── theme.py            # 10 color themes, same set as brew-launcher (implemented)
 │   ├── i18n.py             # English/German UI text lookup (implemented)
 │   ├── user_config.py      # shared KEY=value config file, used by theme.py + i18n.py (implemented)
 │   └── tui.py               # main Textual app: club browser, course picker, multi-day
-│                            #   overview, day detail, ad hoc search (implemented); heatmap (not yet built)
+│                            #   overview, day detail, ad hoc search, heatmap (implemented;
+│                            #   heatmap screen currently shows readiness, not the grid yet)
 └── tests/
     ├── test_models.py
     ├── test_club_config.py

@@ -123,13 +123,14 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
-from . import club_config, club_directory, geocode, global_preferences, recommend, scrape_once, storage
+from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, recommend
+from . import scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .search import SearchCriteria
 from .search import resolve_buffer_minutes
 from .search import search as search_slots
-from .models import ConfirmedBooking, Schedule, TimeWindow, WeatherPoint
+from .models import ConfirmedBooking, DateRange, Schedule, TimeWindow, WeatherPoint
 from .scrape_once import _attach_weather, _db_path
 from .settings_screen import (
     BUFFER_CHOICES,
@@ -855,10 +856,11 @@ class OverviewScreen(Screen[None]):
     is the same three-step pipeline `weekly_picks()` uses, just taking an explicit
     typed-in `SearchCriteria` instead of deriving one from your saved defaults),
     searching across whatever days are already loaded here (`self._schedules`), not
-    a fresh scrape. `h` (Phase 5's crowd heatmap) still isn't bound — that one's
-    backend (`analytics.crowd_heatmap()`) is real and tested too, but needs a few
-    weeks of accumulated scrapes to actually say anything useful, so it's a
-    separate, still-unbuilt screen for now.
+    a fresh scrape. `h` opens `HeatmapScreen` (Phase 5's crowd heatmap, wired in
+    2026-09-08: "Can we still start building the UI for the heat map? We need a menu
+    to track how much data has been collected, and how much is still needed to be
+    functional" — a real data-readiness view, not a heatmap grid built ahead of
+    having any real data to show in it; see that screen's own docstring).
 
     `e` opens `SettingsScreen` (added 2026-09-08, direct feedback: "i don't even know
     where to configure from the UI" — until then `settings_screen.py` really was only
@@ -870,6 +872,7 @@ class OverviewScreen(Screen[None]):
 
     BINDINGS = [
         ("/", "search", "Search"),
+        ("h", "heatmap", "Heatmap"),
         ("s", "switch", "Switch club/course"),
         ("e", "edit_settings", "Settings"),
         ("t", "command_palette", "Commands"),
@@ -878,6 +881,7 @@ class OverviewScreen(Screen[None]):
     _FOOTER_BINDINGS = [
         ("enter", "binding.open"),
         ("/", "binding.search"),
+        ("h", "binding.heatmap"),
         ("s", "binding.switch"),
         ("e", "binding.settings"),
         ("t", "binding.commands"),
@@ -1025,6 +1029,9 @@ class OverviewScreen(Screen[None]):
 
     def action_search(self) -> None:
         self.app.push_screen(SearchScreen(self._schedules, self._config()))
+
+    def action_heatmap(self) -> None:
+        self.app.push_screen(HeatmapScreen(self.club_id, self.course, self._config()))
 
     def action_switch(self) -> None:
         # Same delegation as DayDetailScreen.action_switch() — push_screen_wait()
@@ -1257,6 +1264,175 @@ class SearchScreen(Screen[None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
+# --- HeatmapScreen (ROADMAP.md Phase 5) -- crowd-heatmap readiness, added 2026-09-08.
+# analytics.crowd_heatmap()/heatmap_readiness() are pure and already tested; the two
+# helpers below are the first thing in the running app to actually read a club's own
+# `calendar.country_code`/`calendar.vacation_ranges` and call
+# calendar_context.fetch_public_holidays() -- calendar_context.py has existed, fully
+# implemented and tested, since Phase 2, but nothing ever wired it in until this
+# screen needed it. ------------------------------------------------------------------
+
+
+def _holidays_for_club(config: dict) -> list[str]:
+    """This year's public holidays for a club's configured `calendar.country_code`,
+    via the free Nager.Date API (calendar_context.fetch_public_holidays()). Empty
+    list — not an error — with no country_code configured, or if the fetch fails;
+    day-type classification still works with just tournament/weekend/workday in that
+    case, the same graceful-degradation every other optional-config feature here
+    already follows (e.g. `_location_for_club()`'s own None-on-failure)."""
+    country_code = config.get("calendar", {}).get("country_code")
+    if not country_code:
+        return []
+    try:
+        return calendar_context.fetch_public_holidays(country_code, date_cls.fromisoformat(_TODAY()).year)
+    except Exception:
+        return []
+
+
+def _vacation_ranges_for_club(config: dict) -> list[DateRange]:
+    """A club's hand-entered `calendar.vacation_ranges` (see clubs/club.example.yaml)
+    as real DateRange objects, ready for calendar_context.classify_day(). Empty list
+    with nothing configured, same as _holidays_for_club()."""
+    ranges = config.get("calendar", {}).get("vacation_ranges") or []
+    return [DateRange(start=r["start"], end=r["end"], label=r.get("label", "")) for r in ranges]
+
+
+def _readiness_status_text(stats: dict) -> str:
+    """One of "no data yet" / "collecting" / "N/M hours ready" / "ready", from one
+    day-type's own heatmap_readiness() entry."""
+    seen, ready = stats["hours_seen"], stats["hours_ready"]
+    if seen == 0:
+        return i18n.t("heatmap.status.no_data")
+    if ready == 0:
+        return i18n.t("heatmap.status.collecting", seen=seen)
+    if ready < seen:
+        return i18n.t("heatmap.status.partial", ready=ready, seen=seen)
+    return i18n.t("heatmap.status.ready", ready=ready, seen=seen)
+
+
+def _heatmap_cell_style(average: float) -> str:
+    """Same three fill-ratio thresholds as _heat_strip_blocks() -- one shared visual
+    language for "how full" across both screens."""
+    if average >= 1.0:
+        return "full"
+    if average >= 0.5:
+        return "mid"
+    return "open"
+
+
+def _heatmap_preview_markup(heatmap: dict, readiness: dict) -> str:
+    """One line per day type with at least one ready hour: its label, then a colored
+    block per ready hour (samples >= analytics.MIN_SAMPLES_FOR_PREDICTION), sorted by
+    hour -- an hour that's merely *seen* but not yet ready is left out entirely rather
+    than shown with a misleadingly thin sample. i18n.t("heatmap.no_preview") once
+    nothing anywhere is ready yet -- the ordinary state for a brand-new install, not
+    an error to work around."""
+    lines = []
+    for day_type in calendar_context.DAY_TYPES:
+        if readiness[day_type]["hours_ready"] == 0:
+            continue
+        hours = heatmap.get(day_type, {})
+        ready_hours = sorted(
+            hour for hour, bucket in hours.items() if bucket["samples"] >= analytics.MIN_SAMPLES_FOR_PREDICTION
+        )
+        label = i18n.t(f"heatmap.day_type.{day_type}")
+        blocks = " ".join(
+            f"{hour} [{_HEAT_BLOCK_STYLES[_heatmap_cell_style(hours[hour]['average'])]}]■[/]"
+            for hour in ready_hours
+        )
+        lines.append(f"{label}: {blocks}")
+    return "\n".join(lines) if lines else i18n.t("heatmap.no_preview")
+
+
+class HeatmapScreen(Screen[None]):
+    """Phase 5's crowd heatmap — currently a data-readiness view, not the colored grid
+    a "heatmap" name might suggest, per direct request (2026-09-08): "Can we still
+    start building the UI for the heat map? We need a menu to track how much data has
+    been collected, and how much is still needed to be functional." Building the full
+    grid first would have meant showing an almost-empty one — every real club here is
+    at most a couple of days into accumulating history — so this screen leads with the
+    actually-useful question right now: how close is each day type to being usable.
+
+    One row per `calendar_context.DAY_TYPES` bucket, always shown even at zero
+    samples — a club with no `calendar.country_code`/`calendar.vacation_ranges`
+    configured correctly shows 0 forever for "public_holiday"/"vacation", which is
+    itself useful information (that classification simply can't happen yet), not a
+    row to hide. "Ready" reuses `analytics.MIN_SAMPLES_FOR_PREDICTION` — the same bar
+    `predict_crowding()` already uses to trust a bucket, not a second, separately-
+    tuned threshold invented just for this display.
+
+    Below the table: a compact colored preview (reusing the overview's own heat-strip
+    green/yellow/bold-red thresholds — see `_HEAT_BLOCK_STYLES`) for any day type that
+    already has at least one ready hour. Empty on every real club here today (see
+    above), but the rendering path itself is real and tested against synthetic data,
+    not a placeholder left for later — it simply has nothing to show yet."""
+
+    BINDINGS = [
+        ("escape", "back", "Overview"),
+        ("q", "quit", "Quit"),
+    ]
+    _FOOTER_BINDINGS = [
+        ("escape", "binding.overview"),
+        ("q", "binding.quit"),
+    ]
+
+    def __init__(self, club_id: str, course: str, config: dict) -> None:
+        super().__init__()
+        self.club_id = club_id
+        self.course = course
+        self.config = config
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield DataTable(id="readiness-table")
+        yield Static("", id="threshold-note")
+        yield Static("", id="preview-title")
+        yield Static("", id="preview")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def on_mount(self) -> None:
+        self.title = i18n.t("heatmap.title", course=self.course)
+        table = self.query_one(DataTable)
+        table.add_columns(
+            i18n.t("heatmap.column.day_type"),
+            i18n.t("heatmap.column.hours_seen"),
+            i18n.t("heatmap.column.hours_ready"),
+            i18n.t("heatmap.column.samples"),
+            i18n.t("heatmap.column.status"),
+        )
+        self.query_one("#threshold-note", Static).update(
+            i18n.t("heatmap.threshold_note", min=analytics.MIN_SAMPLES_FOR_PREDICTION)
+        )
+        self.load_readiness()
+
+    def load_readiness(self) -> None:
+        holidays = _holidays_for_club(self.config)
+        vacation_ranges = _vacation_ranges_for_club(self.config)
+        heatmap = analytics.crowd_heatmap(self.course, holidays, vacation_ranges, path=_db_path(self.club_id))
+        readiness = analytics.heatmap_readiness(heatmap)
+
+        table = self.query_one(DataTable)
+        table.clear()
+        for day_type in calendar_context.DAY_TYPES:
+            stats = readiness[day_type]
+            table.add_row(
+                i18n.t(f"heatmap.day_type.{day_type}"),
+                str(stats["hours_seen"]),
+                str(stats["hours_ready"]),
+                str(stats["total_samples"]),
+                _readiness_status_text(stats),
+            )
+
+        self.query_one("#preview-title", Static).update(i18n.t("heatmap.preview_title"))
+        self.query_one("#preview", Static).update(_heatmap_preview_markup(heatmap, readiness))
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
     def action_quit(self) -> None:
         self.app.exit()

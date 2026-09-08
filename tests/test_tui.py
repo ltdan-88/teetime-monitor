@@ -9,7 +9,7 @@ from src import i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
-from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
+from src.models import ConfirmedBooking, DateRange, Schedule, Slot, SunTimes, WeatherPoint
 
 
 @pytest.fixture(autouse=True)
@@ -2759,6 +2759,188 @@ def test_day_detail_banner_renders_localized_from_params(tmp_path, monkeypatch):
             banner = app.screen.query_one("#banners", Static)
             assert "weitere Spieler sind" in str(banner.content)
             assert "14:00" in str(banner.content)
+
+    _run(scenario())
+
+
+# HeatmapScreen (ROADMAP.md Phase 5) -- added 2026-09-08, direct request: "Can we
+# still start building the UI for the heat map? We need a menu to track how much data
+# has been collected, and how much is still needed to be functional." Also the first
+# tests exercising _holidays_for_club()/_vacation_ranges_for_club(), the first real
+# wiring of calendar_context.py into the running app.
+
+
+def test_holidays_for_club_skips_the_fetch_without_a_country_code(monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("should not have called fetch_public_holidays() at all")
+
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", fail)
+    assert tui._holidays_for_club({}) == []
+
+
+def test_holidays_for_club_returns_the_fetched_list(monkeypatch):
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", lambda code, year: ["2026-01-01"])
+    config = {"calendar": {"country_code": "DE"}}
+    assert tui._holidays_for_club(config) == ["2026-01-01"]
+
+
+def test_holidays_for_club_returns_empty_list_on_a_failed_fetch(monkeypatch):
+    def fail(code, year):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", fail)
+    config = {"calendar": {"country_code": "DE"}}
+    assert tui._holidays_for_club(config) == []
+
+
+def test_vacation_ranges_for_club_empty_without_configuration():
+    assert tui._vacation_ranges_for_club({}) == []
+
+
+def test_vacation_ranges_for_club_builds_date_ranges():
+    config = {
+        "calendar": {
+            "vacation_ranges": [
+                {"start": "2026-07-04", "end": "2026-09-15", "label": "summer break"},
+                {"start": "2026-12-20", "end": "2027-01-05"},
+            ]
+        }
+    }
+    ranges = tui._vacation_ranges_for_club(config)
+    assert ranges == [
+        DateRange(start="2026-07-04", end="2026-09-15", label="summer break"),
+        DateRange(start="2026-12-20", end="2027-01-05", label=""),
+    ]
+
+
+def test_readiness_status_text_no_data():
+    assert tui._readiness_status_text({"hours_seen": 0, "hours_ready": 0}) == i18n.t("heatmap.status.no_data")
+
+
+def test_readiness_status_text_collecting():
+    text = tui._readiness_status_text({"hours_seen": 4, "hours_ready": 0})
+    assert text == i18n.t("heatmap.status.collecting", seen=4)
+
+
+def test_readiness_status_text_partial():
+    text = tui._readiness_status_text({"hours_seen": 4, "hours_ready": 2})
+    assert text == i18n.t("heatmap.status.partial", ready=2, seen=4)
+
+
+def test_readiness_status_text_fully_ready():
+    text = tui._readiness_status_text({"hours_seen": 3, "hours_ready": 3})
+    assert text == i18n.t("heatmap.status.ready", ready=3, seen=3)
+
+
+def test_heatmap_cell_style_thresholds():
+    assert tui._heatmap_cell_style(1.0) == "full"
+    assert tui._heatmap_cell_style(0.5) == "mid"
+    assert tui._heatmap_cell_style(0.49) == "open"
+
+
+def test_heatmap_preview_markup_no_preview_when_nothing_ready():
+    heatmap = {"workday": {"09": {"average": 0.2, "samples": 1}}}
+    readiness = {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.DAY_TYPES}
+    readiness["workday"] = {"hours_seen": 1, "hours_ready": 0, "total_samples": 1}
+    assert tui._heatmap_preview_markup(heatmap, readiness) == i18n.t("heatmap.no_preview")
+
+
+def test_heatmap_preview_markup_shows_only_ready_hours_sorted():
+    heatmap = {
+        "workday": {
+            "18": {"average": 1.0, "samples": 3},  # ready, full
+            "09": {"average": 0.3, "samples": 3},  # ready, open
+            "16": {"average": 0.2, "samples": 1},  # seen but not ready -- excluded
+        }
+    }
+    readiness = {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.DAY_TYPES}
+    readiness["workday"] = {"hours_seen": 3, "hours_ready": 2, "total_samples": 7}
+
+    markup = tui._heatmap_preview_markup(heatmap, readiness)
+
+    label = i18n.t("heatmap.day_type.workday")
+    assert markup == f"{label}: 09 [green]■[/] 18 [bold red]■[/]"
+
+
+def _heatmap_screen(club_id="0000001", course="18 Loch Tee 1", config=None):
+    return tui.HeatmapScreen(club_id, course, config or {})
+
+
+def test_heatmap_screen_shows_a_row_per_day_type_even_with_no_data(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_heatmap_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#readiness-table")
+            assert table.row_count == 5  # one per calendar_context.DAY_TYPES
+
+    _run(scenario())
+
+
+def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monkeypatch):
+    # Three Mondays (all plain workdays) at the same hour -- exactly
+    # MIN_SAMPLES_FOR_PREDICTION, so that hour should read as ready.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:
+        storage.save_schedule(
+            Schedule(
+                date=date,
+                course="18 Loch Tee 1",
+                slots=[Slot(time="09:00", booked=2, capacity=4)],
+            ),
+            path=db_path,
+        )
+
+    async def scenario():
+        app = _HostApp(_heatmap_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#readiness-table")
+            workday_row = table.get_row_at(4)  # workday is last in DAY_TYPES
+            assert str(workday_row[0]) == i18n.t("heatmap.day_type.workday")
+            assert str(workday_row[1]) == "1"  # hours_seen
+            assert str(workday_row[2]) == "1"  # hours_ready
+            assert str(workday_row[3]) == "3"  # total_samples
+            preview = app.screen.query_one("#preview", Static)
+            assert "09" in str(preview.content)
+
+    _run(scenario())
+
+
+def test_heatmap_screen_escape_pops_back_to_overview(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("h")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HeatmapScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+
+    _run(scenario())
+
+
+def test_overview_screen_h_opens_heatmap_screen(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("h")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HeatmapScreen)
+            assert app.screen.club_id == "0000001"
+            assert app.screen.course == "18 Loch Tee 1"
 
     _run(scenario())
 

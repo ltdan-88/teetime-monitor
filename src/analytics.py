@@ -190,3 +190,33 @@ def predict_crowding(day_type: str, time: str, heatmap: dict) -> float | None:
     if bucket is None or bucket["samples"] < MIN_SAMPLES_FOR_PREDICTION:
         return None
     return bucket["average"]
+
+
+def heatmap_readiness(heatmap: dict) -> dict[str, dict]:
+    """Per day-type (`calendar_context.DAY_TYPES` order): how close a
+    `crowd_heatmap()` result is to actually being usable, not just its raw averages —
+    added 2026-09-08, direct request for "a menu to track how much data has been
+    collected, and how much is still needed to be functional" ahead of building the
+    heatmap screen itself. "Ready" reuses `predict_crowding()`'s own
+    `MIN_SAMPLES_FOR_PREDICTION` floor rather than a second, separately-tuned
+    threshold — the same bar that decides whether a bucket is trustworthy enough to
+    predict from is what decides whether it's trustworthy enough to display as a real
+    pattern versus "still collecting."
+
+    Every day type in `DAY_TYPES` is always a key here, even one with zero samples —
+    a club with no configured `calendar.country_code`/`vacation_ranges` yet will
+    always show 0 for "public_holiday"/"vacation", which is itself useful information
+    (that classification simply can't happen yet), not something to hide by omitting
+    the row.
+
+    Returns e.g. {"workday": {"hours_seen": 5, "hours_ready": 2, "total_samples": 34},
+    "tournament": {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}, ...}."""
+    result = {}
+    for day_type in calendar_context.DAY_TYPES:
+        hours = heatmap.get(day_type, {})
+        result[day_type] = {
+            "hours_seen": len(hours),
+            "hours_ready": sum(1 for bucket in hours.values() if bucket["samples"] >= MIN_SAMPLES_FOR_PREDICTION),
+            "total_samples": sum(bucket["samples"] for bucket in hours.values()),
+        }
+    return result

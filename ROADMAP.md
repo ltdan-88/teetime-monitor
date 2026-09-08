@@ -1638,6 +1638,39 @@ for a bucket with too few samples rather than a number that looks confident but 
 `ai_assist.summarize_history()` remains exactly right for the genuinely open-ended
 half — personal-stats commentary — just not this specific numeric-confidence problem.
 
+**`HeatmapScreen` implemented 2026-09-08, as a readiness view rather than the colored
+grid described above** — direct request: "Can we still start building the UI for the
+heat map? We need a menu to track how much data has been collected, and how much is
+still needed to be functional." `analytics.crowd_heatmap()`/`predict_crowding()` had
+been real and tested since the day above, but nothing in the running app had ever
+called them, or `calendar_context.py` at all (that module has been fully implemented
+and tested since Phase 2, but a club's own `calendar.country_code`/
+`calendar.vacation_ranges` had never actually been read by anything before this
+screen needed them — `tui._holidays_for_club()`/`_vacation_ranges_for_club()` are the
+first real wiring). Building the colored grid first would have meant shipping a
+screen that's almost entirely empty — every real club here is at most a couple of
+days into accumulating history — so this leads with the actually useful question
+right now instead: new `analytics.heatmap_readiness()` reports, per
+`calendar_context.DAY_TYPES` bucket, how many hours have any data at all versus how
+many have hit `MIN_SAMPLES_FOR_PREDICTION` ("ready" reuses that exact existing floor,
+not a second invented threshold), plus a running sample count. `h` (from
+`OverviewScreen`) opens the new screen: a table with one row per day type — always
+five rows, even at zero samples, since a club with no `calendar.country_code`
+configured correctly showing 0 forever for "public_holiday" is itself useful
+information, not something to hide — and below it, a compact colored preview (reusing
+the overview's own heat-strip green/yellow/bold-red thresholds) for any day type that
+already has at least one ready hour. Real today, but empty for every real club here so
+far, since none has hit the floor yet outside a synthetic test.
+
+16 new tests across `test_analytics.py` (`heatmap_readiness()`'s own cases) and
+`test_tui.py` (the two new calendar-wiring helpers, the status-text/cell-color/
+preview-markup pure functions, and the screen itself mounted with real seeded
+scrapes). Verified live in an isolated sandbox, headless tmux, with three synthetic
+Mondays feeding one real "workday" hour past the readiness floor: the table showed
+"Workday: 3 hours w/ data, 1 ready, 3 samples," and the preview line rendered a real
+green block at 09:00 and a real bold-red block at a second, fully-booked hour —
+confirmed via raw ANSI capture, not just the underlying markup string.
+
 *(An earlier version of this roadmap had a separate, deferred "Phase 6 — AI-assisted
 insights, opt-in, later" here. Revised 2026-09-05: once AI is the mechanism for
 ranking/parsing/interpretation from Phase 1 onward, there's nothing left to defer — see
