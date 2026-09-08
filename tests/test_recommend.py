@@ -4,6 +4,7 @@ from src.recommend import (
     default_criteria_from_config,
     exclude_unplayable,
     ranked_matches,
+    unplayable_reasons,
     weekly_picks,
 )
 from src.search import SearchCriteria
@@ -244,6 +245,67 @@ def test_exclude_unplayable_passes_through_candidate_with_no_matching_schedule()
         date="2026-09-06", course="18 Loch Tee 1", slot=Slot(time="08:00", booked=0, capacity=4), score=0.0
     )
     assert exclude_unplayable([candidate], [], {}) == [candidate]
+
+
+# --- unplayable_reasons (2026-09-08, direct feedback: "In the overview it says
+# there are no dry timeslots, but ... rain is only in the morning" -- the old
+# "no dry picks" message unconditionally implied rain even when daylight was the
+# real reason nothing survived) ------------------------------------------------
+
+
+def test_unplayable_reasons_identifies_daylight_only():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="17:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="06:30", sunset="19:47"),
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"round_duration_minutes": {"eighteen": 240}, "daylight_buffer_minutes": 30}
+
+    assert unplayable_reasons([candidate], [schedule], config) == {"daylight"}
+
+
+def test_unplayable_reasons_identifies_weather_only():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="09:00", precipitation_probability=90)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {"preferences": {"avoid_rain": True}}
+
+    assert unplayable_reasons([candidate], [schedule], config) == {"weather"}
+
+
+def test_unplayable_reasons_identifies_both():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="18:00", precipitation_probability=90)],
+        sun_times=SunTimes(sunrise="06:30", sunset="19:00"),
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {
+        "round_duration_minutes": {"eighteen": 240},
+        "daylight_buffer_minutes": 30,
+        "preferences": {"avoid_rain": True},
+    }
+
+    assert unplayable_reasons([candidate], [schedule], config) == {"daylight", "weather"}
+
+
+def test_unplayable_reasons_empty_when_nothing_actually_failed():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=0, capacity=4)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+
+    assert unplayable_reasons([candidate], [schedule], {}) == set()
 
 
 def test_ranked_matches_uses_the_given_criteria_not_the_configs_own_availability():

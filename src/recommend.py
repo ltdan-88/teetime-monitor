@@ -195,6 +195,34 @@ def exclude_unplayable(
     return playable
 
 
+def unplayable_reasons(candidates: list[SlotMatch], schedules: list[Schedule], config: dict) -> set[str]:
+    """Which of `exclude_unplayable()`'s two checks — `"daylight"`, `"weather"`, or
+    both — actually rejected the given candidates. A pure re-check for display
+    purposes only, not a third filtering pass; `exclude_unplayable()` itself is
+    unaffected and stays the single source of truth for what's actually playable.
+
+    Added 2026-09-08, direct feedback: "In the overview it says there are no dry
+    timeslots, but ... rain is only in the morning" — real confusion traced to a
+    real gap, not a bug in the filtering itself: `tui._day_pick_text()`'s "no dry
+    picks" message unconditionally implied rain, but `exclude_unplayable()` can
+    reject a candidate for *either* reason, and `sun_times` only started actually
+    persisting through storage.py the same day (see that module's `init_db()`
+    docstring) — meaning the daylight check could only start really excluding
+    anything, for the first time, right as this exact confusion was reported. A
+    tee time that's simply too late to finish before dark was very likely being
+    labeled as if it were a rain problem instead."""
+    reasons: set[str] = set()
+    for candidate in candidates:
+        schedule = _schedule_for(candidate, schedules)
+        if schedule is None:
+            continue
+        if _fails_playability(candidate, schedule, config):
+            reasons.add("daylight")
+        if _fails_weather(candidate, schedule, config):
+            reasons.add("weather")
+    return reasons
+
+
 def ranked_matches(schedules: list[Schedule], criteria: SearchCriteria, config: dict) -> list[SlotMatch]:
     """Search + exclude_unplayable + (best-effort) AI ranking for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on

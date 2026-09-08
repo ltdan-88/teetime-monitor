@@ -519,9 +519,31 @@ def test_slot_weather_cell_shows_a_rain_icon_past_the_threshold():
     assert "16°" in cell
 
 
+def test_slot_weather_cell_shows_the_actual_rain_probability_and_amount():
+    # Direct follow-up, same day: "I don't see chance of rain or amount of rain
+    # though" -- the icon alone wasn't enough once weather genuinely started
+    # showing; the real numbers matter more than the icon once it's fired at all.
+    points = [WeatherPoint(time="14:00", precipitation_probability=70, precipitation_mm=1.5)]
+    cell = tui._slot_weather_cell(points, "14:00")
+    assert "70%" in cell
+    assert "1.5mm" in cell
+
+
+def test_slot_weather_cell_omits_amount_when_none_fell():
+    points = [WeatherPoint(time="14:00", precipitation_probability=90, precipitation_mm=0.0)]
+    cell = tui._slot_weather_cell(points, "14:00")
+    assert "90%" in cell
+    assert "mm" not in cell
+
+
 def test_slot_weather_cell_shows_a_wind_icon_past_the_threshold():
     points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
     assert "💨" in tui._slot_weather_cell(points, "14:00")
+
+
+def test_slot_weather_cell_shows_the_actual_wind_speed():
+    points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
+    assert "45km/h" in tui._slot_weather_cell(points, "14:00")
 
 
 def test_slot_weather_cell_shows_a_sun_icon_when_calm_and_dry():
@@ -1116,6 +1138,49 @@ def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
         weather=[_weather("09:00", prob=90)],
     )
     assert "no dry picks" in tui._day_pick_text(schedule, config, None, False)
+
+
+def test_day_pick_text_says_too_dark_when_only_daylight_excludes(tmp_path):
+    # Real confusion reported live, 2026-09-08: "In the overview it says there are
+    # no dry timeslots, but ... rain is only in the morning" -- the old message
+    # unconditionally implied rain, but sun_times only started actually persisting
+    # through storage.py the same day (see storage.init_db()'s own docstring), so a
+    # slot simply too late to finish before dark could now be excluded too, and
+    # would have been mislabeled as a rain problem.
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "daylight_buffer_minutes": 30,
+        "round_duration_minutes": {"eighteen": 240},
+    }
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],  # far too late to finish by 19:00
+        sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
+    )
+    text = tui._day_pick_text(schedule, config, None, False)
+    assert "dark" in text
+    assert "dry" not in text
+
+
+def test_day_pick_text_generic_message_when_both_reasons_apply(tmp_path):
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "daylight_buffer_minutes": 30,
+        "round_duration_minutes": {"eighteen": 240},
+        "preferences": {"avoid_rain": True},
+    }
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],  # too late AND rainy
+        weather=[_weather("18:00", prob=90)],
+        sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
+    )
+    text = tui._day_pick_text(schedule, config, None, False)
+    assert "dry" not in text
+    assert "dark" not in text
+    assert "playable" in text
 
 
 # --- OverviewScreen itself ------------------------------------------------------------

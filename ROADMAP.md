@@ -867,6 +867,37 @@ new `params` column round-tripping). 240 tests passing (was 224).
   "☀ Sunrise 06:48 · Sunset 19:49" line and a real per-slot "☀ 17°"/"☀ 22°"
   column tracking the hour, all sourced from one real `'r'` press.
 
+  **Two more real gaps in this same feature, same day, both from direct live
+  feedback**: "In the overview it says there are no dry timeslots, but when I
+  navigate to the detailed view I can see that rain is only in the morning. I
+  don't see chance of rain or amount of rain though."
+
+  1. The per-slot weather cell only ever showed an icon plus temperature, never
+     the actual numbers — answered "is this worth a glance" but not the question
+     actually asked once weather was genuinely visible for the first time.
+     `_slot_weather_cell()` now shows the real rain probability/amount (or wind
+     speed) once either crosses the same visual threshold that already decided
+     whether to show an icon at all — a plain ☀ and temperature for a row that's
+     genuinely calm and dry, same as before.
+  2. The overview's "no dry picks" message unconditionally implied rain — but
+     `exclude_unplayable()` can reject a candidate for *either* weather or
+     daylight, and `sun_times` had only started actually persisting through
+     storage.py that same day (see the entry above), meaning the daylight check
+     could, for the very first time, actually be *why* nothing survived. A tee
+     time simply too late to finish before dark was very likely being reported to
+     the user as if it were a rain problem. New `recommend.unplayable_reasons()`
+     re-checks (for display only, not a third filtering pass) which reason(s)
+     actually applied; `tui._day_pick_text()` now picks "no dry picks,"
+     "too dark to finish," or a generic "nothing playable" (for a genuine mix)
+     accordingly, instead of one label for all three cases.
+
+  9 new tests (`test_recommend.py`'s `unplayable_reasons()` cases,
+  `test_tui.py`'s weather-cell number formatting and the three distinct pick
+  messages), two confirmed to genuinely fail when temporarily reverted before
+  being restored. Verified live against a real club: a real morning-only rain
+  window now shows "🌧 70%/0.4mm 16°" per slot, clearing to a plain "☀ 15°" by
+  mid-morning, exactly matching the real forecast.
+
   A real, if narrow, bug surfaced building this: `DayDetailScreen.action_confirm()`
   was reading a selected row's time back out of the Time column's own *rendered*
   text — which, once dimming shipped, could already carry `[dim]...[/]` markup that

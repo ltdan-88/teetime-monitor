@@ -99,9 +99,13 @@ crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan a
   for the round itself gets worse, a plain banner shows up next time you open the app —
   no push notifications, just visible when you check
 - A weather column right on the tee sheet, one cell per tee time (via
-  [Open-Meteo](https://open-meteo.com/), no API key needed) — a 🌧/💨 icon once rain
-  or wind cross a plain visual threshold, plus that hour's own temperature; a plain
-  ☀ otherwise. The day's own sunrise/sunset shows above the table too
+  [Open-Meteo](https://open-meteo.com/), no API key needed) — once rain or wind
+  cross a plain visual threshold, the actual rain probability/amount or wind speed
+  shows (not just an icon), plus that hour's own temperature; a plain ☀ and the
+  temperature otherwise. The day's own sunrise/sunset shows above the table too.
+  The overview's own day-level "no dry picks" message only appears when weather is
+  genuinely the reason nothing's recommended — a separate "too dark to finish"
+  shows up instead when daylight is what actually excluded everything
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on a configurable estimated round duration
 - Wind and temperature in the weather overlay too, not just rain

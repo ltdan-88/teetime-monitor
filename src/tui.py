@@ -234,20 +234,32 @@ def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> We
 
 
 def _slot_weather_cell(weather_points: list[WeatherPoint], time: str) -> str:
-    """One row's own weather cell — a rain/wind icon past a plain visual threshold
-    plus that hour's temperature, or blank when there's genuinely no forecast to
-    show (not a fabricated "0" or icon)."""
+    """One row's own weather cell — that hour's temperature, plus the actual rain
+    probability/amount or wind speed once either crosses a plain visual threshold
+    (a plain ☀ otherwise, not a wall of numbers for a row that's simply calm and
+    dry), or blank when there's genuinely no forecast to show (not a fabricated "0"
+    or icon).
+
+    Revised 2026-09-08, direct feedback: "I don't see chance of rain or amount of
+    rain though" — the icon-only version answered "is it worth a glance" but not
+    the actual question asked once it clearly was; showing the real numbers when
+    the icon already fired costs nothing for the (more common) calm/dry rows,
+    which stay just as compact as before."""
     point = _weather_point_for_time(weather_points, time)
     if point is None:
         return ""
-    icons = ""
-    if (point.precipitation_probability or 0) >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT:
-        icons += "🌧"
+    parts = []
+    rain_probability = point.precipitation_probability or 0
+    if rain_probability >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT:
+        mm = f"/{point.precipitation_mm:.1f}mm" if point.precipitation_mm else ""
+        parts.append(f"🌧 {rain_probability:.0f}%{mm}")
     if (point.wind_speed_kph or 0) >= _SLOT_WIND_ICON_THRESHOLD_KPH:
-        icons += "💨"
-    icons = icons or "☀"
-    temp = f" {point.temperature_c:.0f}°" if point.temperature_c is not None else ""
-    return f"{icons}{temp}"
+        parts.append(f"💨 {point.wind_speed_kph:.0f}km/h")
+    if not parts:
+        parts.append("☀")
+    if point.temperature_c is not None:
+        parts.append(f"{point.temperature_c:.0f}°")
+    return "  ".join(parts)
 
 
 class ClubBrowserScreen(Screen[str | None]):
@@ -725,10 +737,12 @@ def _day_pick_text(
        found an unacknowledged change since it was booked (see DayDetailScreen's own
        banners for the detail).
     2. Otherwise, if availability rules are configured and this day has a schedule to
-       check: a recommended "★ HH:MM" (the earliest still-playable match), or "no dry
-       picks" specifically when candidates existed before the weather/daylight check
-       but none survived it — worth saying explicitly rather than looking identical
-       to "nothing matches your rules at all".
+       check: a recommended "★ HH:MM" (the earliest still-playable match), or a
+       specific "no dry picks"/"too dark to finish"/"nothing playable" message when
+       candidates existed before the weather/daylight check but none survived it —
+       worth saying explicitly (and *accurately* — see `recommend.unplayable_reasons()`'s
+       own docstring for a real mix-up this avoids) rather than looking identical to
+       "nothing matches your rules at all".
     3. A plain dash otherwise — no rules configured, no schedule yet, or genuinely no
        candidates for the day (e.g. outside every configured time window)."""
     if confirmed is not None and confirmed.time:
@@ -743,7 +757,17 @@ def _day_pick_text(
         return "[dim]—[/]"
     if playable:
         return f"[yellow]★[/] {min(candidate.slot.time for candidate in playable)}"
-    return f"[dim italic]{i18n.t('overview.no_dry_picks')}[/]"
+    reasons = recommend.unplayable_reasons(candidates, [schedule], config)
+    if reasons == {"daylight"}:
+        message_key = "overview.no_daylight_picks"
+    elif reasons == {"weather"}:
+        message_key = "overview.no_dry_picks"
+    else:
+        # Both reasons, or neither pinned down (e.g. the schedule that produced
+        # `playable`'s emptiness isn't the same one passed in here) -- a generic,
+        # still-honest message beats guessing at a specific one that might be wrong.
+        message_key = "overview.no_playable_picks"
+    return f"[dim italic]{i18n.t(message_key)}[/]"
 
 
 OVERVIEW_MAX_PICKS_SHOWN = 5
