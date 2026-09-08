@@ -55,6 +55,17 @@ switches from side-by-side to label-above-field (both full width) via the
 `SettingsScreen.-narrow` CSS rules below — taller, but nothing is ever hidden or
 cut off, which matters more at a narrow width than staying compact does.
 
+**Time fields split into hour/minute** (same-day follow-up: "can you at least
+split the input boxes for the time ranges into something like hh:mm?"). The four
+weekday/weekend window fields were a single free-text "17:00"-or-blank `Input` --
+now two small `Select` dropdowns (hour, minute) joined by a `:` separator, matching
+the same "small known set of values -> dropdown" treatment `min_open_spots` and the
+scrape intervals already got. `_time_widget_ids()` and the "optional_time" branches
+of `compose()`/`_read_widget_values()` are the only places that know a time field
+is really two widgets -- `widget_values_to_config()` still receives one plain
+"HH:MM" string per field, same as before this change, since `_read_widget_values()`
+recombines the two dropdowns' values before handing them off.
+
 Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
 label/button/status message goes through i18n.py, same as every other screen in this
 project. `SettingsApp` applies the resolved theme/language on startup for the
@@ -135,6 +146,17 @@ DAYLIGHT_BUFFER_CHOICES = _int_choices(0, 15, 30, 45, 60, 90)
 SCRAPE_INTERVAL_NORMAL_CHOICES = _int_choices(5, 10, 15, 30, 60, 120, 360)
 SCRAPE_INTERVAL_BOOKED_CHOICES = _int_choices(15, 30, 60, 120, 240)
 MIN_OPEN_SPOTS_CHOICES = [(str(n), str(n)) for n in (1, 2, 3, 4)]
+
+# Direct follow-up (2026-09-08): "can you at least split the input boxes for the
+# time ranges into something like hh:mm?" -- each "optional_time" field below (a
+# free-text "17:00"-or-blank Input until now) renders as two small Select
+# dropdowns instead, hour and minute, joined by a ":" separator -- see compose()'s
+# "optional_time" branch and _time_widget_ids() below. "--" (an empty string
+# value) means "not set" for the hour; a blank minute with an hour chosen collapses
+# to :00 (see _read_widget_values()'s combining logic) rather than being a second,
+# redundant way to mean "not set."
+HOUR_CHOICES = [("--", "")] + [(f"{h:02d}", f"{h:02d}") for h in range(24)]
+MINUTE_CHOICES = [("--", "")] + [(f"{m:02d}", f"{m:02d}") for m in (0, 15, 30, 45)]
 
 
 @dataclass
@@ -300,6 +322,17 @@ def _field_id(field: Field) -> str:
     return "field-" + "-".join(field.path)
 
 
+def _time_widget_ids(field: Field) -> tuple[str, str]:
+    """The hour/minute Select ids for an "optional_time" field -- see FIELDS'
+    weekday/weekend window entries. Kept separate from `_field_id()` itself since
+    every other kind still renders as exactly one widget under that one id;
+    `_read_widget_values()` recombines these two back into that same base id's
+    "HH:MM" string, so `widget_values_to_config()` never needs to know a time field
+    was ever split into two widgets at all."""
+    base = _field_id(field)
+    return f"{base}-hh", f"{base}-mm"
+
+
 def config_to_widget_values(config: dict) -> dict[str, Any]:
     """What each field's widget should show, given a loaded club config. Pure
     function — kept separate from the widgets themselves so it's testable without a
@@ -416,6 +449,24 @@ class SettingsScreen(Screen[dict | None]):
     SettingsScreen.-narrow .field-input {
         width: 100%;
     }
+    /* Direct follow-up (2026-09-08): "can you at least split the input boxes for
+       the time ranges into something like hh:mm?" -- .field-time-group holds the
+       hour/minute pair together as its own small unit rather than each spanning
+       the whole row's width like a single .field-input would; not `.field-input`
+       itself, so it's unaffected by `SettingsScreen.-narrow .field-input`'s
+       width: 100% above -- a 2-character dropdown never needs to stretch that far,
+       narrow window or not. */
+    .field-time-group {
+        width: auto;
+        height: 1;
+    }
+    .time-part {
+        width: 8;
+    }
+    .field-time-sep {
+        width: 1;
+        content-align: center middle;
+    }
     #status {
         padding: 0 2;
         color: $text-muted;
@@ -504,6 +555,33 @@ class SettingsScreen(Screen[dict | None]):
                             yield Label(i18n.t(field.label_key), classes="field-label")
                             if field.kind == "bool":
                                 yield Switch(value=current, id=widget_id, classes="field-input")
+                            elif field.kind == "optional_time":
+                                hh, _, mm = current.partition(":")
+                                hh_id, mm_id = _time_widget_ids(field)
+                                hour_options = HOUR_CHOICES
+                                if hh not in {value for _, value in hour_options}:
+                                    hour_options = [(hh, hh), *hour_options]
+                                minute_options = MINUTE_CHOICES
+                                if mm not in {value for _, value in minute_options}:
+                                    minute_options = [(mm, mm), *minute_options]
+                                with Horizontal(classes="field-time-group"):
+                                    yield Select(
+                                        hour_options,
+                                        value=hh,
+                                        allow_blank=False,
+                                        compact=True,
+                                        id=hh_id,
+                                        classes="time-part",
+                                    )
+                                    yield Static(":", classes="field-time-sep")
+                                    yield Select(
+                                        minute_options,
+                                        value=mm,
+                                        allow_blank=False,
+                                        compact=True,
+                                        id=mm_id,
+                                        classes="time-part",
+                                    )
                             elif field.choices is not None:
                                 options = field.choices
                                 # A value saved outside the preset list (hand-edited
@@ -533,8 +611,17 @@ class SettingsScreen(Screen[dict | None]):
         widget_values: dict[str, Any] = {}
         for field in FIELDS:
             widget_id = _field_id(field)
-            widget = self.query_one(f"#{widget_id}")
-            widget_values[widget_id] = widget.value
+            if field.kind == "optional_time":
+                hh_id, mm_id = _time_widget_ids(field)
+                hh = self.query_one(f"#{hh_id}").value
+                mm = self.query_one(f"#{mm_id}").value
+                # No hour chosen -- "not set," regardless of what the minute
+                # dropdown happens to show. An hour with no minute chosen isn't a
+                # second way to mean that -- it just means "on the hour."
+                widget_values[widget_id] = f"{hh}:{mm or '00'}" if hh else ""
+            else:
+                widget = self.query_one(f"#{widget_id}")
+                widget_values[widget_id] = widget.value
         return widget_values
 
     def action_quit_screen(self) -> None:

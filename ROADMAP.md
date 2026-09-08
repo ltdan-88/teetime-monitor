@@ -1090,6 +1090,27 @@ past the right edge of a 50-column screen) before being restored. Verified live
 across several widths from 30 to 80 columns in an isolated sandbox — including the
 exact 71/72 boundary, and an extreme 30-column case that stayed fully visible
 (labels wrapping, nothing cut off) rather than breaking outright.
+
+**Time fields split into hour/minute, same-day follow-up** ("can you at least
+split the input boxes for the time ranges into something like hh:mm?"): the four
+weekday/weekend window fields were a single free-text `"17:00"`-or-blank `Input` —
+now two small `Select` dropdowns (hour 00-23, minute :00/:15/:30/:45) joined by a
+`:` separator, the same "small known set of values → dropdown" treatment
+`min_open_spots` and the scrape intervals already got in the 6-point pass above.
+Kept the split contained to the UI layer: `_time_widget_ids()` and the
+`"optional_time"` branches of `compose()`/`_read_widget_values()` are the only
+places that know a time field is really two widgets now —
+`widget_values_to_config()` (and its own existing tests) still receive one plain
+`"HH:MM"` string per field, unchanged, since `_read_widget_values()` recombines the
+two dropdowns before handing anything off. A blank hour means "not set" regardless
+of the minute dropdown; a chosen hour with no minute picked collapses to `:00`
+rather than being a second way to mean "not set." A stored minute outside the
+quarter-hour presets (hand-edited YAML, or an old value from before this change)
+loads and stays selectable via the same "inject the current value in if missing"
+handling every other dropdown in this screen already uses. 4 new tests (439 total,
+was 435), one confirmed to genuinely fail (a broken combine step lost the saved
+value entirely) when temporarily reverted before being restored. Verified live at
+both a normal and a narrow (50-column, stacked) width.
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days

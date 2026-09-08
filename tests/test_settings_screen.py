@@ -436,6 +436,95 @@ def test_settings_screen_narrow_layout_never_clips_a_field_off_screen(tmp_path):
     asyncio.run(scenario())
 
 
+def test_settings_screen_time_fields_split_into_hour_and_minute_dropdowns(tmp_path):
+    # Direct follow-up, same day: "can you at least split the input boxes for the
+    # time ranges into something like hh:mm?"
+    from textual.widgets import Input, Select
+
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  weekday_window: {after: '17:00'}\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            # No more single free-text time field...
+            assert not app.screen.query(f"#{base}")
+            # ...it's two dropdowns instead, pre-filled from the saved "17:00".
+            hour = app.screen.query_one(f"#{base}-hh", Select)
+            minute = app.screen.query_one(f"#{base}-mm", Select)
+            assert hour.value == "17"
+            assert minute.value == "00"
+            # A field that's never been split (a genuine range) still isn't one.
+            assert isinstance(app.screen.query_one(f"#{_id('preferences', 'avoid_wind_kph')}"), Input)
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_time_field_round_trips_through_hour_and_minute(tmp_path):
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            app.screen.query_one(f"#{base}-hh").value = "09"
+            app.screen.query_one(f"#{base}-mm").value = "30"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["availability"]["weekday_window"]["after"] == "09:30"
+
+
+def test_settings_screen_time_field_blank_hour_means_not_set(tmp_path):
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  weekday_window: {after: '17:00'}\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            app.screen.query_one(f"#{base}-hh").value = ""
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    # "before" was never set either, so the whole window collapses to nothing --
+    # same "day type not configured -> skipped entirely" rule widget_values_to_config
+    # already applies (see its own docstring), not new behavior from this change.
+    assert "weekday_window" not in saved.get("availability", {})
+
+
+def test_settings_screen_time_field_keeps_a_stored_minute_outside_the_presets(tmp_path):
+    # A value saved before the quarter-hour presets existed (or hand-edited) must
+    # still load and stay selectable rather than crashing the screen.
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  weekday_window: {after: '17:05'}\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            assert app.screen.query_one(f"#{base}-hh").value == "17"
+            assert app.screen.query_one(f"#{base}-mm").value == "05"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["availability"]["weekday_window"]["after"] == "17:05"
+
+
 def test_settings_screen_footer_renders_translated_hint(tmp_path):
     preferences_file = tmp_path / "preferences.yaml"
     i18n.set_language("de")

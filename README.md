@@ -116,10 +116,11 @@ build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
   collapsible sections (Availability / Weather / Priorities / Timing & scraping);
   ones with only a handful of sensible values (party size, the daylight buffer, both
   scrape intervals) are dropdowns rather than free text, so they can't hold a typo;
-  Save/Quit sit right-aligned like an ordinary dialog's buttons, not hugging the
-  window's left edge. Below about 72 columns wide, each field switches to
-  label-above-field instead of side-by-side, so nothing gets clipped in a narrow
-  terminal window
+  the weekday/weekend time windows are hour and minute dropdowns rather than typing
+  "17:00" by hand; Save/Quit sit right-aligned like an ordinary dialog's buttons,
+  not hugging the window's left edge. Below about 72 columns wide, each field
+  switches to label-above-field instead of side-by-side, so nothing gets clipped in
+  a narrow terminal window
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
