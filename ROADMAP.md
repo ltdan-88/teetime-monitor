@@ -1691,6 +1691,32 @@ isolated sandbox: the real settings screen shows "AI ranking" as its own section
 `AI-ranked recommendations` (Switch) and `AI model` (dropdown, `claude-opus-5`
 preselected) both render and scroll into view correctly alongside every other group.
 
+**The model dropdown removed again, same session, one question later**: "Are you
+sure haiku is not good enough for this to work?" Worth taking seriously rather than
+defending the default reflexively — `ai_assist.DEFAULT_MODEL = "claude-opus-5"` was
+never a considered quality requirement for *this* task, just an arbitrary starting
+value picked back at this module's very first implementation (2026-09-06), before
+there was a real cost-conscious user or a real call path to weigh it against. By the
+time `rank_slots()` actually runs, `search.py`/`exclude_unplayable()` have already
+thrown out every candidate that fails party size, time window, weather, and
+daylight — the model's whole job is picking the best of an already-short, already-
+valid list and writing one short plain-language reason per pick. That's a small,
+structured, low-stakes task, not one that calls for a slower/pricier model. Changed
+`ai_assist.DEFAULT_MODEL` to `claude-haiku-4-5-20251001` accordingly. Direct
+follow-up once that reasoning was laid out: "I would not even offer the other
+options, since they seem overkill" — so the model `Select` added in the entry just
+above was removed entirely, along with the `"str"` `Field.kind` it was the only user
+of (no longer any string-shaped, non-numeric/flag/time setting on this screen to
+justify keeping it speculatively). A club's own hand-edited `ai_assist.model` (if any
+predates this) still works as a fallback through the same shallow merge as
+`ai_assist.enabled` itself — this screen just no longer offers a way to set one.
+
+5 of the 10 tests from the entry above were updated (the "str"-kind-specific cases
+removed rather than kept around for a mechanism nothing uses any more; the
+render/save scenario simplified to just the one Switch). Verified the removal is
+real the same way the addition was: reverting it back out and confirming
+`ai_assist.model`'s field id genuinely stopped existing on the rendered screen.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and

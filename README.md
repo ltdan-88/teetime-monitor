@@ -130,21 +130,24 @@ spec.
   on its own too via `python -m src.settings_screen`. Fields are grouped into
   collapsible sections (Availability / Weather / Priorities / AI ranking / Timing &
   scraping); ones with only a handful of sensible values (party size, the daylight
-  buffer, both scrape intervals, the buffer to nearby flights in 10-minute steps, and
-  the AI model itself) are dropdowns rather than free text, so they can't hold a
-  typo; the weekday/weekend time windows are hour and minute dropdowns rather than
-  typing "17:00" by hand, with the hour list itself trimmed to 05:00-21:00 — no golf
-  club is open at 2am; Save/Quit sit right-aligned like an ordinary dialog's buttons,
-  not hugging the window's left edge. Below about 72 columns wide, each field
-  switches to label-above-field instead of side-by-side, so nothing gets clipped in a
-  narrow terminal window
+  buffer, both scrape intervals, and the buffer to nearby flights in 10-minute steps)
+  are dropdowns rather than free text, so they can't hold a typo; the weekday/weekend
+  time windows are hour and minute dropdowns rather than typing "17:00" by hand,
+  with the hour list itself trimmed to 05:00-21:00 — no golf club is open at 2am;
+  Save/Quit sit right-aligned like an ordinary dialog's buttons, not hugging the
+  window's left edge. Below about 72 columns wide, each field switches to
+  label-above-field instead of side-by-side, so nothing gets clipped in a narrow
+  terminal window
 - AI-ranked recommendations (`ai_assist.enabled`) are a plain on/off switch in that
-  same settings screen, with the Claude model as its own dropdown right below it —
-  moved there from `clubs/*.yaml` on request, since wanting this on or off never
-  actually varied by club. Off by default: with a real Anthropic API key configured,
-  turning it on means a real, paid API call every time a recommendation gets
-  computed — once per visible day on the overview, plus once for the weekly digest —
-  not just a free quality bump, worth knowing before opting in
+  same settings screen — moved there from `clubs/*.yaml` on request, since wanting
+  this on or off never actually varied by club. No model choice is offered alongside
+  it: the ranking task is just picking the best of an already-short, already-filtered
+  list and writing one short reason, well within a fast/cheap model's reach, so it
+  always uses Haiku rather than presenting a quality/cost dial that isn't a real
+  tradeoff here. Off by default: with a real Anthropic API key configured, turning it
+  on means a real, paid API call every time a recommendation gets computed — once per
+  visible day on the overview, plus once for the weekly digest — not just a free
+  quality bump, worth knowing before opting in
 - The buffer to nearby flights is two separate settings, not one — how much clearance
   you want to the group ahead of you (who might be slow) and to the group behind you
   (who might be crowding in) aren't the same concern, so each has its own dial

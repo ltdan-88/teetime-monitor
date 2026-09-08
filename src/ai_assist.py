@@ -18,10 +18,10 @@ Three entry points, one per kind of judgment call:
   and open-ended personal-stats commentary, over analytics.py's raw aggregated rows.
 
 Every call here costs money and sends data (tee-sheet contents, preferences, aggregated
-history) to Anthropic's API — see ROADMAP.md "Known risks". `model` is a parameter, not
-hardcoded, because which model to spend on which call is a cost/quality tradeoff that's
-the club config's call (`ai_assist.model` in the club's YAML) — this module doesn't
-pick a cheaper model on its own.
+history) to Anthropic's API — see ROADMAP.md "Known risks". `model` remains a parameter
+on each function (a caller can still hand it a different model), but `DEFAULT_MODEL`
+is no longer meant to imply "the safe, general-purpose choice" — see its own comment
+below for why `rank_slots()`'s actual task doesn't call for more than that.
 
 Implemented 2026-09-06, tested against a mocked `anthropic.Anthropic` client (no real
 API calls in the test suite — this genuinely costs money and needs a real key, neither
@@ -41,7 +41,22 @@ from pydantic import BaseModel
 from . import weather as weather_module
 from .models import SlotMatch
 
-DEFAULT_MODEL = "claude-opus-5"
+# Changed from "claude-opus-5" to Haiku, 2026-09-09, direct feedback while wiring
+# ai_assist.enabled into the settings screen: "Are you sure haiku is not good enough
+# for this to work?" It's more than enough -- by the time rank_slots() ever runs,
+# search.py/exclude_unplayable() have already thrown out every candidate that fails
+# party size, time window, weather, and daylight; all that's left for the model is
+# picking the best of an already-short, already-valid list and writing one short
+# plain-language reason per pick. A small, structured, low-stakes task, not one that
+# calls for a slower/pricier model -- opus-5 was never a deliberate quality
+# requirement here, just an arbitrary starting default from this module's very first
+# implementation, before there was a real cost-conscious user to weigh in. Direct
+# follow-up once that was laid out plainly: "I would not even offer the other
+# options, since they seem overkill" -- so settings_screen.py no longer exposes a
+# model choice at all (see that module's own docstring for what was removed); `model`
+# stays a parameter here for a caller that really wants something else, but nothing
+# in this app hands it anything but this default any more.
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 
 class BookingLabelClassification(BaseModel):

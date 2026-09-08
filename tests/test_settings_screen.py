@@ -120,41 +120,29 @@ def test_widget_values_to_config_optional_float_blank_means_none():
     assert updated["preferences"]["avoid_temp_below_c"] is None
 
 
-# ai_assist -- moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai
-# feature should be an option in the settings menu." Also the first "str"-kind field
-# (a Claude model id, not a number/flag/time).
+# ai_assist.enabled -- moved here from clubs/*.yaml, 2026-09-08 direct request: "the
+# ai feature should be an option in the settings menu." No model field -- a dropdown
+# briefly existed here too, removed the same day (see settings_screen.py's own
+# docstring for "Are you sure haiku is not good enough for this to work?" and the
+# direct follow-up ruling out even offering the other models).
 
 
-def test_config_to_widget_values_ai_assist_defaults():
-    from src.ai_assist import DEFAULT_MODEL
-
+def test_config_to_widget_values_ai_assist_enabled_defaults_to_false():
     values = config_to_widget_values({})
     assert values[_id("ai_assist", "enabled")] is False
-    assert values[_id("ai_assist", "model")] == DEFAULT_MODEL
 
 
-def test_config_to_widget_values_reflects_saved_ai_assist():
-    config = {"ai_assist": {"enabled": True, "model": "claude-haiku-4-5-20251001"}}
+def test_config_to_widget_values_reflects_saved_ai_assist_enabled():
+    config = {"ai_assist": {"enabled": True}}
     values = config_to_widget_values(config)
     assert values[_id("ai_assist", "enabled")] is True
-    assert values[_id("ai_assist", "model")] == "claude-haiku-4-5-20251001"
 
 
-def test_widget_values_to_config_parses_edited_ai_assist():
+def test_widget_values_to_config_parses_edited_ai_assist_enabled():
     values = config_to_widget_values({})
     values[_id("ai_assist", "enabled")] = True
-    values[_id("ai_assist", "model")] = "claude-sonnet-5"
     updated = widget_values_to_config({}, values)
-    assert updated["ai_assist"] == {"enabled": True, "model": "claude-sonnet-5"}
-
-
-def test_widget_values_to_config_str_field_blank_falls_back_to_default():
-    from src.ai_assist import DEFAULT_MODEL
-
-    values = config_to_widget_values({})
-    values[_id("ai_assist", "model")] = "   "
-    updated = widget_values_to_config({}, values)
-    assert updated["ai_assist"]["model"] == DEFAULT_MODEL
+    assert updated["ai_assist"] == {"enabled": True}
 
 
 def test_widget_values_to_config_drops_the_old_single_buffer_key_once_saved():
@@ -275,12 +263,11 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
     assert seen[0]["availability"]["min_open_spots"] == 1  # the default, since nothing was edited
 
 
-def test_settings_screen_ai_assist_fields_render_and_save(tmp_path):
+def test_settings_screen_ai_assist_enabled_renders_and_saves(tmp_path):
     # Direct request, 2026-09-08: "the ai feature should be an option in the settings
-    # menu." The toggle is a Switch (same as any other "bool" field), the model
-    # choice a Select (same generic "kind has choices -> dropdown" rendering every
-    # other limited field here already gets -- no special-casing needed for "str").
-    from textual.widgets import Select, Switch
+    # menu." Just the one Switch -- no model dropdown (see settings_screen.py's own
+    # docstring for why that was removed the same day).
+    from textual.widgets import Switch
 
     preferences_file = tmp_path / "preferences.yaml"
 
@@ -289,18 +276,15 @@ def test_settings_screen_ai_assist_fields_render_and_save(tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause()
             enabled_widget = app.screen.query_one(f"#{_id('ai_assist', 'enabled')}")
-            model_widget = app.screen.query_one(f"#{_id('ai_assist', 'model')}")
             assert isinstance(enabled_widget, Switch)
-            assert isinstance(model_widget, Select)
             enabled_widget.value = True
-            model_widget.value = "claude-haiku-4-5-20251001"
             await pilot.click("#save")
             await pilot.pause()
 
     asyncio.run(scenario())
 
     saved = global_preferences.load_preferences(preferences_file)
-    assert saved["ai_assist"] == {"enabled": True, "model": "claude-haiku-4-5-20251001"}
+    assert saved["ai_assist"] == {"enabled": True}
 
 
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
