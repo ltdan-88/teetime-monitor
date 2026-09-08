@@ -797,10 +797,75 @@ new `params` column round-tripping). 240 tests passing (was 224).
   window (`_recommended_times()`). A matching, still-upcoming, non-past slot gets a
   "★" prefix in the Time column. A club with no `availability` block configured, or
   a schedule with no weather attached, just means nothing gets marked — never an
-  error. One accepted, disclosed gap: `sun_times` isn't persisted by storage.py (see
-  its own module docstring), so a `Schedule` loaded this way never has it — the
-  daylight half of `exclude_unplayable()` can never actually exclude anything here,
-  only the weather half can.
+  error. ~~One accepted, disclosed gap: `sun_times` isn't persisted by storage.py
+  (see its own module docstring), so a `Schedule` loaded this way never has it —
+  the daylight half of `exclude_unplayable()` can never actually exclude anything
+  here, only the weather half can.~~ — **closed 2026-09-08, see below.**
+
+  **Per-tee-time weather + sunrise/sunset, 2026-09-08** — a chain of direct
+  feedback, each one surfacing the next real gap underneath the last:
+
+  1. "I still don't see any weather forecast. Shouldn't that be visible in the
+     tee time overview?" — a real screenshot, after the automatic location lookup
+     above had genuinely already found and saved a location. Root cause:
+     `TeetimeApp._club_config` was snapshotted once in `_open_club()` and reused
+     for every background scrape for the rest of that session — a location added
+     mid-session (exactly what had just happened) never reached
+     `scrape_due_for_club()` until the app restarted. Fixed: `_periodic_scrape()`
+     now re-resolves `_resolved_config(self._club_slug)` fresh on every pass
+     rather than trusting the snapshot.
+  2. "Yes per tee time indicator, also don't forget about the sunrise and sunset
+     times" — asked once the missing-weather bug above was fixed and it became
+     clear per-slot weather (part of the *original* Phase 2 plan — "shown per slot
+     in the day-detail table," see that phase's own notes below — but only the
+     invisible half, `conditions_during_round()`, had ever actually been built)
+     had never shipped either. Investigating it surfaced the accepted gap struck
+     through above was worse than "accepted": `sun_times` wasn't just unused by
+     recommendations, it was fetched at scrape time and then unconditionally
+     *dropped* — `storage.py`'s `scrapes` table had no columns for it at all, so
+     nothing that ever loaded a schedule back out (every real TUI display, not
+     just this one method) could have shown it even if it had wanted to.
+
+  Fixed properly, not just displayed on top of the same gap: `storage.py`'s
+  `scrapes` table gained `sunrise`/`sunset` columns, `save_schedule()`/
+  `load_latest_schedule()` round-trip them, and `init_db()` migrates an
+  already-existing table via `ALTER TABLE` rather than leaving this developer's
+  own real accumulated scrape history behind (pc caddie hides the past — there's
+  no re-scraping an old date to backfill it, so this had to be a migration, not a
+  fresh schema). `tui.py` gained a `#daylight` line above the tee sheet (the
+  day's own sunrise/sunset, or blank without a forecast) and a fourth table
+  column (`_slot_weather_cell()`/`_weather_point_for_time()`) — a 🌧/💨 icon past a
+  plain visual threshold (independent of a person's own configurable
+  `avoid_rain_probability_percent`/`avoid_wind_kph` — this is "worth noticing at a
+  glance," the same spirit as the existing occupancy fill-color logic, not a
+  personal-comfort filter) plus that hour's temperature, or a plain ☀ otherwise.
+  `_recommended_times()`'s own "accepted gap" note is retired — the daylight half
+  of `exclude_unplayable()` can now actually exclude a too-late tee time through
+  this method too, not just an invisible display gap closed.
+
+  A second, real regression caught live while verifying all of the above (not
+  hypothetical — it reproduced immediately): `DayDetailScreen.action_refresh()`
+  (`'r'`) had *never* called `_attach_weather()` at all, unlike the background
+  scheduled scrape — so the single most ordinary action on this screen, pressing
+  `'r'`, silently overwrote any already-attached weather/sun_times with a
+  weather-less schedule (`storage.py`'s own "latest scrape wins" rule), undoing
+  the entire point of persisting `sun_times` the moment anyone actually used the
+  feature. Fixed the same way as `_periodic_scrape()` above: resolves config fresh
+  via `_resolved_config()` rather than a stale value, and now calls
+  `_attach_weather()` before saving, matching the background path exactly.
+
+  15 new tests across `test_storage.py` (round-trip, blank-when-never-fetched, and
+  a from-scratch migration test that builds a real pre-migration `scrapes` table
+  by hand and confirms the existing row survives untouched) and `test_tui.py`
+  (the pure `_weather_point_for_time()`/`_slot_weather_cell()` helpers, the table
+  column, the daylight line, the config-freshness fix, and the refresh-attaches-
+  weather fix) — four of these (the migration, the table column, the config-
+  freshness fix, and the refresh fix) confirmed to genuinely fail when
+  temporarily reverted before being restored. Verified live end to end against a
+  real club: a direct script call confirmed real sun_times/weather actually
+  persist through a real scrape; the running TUI itself then showed a real
+  "☀ Sunrise 06:48 · Sunset 19:49" line and a real per-slot "☀ 17°"/"☀ 22°"
+  column tracking the hour, all sourced from one real `'r'` press.
 
   A real, if narrow, bug surfaced building this: `DayDetailScreen.action_confirm()`
   was reading a selected row's time back out of the Time column's own *rendered*

@@ -129,8 +129,8 @@ from . import theme as theme_module
 from .search import SearchCriteria
 from .search import resolve_buffer_minutes
 from .search import search as search_slots
-from .models import ConfirmedBooking, Schedule, TimeWindow
-from .scrape_once import _db_path
+from .models import ConfirmedBooking, Schedule, TimeWindow, WeatherPoint
+from .scrape_once import _attach_weather, _db_path
 from .settings_screen import (
     BUFFER_CHOICES,
     HOUR_CHOICES,
@@ -208,6 +208,46 @@ def _dim_if(text: str, condition: bool) -> str:
     """Wrap `text` in Rich's "dim" style when `condition` is true, otherwise leave it
     plain — the shared building block behind `load_schedule()`'s past-slot dimming."""
     return f"[dim]{text}[/]" if condition else text
+
+
+# Per-tee-time weather column on DayDetailScreen (added 2026-09-08, direct
+# feedback: "Yes per tee time indicator" — this was actually part of the original
+# Phase 2 plan, "shown per slot in the day-detail table," but only the invisible
+# half (conditions_during_round(), used to filter recommendations) ever got built;
+# the visible column itself never did, and nothing since had flagged that gap).
+# Deliberately plain visual thresholds, independent of the user's own configurable
+# avoid_rain_probability_percent/avoid_wind_kph (recommend.py) — "worth noticing at
+# a glance," the same spirit as _fill_style() above, not a personal-comfort filter.
+_SLOT_RAIN_ICON_THRESHOLD_PERCENT = 50
+_SLOT_WIND_ICON_THRESHOLD_KPH = 30
+
+
+def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> WeatherPoint | None:
+    """The hourly forecast point covering one exact slot time — an hourly point's
+    own timestamp is the *start* of the hour it covers (a 14:20 slot falls under the
+    14:00 point), the same rule `weather.conditions_during_round()` already uses for
+    a whole round's worth of points. `None` if `time` is before the first point, or
+    there's no weather at all (an unconfigured `location`, or a forecast that
+    doesn't reach this far)."""
+    covering = [point for point in weather_points if point.time <= time]
+    return max(covering, key=lambda point: point.time) if covering else None
+
+
+def _slot_weather_cell(weather_points: list[WeatherPoint], time: str) -> str:
+    """One row's own weather cell — a rain/wind icon past a plain visual threshold
+    plus that hour's temperature, or blank when there's genuinely no forecast to
+    show (not a fabricated "0" or icon)."""
+    point = _weather_point_for_time(weather_points, time)
+    if point is None:
+        return ""
+    icons = ""
+    if (point.precipitation_probability or 0) >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT:
+        icons += "🌧"
+    if (point.wind_speed_kph or 0) >= _SLOT_WIND_ICON_THRESHOLD_KPH:
+        icons += "💨"
+    icons = icons or "☀"
+    temp = f" {point.temperature_c:.0f}°" if point.temperature_c is not None else ""
+    return f"{icons}{temp}"
 
 
 class ClubBrowserScreen(Screen[str | None]):
@@ -1139,7 +1179,19 @@ class SearchScreen(Screen[None]):
 
 
 class DayDetailScreen(Screen[None]):
-    """The single-day tee sheet: Time | Occupancy | Players, colored by fill ratio."""
+    """The single-day tee sheet: Time | Occupancy | Players | Weather, colored by
+    fill ratio. The Weather column (added 2026-09-08, direct feedback: "Yes per tee
+    time indicator, also don't forget about the sunrise and sunset times") was
+    actually part of the original Phase 2 plan — "shown per slot in the day-detail
+    table" — but only the invisible half of that (`conditions_during_round()`,
+    feeding recommendation filtering) had ever been built; the visible column
+    itself never was, quietly, until now (`_slot_weather_cell()`). A `#daylight`
+    line above the table shows the day's own sunrise/sunset, sourced from the same
+    `Schedule.sun_times` this feature also had to start actually persisting (see
+    `storage.init_db()`'s own docstring) — it had been fetched at scrape time and
+    silently dropped ever since, so the daylight half of `exclude_unplayable()`
+    could never actually exclude a too-late tee time either, not just an invisible
+    display gap."""
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
@@ -1191,13 +1243,16 @@ class DayDetailScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("", id="banners")
+        yield Static("", id="daylight")
         yield Static("", id="status")
         yield DataTable(id="table")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns(i18n.t("table.time"), i18n.t("table.occupancy"), i18n.t("table.players"))
+        table.add_columns(
+            i18n.t("table.time"), i18n.t("table.occupancy"), i18n.t("table.players"), i18n.t("table.weather")
+        )
         table.cursor_type = "row"
         self.refresh_banners()
         self.load_schedule()
@@ -1219,8 +1274,21 @@ class DayDetailScreen(Screen[None]):
         table.clear()
         self._row_times = []
         schedule = storage.load_latest_schedule(self.course, self.date, path=self.db_path)
+        daylight = self.query_one("#daylight", Static)
+        if schedule is not None and schedule.sun_times is not None:
+            daylight.update(
+                i18n.t(
+                    "daylight.summary",
+                    sunrise=schedule.sun_times.sunrise,
+                    sunset=schedule.sun_times.sunset,
+                )
+            )
+        else:
+            # No forecast fetched yet (an unconfigured `location`, or nothing
+            # scraped yet) -- blank, not a fabricated or stale time.
+            daylight.update("")
         if schedule is None or not schedule.slots:
-            table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"))
+            table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "")
             return
         # Only today's own slots can already be in the past -- direct feedback
         # 2026-09-07: "can you hide or make timeslots less visible that are in the
@@ -1237,6 +1305,7 @@ class DayDetailScreen(Screen[None]):
             time_cell = _dim_if(slot.time, is_past)
             if slot.time in recommended_times and not is_past:
                 time_cell = f"★ {time_cell}"
+            weather_cell = _dim_if(_slot_weather_cell(schedule.weather, slot.time), is_past)
             if slot.block_reason is not None:
                 # A real, confirmed case (Sonnenberg, 2026-09-08): pc caddie's own
                 # merged free-seat cell for a block-time/disable-time row can be
@@ -1251,14 +1320,16 @@ class DayDetailScreen(Screen[None]):
                 # already test block_reason by truthiness/`is None`, not by display
                 # text).
                 reason_text = slot.block_reason or i18n.t("table.not_bookable")
-                table.add_row(time_cell, f"[dim]{reason_text}[/]", "")
+                table.add_row(time_cell, f"[dim]{reason_text}[/]", "", weather_cell)
                 continue
             style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(
                 slot.booked, slot.capacity
             )
             occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
             players = ", ".join(slot.players) if slot.players else ""
-            table.add_row(time_cell, occupancy, _dim_if(players, is_past and bool(players)))
+            table.add_row(
+                time_cell, occupancy, _dim_if(players, is_past and bool(players)), weather_cell
+            )
 
     def _recommended_times(self, schedule: Schedule) -> set[str]:
         """Which of this schedule's own slot times pass your global availability
@@ -1268,12 +1339,13 @@ class DayDetailScreen(Screen[None]):
         2026-09-07 when `OverviewScreen`'s own per-day pick column needed the exact
         same computation) — this method's only job is resolving `config` via
         `_resolved_config()`. Best-effort: no `availability` configured at all, or a
-        schedule with no weather attached yet, just means nothing gets marked — never
-        an error shown to the user. `sun_times` specifically is never set on a
-        schedule loaded this way (storage.py doesn't persist it — see its own module
-        docstring), so the daylight half of `exclude_unplayable()` can't actually
-        exclude anything here; only the weather half can. A known, accepted gap, not
-        a silent one."""
+        schedule with no weather/sun-times attached yet (e.g. `location` still isn't
+        configured for this club), just means nothing gets marked — never an error
+        shown to the user. `sun_times` genuinely round-trips through `storage.py` now
+        (2026-09-08 — see that module's `init_db()` docstring for the real gap this
+        closed: it used to be fetched at scrape time and silently dropped, so the
+        daylight half of `exclude_unplayable()` could never actually exclude
+        anything reached through this method)."""
         _, playable = _availability_pipeline(schedule, _resolved_config(self.club_slug))
         return {candidate.slot.time for candidate in playable}
 
@@ -1302,6 +1374,16 @@ class DayDetailScreen(Screen[None]):
             # here doesn't clobber a pending booking_watch message.
             status.update(i18n.t("status.refresh_failed", error=exc))
             return
+        # Real regression caught live, 2026-09-08, while verifying the new per-slot
+        # weather column: this manual 'r' path never called _attach_weather() at
+        # all, unlike the background scheduled scrape (scrape_once.run()) — so a
+        # schedule that already had real weather/sun_times attached would get
+        # silently overwritten with a weather-less one (storage.py's "latest
+        # scrape wins" rule) the moment someone pressed 'r', undoing the whole
+        # point of persisting sun_times at all. Resolved fresh here (not the
+        # session-cached TeetimeApp._club_config) for the same reason
+        # _periodic_scrape() was fixed to do the same the same day.
+        _attach_weather(schedule, _resolved_config(self.club_slug), self.club_id, self.course, self.date)
         storage.save_schedule(schedule, path=self.db_path)
         status.update(i18n.t("status.refreshed"))
         self.load_schedule()
@@ -1648,7 +1730,19 @@ class TeetimeApp(App[None]):
 
         def scrape_then_reload() -> None:
             try:
-                scrape_once.scrape_due_for_club(self._club_slug, self._club_config)
+                # Re-resolved fresh on every pass, not the dict snapshotted once in
+                # _open_club() -- a location (or any other per-club YAML fact) added
+                # or changed mid-session must take effect on the very next scheduled
+                # scrape, not only after switching clubs or restarting. Direct
+                # feedback (2026-09-08, a real screenshot): the overview's weather
+                # column stayed blank even after a location was added to the club's
+                # own file, because this exact call was still handing
+                # scrape_due_for_club() the config captured before that edit.
+                # club_id itself doesn't change for the session's active club, so
+                # it's still read from the snapshot rather than re-derived.
+                config = {**_resolved_config(self._club_slug), "club_id": self._club_config.get("club_id")}
+                self._club_config = config
+                scrape_once.scrape_due_for_club(self._club_slug, config)
             finally:
                 self.call_from_thread(self._finish_periodic_scrape)
 

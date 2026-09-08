@@ -1,4 +1,6 @@
-from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
+import sqlite3
+
+from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
     distinct_scraped_dates,
@@ -100,6 +102,77 @@ def test_save_and_load_schedule_round_trips_players_and_weather(tmp_path):
     assert loaded.weather[0].precipitation_probability == 10.0
     assert loaded.weather[0].wind_speed_kph == 12.5
     assert loaded.weather[0].temperature_c == 18.5
+
+
+# --- sun_times persistence (2026-09-08, direct feedback: "don't forget about the
+# sunrise and sunset times" -- surfaced that these were fetched at scrape time and
+# then silently dropped, never actually persisted at all) --------------------------
+
+
+def test_save_and_load_schedule_round_trips_sun_times(tmp_path):
+    db = tmp_path / "teetime.db"
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[],
+        sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+    )
+
+    save_schedule(schedule, path=db)
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+
+    assert loaded.sun_times == SunTimes(sunrise="06:42", sunset="19:58")
+
+
+def test_load_latest_schedule_sun_times_is_none_when_never_fetched(tmp_path):
+    # A schedule saved before location was configured for weather (or before this
+    # feature existed at all) -- must not crash, and must not fabricate a fact
+    # nothing actually confirmed.
+    db = tmp_path / "teetime.db"
+    schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[])
+
+    save_schedule(schedule, path=db)
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+
+    assert loaded.sun_times is None
+
+
+def test_init_db_migrates_a_scrapes_table_from_before_sun_times_existed(tmp_path):
+    # Real, non-hypothetical case: this developer's own existing data/*.db files
+    # predate the sunrise/sunset columns. CREATE TABLE IF NOT EXISTS is a no-op
+    # against an already-existing table, so init_db() has to actively add the
+    # missing columns rather than silently leaving old databases behind (which
+    # would have meant re-scraping to get sun_times at all, impossible for any
+    # date pc caddie has already stopped publishing).
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE scrapes (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "course TEXT NOT NULL, date TEXT NOT NULL, scraped_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO scrapes (course, date, scraped_at) VALUES (?, ?, ?)",
+            ("18 Loch Tee 1", "2026-09-01", "2026-09-01T10:00:00+00:00"),
+        )
+
+    init_db(db)
+
+    # The pre-existing row survived the migration untouched (just gained NULL
+    # sunrise/sunset, not lost or duplicated).
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute("SELECT course, date, sunrise, sunset FROM scrapes").fetchall()
+    assert rows == [("18 Loch Tee 1", "2026-09-01", None, None)]
+
+    # And a schedule saved after the migration round-trips sun_times normally.
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[],
+        sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+    )
+    save_schedule(schedule, path=db)
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+    assert loaded.sun_times == SunTimes(sunrise="06:42", sunset="19:58")
 
 
 def test_save_schedule_never_overwrites_previous_scrape(tmp_path):

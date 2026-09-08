@@ -98,8 +98,10 @@ crowd-heatmap screen. See [`ROADMAP.md`](ROADMAP.md) for the phased build plan a
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —
   no push notifications, just visible when you check
-- Rain/weather overlay per slot (via [Open-Meteo](https://open-meteo.com/), no API key
-  needed)
+- A weather column right on the tee sheet, one cell per tee time (via
+  [Open-Meteo](https://open-meteo.com/), no API key needed) — a 🌧/💨 icon once rain
+  or wind cross a plain visual threshold, plus that hour's own temperature; a plain
+  ☀ otherwise. The day's own sunrise/sunset shows above the table too
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on a configurable estimated round duration
 - Wind and temperature in the weather overlay too, not just rain

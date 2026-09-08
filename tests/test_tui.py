@@ -8,7 +8,7 @@ from textual.widgets import DataTable, Input, OptionList, Static
 from src import i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
-from src.models import ConfirmedBooking, Schedule, Slot, WeatherPoint
+from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
 
 
 @pytest.fixture(autouse=True)
@@ -473,6 +473,118 @@ def test_day_detail_no_availability_config_means_no_stars(tmp_path, monkeypatch)
     _run(scenario())
 
 
+# --- Per-tee-time weather + sunrise/sunset (2026-09-08, direct feedback: "Yes per
+# tee time indicator, also don't forget about the sunrise and sunset times") --------
+
+
+def test_weather_point_for_time_finds_the_covering_hourly_point():
+    points = [
+        WeatherPoint(time="14:00", precipitation_probability=10),
+        WeatherPoint(time="15:00", precipitation_probability=90),
+    ]
+    # 14:40 falls under the 14:00 hourly point, not 15:00 -- an hourly point covers
+    # the hour starting at its own timestamp (same rule weather.py's own
+    # conditions_during_round() already uses).
+    assert tui._weather_point_for_time(points, "14:40").precipitation_probability == 10
+    assert tui._weather_point_for_time(points, "15:10").precipitation_probability == 90
+
+
+def test_weather_point_for_time_none_before_the_first_point():
+    points = [WeatherPoint(time="14:00", precipitation_probability=10)]
+    assert tui._weather_point_for_time(points, "13:00") is None
+
+
+def test_weather_point_for_time_none_with_no_forecast_at_all():
+    assert tui._weather_point_for_time([], "14:00") is None
+
+
+def test_slot_weather_cell_shows_a_rain_icon_past_the_threshold():
+    points = [WeatherPoint(time="14:00", precipitation_probability=90, temperature_c=16)]
+    cell = tui._slot_weather_cell(points, "14:00")
+    assert "🌧" in cell
+    assert "16°" in cell
+
+
+def test_slot_weather_cell_shows_a_wind_icon_past_the_threshold():
+    points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
+    assert "💨" in tui._slot_weather_cell(points, "14:00")
+
+
+def test_slot_weather_cell_shows_a_sun_icon_when_calm_and_dry():
+    points = [WeatherPoint(time="14:00", precipitation_probability=5, wind_speed_kph=5, temperature_c=22)]
+    cell = tui._slot_weather_cell(points, "14:00")
+    assert "☀" in cell
+    assert "🌧" not in cell and "💨" not in cell
+
+
+def test_slot_weather_cell_blank_without_a_forecast():
+    assert tui._slot_weather_cell([], "14:00") == ""
+
+
+def test_day_detail_table_shows_a_weather_cell_per_slot(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="14:00", booked=0, capacity=4)],
+            weather=[WeatherPoint(time="14:00", precipitation_probability=90, temperature_c=16)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert "🌧" in row[3]
+            assert "16°" in row[3]
+
+    _run(scenario())
+
+
+def test_day_detail_shows_sunrise_and_sunset(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="14:00", booked=0, capacity=4)],
+            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            daylight = str(app.screen.query_one("#daylight", Static).content)
+            assert "06:42" in daylight
+            assert "19:58" in daylight
+
+    _run(scenario())
+
+
+def test_day_detail_daylight_line_blank_without_sun_times(tmp_path, monkeypatch):
+    # An unconfigured `location` (or nothing scraped yet) -- blank, not a
+    # fabricated or stale sunrise/sunset.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#daylight", Static).content) == ""
+
+    _run(scenario())
+
+
 def test_day_detail_action_confirm_prefills_clean_time_for_a_starred_slot(tmp_path, monkeypatch):
     # Regression test: the confirm form must get the plain "14:00" back, never the
     # decorated "★ 14:00" that's actually rendered in the table.
@@ -576,6 +688,39 @@ def test_day_detail_refresh_scrapes_and_saves(tmp_path, monkeypatch):
 
     loaded = storage.load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
     assert loaded.slots[0].booked == 2
+
+
+def test_day_detail_refresh_also_attaches_weather(tmp_path, monkeypatch):
+    # Real regression caught live, 2026-09-08, while verifying the new per-slot
+    # weather column: this manual 'r' path never called _attach_weather() at all,
+    # so pressing it would silently overwrite any previously-attached weather/
+    # sun_times with a weather-less schedule (storage.py's "latest scrape wins"
+    # rule) -- undoing the whole point of persisting sun_times, from the single
+    # most ordinary action on this screen.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    fake_schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)])
+    monkeypatch.setattr(tui, "scrape_schedule", lambda club_id, course, date: fake_schedule)
+
+    calls = []
+
+    def fake_attach_weather(schedule, config, club_id, course, date):
+        calls.append((club_id, course, date))
+        schedule.sun_times = SunTimes(sunrise="06:42", sunset="19:58")
+
+    monkeypatch.setattr(tui, "_attach_weather", fake_attach_weather)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+
+    _run(scenario())
+
+    assert calls == [("0000001", "18 Loch Tee 1", "2026-09-06")]
+    loaded = storage.load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert loaded.sun_times == SunTimes(sunrise="06:42", sunset="19:58")
 
 
 def test_day_detail_refresh_failure_does_not_crash(tmp_path, monkeypatch):
@@ -1672,6 +1817,48 @@ def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_p
     _run(scenario())
 
 
+def test_periodic_scrape_picks_up_a_club_config_change_mid_session(tmp_path, monkeypatch):
+    # Real gap found and fixed 2026-09-08, from a real screenshot: a location added
+    # to a club's own clubs/*.yaml after this session's already-running app opened
+    # it (e.g. via `f`-to-favorite while already viewing that club) must take
+    # effect on the very next scheduled scrape, not stay invisible until the app
+    # restarts or the club is reopened -- "I still don't see any weather forecast"
+    # even after a location had genuinely been added. Root cause: _periodic_scrape()
+    # was handing scrape_due_for_club() the exact dict snapshotted once in
+    # _open_club(), never re-read afterward.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    club_cfg = {"club_id": "0000001", "default_course": "9 Loch Tee 1"}
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: club_cfg)
+
+    calls = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: calls.append(config) or [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot)
+            for _ in range(20):
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            assert "location" not in calls[0]
+
+            # The club's own file gains a location mid-session -- e.g. by hand, or
+            # by re-favoriting through the now-fixed automatic lookup.
+            club_cfg["location"] = {"lat": 48.5, "lon": 8.8}
+            app._periodic_scrape_running = False
+            app._periodic_scrape()
+            for _ in range(20):
+                if len(calls) > 1:
+                    break
+                await pilot.pause(0.05)
+            assert calls[-1].get("location") == {"lat": 48.5, "lon": 8.8}
+
+    _run(scenario())
+
+
 def test_periodic_scrape_still_runs_for_a_club_visited_without_saving_it(tmp_path, monkeypatch):
     # Direct feedback 2026-09-07: "I selected a random club... the tee times don't
     # automatically refresh, I had to hit 'r'". Root cause: an unsaved club's config
@@ -2177,7 +2364,7 @@ def test_day_detail_renders_german_table_headers_and_placeholder(tmp_path, monke
         async with app.run_test() as pilot:
             await pilot.pause()
             table = app.screen.query_one(DataTable)
-            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler"]
+            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler", "Wetter"]
             row = table.get_row_at(0)
             assert row[1] == "noch keine Daten"
 
@@ -2222,7 +2409,7 @@ def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_pa
             await pilot.pause()
 
             table = app.screen.query_one(DataTable)
-            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler"]
+            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler", "Wetter"]
 
     _run(scenario())
 
