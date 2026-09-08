@@ -559,6 +559,55 @@ def test_settings_screen_time_field_keeps_a_stored_minute_outside_the_presets(tm
     assert saved["availability"]["weekday_window"]["after"] == "17:05"
 
 
+def test_settings_screen_hour_dropdown_excludes_implausible_hours(tmp_path):
+    # Direct follow-up, same day: "can you please remove hours that don't make
+    # sense from the dropdown menus?" -- no golf club is open at 2am.
+    from src.settings_screen import EARLIEST_TEE_HOUR, LATEST_TEE_HOUR
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        from textual.widgets import Select
+
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            hour_select = app.screen.query_one(f"#{base}-hh", Select)
+            offered_hours = hour_select._legal_values - {""}
+            assert "02" not in offered_hours
+            assert "23" not in offered_hours
+            assert f"{EARLIEST_TEE_HOUR:02d}" in offered_hours
+            assert f"{LATEST_TEE_HOUR:02d}" in offered_hours
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_time_field_keeps_a_stored_hour_outside_the_restricted_range(tmp_path):
+    # A value saved before this restriction existed (or hand-edited to something
+    # implausible) must still load and stay selectable rather than crashing the
+    # screen or silently getting discarded on the next save -- same generic
+    # "current value stays selectable" handling every other dropdown here uses,
+    # not new migration logic (see the memory note: this project skips that while
+    # still in development).
+    preferences_file = tmp_path / "preferences.yaml"
+    preferences_file.write_text("availability:\n  weekday_window: {after: '23:00'}\n")
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            base = _id("availability", "weekday_window", "after")
+            assert app.screen.query_one(f"#{base}-hh").value == "23"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["availability"]["weekday_window"]["after"] == "23:00"
+
+
 def test_settings_screen_footer_renders_translated_hint(tmp_path):
     preferences_file = tmp_path / "preferences.yaml"
     i18n.set_language("de")

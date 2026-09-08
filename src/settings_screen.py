@@ -77,6 +77,16 @@ below), the same treatment as `min_open_spots`/the scrape intervals. See
 `search.resolve_buffer_minutes()`'s own docstring for how a config saved before
 this split (still just `buffer_minutes`) keeps working unchanged.
 
+**Hour dropdown trimmed to plausible tee times** (same-day follow-up: "can you
+please remove hours that don't make sense from the dropdown menus?"). The
+weekday/weekend window hour `Select` used to offer the full 00-23 -- including
+hours no golf club is ever open at. `HOUR_CHOICES` now only spans
+`EARLIEST_TEE_HOUR`-`LATEST_TEE_HOUR` (05:00-21:00), comfortably covering real
+confirmed tee times (as early as 06:40, see docs/pccaddie-markup-notes.md) with
+room on both ends. A saved value outside that range still loads and stays
+selectable -- the same generic "keep the actual current value selectable"
+mechanism every other dropdown here already relies on, not new migration logic.
+
 Bilingual (added 2026-09-06, alongside tui.py's own i18n.py wiring): every field
 label/button/status message goes through i18n.py, same as every other screen in this
 project. `SettingsApp` applies the resolved theme/language on startup for the
@@ -170,7 +180,22 @@ BUFFER_CHOICES = _int_choices(0, 10, 20, 30, 40, 50, 60)
 # value) means "not set" for the hour; a blank minute with an hour chosen collapses
 # to :00 (see _read_widget_values()'s combining logic) rather than being a second,
 # redundant way to mean "not set."
-HOUR_CHOICES = [("--", "")] + [(f"{h:02d}", f"{h:02d}") for h in range(24)]
+# Direct follow-up (2026-09-08): "can you please remove hours that don't make
+# sense from the dropdown menus?" -- the full 00-23 range included plenty of hours
+# no golf club is ever open at (a "workdays after 02:00" window makes no sense).
+# 05:00-21:00 comfortably covers real confirmed tee times seen live (as early as
+# 06:40, see docs/pccaddie-markup-notes.md) with room on both ends for an
+# early-summer sunrise round or a last-light evening one, without offering the
+# entire clock. An existing config with an hour outside this range (hand-edited,
+# or saved before this change) still loads and stays selectable -- see compose()'s
+# "keep the actual current value selectable" handling, the same generic mechanism
+# every other dropdown on this screen already relies on, not something added for
+# this specifically.
+EARLIEST_TEE_HOUR = 5
+LATEST_TEE_HOUR = 21
+HOUR_CHOICES = [("--", "")] + [
+    (f"{h:02d}", f"{h:02d}") for h in range(EARLIEST_TEE_HOUR, LATEST_TEE_HOUR + 1)
+]
 MINUTE_CHOICES = [("--", "")] + [(f"{m:02d}", f"{m:02d}") for m in (0, 15, 30, 45)]
 
 

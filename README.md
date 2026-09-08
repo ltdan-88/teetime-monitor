@@ -117,7 +117,8 @@ build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original spec.
   ones with only a handful of sensible values (party size, the daylight buffer, both
   scrape intervals, and the buffer to nearby flights in 10-minute steps) are
   dropdowns rather than free text, so they can't hold a typo; the weekday/weekend
-  time windows are hour and minute dropdowns rather than typing "17:00" by hand;
+  time windows are hour and minute dropdowns rather than typing "17:00" by hand,
+  with the hour list itself trimmed to 05:00-21:00 — no golf club is open at 2am;
   Save/Quit sit right-aligned like an ordinary dialog's buttons, not hugging the
   window's left edge. Below about 72 columns wide, each field switches to
   label-above-field instead of side-by-side, so nothing gets clipped in a narrow

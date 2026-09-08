@@ -1154,6 +1154,30 @@ watching the corresponding tests fail before restoring each. Verified live: wrot
 a fake global preferences file with the old single key (mirroring this developer's
 own real, unmigrated club file) and confirmed the settings screen shows "10 min"
 on both new dropdowns, not "0 min."
+
+**Standing note, right after the above**: "don't worry about my configs, we are
+still developing the tool and I won't be using it productively yet." The
+backward-compat work above is left in (it was already built and tested, and
+ripping out working code for no benefit isn't worth the churn), but future config
+schema changes (a renamed/split/removed key) don't need a `resolve_*()`-style
+fallback or any other migration path while the tool has no real users yet — just
+change the shape outright and let this developer's own local files need
+re-entering. Re-check before assuming this still holds once real use starts.
+
+**Hour dropdown trimmed to plausible tee times, same-day follow-up** ("can you
+please remove hours that don't make sense from the dropdown menus?"). The
+weekday/weekend window's hour `Select` offered the full 00-23 — including hours
+no golf club is ever open at (a "workdays after 02:00" window makes no sense).
+Narrowed to `EARLIEST_TEE_HOUR`-`LATEST_TEE_HOUR` (05:00-21:00), chosen to
+comfortably cover real confirmed tee times seen live (as early as 06:40, see
+`docs/pccaddie-markup-notes.md`) with room on both ends for an early-summer
+sunrise round or a last-light evening one, without offering the entire clock. A
+value outside that range (hand-edited, or saved before this change) still loads
+and stays selectable — the same generic "keep the actual current value
+selectable" mechanism every other dropdown on this screen already relies on, not
+new migration logic (see the standing note just above). 2 new tests (457 total,
+was 455), one confirmed to genuinely fail (the full 00-23 range still offered)
+when the restriction was temporarily reverted before being restored.
 - New Textual screen: a compact 4-5 day at-a-glance grid, readable in one look — one
   column per day, condensed occupancy + rain/wind/temperature + playability summary,
   plus the Phase 3 recommended pick highlighted per day (not full per-slot detail). Days
