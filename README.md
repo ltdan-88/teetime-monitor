@@ -94,10 +94,16 @@ spec.
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
   for the rare same-day-booking timing gap — pre-filled from whatever row is
   highlighted and the course you're already viewing, not re-typed by hand
-- Switch club or course at any time from the tee sheet itself (`s`) — not just at
-  startup. Its club list also offers "🔍 Search for a club…", so a brand-new club can
-  be found, saved, and switched to in that same menu — no separate command needed
-  first. `escape` backs out of any picker with nothing changed; `q` quits
+- Two dropdowns right at the top of the overview — club and course — switch between
+  clubs/courses you already have saved without leaving the screen at all (added
+  2026-09-09, direct feedback: "would it be possible to integrate club and course
+  selectors into the overview screen... this would make navigation much quicker").
+  Picking a different club there refetches its course list and reloads in place,
+  same as picking a different course does. `s` still opens the full searchable club
+  browser ("🔍 Search for a club…") for finding and saving a club you haven't added
+  yet — the dropdowns are a faster path for ones you already switch between
+  regularly, not a replacement for discovering a new one. `escape` backs out of any
+  picker with nothing changed; `q` quits
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —

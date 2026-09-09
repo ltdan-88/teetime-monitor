@@ -297,6 +297,32 @@ def _slot_event_cell(slot: Slot) -> str:
     return f"📋 {slot.block_reason or i18n.t('table.not_bookable')}"
 
 
+def _favorite_clubs() -> list[tuple[str, str]]:
+    """(club_id, display_name) for every saved favorite -- shared by
+    `ClubBrowserScreen._favorites()` and `OverviewScreen`'s own inline club selector
+    (added 2026-09-09, direct feedback: "would it be possible to integrate club and
+    course selectors into the overview screen... this would make navigation much
+    quicker") -- pulled out here so both can read it without one instantiating the
+    other's screen.
+
+    `config.get("name")` -- the club's real display name, if it was ever actually
+    known (a directory search, or club_picker.py's own screen) and so persisted by
+    club_config.new_club_stub() (2026-09-08). Real bug found live: this used to hand
+    back `slug` here unconditionally -- close enough to read at a glance, but a
+    confirmed dead end for geocode.find_club_location() (which this same value feeds
+    into on an un/re-favorite from ClubBrowserScreen's own list), and this project's
+    own no-op geocoding tests for a "typed-in id, no known name" club would have
+    caught it immediately had the slug not looked so plausibly name-shaped. Falls
+    back to `slug` only for a favorite saved before this fix existed."""
+    entries = []
+    for slug in club_config.list_clubs():
+        config = club_config.load_club_config(slug)
+        club_id = config.get("club_id")
+        if club_id:
+            entries.append((str(club_id), config.get("name") or slug))
+    return entries
+
+
 class ClubBrowserScreen(Screen[str | None]):
     """Pick any club on the platform, by numeric pc caddie id. The app's home screen.
 
@@ -374,23 +400,7 @@ class ClubBrowserScreen(Screen[str | None]):
     # -- listing -----------------------------------------------------------------
 
     def _favorites(self) -> list[tuple[str, str]]:
-        # `config.get("name")` -- the club's real display name, if it was ever
-        # actually known (a directory search, or club_picker.py's own screen) and
-        # so persisted by club_config.new_club_stub() (2026-09-08). Real bug found
-        # live: this used to hand back `slug` here unconditionally -- close enough
-        # to read at a glance, but a confirmed dead end for
-        # geocode.find_club_location() (which this same value feeds into on an
-        # un/re-favorite from this exact list), and this project's own no-op
-        # geocoding tests for a "typed-in id, no known name" club would have caught
-        # it immediately had the slug not looked so plausibly name-shaped. Falls
-        # back to `slug` only for a favorite saved before this fix existed.
-        entries = []
-        for slug in club_config.list_clubs():
-            config = club_config.load_club_config(slug)
-            club_id = config.get("club_id")
-            if club_id:
-                entries.append((str(club_id), config.get("name") or slug))
-        return entries
+        return _favorite_clubs()
 
     def _show_entries(
         self, entries: list[tuple[str, str]], status: str, store_names: bool = True
@@ -1056,7 +1066,31 @@ class OverviewScreen(Screen[None]):
     at it). Your availability/preferences are global, not per-club (same-day
     follow-up: "i also want the settings/preferences to be global and not tied to a
     specific club") — `e` opens the same one shared settings set regardless of which
-    club is active, or even whether one is favorited at all."""
+    club is active, or even whether one is favorited at all.
+
+    Two inline `Select` dropdowns at the top — club and course — let you switch
+    between clubs/courses you already have saved without leaving this screen at all
+    (added 2026-09-09, direct feedback: "would it be possible to integrate club and
+    course selectors into the overview screen... this would make navigation much
+    quicker"). Changing either one reloads in place (`_switch_club()`/
+    `_switch_course()`) rather than pushing a new screen. The club dropdown only
+    lists favorites (`_favorite_clubs()`) plus the currently active club if it isn't
+    one — finding a club you haven't saved yet still needs `s`'s full searchable
+    `ClubBrowserScreen`, which stays exactly as it was; the inline selectors are an
+    additional fast path for clubs you're already switching between regularly, not a
+    replacement for discovering a new one."""
+
+    CSS = """
+    #switcher {
+        height: 3;
+        padding: 0 2;
+        align: left middle;
+    }
+    #switcher Select {
+        width: 34;
+        margin-right: 2;
+    }
+    """
 
     BINDINGS = [
         ("/", "search", "Search"),
@@ -1090,8 +1124,27 @@ class OverviewScreen(Screen[None]):
         self.course = course
         self._row_dates: list[str] = []
 
+    def _club_select_options(self) -> list[tuple[str, str]]:
+        """(label, club_id) pairs for the inline club selector -- every saved
+        favorite, plus the currently active club if it isn't one (visited via search
+        without saving, or a bare typed-in id), so the dropdown always has a valid
+        value to show -- same "inject the current value if it's missing from the
+        presets" convention every dropdown in this app already follows (see
+        settings_screen.py)."""
+        favorites = _favorite_clubs()
+        if self.club_id not in {club_id for club_id, _ in favorites}:
+            favorites = [(self.club_id, self.club_name or self.club_slug or self.club_id), *favorites]
+        return [(name, club_id) for club_id, name in favorites]
+
     def compose(self) -> ComposeResult:
         yield Header()
+        with Horizontal(id="switcher"):
+            yield Select(self._club_select_options(), value=self.club_id, allow_blank=False, compact=True, id="club-select")
+            # Just the current course at first -- the club's full list needs a live
+            # fetch (fetch_course_aliases()), kicked off from on_mount() instead so
+            # compose() itself never blocks on the network, same rule every other
+            # screen here already follows.
+            yield Select([(self.course, self.course)], value=self.course, allow_blank=False, compact=True, id="course-select")
         yield Static("", id="status")
         yield DataTable(id="overview-table")
         yield Static("", id="picks")
@@ -1113,6 +1166,7 @@ class OverviewScreen(Screen[None]):
         table.cursor_type = "row"
         self._set_title()
         self.load_overview()
+        self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
 
     def on_resize(self, event: events.Resize) -> None:
         # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
@@ -1126,6 +1180,77 @@ class OverviewScreen(Screen[None]):
         pairs = _legend_pairs(OVERVIEW_LEGEND)
         wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
         self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
+
+    async def _refresh_course_options(self) -> None:
+        """Fills the course selector in with the active club's *real* course list,
+        once fetched -- compose() seeds it with just the current course so mounting
+        never blocks on the network. Silently keeps the single-entry fallback on a
+        failed fetch, same graceful-degradation every other live lookup here already
+        follows, rather than surfacing a fetch error for a dropdown that still works
+        fine with just the one course it already knows about."""
+        try:
+            courses = list(fetch_course_aliases(self.club_id))
+        except Exception:  # noqa: BLE001 — see docstring
+            return
+        if self.course not in courses:
+            courses = [self.course, *courses]  # keep the active value selectable
+        select = self.query_one("#course-select", Select)
+        select.set_options((course, course) for course in courses)
+        select.value = self.course
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.value is Select.BLANK:
+            return  # a transient state while set_options() rebuilds the list
+        if event.select.id == "club-select" and event.value != self.club_id:
+            self.run_worker(self._switch_club(event.value), exclusive=True, group="switch")
+        elif event.select.id == "course-select" and event.value != self.course:
+            self._switch_course(event.value)
+
+    async def _switch_club(self, club_id: str) -> None:
+        """The inline club selector's own version of `TeetimeApp._open_club()` --
+        same bookkeeping (resolve slug/config, pick a course, update the App's own
+        `_club_slug`/`_club_config` so the periodic background scrape follows the
+        switch too — see that method's own docstring for the real bug this exact
+        step fixed once before), but updates this same screen's state and reloads in
+        place instead of pushing a new one."""
+        slug = club_config.slug_for_club_id(club_id)
+        config = club_config.load_club_config(slug) if slug else {}
+        name = dict(_favorite_clubs()).get(club_id, "")
+        try:
+            courses = list(fetch_course_aliases(club_id))
+        except NoTeeSheetError:
+            self.query_one("#status", Static).update(i18n.t("app.no_tee_sheet", club_id=club_id))
+            self.query_one("#club-select", Select).value = self.club_id  # revert the dropdown
+            return
+        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
+            self.query_one("#status", Static).update(i18n.t("app.course_fetch_failed", error=exc))
+            self.query_one("#club-select", Select).value = self.club_id
+            return
+        default_course = config.get("default_course")
+        course = default_course if default_course in courses else courses[0]
+
+        self.club_id = club_id
+        self.club_slug = slug
+        self.club_name = name
+        self.course = course
+        self._set_title()
+        course_select = self.query_one("#course-select", Select)
+        course_select.set_options((c, c) for c in courses)
+        course_select.value = course
+        self.load_overview()
+
+        app = self.app
+        app._club_slug = slug
+        app._club_config = {**config, "club_id": club_id}
+        app._periodic_scrape()
+
+    def _switch_course(self, course: str) -> None:
+        """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
+        already scrapes every one of a club's courses regardless of which one is
+        showing here, so only this screen's own state needs to change."""
+        self.course = course
+        self._set_title()
+        self.load_overview()
 
     @property
     def db_path(self):

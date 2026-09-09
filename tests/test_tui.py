@@ -3,7 +3,7 @@ import threading
 
 import pytest
 from textual.app import App
-from textual.widgets import DataTable, Input, OptionList, Static
+from textual.widgets import DataTable, Input, OptionList, Select, Static
 
 from src import i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
@@ -3166,6 +3166,87 @@ def test_day_detail_banner_renders_localized_from_params(tmp_path, monkeypatch):
             banner = app.screen.query_one("#banners", Static)
             assert "weitere Spieler sind" in str(banner.content)
             assert "14:00" in str(banner.content)
+
+    _run(scenario())
+
+
+# --- Inline club/course selectors on OverviewScreen -- added 2026-09-09, direct
+# feedback: "would it be possible to integrate club and course selectors into the
+# overview screen (i.e. no need to jump between screens)? I believe this would make
+# navigation much quicker." Course switching is self-contained (no App-level state to
+# update, since scrape_once.scrape_due_for_club() already scrapes every one of a
+# club's courses regardless of which is showing) -- club switching also has to update
+# TeetimeApp._club_slug/_club_config, the exact bookkeeping _open_club() itself does,
+# so the periodic background scrape follows the switch too (see that method's own
+# docstring for the real bug this fixes once before). ---------------------------------
+
+
+def test_overview_screen_switches_course_inline_without_leaving_the_screen(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            course_select = app.screen.query_one("#course-select", Select)
+            assert course_select.value == "18 Loch Tee 1"
+            course_select.value = "9 Loch Tee 1"
+            await pilot.pause()
+            assert app.screen is screen  # stayed on the same screen -- no navigation
+            assert screen.course == "9 Loch Tee 1"
+            assert "9 Loch Tee 1" in screen.title
+
+    _run(scenario())
+
+
+def test_overview_screen_switches_club_inline_and_keeps_periodic_scrape_in_sync(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "second-club"])
+    configs = {
+        "home-club": {"club_id": "0000001"},
+        "second-club": {"club_id": "0500000", "name": "Musterclub", "default_course": "9 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(
+        tui,
+        "fetch_course_aliases",
+        lambda club_id: {"9 Loch Tee 1": "COU1"} if club_id == "0500000" else {"18 Loch Tee 1": "COUB"},
+    )
+    calls = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config: calls.append((slug, config)) or [])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot, club_id="0000001")
+            screen = app.screen
+            calls.clear()  # drop whatever _start() itself already triggered
+
+            club_select = screen.query_one("#club-select", Select)
+            assert club_select.value == "0000001"
+            club_select.value = "0500000"
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.screen is screen  # still the same OverviewScreen -- no push/pop
+            assert screen.club_id == "0500000"
+            assert screen.club_slug == "second-club"
+            assert screen.course == "9 Loch Tee 1"  # configs["second-club"]'s default_course
+            assert screen.query_one("#course-select", Select).value == "9 Loch Tee 1"
+            assert "Musterclub" in screen.title  # _set_title() actually took effect
+
+            # The App's own active-club bookkeeping followed the switch too -- the
+            # exact state _periodic_scrape() reads on its next tick.
+            assert app._club_slug == "second-club"
+            assert app._club_config.get("club_id") == "0500000"
+
+            for _ in range(20):
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            assert calls[-1][0] == "second-club"
 
     _run(scenario())
 

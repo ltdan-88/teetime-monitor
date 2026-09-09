@@ -2047,6 +2047,37 @@ raw ANSI capture. Going forward: a new screen or data shape gets checked against
 own mockup (if one exists) before being called done, not just built to a written
 spec and assumed to match it.
 
+**Inline club/course switcher added to `OverviewScreen`, same session**: direct
+feedback, following the mockup-fidelity check above: "would it be possible to
+integrate club and course selectors into the overview screen (i.e. no need to jump
+between screens)? I believe this would make navigation much quicker." Two `Select`
+dropdowns now sit at the top of the overview — picking a different club or course
+there reloads in place (`OverviewScreen._switch_club()`/`_switch_course()`) rather
+than pushing a whole new screen the way `s` (`TeetimeApp.action_switch_club_or_course()`)
+still does for finding a club that isn't saved yet. The club dropdown lists every
+favorite (`_favorite_clubs()`, factored out of `ClubBrowserScreen._favorites()` so
+both can use it) plus the currently active club if it isn't one, same "keep the
+current value selectable even if it's outside the presets" convention every other
+dropdown in this app already follows. Switching club is the one case with real
+App-level bookkeeping to get right: `TeetimeApp._club_slug`/`_club_config` (what the
+periodic background scrape reads on its next tick) have to follow the switch too —
+the exact same state `_open_club()` itself already updates, and the exact same bug
+("I selected a random club... the tee times don't automatically refresh") this
+project already caught and fixed once before for the *original* switch flow, so
+`_switch_club()` deliberately mirrors that update rather than risking the same gap a
+second time. Switching course needs none of this — `scrape_due_for_club()` already
+scrapes every one of a club's courses regardless of which one is showing, so no
+App-level state depends on which is currently displayed.
+
+2 new tests (course switching self-contained via a plain host App; club switching
+against a real `TeetimeApp` — the App-level bookkeeping is exactly what a fake host
+App can't exercise), confirmed genuinely dependent by reverting `src/tui.py` alone
+and watching a plain `NoMatches` (the dropdowns not existing at all). Verified live
+in an isolated sandbox, headless tmux: opening either dropdown, arrowing to a
+different option and pressing enter reloads the table in place for the new
+club/course, with the title bar and both dropdowns' own displayed values updating
+to match, and no screen navigation happening at any point.
+
 *(An earlier version of this roadmap had a separate, deferred "Phase 6 — AI-assisted
 insights, opt-in, later" here. Revised 2026-09-05: once AI is the mechanism for
 ranking/parsing/interpretation from Phase 1 onward, there's nothing left to defer — see
