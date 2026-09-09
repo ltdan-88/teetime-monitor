@@ -1906,6 +1906,30 @@ in an isolated sandbox: the real settings screen shows both new dropdowns under
 "Timing & scraping" with "120 min"/"240 min" preselected, alongside the existing
 daylight buffer and scrape interval fields.
 
+**Legend wrapping fixed for real, same session**: direct follow-up on the icon
+legend above — "legend needs to wrap up, since some words might be cut off." The
+first attempt joined each icon to its meaning with a non-breaking space (U+00A0),
+expecting that to stop a line break from landing between them the way it would in a
+browser. Checked live instead of assumed: it didn't help at all — Rich's own
+word-wrapper (`rich._wrap.divide_line`) splits on Python's plain `\s` regex, which
+treats U+00A0 as ordinary whitespace, not a browser's specially "unbreakable" one, so
+a narrow terminal still split an icon from its own meaning exactly as before. Fixed
+by not handing Rich one long string to wrap at all: new `_wrap_legend()` packs
+`_legend_pairs()`'s icon+meaning units onto lines itself, greedily, using
+`rich.cells.cell_len` (the same width measure Rich's own wrapper uses) so a line
+break can only ever fall *between* whole pairs, never inside one — a pair wider than
+the available width still gets its own line rather than being cropped. Both
+`OverviewScreen` and `DayDetailScreen` now also implement `on_resize()` (mirroring
+`SettingsScreen`'s own — `events.Resize` doesn't bubble) so the legend re-wraps live
+as the terminal is resized, not just at mount time.
+
+9 changed/new tests across `test_tui.py` (`_wrap_legend()`'s own cases including one
+that reproduces the exact original bug against the real `OVERVIEW_LEGEND`, plus a
+real screen-mounted integration test at a narrow width). Verified live in an
+isolated sandbox, headless tmux: at 60 columns the wrap now falls cleanly between
+"📋 Termin/Sperrung" and "📌 gebucht" rather than mid-pair, and re-resizing the same
+pane down to 40 columns live re-wraps to three lines with no pair ever split.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and

@@ -118,6 +118,8 @@ feedback: "how do I quit from club/course picker or return to the schedule?"
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
+from rich.cells import cell_len
+from textual import events
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
@@ -926,15 +928,48 @@ def _day_pick_text(
     return f"[dim italic]{i18n.t(message_key)}[/]"
 
 
-def _legend_line(entries: list[tuple[str, str]]) -> str:
-    """One "icon meaning" line, e.g. "★ recommended   🌧 rain   💨 wind" — added
-    2026-09-09, direct question: "Would it make sense to implement a legend, since
-    we already have so many icons?" `OverviewScreen`/`DayDetailScreen` each pass
-    their own subset (`OVERVIEW_LEGEND`/`DAY_DETAIL_LEGEND` below) rather than one
-    shared list, since the two screens don't use quite the same icons (only
-    `DayDetailScreen` has 🌙, only `OverviewScreen`'s Pick column has a standalone
-    📌 for a confirmed booking)."""
-    return "   ".join(f"{icon} {i18n.t(key)}" for icon, key in entries)
+def _legend_pairs(entries: list[tuple[str, str]]) -> list[str]:
+    """Each entry rendered as one "icon meaning" unit, e.g. "★ recommended" --
+    OverviewScreen/DayDetailScreen each pass their own subset
+    (OVERVIEW_LEGEND/DAY_DETAIL_LEGEND below) rather than one shared list, since
+    the two screens don't use quite the same icons (only DayDetailScreen has a
+    moon marker, only OverviewScreen's Pick column has a standalone confirmed-
+    booking marker)."""
+    return [f"{icon} {i18n.t(key)}" for icon, key in entries]
+
+
+def _wrap_legend(pairs: list[str], width: int) -> str:
+    """Pack legend pairs onto as few lines as fit in `width` cells, greedily,
+    never splitting one pair's icon from its own meaning across two lines --
+    added 2026-09-09, direct follow-up: "legend needs to wrap up, since some
+    words might be cut off." A first attempt joined icon and meaning with a
+    non-breaking space, expecting that to block a wrap between them; confirmed
+    live it doesn't fix anything -- Rich's own word-wrapper
+    (rich._wrap.divide_line) splits on Python's regular \\s regex, which treats
+    U+00A0 as just another whitespace character, not specially "unbreakable" the
+    way a browser's CSS renderer would. So this wraps the legend itself line by
+    line, rather than handing Rich one long string and hoping its own wrap
+    behaves -- the exact failure mode confirmed live (a narrow terminal wrapping
+    right between an icon and its own meaning, stranding the icon at the end of
+    one line and the meaning alone at the start of the next) can't happen here,
+    since a break only ever falls between whole pairs. rich.cells.cell_len (the
+    same width measure Rich's own wrapper uses, not len()) accounts for wide
+    glyphs like emoji correctly. A single pair wider than width still gets its
+    own line rather than being cropped or dropped -- the same "never lose real
+    information to a layout constraint" stance every other narrow-terminal
+    fallback in this app already takes."""
+    lines: list[str] = []
+    current = ""
+    for pair in pairs:
+        candidate = f"{current}  {pair}" if current else pair
+        if current and cell_len(candidate) > width:
+            lines.append(current)
+            current = pair
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
 
 
 # One (icon, i18n key) pair per icon that screen's own table can actually show —
@@ -1064,7 +1099,7 @@ class OverviewScreen(Screen[None]):
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
-        self.query_one("#legend", Static).update(f"[dim]{_legend_line(OVERVIEW_LEGEND)}[/]")
+        self._render_legend()
         table = self.query_one(DataTable)
         table.add_columns(
             i18n.t("table.day"),
@@ -1078,6 +1113,19 @@ class OverviewScreen(Screen[None]):
         table.cursor_type = "row"
         self._set_title()
         self.load_overview()
+
+    def on_resize(self, event: events.Resize) -> None:
+        # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
+        # identical on_resize() -- see that screen's docstring), so this has to
+        # live directly on the Screen. Re-wraps the legend for the new width
+        # rather than leaving it packed for whatever width happened to be current
+        # at mount time.
+        self._render_legend(event.size.width)
+
+    def _render_legend(self, width: int | None = None) -> None:
+        pairs = _legend_pairs(OVERVIEW_LEGEND)
+        wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
+        self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
 
     @property
     def db_path(self):
@@ -1708,7 +1756,7 @@ class DayDetailScreen(Screen[None]):
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
-        self.query_one("#legend", Static).update(f"[dim]{_legend_line(DAY_DETAIL_LEGEND)}[/]")
+        self._render_legend()
         table = self.query_one(DataTable)
         table.add_columns(
             i18n.t("table.time"),
@@ -1722,6 +1770,19 @@ class DayDetailScreen(Screen[None]):
         table.cursor_type = "row"
         self.refresh_banners()
         self.load_schedule()
+
+    def on_resize(self, event: events.Resize) -> None:
+        # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
+        # identical on_resize() -- see that screen's docstring), so this has to
+        # live directly on the Screen. Re-wraps the legend for the new width
+        # rather than leaving it packed for whatever width happened to be current
+        # at mount time.
+        self._render_legend(event.size.width)
+
+    def _render_legend(self, width: int | None = None) -> None:
+        pairs = _legend_pairs(DAY_DETAIL_LEGEND)
+        wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
+        self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
 
     @property
     def db_path(self):

@@ -1498,9 +1498,48 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
 # many icons?"
 
 
-def test_legend_line_joins_icon_and_meaning_pairs():
-    line = tui._legend_line([("★", "legend.recommended"), ("🌧", "legend.rain")])
-    assert line == "★ recommended   🌧 rain"
+def test_legend_pairs_renders_icon_and_meaning():
+    pairs = tui._legend_pairs([("★", "legend.recommended"), ("🌧", "legend.rain")])
+    assert pairs == ["★ recommended", "🌧 rain"]
+
+
+# _wrap_legend() -- direct follow-up: "legend needs to wrap up, since some words
+# might be cut off." A first attempt joined icon and meaning with a non-breaking
+# space (U+00A0), expecting Rich to treat that as unbreakable; confirmed live it
+# didn't help at all -- Rich's own wrapper splits on Python's \s regex, which
+# matches U+00A0 too. Wrapping the legend explicitly, pair by pair, is what
+# actually fixes it.
+
+
+def test_wrap_legend_keeps_every_pair_on_one_line():
+    pairs = ["★ recommended", "🌧 rain", "💨 wind"]
+    wrapped = tui._wrap_legend(pairs, width=15)
+    for pair in pairs:
+        # A pair must appear intact on some one line -- never split with only
+        # its icon on one line and its own meaning starting the next.
+        assert any(pair in line for line in wrapped.split("\n"))
+
+
+def test_wrap_legend_reproduces_and_fixes_the_real_bug():
+    # The exact real case caught live in a narrow terminal: with these pairs at
+    # width=45, a plain-space join wrapped right between "📌" and "booked".
+    pairs = tui._legend_pairs(tui.OVERVIEW_LEGEND)
+    wrapped = tui._wrap_legend(pairs, width=45)
+    lines = wrapped.split("\n")
+    assert not any(line.rstrip().endswith("📌") for line in lines)
+    assert any("📌 booked" in line for line in lines)
+
+
+def test_wrap_legend_one_line_when_everything_fits():
+    pairs = ["★ recommended", "🌧 rain"]
+    assert tui._wrap_legend(pairs, width=200) == "★ recommended  🌧 rain"
+
+
+def test_wrap_legend_a_single_pair_too_wide_still_gets_its_own_line():
+    # Never crop or drop real information to fit a layout constraint -- same
+    # stance every other narrow-terminal fallback in this app already takes.
+    pairs = ["⚠ changed since booked"]
+    assert tui._wrap_legend(pairs, width=5) == "⚠ changed since booked"
 
 
 def test_overview_legend_does_not_repeat_an_icon_with_two_meanings():
@@ -1543,6 +1582,22 @@ def test_day_detail_shows_a_legend_line_including_the_moon(tmp_path, monkeypatch
             await pilot.pause()
             legend = str(app.screen.query_one("#legend", Static).content)
             assert "🌙 too late for sunset" in legend
+
+    _run(scenario())
+
+
+def test_overview_screen_legend_never_splits_a_pair_at_a_narrow_width(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(45, 24)) as pilot:
+            await pilot.pause()
+            legend = str(app.screen.query_one("#legend", Static).content)
+            lines = legend.split("\n")
+            assert not any(line.rstrip().rstrip("[/]").endswith("📌") for line in lines)
+            assert any("📌 booked" in line for line in lines)
 
     _run(scenario())
 
