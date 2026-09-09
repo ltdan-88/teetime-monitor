@@ -102,19 +102,24 @@ spec.
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —
   no push notifications, just visible when you check
-- A weather column right on the tee sheet, one cell per tee time (via
-  [Open-Meteo](https://open-meteo.com/), no API key needed) — once rain or wind
-  cross a plain visual threshold, the actual rain probability/amount or wind speed
-  shows (not just an icon), plus that hour's own temperature; a plain ☀ and the
-  temperature otherwise. The day's own sunrise/sunset shows above the table too.
-  The overview's own day-level "no dry picks" message only appears when weather is
-  genuinely the reason nothing's recommended — a separate "too dark to finish"
-  shows up instead when daylight is what actually excluded everything
+- Weather (via [Open-Meteo](https://open-meteo.com/), no API key needed) as its own
+  Temperature / Precipitation / Wind columns, both on the multi-day overview
+  (that day's own high/low, average rain chance, and peak wind) and right on the
+  single-day tee sheet (that exact hour's own reading, one row per tee time) — split
+  apart rather than crammed into one combined column, so the real numbers are always
+  visible, not just an icon once rain or wind crosses a plain visual threshold (the
+  icon itself still shows past that threshold, layered on top of the number). The
+  day's own sunrise/sunset shows above the single-day table, and each tee time whose
+  round wouldn't finish before dark gets its own 🌙 marker directly in the Time
+  column — independent of whether you've set any availability rules at all. The
+  overview's own day-level "no dry picks" message only appears when weather is
+  genuinely the reason nothing's recommended — a separate "too dark to finish" shows
+  up instead when daylight is what actually excluded everything
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on a configurable estimated round duration
-- Wind and temperature in the weather overlay too, not just rain
-- Tournament/event days flagged, sourced from pc caddie's dedicated events calendar
-  (confirmed to exist as its own page, separate from the tee sheet)
+- Tournament/event days flagged in their own Events column (both overview and
+  single-day tee sheet) — sourced directly from the tee sheet's own scraped
+  block-reason labels, not a separate events-calendar fetch
 - Public holidays and school-vacation periods factored in too, since both tend to mean
   a busier course
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
@@ -154,10 +159,11 @@ spec.
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
-  refresh), showing real weather in its own column, that day's own event/closure
-  note (📌) in a separate Events column — split apart 2026-09-09 so a tournament or
-  maintenance closure never crowds out the actual forecast — a six-block "heat
-  strip" for how full 08:00-20:00 is, and that day's own pick — a
+  refresh), showing real weather split into its own Temperature/Precipitation/Wind
+  columns, that day's own event/closure note (📌) in a separate Events column —
+  split apart 2026-09-09 so a tournament or maintenance closure never crowds out the
+  actual forecast — a six-block "heat strip" for how full 08:00-20:00 is, and that
+  day's own pick — a
   confirmed booking, a recommended ★ slot, or why neither applies. That slot is the
   AI-ranked best match once `ai_assist.enabled` is on, otherwise the earliest one that
   clears your rules — not a promise that it's the best *time of day*, just the first

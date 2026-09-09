@@ -249,7 +249,9 @@ def test_day_detail_shows_occupancy_and_players(tmp_path, monkeypatch):
             rows = [table.get_row_at(i) for i in range(3)]
             assert rows[0][0] == "06:00" and "0/4" in rows[0][1]
             assert rows[1][0] == "08:00" and "1/4" in rows[1][1] and rows[1][2] == "Max Mustermann"
-            assert rows[2][0] == "15:30" and "Golf Beginner Kurs" in rows[2][1]
+            # Time/Occupancy/Players/Temperature/Precipitation/Wind/Events -- the
+            # reason now lives in its own Events column (index 6), not Occupancy.
+            assert rows[2][0] == "15:30" and "—" in rows[2][1] and "Golf Beginner Kurs" in rows[2][6]
 
     _run(scenario())
 
@@ -275,7 +277,7 @@ def test_day_detail_shows_a_placeholder_for_a_block_reason_with_no_label(tmp_pat
         async with app.run_test() as pilot:
             await pilot.pause()
             row = app.screen.query_one(DataTable).get_row_at(0)
-            assert "not bookable" in row[1]
+            assert "not bookable" in row[6]  # Events column now, not Occupancy
 
     _run(scenario())
 
@@ -357,7 +359,7 @@ def test_day_detail_dims_a_blocked_past_slot_too(tmp_path, monkeypatch):
             await pilot.pause()
             row = app.screen.query_one(DataTable).get_row_at(0)
             assert row[0] == "[dim]15:30[/]"
-            assert "Golf Beginner Kurs" in row[1]
+            assert "Golf Beginner Kurs" in row[6]  # Events column now, not Occupancy
 
     _run(scenario())
 
@@ -512,59 +514,105 @@ def test_weather_point_for_time_none_with_no_forecast_at_all():
     assert tui._weather_point_for_time([], "14:00") is None
 
 
-def test_slot_weather_cell_shows_a_rain_icon_past_the_threshold():
-    points = [WeatherPoint(time="14:00", precipitation_probability=90, temperature_c=16)]
-    cell = tui._slot_weather_cell(points, "14:00")
-    assert "🌧" in cell
-    assert "16°" in cell
+# _slot_temperature_cell()/_slot_precipitation_cell()/_slot_wind_cell() -- split
+# 2026-09-09 out of the old combined _slot_weather_cell(), direct feedback: "can you
+# please split weather into Temperature, Precipitation, and wind columns (both in
+# the overview and detailed view)?"
 
 
-def test_slot_weather_cell_shows_the_actual_rain_probability_and_amount():
-    # Direct follow-up, same day: "I don't see chance of rain or amount of rain
-    # though" -- the icon alone wasn't enough once weather genuinely started
-    # showing; the real numbers matter more than the icon once it's fired at all.
+def test_slot_temperature_cell_shows_the_temperature():
+    points = [WeatherPoint(time="14:00", temperature_c=16)]
+    assert tui._slot_temperature_cell(points, "14:00") == "16°"
+
+
+def test_slot_temperature_cell_blank_without_a_forecast():
+    assert tui._slot_temperature_cell([], "14:00") == ""
+
+
+def test_slot_precipitation_cell_shows_a_rain_icon_past_the_threshold():
+    points = [WeatherPoint(time="14:00", precipitation_probability=90)]
+    assert "🌧" in tui._slot_precipitation_cell(points, "14:00")
+
+
+def test_slot_precipitation_cell_shows_the_actual_probability_and_amount():
+    # Direct follow-up, 2026-09-08: "I don't see chance of rain or amount of rain
+    # though" -- still holds now that this is its own dedicated column: the real
+    # numbers show unconditionally, the icon is layered on top once above threshold.
     points = [WeatherPoint(time="14:00", precipitation_probability=70, precipitation_mm=1.5)]
-    cell = tui._slot_weather_cell(points, "14:00")
+    cell = tui._slot_precipitation_cell(points, "14:00")
     assert "70%" in cell
     assert "1.5mm" in cell
 
 
-def test_slot_weather_cell_omits_amount_when_none_fell():
+def test_slot_precipitation_cell_omits_amount_when_none_fell():
     points = [WeatherPoint(time="14:00", precipitation_probability=90, precipitation_mm=0.0)]
-    cell = tui._slot_weather_cell(points, "14:00")
+    cell = tui._slot_precipitation_cell(points, "14:00")
     assert "90%" in cell
     assert "mm" not in cell
 
 
-def test_slot_weather_cell_shows_a_wind_icon_past_the_threshold():
+def test_slot_precipitation_cell_shows_the_real_number_below_threshold_too():
+    # A dedicated Precipitation column shows the real number always now, not just
+    # once the icon threshold fires -- the whole point of splitting this out.
+    points = [WeatherPoint(time="14:00", precipitation_probability=5, precipitation_mm=0.0)]
+    cell = tui._slot_precipitation_cell(points, "14:00")
+    assert cell == "5%"
+    assert "🌧" not in cell
+
+
+def test_slot_precipitation_cell_blank_without_a_forecast():
+    assert tui._slot_precipitation_cell([], "14:00") == ""
+
+
+def test_slot_wind_cell_shows_a_wind_icon_past_the_threshold():
     points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
-    assert "💨" in tui._slot_weather_cell(points, "14:00")
+    assert "💨" in tui._slot_wind_cell(points, "14:00")
 
 
-def test_slot_weather_cell_shows_the_actual_wind_speed():
+def test_slot_wind_cell_shows_the_actual_wind_speed():
     points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
-    assert "45km/h" in tui._slot_weather_cell(points, "14:00")
+    assert "45km/h" in tui._slot_wind_cell(points, "14:00")
 
 
-def test_slot_weather_cell_shows_a_sun_icon_when_calm_and_dry():
-    points = [WeatherPoint(time="14:00", precipitation_probability=5, wind_speed_kph=5, temperature_c=22)]
-    cell = tui._slot_weather_cell(points, "14:00")
-    assert "☀" in cell
-    assert "🌧" not in cell and "💨" not in cell
+def test_slot_wind_cell_shows_the_real_number_below_threshold_too():
+    points = [WeatherPoint(time="14:00", wind_speed_kph=5)]
+    cell = tui._slot_wind_cell(points, "14:00")
+    assert cell == "5km/h"
+    assert "💨" not in cell
 
 
-def test_slot_weather_cell_blank_without_a_forecast():
-    assert tui._slot_weather_cell([], "14:00") == ""
+def test_slot_wind_cell_blank_without_a_forecast():
+    assert tui._slot_wind_cell([], "14:00") == ""
 
 
-def test_day_detail_table_shows_a_weather_cell_per_slot(tmp_path, monkeypatch):
+def test_slot_event_cell_shows_the_block_reason():
+    slot = Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")
+    assert tui._slot_event_cell(slot) == "Golf Beginner Kurs"
+
+
+def test_slot_event_cell_placeholder_for_a_blank_reason():
+    slot = Slot(time="10:00", booked=4, capacity=4, block_reason="")
+    assert tui._slot_event_cell(slot) == i18n.t("table.not_bookable")
+
+
+def test_slot_event_cell_empty_for_a_normal_slot():
+    slot = Slot(time="09:00", booked=0, capacity=4)
+    assert tui._slot_event_cell(slot) == ""
+
+
+def test_day_detail_table_shows_temperature_precipitation_wind_and_events_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_schedule(
         Schedule(
             date="2026-09-06",
             course="18 Loch Tee 1",
-            slots=[Slot(time="14:00", booked=0, capacity=4)],
-            weather=[WeatherPoint(time="14:00", precipitation_probability=90, temperature_c=16)],
+            slots=[
+                Slot(time="14:00", booked=0, capacity=4),
+                Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs"),
+            ],
+            weather=[
+                WeatherPoint(time="14:00", precipitation_probability=90, wind_speed_kph=40, temperature_c=16),
+            ],
         ),
         path=scrape_once._db_path("0000001"),
     )
@@ -573,9 +621,16 @@ def test_day_detail_table_shows_a_weather_cell_per_slot(tmp_path, monkeypatch):
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            row = app.screen.query_one(DataTable).get_row_at(0)
-            assert "🌧" in row[3]
-            assert "16°" in row[3]
+            table = app.screen.query_one(DataTable)
+            headers = [str(col.label) for col in table.columns.values()]
+            assert headers == ["Time", "Occupancy", "Players", "Temperature", "Precipitation", "Wind", "Events"]
+            open_row = table.get_row_at(0)
+            assert open_row[3] == "16°"
+            assert "90%" in open_row[4]
+            assert "40km/h" in open_row[5]
+            assert open_row[6] == ""
+            blocked_row = table.get_row_at(1)
+            assert "Golf Beginner Kurs" in blocked_row[6]
 
     _run(scenario())
 
@@ -974,8 +1029,10 @@ def test_day_detail_escape_pops_quietly_with_no_overview_underneath():
 # --- OverviewScreen (ROADMAP.md Phase 4) -- pure helper functions first --------------
 
 
-def _weather(time, prob=10, temp=20.0):
-    return WeatherPoint(time=time, precipitation_probability=prob, temperature_c=temp)
+def _weather(time, prob=10, temp=20.0, mm=None, wind=None):
+    return WeatherPoint(
+        time=time, precipitation_probability=prob, temperature_c=temp, precipitation_mm=mm, wind_speed_kph=wind
+    )
 
 
 def test_heat_strip_blocks_colors_by_average_fill_ratio():
@@ -1022,36 +1079,66 @@ def test_is_rain_all_day_false_with_no_weather_at_all():
     assert tui._is_rain_all_day([]) is False
 
 
-def test_weather_summary_shows_sun_icon_and_temp_range():
+# _temperature_cell()/_precipitation_cell()/_wind_cell()/_event_cell() -- split
+# 2026-09-09 out of the old combined _day_tag_or_weather()/_weather_cell(), direct
+# feedback: "It shouldn't mix up events with weather data. Can you make an extra
+# column for the events?" then "can you please split weather into Temperature,
+# Precipitation, and wind columns (both in the overview and detailed view)?"
+
+
+def test_temperature_cell_shows_high_low():
     weather = [_weather("09:00", prob=5, temp=22.0), _weather("15:00", prob=10, temp=14.0)]
-    assert tui._weather_summary(weather) == "☀ 22°/14°"
+    assert tui._temperature_cell(weather) == "22°/14°"
 
 
-def test_weather_summary_shows_partial_cloud_icon_once_rain_is_plausible():
-    weather = [_weather("09:00", prob=40, temp=18.0)]
-    assert tui._weather_summary(weather).startswith("⛅")
+def test_temperature_cell_blank_without_daytime_forecast():
+    assert tui._temperature_cell([]) == ""
 
 
-def test_weather_summary_none_without_daytime_forecast():
-    assert tui._weather_summary([]) is None
+def test_precipitation_cell_shows_rain_all_day_over_a_plain_average():
+    weather = [_weather("09:00", prob=95)]
+    assert "rain all day" in tui._precipitation_cell(weather)
 
 
-# _weather_cell()/_event_cell() -- split 2026-09-09 out of the old combined
-# _day_tag_or_weather(), direct feedback: "It shouldn't mix up events with weather
-# data. Can you make an extra column for the events?"
+def test_precipitation_cell_shows_the_average_chance_and_total_mm():
+    # Below the rain-all-day threshold (70%) so this exercises the plain average
+    # branch, not the special "rain all day" phrase.
+    weather = [_weather("09:00", prob=60, mm=1.0), _weather("15:00", prob=60, mm=1.0)]
+    cell = tui._precipitation_cell(weather)
+    assert "60%" in cell
+    assert "2.0mm" in cell
 
 
-def test_weather_cell_shows_real_weather_even_on_a_day_with_an_event():
-    # The whole point of the split: an event must never crowd out that day's actual
-    # weather from view -- they're independent columns now, not a priority order.
-    schedule = Schedule(
-        date="2026-09-07",
-        course="18 Loch Tee 1",
-        slots=[],
-        weather=[_weather("09:00", prob=5, temp=20.0)],
-        events=["Herbstturnier"],
-    )
-    assert tui._weather_cell(schedule) == "☀ 20°/20°"
+def test_precipitation_cell_shows_the_real_number_below_threshold_too():
+    # A dedicated column shows the real number always, not just once the icon
+    # threshold fires -- the whole point of splitting this out of the old combined
+    # cell (which only ever showed a number once a threshold had already fired).
+    weather = [_weather("09:00", prob=5, temp=20.0)]
+    cell = tui._precipitation_cell(weather)
+    assert cell == "5%"
+    assert "🌧" not in cell
+
+
+def test_precipitation_cell_blank_without_daytime_forecast():
+    assert tui._precipitation_cell([]) == ""
+
+
+def test_wind_cell_shows_the_peak_daytime_wind():
+    weather = [_weather("09:00", wind=10), _weather("15:00", wind=40)]
+    cell = tui._wind_cell(weather)
+    assert "40km/h" in cell
+    assert "🌧" not in cell
+
+
+def test_wind_cell_icon_only_past_the_threshold():
+    calm = tui._wind_cell([_weather("09:00", wind=5)])
+    windy = tui._wind_cell([_weather("09:00", wind=40)])
+    assert "💨" not in calm and "5km/h" in calm
+    assert "💨" in windy and "40km/h" in windy
+
+
+def test_wind_cell_blank_without_daytime_forecast():
+    assert tui._wind_cell([]) == ""
 
 
 def test_event_cell_shows_the_event_even_on_a_day_with_weather():
@@ -1074,20 +1161,6 @@ def test_event_cell_shows_the_event_even_on_a_day_with_weather():
 def test_event_cell_empty_without_any_event():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[])
     assert tui._event_cell(schedule) == ""
-
-
-def test_weather_cell_shows_rain_all_day_over_a_plain_weather_line():
-    schedule = Schedule(
-        date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=95)]
-    )
-    assert "rain all day" in tui._weather_cell(schedule)
-
-
-def test_weather_cell_falls_back_to_the_weather_summary():
-    schedule = Schedule(
-        date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=5, temp=20.0)]
-    )
-    assert tui._weather_cell(schedule) == "☀ 20°/20°"
 
 
 def test_resolved_config_merges_global_preferences_over_club_settings(monkeypatch, tmp_path):
@@ -1197,6 +1270,94 @@ def test_resolved_config_fills_in_a_missing_location_even_for_a_saved_club(monke
 def test_availability_pipeline_empty_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     assert tui._availability_pipeline(schedule, {}) == ([], [])
+
+
+# _too_late_for_daylight() -- added 2026-09-09, direct request: "It would also be
+# great if you could immediately see in the detailed view, which of the timeslots
+# are already too late until sunset." Deliberately independent of whether
+# `availability` is configured at all -- a plain physics fact, not a preference.
+
+
+def test_too_late_for_daylight_false_without_sun_times():
+    # Unknown, not assumed bad -- same stance recommend._fails_playability() takes.
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[])
+    assert tui._too_late_for_daylight("17:00", schedule, {}) is False
+
+
+def test_too_late_for_daylight_true_past_the_cutoff():
+    # 18-hole default round duration is 240 min; sunset 19:00 means the latest
+    # playable start (no buffer) is 15:00 -- 17:00 is well past that.
+    schedule = Schedule(
+        date="2026-09-07", course="18 Loch Tee 1", slots=[], sun_times=SunTimes(sunrise="06:00", sunset="19:00")
+    )
+    assert tui._too_late_for_daylight("17:00", schedule, {}) is True
+
+
+def test_too_late_for_daylight_false_comfortably_before_the_cutoff():
+    schedule = Schedule(
+        date="2026-09-07", course="18 Loch Tee 1", slots=[], sun_times=SunTimes(sunrise="06:00", sunset="19:00")
+    )
+    assert tui._too_late_for_daylight("09:00", schedule, {}) is False
+
+
+def test_too_late_for_daylight_respects_the_configured_buffer():
+    schedule = Schedule(
+        date="2026-09-07", course="18 Loch Tee 1", slots=[], sun_times=SunTimes(sunrise="06:00", sunset="19:00")
+    )
+    # Latest playable start with no buffer is exactly 15:00 -- fine without a
+    # buffer, too late once a 60-minute safety buffer is configured.
+    assert tui._too_late_for_daylight("15:00", schedule, {}) is False
+    assert tui._too_late_for_daylight("15:00", schedule, {"daylight_buffer_minutes": 60}) is True
+
+
+def test_day_detail_marks_a_too_late_slot_with_a_moon(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="17:00", booked=0, capacity=4)],
+            sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            rows = [table.get_row_at(i) for i in range(2)]
+            assert rows[0][0] == "09:00"  # comfortably before sunset -- no marker
+            assert rows[1][0] == "🌙 17:00"  # wouldn't finish before dark
+
+    _run(scenario())
+
+
+def test_day_detail_star_and_moon_are_mutually_exclusive(tmp_path, monkeypatch):
+    # A daylight-failing candidate is never ★-recommended in the first place (see
+    # exclude_unplayable()), so the same slot can never carry both markers.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda *a, **k: _RECOMMEND_CONFIG)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="17:00", booked=0, capacity=4)],  # within _RECOMMEND_CONFIG's window
+            sun_times=SunTimes(sunrise="06:00", sunset="19:00"),  # but too late to finish before dark
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert row[0] == "🌙 17:00"
+            assert "★" not in row[0]
+
+    _run(scenario())
 
 
 def test_day_pick_text_shows_a_confirmed_booking_first():
@@ -1330,9 +1491,10 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
     _run(scenario())
 
 
-def test_overview_screen_shows_weather_and_events_in_separate_columns(tmp_path, monkeypatch):
+def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns(tmp_path, monkeypatch):
     # Direct feedback on a real screenshot: "It shouldn't mix up events with weather
-    # data. Can you make an extra column for the events?"
+    # data. Can you make an extra column for the events?" then "can you please split
+    # weather into Temperature, Precipitation, and wind columns"
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     storage.save_schedule(
@@ -1340,7 +1502,7 @@ def test_overview_screen_shows_weather_and_events_in_separate_columns(tmp_path, 
             date=tui._TODAY(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
-            weather=[_weather("09:00", prob=5, temp=20.0)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40)],
             events=["Herbstturnier"],
         ),
         path=scrape_once._db_path("0000001"),
@@ -1352,10 +1514,12 @@ def test_overview_screen_shows_weather_and_events_in_separate_columns(tmp_path, 
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             headers = [str(col.label) for col in table.columns.values()]
-            assert headers == ["Day", "Weather", "Events", "Heat 08–20", "Pick"]
-            row = table.get_row_at(0)  # today, Day/Weather/Events/Heat/Pick
-            assert row[1] == "☀ 20°/20°"  # real weather, not the event
-            assert row[2] == "📌 Herbstturnier"  # the event, in its own column
+            assert headers == ["Day", "Temperature", "Precipitation", "Wind", "Events", "Heat 08–20", "Pick"]
+            row = table.get_row_at(0)  # today, Day/Temperature/Precipitation/Wind/Events/Heat/Pick
+            assert row[1] == "20°/20°"  # real temperature, not the event
+            assert "5%" in row[2]
+            assert "40km/h" in row[3]
+            assert row[4] == "📌 Herbstturnier"  # the event, in its own column
 
     _run(scenario())
 
@@ -1370,7 +1534,8 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
-            assert "not open" in row[4]  # Pick column -- Day/Weather/Events/Heat/Pick
+            # Day/Temperature/Precipitation/Wind/Events/Heat/Pick
+            assert "not open" in row[6]
 
     _run(scenario())
 
@@ -2759,7 +2924,9 @@ def test_day_detail_renders_german_table_headers_and_placeholder(tmp_path, monke
         async with app.run_test() as pilot:
             await pilot.pause()
             table = app.screen.query_one(DataTable)
-            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler", "Wetter"]
+            assert [str(col.label) for col in table.columns.values()] == [
+                "Zeit", "Belegung", "Spieler", "Temperatur", "Niederschlag", "Wind", "Termine"
+            ]
             row = table.get_row_at(0)
             assert row[1] == "noch keine Daten"
 
@@ -2804,7 +2971,9 @@ def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_pa
             await pilot.pause()
 
             table = app.screen.query_one(DataTable)
-            assert [str(col.label) for col in table.columns.values()] == ["Zeit", "Belegung", "Spieler", "Wetter"]
+            assert [str(col.label) for col in table.columns.values()] == [
+                "Zeit", "Belegung", "Spieler", "Temperatur", "Niederschlag", "Wind", "Termine"
+            ]
 
     _run(scenario())
 

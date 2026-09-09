@@ -124,14 +124,14 @@ from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
-from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, recommend
-from . import scrape_once, storage
+from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, playability
+from . import recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
 from .search import SearchCriteria
 from .search import resolve_buffer_minutes
 from .search import search as search_slots
-from .models import ConfirmedBooking, DateRange, Schedule, TimeWindow, WeatherPoint
+from .models import ConfirmedBooking, DateRange, Schedule, Slot, TimeWindow, WeatherPoint
 from .scrape_once import _attach_weather, _db_path
 from .settings_screen import (
     BUFFER_CHOICES,
@@ -235,33 +235,61 @@ def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> We
     return max(covering, key=lambda point: point.time) if covering else None
 
 
-def _slot_weather_cell(weather_points: list[WeatherPoint], time: str) -> str:
-    """One row's own weather cell — that hour's temperature, plus the actual rain
-    probability/amount or wind speed once either crosses a plain visual threshold
-    (a plain ☀ otherwise, not a wall of numbers for a row that's simply calm and
-    dry), or blank when there's genuinely no forecast to show (not a fabricated "0"
-    or icon).
+def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str) -> str:
+    """One row's own Temperature column — that hour's forecast temperature, or
+    blank with no forecast to show. Split out of the old combined
+    `_slot_weather_cell()` 2026-09-09, direct feedback: "can you please split
+    weather into Temperature, Precipitation, and wind columns (both in the overview
+    and detailed view)?" — see `_slot_precipitation_cell()`'s own docstring for why
+    each split column now shows its real number unconditionally, not just when a
+    threshold fires."""
+    point = _weather_point_for_time(weather_points, time)
+    if point is None or point.temperature_c is None:
+        return ""
+    return f"{point.temperature_c:.0f}°"
 
-    Revised 2026-09-08, direct feedback: "I don't see chance of rain or amount of
-    rain though" — the icon-only version answered "is it worth a glance" but not
-    the actual question asked once it clearly was; showing the real numbers when
-    the icon already fired costs nothing for the (more common) calm/dry rows,
-    which stay just as compact as before."""
+
+def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str) -> str:
+    """One row's own Precipitation column — the real rain probability (and amount,
+    once measurable), always shown now that it has its own dedicated column, not
+    just once a threshold fires (that threshold — `_SLOT_RAIN_ICON_THRESHOLD_PERCENT`
+    — still decides whether the 🌧 icon itself shows, a "worth noticing at a
+    glance" flag layered on top of the real number, not a gate on the number
+    itself). Blank with no forecast to show."""
     point = _weather_point_for_time(weather_points, time)
     if point is None:
         return ""
-    parts = []
-    rain_probability = point.precipitation_probability or 0
-    if rain_probability >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT:
-        mm = f"/{point.precipitation_mm:.1f}mm" if point.precipitation_mm else ""
-        parts.append(f"🌧 {rain_probability:.0f}%{mm}")
-    if (point.wind_speed_kph or 0) >= _SLOT_WIND_ICON_THRESHOLD_KPH:
-        parts.append(f"💨 {point.wind_speed_kph:.0f}km/h")
-    if not parts:
-        parts.append("☀")
-    if point.temperature_c is not None:
-        parts.append(f"{point.temperature_c:.0f}°")
-    return "  ".join(parts)
+    probability = point.precipitation_probability or 0
+    mm = f"/{point.precipitation_mm:.1f}mm" if point.precipitation_mm else ""
+    icon = "🌧 " if probability >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
+    return f"{icon}{probability:.0f}%{mm}"
+
+
+def _slot_wind_cell(weather_points: list[WeatherPoint], time: str) -> str:
+    """One row's own Wind column — same "real number always, icon only above the
+    threshold" treatment as `_slot_precipitation_cell()`. Blank with no forecast to
+    show."""
+    point = _weather_point_for_time(weather_points, time)
+    if point is None or point.wind_speed_kph is None:
+        return ""
+    icon = "💨 " if point.wind_speed_kph >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
+    return f"{icon}{point.wind_speed_kph:.0f}km/h"
+
+
+def _slot_event_cell(slot: Slot) -> str:
+    """The day-detail table's own Events column for one slot — `slot.block_reason`
+    if this slot is blocked (event, lesson, guest reservation, or an advance-booking
+    notice — see scraper.py's module docstring for why `block_reason` doesn't
+    distinguish which kind at the per-slot level; unlike the overview's own day-level
+    Events column, this one intentionally doesn't filter those out, since "why can't
+    I book this specific time" is exactly the question a per-slot column should
+    answer), a translated placeholder for a genuinely blank reason (a real, confirmed
+    case — see `load_schedule()`'s own note), or blank for a normal open/occupied
+    slot. Split out of the old Occupancy-column overload 2026-09-09, direct
+    feedback: "I would prefer if detailed view had a separate events column." """
+    if slot.block_reason is None:
+        return ""
+    return slot.block_reason or i18n.t("table.not_bookable")
 
 
 class ClubBrowserScreen(Screen[str | None]):
@@ -664,39 +692,66 @@ def _is_rain_all_day(weather: list) -> bool:
     return all((w.precipitation_probability or 0) >= _RAIN_ALL_DAY_THRESHOLD_PERCENT for w in daytime)
 
 
-def _weather_summary(weather: list) -> str | None:
-    """"☀ 24°/14°" for a dry day, "⛅ 21°/13°" once rain becomes plausible but isn't
-    the whole day (see _is_rain_all_day for that case, which replaces this line
-    entirely rather than combining with it). None with no daytime forecast at all —
-    a schedule that was never weather-attached (e.g. `location` not configured yet)."""
+def _temperature_cell(weather: list[WeatherPoint]) -> str:
+    """The overview's own Temperature column for one day — daytime (08:00-20:00)
+    high/low, e.g. "24°/14°", or blank with no forecast to show (a schedule that
+    was never weather-attached — e.g. `location` not configured yet). Split out of
+    the old combined Weather column 2026-09-09, direct feedback: "can you please
+    split weather into Temperature, Precipitation, and wind columns (both in the
+    overview and detailed view)?" — see `_precipitation_cell()`'s own docstring for
+    the rest of that split."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     temps = [w.temperature_c for w in daytime if w.temperature_c is not None]
-    if not daytime or not temps:
-        return None
-    avg_rain_chance = sum((w.precipitation_probability or 0) for w in daytime) / len(daytime)
-    icon = "☀" if avg_rain_chance < 20 else "⛅"
-    return f"{icon} {max(temps):.0f}°/{min(temps):.0f}°"
+    if not temps:
+        return ""
+    return f"{max(temps):.0f}°/{min(temps):.0f}°"
 
 
-def _weather_cell(schedule: Schedule) -> str:
-    """The overview's own Weather column for one day — always actual weather, or
-    nothing, never a day-note (see `_event_cell()` for that, split into its own
-    column 2026-09-09, direct feedback: "It shouldn't mix up events with weather
-    data"). A rain-all-day flag still belongs here — it's an actual weather fact,
-    just a more useful-at-a-glance one than exact temperatures — unlike a
-    tournament/closure note, which never was weather at all."""
-    if _is_rain_all_day(schedule.weather):
+def _precipitation_cell(weather: list[WeatherPoint]) -> str:
+    """The overview's own Precipitation column for one day — "rain all day" when
+    every daytime point crosses `_RAIN_ALL_DAY_THRESHOLD_PERCENT` (still worth its
+    own phrase rather than an average, the same reasoning `_is_rain_all_day()`
+    already had), otherwise the average rain chance across daytime (and total mm,
+    once measurable) — always shown now that this has its own column, not gated
+    behind a threshold the way the combined cell used to be. The 🌧 icon itself is
+    still gated on `_SLOT_RAIN_ICON_THRESHOLD_PERCENT` — a "worth noticing at a
+    glance" flag layered on top of the real number, not a replacement for it. Blank
+    with no daytime forecast at all."""
+    daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
+    if not daytime:
+        return ""
+    if _is_rain_all_day(weather):
         return f"🌧 {i18n.t('overview.rain_all_day')}"
-    return _weather_summary(schedule.weather) or ""
+    avg_chance = sum((w.precipitation_probability or 0) for w in daytime) / len(daytime)
+    total_mm = sum((w.precipitation_mm or 0) for w in daytime)
+    mm_part = f"/{total_mm:.1f}mm" if total_mm else ""
+    icon = "🌧 " if avg_chance >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
+    return f"{icon}{avg_chance:.0f}%{mm_part}"
+
+
+def _wind_cell(weather: list[WeatherPoint]) -> str:
+    """The overview's own Wind column for one day — the day's peak daytime wind
+    speed (max, not average — the same "worst case across the window" reasoning
+    `weather.conditions_during_round()` already applies to a single round), shown
+    unconditionally now that this has its own column; the 💨 icon is still gated on
+    `_SLOT_WIND_ICON_THRESHOLD_KPH`. Blank with no daytime forecast at all."""
+    daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
+    winds = [w.wind_speed_kph for w in daytime if w.wind_speed_kph is not None]
+    if not winds:
+        return ""
+    peak = max(winds)
+    icon = "💨 " if peak >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
+    return f"{icon}{peak:.0f}km/h"
 
 
 def _event_cell(schedule: Schedule) -> str:
     """The overview's own Events column for one day — split out of the old combined
-    Weather column (2026-09-09; see `_weather_cell()`'s own docstring for the direct
-    feedback this responds to). `schedule.events` names come straight from the
-    scraped block-reason label (see `scraper._event_names()`) — untranslated, same as
-    every other block_reason text in this app, since it's the club's own text, not
-    this app's UI chrome. Empty string with nothing to show, same as `_weather_cell()`.
+    Weather column (2026-09-09, direct feedback: "It shouldn't mix up events with
+    weather data"). `schedule.events` names come straight from the scraped
+    block-reason label (see `scraper._event_names()`) — untranslated, same as every
+    other block_reason text in this app, since it's the club's own text, not this
+    app's UI chrome. Empty string with nothing to show, same as
+    `_temperature_cell()`/`_precipitation_cell()`/`_wind_cell()`.
 
     The icon (📌, not 🏆) is deliberately generic: `events` is genuinely just "the
     club published a reason a slot isn't normally bookable today," which is very
@@ -796,6 +851,30 @@ def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list
     return candidates, playable
 
 
+def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> bool:
+    """Would a round starting at `slot_time`, at this club's own estimated pace for
+    the active course (`recommend._round_duration_minutes()`) plus your configured
+    `daylight_buffer_minutes`, finish before sunset? Added 2026-09-09, direct
+    request: "It would also be great if you could immediately see in the detailed
+    view, which of the timeslots are already too late until sunset."
+
+    Deliberately independent of whether `availability` is configured at all —
+    unlike the ★ recommendation (`_availability_pipeline()`), this is a plain
+    physics fact about the slot, not a judgment against your own standing rules, so
+    it has to work identically on a club you haven't set any preferences for yet.
+    Reuses `recommend._round_duration_minutes()`/`playability.is_playable()`
+    directly rather than a second, hand-rolled duration/buffer calculation — so this
+    marker can never disagree with what `exclude_unplayable()` already uses to
+    decide the same question for the ★ system. `False` (not "too late") with no
+    `sun_times` at all — unknown, not assumed bad, same stance
+    `recommend._fails_playability()` already takes."""
+    if schedule.sun_times is None:
+        return False
+    duration = recommend._round_duration_minutes(schedule.course, config)
+    buffer_minutes = config.get("daylight_buffer_minutes", 0)
+    return not playability.is_playable(slot_time, schedule.sun_times.sunset, duration, buffer_minutes)
+
+
 def _day_pick_text(
     schedule: Schedule | None, config: dict, confirmed: ConfirmedBooking | None, has_pending_change: bool
 ) -> str:
@@ -846,12 +925,15 @@ OVERVIEW_MAX_PICKS_SHOWN = 5
 
 class OverviewScreen(Screen[None]):
     """The multi-day at-a-glance home screen — one row per attempted day: weekday +
-    exact ISO date, actual weather, that day's own event/closure note (a separate
-    Events column, split out 2026-09-09 — see `_weather_cell()`'s own docstring for
-    why a Weather column mixing the two was a real problem, not just a labeling
-    nitpick), a six-block "heat strip" showing how full 08:00-20:00 is in 2-hour
-    windows, and that day's own pick. "This week's picks" below lists the same
-    recommendation across every loaded day —
+    exact ISO date, weather split into its own Temperature/Precipitation/Wind
+    columns (2026-09-09, direct feedback: "can you please split weather into
+    Temperature, Precipitation, and wind columns" — see `_temperature_cell()`'s own
+    docstring), that day's own event/closure note in a separate Events column
+    (split out one exchange earlier the same day, same reasoning: a Weather column
+    mixing the two was a real problem, not just a labeling nitpick), a six-block
+    "heat strip" showing how full 08:00-20:00 is in 2-hour windows, and that day's
+    own pick. "This week's picks" below lists the same recommendation across every
+    loaded day —
     shown only once `availability` rules are actually configured (direct feedback on
     the mockup: an unconfigured club showing "no picks" on every single day would
     read as broken, not just empty).
@@ -936,7 +1018,9 @@ class OverviewScreen(Screen[None]):
         table = self.query_one(DataTable)
         table.add_columns(
             i18n.t("table.day"),
-            i18n.t("table.weather"),
+            i18n.t("table.temperature"),
+            i18n.t("table.precipitation"),
+            i18n.t("table.wind"),
             i18n.t("table.events"),
             i18n.t("table.heat"),
             i18n.t("table.pick"),
@@ -1003,6 +1087,8 @@ class OverviewScreen(Screen[None]):
                     "[dim]—[/]",
                     "[dim]—[/]",
                     "[dim]—[/]",
+                    "[dim]—[/]",
+                    "[dim]—[/]",
                     f"[dim]{i18n.t('overview.not_open_yet')}[/]",
                 )
                 continue
@@ -1010,15 +1096,19 @@ class OverviewScreen(Screen[None]):
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
             if schedule is not None and schedule.slots:
                 schedules.append(schedule)
-                weather_cell = _weather_cell(schedule) or "[dim]—[/]"
+                temperature_cell = _temperature_cell(schedule.weather) or "[dim]—[/]"
+                precipitation_cell = _precipitation_cell(schedule.weather) or "[dim]—[/]"
+                wind_cell = _wind_cell(schedule.weather) or "[dim]—[/]"
                 event_cell = _event_cell(schedule) or "[dim]—[/]"
                 heat_cell = _heat_strip_markup(schedule)
             else:
-                weather_cell = "[dim]…[/]"
+                temperature_cell = "[dim]…[/]"
+                precipitation_cell = "[dim]…[/]"
+                wind_cell = "[dim]…[/]"
                 event_cell = "[dim]…[/]"
                 heat_cell = "[dim]……[/]"
             pick_cell = _day_pick_text(schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates)
-            table.add_row(day_cell, weather_cell, event_cell, heat_cell, pick_cell)
+            table.add_row(day_cell, temperature_cell, precipitation_cell, wind_cell, event_cell, heat_cell, pick_cell)
 
         # Pre-highlight today, unless today's own cached schedule shows every slot
         # already passed -- see _initial_date()'s own docstring (direct feedback,
@@ -1479,19 +1569,32 @@ class HeatmapScreen(Screen[None]):
 
 
 class DayDetailScreen(Screen[None]):
-    """The single-day tee sheet: Time | Occupancy | Players | Weather, colored by
-    fill ratio. The Weather column (added 2026-09-08, direct feedback: "Yes per tee
-    time indicator, also don't forget about the sunrise and sunset times") was
-    actually part of the original Phase 2 plan — "shown per slot in the day-detail
-    table" — but only the invisible half of that (`conditions_during_round()`,
-    feeding recommendation filtering) had ever been built; the visible column
-    itself never was, quietly, until now (`_slot_weather_cell()`). A `#daylight`
-    line above the table shows the day's own sunrise/sunset, sourced from the same
-    `Schedule.sun_times` this feature also had to start actually persisting (see
-    `storage.init_db()`'s own docstring) — it had been fetched at scrape time and
-    silently dropped ever since, so the daylight half of `exclude_unplayable()`
-    could never actually exclude a too-late tee time either, not just an invisible
-    display gap."""
+    """The single-day tee sheet: Time | Occupancy | Players | Temperature |
+    Precipitation | Wind | Events, colored by fill ratio — mirroring
+    `OverviewScreen`'s own column split (2026-09-09, direct feedback: "Basically
+    detailed view should mirror overview with the difference, that you have the
+    detailed timeslots"), just at per-slot instead of per-day granularity. The
+    weather columns (originally added 2026-09-08 as one combined column, then split
+    2026-09-09 alongside the overview's own — see `_slot_temperature_cell()`'s own
+    docstring) were actually part of the original Phase 2 plan — "shown per slot in
+    the day-detail table" — but only the invisible half of that
+    (`conditions_during_round()`, feeding recommendation filtering) had ever been
+    built; the visible columns themselves never were, quietly, until now. The
+    Events column is `slot.block_reason` for that specific row (not the day-level
+    `schedule.events` `OverviewScreen` shows) — split out of the old
+    Occupancy-column overload the same day, direct feedback: "I would prefer if
+    detailed view had a separate events column."
+
+    A `#daylight` line above the table shows the day's own sunrise/sunset, sourced
+    from `Schedule.sun_times` (persisted since 2026-09-08 — see `storage.init_db()`'s
+    own docstring for the real gap that closed). Each row's own Time cell also
+    carries a 🌙 marker (2026-09-09, direct request: "immediately see in the
+    detailed view, which of the timeslots are already too late until sunset") once
+    `_too_late_for_daylight()` says a round starting there wouldn't finish before
+    dark — independent of whether `availability` rules are configured at all, since
+    this is a physics fact about the slot, not a preference judgment; mutually
+    exclusive with the ★ recommended-slot marker by construction, since a
+    daylight-failing candidate is never ★-recommended in the first place."""
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
@@ -1551,7 +1654,13 @@ class DayDetailScreen(Screen[None]):
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
         table.add_columns(
-            i18n.t("table.time"), i18n.t("table.occupancy"), i18n.t("table.players"), i18n.t("table.weather")
+            i18n.t("table.time"),
+            i18n.t("table.occupancy"),
+            i18n.t("table.players"),
+            i18n.t("table.temperature"),
+            i18n.t("table.precipitation"),
+            i18n.t("table.wind"),
+            i18n.t("table.events"),
         )
         table.cursor_type = "row"
         self.refresh_banners()
@@ -1588,7 +1697,9 @@ class DayDetailScreen(Screen[None]):
             # scraped yet) -- blank, not a fabricated or stale time.
             daylight.update("")
         if schedule is None or not schedule.slots:
-            table.add_row("—", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "")
+            table.add_row(
+                "—", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "", "", "", ""
+            )
             return
         # Only today's own slots can already be in the past -- direct feedback
         # 2026-09-07: "can you hide or make timeslots less visible that are in the
@@ -1599,13 +1710,18 @@ class DayDetailScreen(Screen[None]):
         # date, so a future/past *day* never dims itself against today's clock.
         now = _NOW_HHMM() if self.date == _TODAY() else None
         recommended_times = self._recommended_times(schedule)
+        config = _resolved_config(self.club_slug, self.club_id, self.club_name)
         for slot in schedule.slots:
             self._row_times.append(slot.time)
             is_past = now is not None and slot.time < now
             time_cell = _dim_if(slot.time, is_past)
             if slot.time in recommended_times and not is_past:
                 time_cell = f"★ {time_cell}"
-            weather_cell = _dim_if(_slot_weather_cell(schedule.weather, slot.time), is_past)
+            elif not is_past and _too_late_for_daylight(slot.time, schedule, config):
+                time_cell = f"🌙 {time_cell}"
+            temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time), is_past)
+            precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time), is_past)
+            wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time), is_past)
             if slot.block_reason is not None:
                 # A real, confirmed case (Sonnenberg, 2026-09-08): pc caddie's own
                 # merged free-seat cell for a block-time/disable-time row can be
@@ -1618,9 +1734,20 @@ class DayDetailScreen(Screen[None]):
                 # only; the underlying `""` is left alone everywhere else (already
                 # handled correctly: `Schedule.events`/the overview's heat-strip both
                 # already test block_reason by truthiness/`is None`, not by display
-                # text).
-                reason_text = slot.block_reason or i18n.t("table.not_bookable")
-                table.add_row(time_cell, f"[dim]{reason_text}[/]", "", weather_cell)
+                # text). The reason itself now lives in its own Events column
+                # (2026-09-09, direct feedback: "I would prefer if detailed view had
+                # a separate events column") -- Occupancy shows a plain dash for a
+                # blocked row instead, same as the overview's own "nothing here, see
+                # elsewhere" convention.
+                table.add_row(
+                    time_cell,
+                    "[dim]—[/]",
+                    "",
+                    temperature_cell,
+                    precipitation_cell,
+                    wind_cell,
+                    f"[dim]{_slot_event_cell(slot)}[/]",
+                )
                 continue
             style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(
                 slot.booked, slot.capacity
@@ -1628,7 +1755,13 @@ class DayDetailScreen(Screen[None]):
             occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
             players = ", ".join(slot.players) if slot.players else ""
             table.add_row(
-                time_cell, occupancy, _dim_if(players, is_past and bool(players)), weather_cell
+                time_cell,
+                occupancy,
+                _dim_if(players, is_past and bool(players)),
+                temperature_cell,
+                precipitation_cell,
+                wind_cell,
+                "",
             )
 
     def _recommended_times(self, schedule: Schedule) -> set[str]:

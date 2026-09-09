@@ -1800,6 +1800,62 @@ and `test_club_picker.py`, three confirmed to genuinely fail when the fix was
 temporarily reverted (a plain `NoMatches` on the renamed button id, not a
 behavioral assertion, since the old id no longer exists at all once fixed).
 
+**Weather split into Temperature/Precipitation/Wind, Events added to the day-detail
+table, and a per-slot daylight marker, same day**: "can you please split weather
+into Temperature, Precipitation, and wind columns (both in the overview and
+detailed view)? Also I would prefer if detailed view had a separate events column.
+Basically detailed view should mirror overview with the difference, that you have
+the detailed timeslotes" — followed immediately by "could you implement an
+indicator of sunrise and sunset in the detailed view directly into the timeslots?
+It would also be great if you could immediately see in the detailed view, which of
+the timeslots are already too late until sunset."
+
+Both screens' single combined weather cell (`_weather_cell()`/`_slot_weather_cell()`)
+split into three: `_temperature_cell()`/`_precipitation_cell()`/`_wind_cell()` for
+the day-level overview (peak/average across the daytime window), and
+`_slot_temperature_cell()`/`_slot_precipitation_cell()`/`_slot_wind_cell()` for the
+per-slot day-detail table (that exact hour's reading). A real behavior change, not
+just a layout one: the old combined cells only ever showed the actual rain%/mm or
+wind speed once a threshold fired, staying a bare icon otherwise — now that each has
+its own dedicated column, the real number always shows; the same threshold
+(`_SLOT_RAIN_ICON_THRESHOLD_PERCENT`/`_SLOT_WIND_ICON_THRESHOLD_KPH`) still decides
+whether the 🌧/💨 icon itself appears, layered on top of the number rather than
+gating it.
+
+`DayDetailScreen` gained its own Events column, mirroring the overview's (the
+"detailed view should mirror overview" ask) — but at the per-slot level it's
+`slot.block_reason` for that specific row, not the day-level `schedule.events` the
+overview shows, since "why can't I book this specific time" is exactly the question
+a per-slot column should answer. This meant restructuring the blocked-row case:
+the reason text used to be jammed into the Occupancy column (`f"[dim]{reason_text}
+[/]"` in place of "X/Y"); now Occupancy shows a plain dash for a blocked row (same
+"nothing here, see elsewhere" convention as the overview's own placeholders) and the
+real reason moves to Events.
+
+Sunrise/sunset itself was already shown above the table (`#daylight`, since
+2026-09-08); the new ask was a per-slot indicator, not just the day-level summary.
+New `_too_late_for_daylight(slot_time, schedule, config)` reuses
+`recommend._round_duration_minutes()`/`playability.is_playable()` directly — the
+exact same computation `exclude_unplayable()` already uses for the ★ recommendation
+— so a 🌙 marker in the Time column can never disagree with what actually drives
+that system. Deliberately independent of whether `availability` is configured at
+all (unlike ★): it's a plain physics fact about the slot, not a preference
+judgment, so it has to work on a club with no saved rules too. Mutually exclusive
+with ★ by construction, since a daylight-failing candidate is never ★-recommended
+in the first place.
+
+24 new/changed tests across `test_tui.py` (the six split cell functions' own cases,
+the new per-slot Events column, `_too_late_for_daylight()`'s own cases including the
+configured-buffer boundary, a real day-detail table integration test confirming ★
+and 🌙 never coexist on the same row), several existing column-index/header
+assertions updated for both screens' wider tables. Verified live in an isolated
+sandbox, headless tmux, against a fabricated schedule with open/occupied/blocked
+slots and mixed weather: Temperature/Niederschlag/Wind/Termine all rendered with
+real numbers in the correct columns, the sunrise/sunset line showed above the
+table, and 🌙 correctly marked every slot too late to finish before the configured
+sunset — confirmed through the real `parse_schedule_html()` → `save_schedule()` →
+`load_latest_schedule()` pipeline, not a hand-built `Schedule`.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and
