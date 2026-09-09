@@ -2123,6 +2123,53 @@ worst conditions across the round's duration, same as `exclude_unplayable()` alr
 computes, so Claude can weigh genuinely close trade-offs like "slightly more rain but
 much emptier" instead of ranking blind.
 
+## Distribution
+Direct feedback (2026-09-09): "how are you planning to make this available for
+installation via homebrew?" A cask/`.dmg`/`.pkg` was considered and dropped
+immediately — those wrap a GUI `.app` bundle you double-click into, and this is a
+terminal-only TUI with no GUI to wrap; Homebrew's own audit rules reject a cask for
+something a plain formula already covers. A **formula**, same mechanism
+`brew-launcher` itself already uses (`ltdan-88/brew-launcher/brew-launcher`), is the
+right fit for a source-built Python CLI tool.
+
+Two real prerequisites, not just plumbing, surfaced and handled before the formula
+itself: the repo was private, and a Homebrew formula fetches source from a plain
+HTTPS URL, which doesn't work against a private repo without extra auth wiring —
+going public was the user's own call, made after a real find: the tracked code (not
+just old history) used the user's actual real name and two actual real golf clubs
+(names, numeric pc caddie ids, one real pair of geocoded coordinates) throughout as
+test/reference fixtures. Scrubbed to fictional equivalents across every tracked
+file, confirmed clean, then **history was rewritten too** (`git filter-repo
+--replace-text`/`--replace-message`, same rules file, on a fresh clone — not the
+working copy directly) so old commit diffs don't carry the real values either,
+verified via `git log --all -p | grep` returning nothing before force-pushing and
+resetting the local checkout to match. Added an MIT `LICENSE` (mirroring
+`brew-launcher`'s own) and tagged `v0.1.0` once the repo was clean.
+
+The formula itself (`ltdan-88/homebrew-teetime-monitor`, a separate tap repo, same
+naming convention as `brew-launcher`'s own): a plain `python -m venv` + full `pip
+install .` inside `install`, **not** Homebrew's `Language::Python::Virtualenv`
+mixin's `pip_install_and_link` — found live, the hard way, that helper always passes
+pip `--no-deps`, which expects every dependency (`playwright`/`textual`/
+`anthropic`/`pydantic`/`beautifulsoup4` and their own whole transitive tree) vendored
+as its own `resource` block; the first real `brew install` "succeeded" at 500KB with
+`ModuleNotFoundError: No module named 'rich'` the moment the installed command was
+actually run. Switched to calling pip directly instead — pulls the full dependency
+tree from PyPI at install time, the standard tradeoff most non-homebrew-core taps
+make for a real Python application rather than hand-vendoring a resource stanza per
+package on every version bump. `caveats` cover the one real limitation this doesn't
+paper over: like `terraform`/`docker-compose`, the app reads its own state
+(`clubs/`, `.env`, `data/`) from whatever directory it's run in, not a fixed install
+location — never changed to look in `~/.config/teetime-monitor/` instead, since that
+would also move the *user's own currently-working* setup out from under their real
+daily-use checkout, a real behavior change to something already working, not just a
+packaging detail.
+
+Verified live end to end on this machine: `brew tap` + `brew install` +
+`brew test` + `brew audit` all clean, and the installed `teetime-monitor` command's
+own venv actually imports the full package (`from src import tui`) — not just
+looks installed.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

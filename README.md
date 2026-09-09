@@ -221,6 +221,21 @@ See [`ROADMAP.md`](ROADMAP.md) for the full phase breakdown.
 
 ## Setup
 
+Via [Homebrew](https://brew.sh/) (macOS/Linux):
+
+```bash
+brew install ltdan-88/teetime-monitor/teetime-monitor
+teetime-monitor                                    # opens on the club browser
+```
+
+Playwright needs a real Chromium binary the first time, and (like `terraform`/
+`docker-compose`) this reads its own state — saved clubs, credentials, scrape
+history — from whatever directory you run it in, not a fixed install location. The
+formula's own `caveats` (shown right after install, or `brew info teetime-monitor`
+any time after) spell out both.
+
+From source instead:
+
 ```bash
 pip install -e .
 python -m src.tui                                  # that's it -- opens on the club browser
