@@ -1553,27 +1553,45 @@ def _heatmap_cell_style(average: float) -> str:
     return "open"
 
 
-def _heatmap_preview_markup(heatmap: dict, readiness: dict) -> str:
-    """One line per day type with at least one ready hour: its label, then a colored
-    block per ready hour (samples >= analytics.MIN_SAMPLES_FOR_PREDICTION), sorted by
-    hour -- an hour that's merely *seen* but not yet ready is left out entirely rather
-    than shown with a misleadingly thin sample. i18n.t("heatmap.no_preview") once
-    nothing anywhere is ready yet -- the ordinary state for a brand-new install, not
-    an error to work around."""
+def _heatmap_preview_lines(keys: list[str], label_of, group: dict, readiness_group: dict) -> list[str]:
+    """One line per key (a weekday or a special day type) with at least one ready
+    hour: its label, then a colored block per ready hour
+    (samples >= analytics.MIN_SAMPLES_FOR_PREDICTION), sorted by hour -- an hour
+    that's merely *seen* but not yet ready is left out entirely rather than shown
+    with a misleadingly thin sample. Shared helper so _heatmap_preview_markup() can
+    run the same logic over both the by_weekday and special_days groups."""
     lines = []
-    for day_type in calendar_context.DAY_TYPES:
-        if readiness[day_type]["hours_ready"] == 0:
+    for key in keys:
+        if readiness_group[key]["hours_ready"] == 0:
             continue
-        hours = heatmap.get(day_type, {})
+        hours = group.get(key, {})
         ready_hours = sorted(
             hour for hour, bucket in hours.items() if bucket["samples"] >= analytics.MIN_SAMPLES_FOR_PREDICTION
         )
-        label = i18n.t(f"heatmap.day_type.{day_type}")
         blocks = " ".join(
             f"{hour} [{_HEAT_BLOCK_STYLES[_heatmap_cell_style(hours[hour]['average'])]}]■[/]"
             for hour in ready_hours
         )
-        lines.append(f"{label}: {blocks}")
+        lines.append(f"{label_of(key)}: {blocks}")
+    return lines
+
+
+def _heatmap_preview_markup(heatmap: dict, readiness: dict) -> str:
+    """Weekdays first (in calendar_context.WEEKDAYS order), then special day types --
+    i18n.t("heatmap.no_preview") once nothing anywhere is ready yet, the ordinary
+    state for a brand-new install, not an error to work around."""
+    lines = _heatmap_preview_lines(
+        calendar_context.WEEKDAYS,
+        lambda weekday: i18n.t(f"heatmap.weekday.{weekday.lower()}"),
+        heatmap.get("by_weekday", {}),
+        readiness["by_weekday"],
+    )
+    lines += _heatmap_preview_lines(
+        calendar_context.SPECIAL_DAY_TYPES,
+        lambda day_type: i18n.t(f"heatmap.day_type.{day_type}"),
+        heatmap.get("special_days", {}),
+        readiness["special_days"],
+    )
     return "\n".join(lines) if lines else i18n.t("heatmap.no_preview")
 
 
@@ -1584,21 +1602,28 @@ class HeatmapScreen(Screen[None]):
     been collected, and how much is still needed to be functional." Building the full
     grid first would have meant showing an almost-empty one — every real club here is
     at most a couple of days into accumulating history — so this screen leads with the
-    actually-useful question right now: how close is each day type to being usable.
+    actually-useful question right now: how close each weekday/day type is to usable.
 
-    One row per `calendar_context.DAY_TYPES` bucket, always shown even at zero
-    samples — a club with no `calendar.country_code`/`calendar.vacation_ranges`
-    configured correctly shows 0 forever for "public_holiday"/"vacation", which is
-    itself useful information (that classification simply can't happen yet), not a
-    row to hide. "Ready" reuses `analytics.MIN_SAMPLES_FOR_PREDICTION` — the same bar
-    `predict_crowding()` already uses to trust a bucket, not a second, separately-
-    tuned threshold invented just for this display.
+    Two tables, mirroring `analytics.crowd_heatmap()`'s own split (reworked
+    2026-09-09 to match the original signed-off mockup — see that function's
+    docstring for the mismatch this fixes): "By weekday" (one row per
+    `calendar_context.WEEKDAYS`, Sun-Sat) and "Special days" (one row per
+    `calendar_context.SPECIAL_DAY_TYPES`: tournament/public_holiday/vacation,
+    compared only against other days of their own kind). Every row is always shown
+    even at zero samples — a club with no `calendar.country_code`/
+    `calendar.vacation_ranges` configured correctly shows 0 forever for
+    "public_holiday"/"vacation", which is itself useful information (that
+    classification simply can't happen yet), not a row to hide. "Ready" reuses
+    `analytics.MIN_SAMPLES_FOR_PREDICTION` — the same bar `predict_crowding()`
+    already uses to trust a bucket, not a second, separately-tuned threshold invented
+    just for this display.
 
-    Below the table: a compact colored preview (reusing the overview's own heat-strip
-    green/yellow/bold-red thresholds — see `_HEAT_BLOCK_STYLES`) for any day type that
-    already has at least one ready hour. Empty on every real club here today (see
-    above), but the rendering path itself is real and tested against synthetic data,
-    not a placeholder left for later — it simply has nothing to show yet."""
+    Below both tables: a compact colored preview (reusing the overview's own
+    heat-strip green/yellow/bold-red thresholds — see `_HEAT_BLOCK_STYLES`) for any
+    weekday or special day type that already has at least one ready hour. Empty on
+    every real club here today (see above), but the rendering path itself is real and
+    tested against synthetic data, not a placeholder left for later — it simply has
+    nothing to show yet."""
 
     BINDINGS = [
         ("escape", "back", "Overview"),
@@ -1617,7 +1642,10 @@ class HeatmapScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield DataTable(id="readiness-table")
+        yield Static("", id="weekday-title")
+        yield DataTable(id="weekday-table")
+        yield Static("", id="special-title")
+        yield DataTable(id="special-table")
         yield Static("", id="threshold-note")
         yield Static("", id="preview-title")
         yield Static("", id="preview")
@@ -1625,14 +1653,27 @@ class HeatmapScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.title = i18n.t("heatmap.title", course=self.course)
-        table = self.query_one(DataTable)
-        table.add_columns(
+
+        self.query_one("#weekday-title", Static).update(i18n.t("heatmap.section.by_weekday"))
+        weekday_table = self.query_one("#weekday-table", DataTable)
+        weekday_table.add_columns(
+            i18n.t("heatmap.column.weekday"),
+            i18n.t("heatmap.column.hours_seen"),
+            i18n.t("heatmap.column.hours_ready"),
+            i18n.t("heatmap.column.samples"),
+            i18n.t("heatmap.column.status"),
+        )
+
+        self.query_one("#special-title", Static).update(i18n.t("heatmap.section.special_days"))
+        special_table = self.query_one("#special-table", DataTable)
+        special_table.add_columns(
             i18n.t("heatmap.column.day_type"),
             i18n.t("heatmap.column.hours_seen"),
             i18n.t("heatmap.column.hours_ready"),
             i18n.t("heatmap.column.samples"),
             i18n.t("heatmap.column.status"),
         )
+
         self.query_one("#threshold-note", Static).update(
             i18n.t("heatmap.threshold_note", min=analytics.MIN_SAMPLES_FOR_PREDICTION)
         )
@@ -1644,11 +1685,23 @@ class HeatmapScreen(Screen[None]):
         heatmap = analytics.crowd_heatmap(self.course, holidays, vacation_ranges, path=_db_path(self.club_id))
         readiness = analytics.heatmap_readiness(heatmap)
 
-        table = self.query_one(DataTable)
-        table.clear()
-        for day_type in calendar_context.DAY_TYPES:
-            stats = readiness[day_type]
-            table.add_row(
+        weekday_table = self.query_one("#weekday-table", DataTable)
+        weekday_table.clear()
+        for weekday in calendar_context.WEEKDAYS:
+            stats = readiness["by_weekday"][weekday]
+            weekday_table.add_row(
+                i18n.t(f"heatmap.weekday.{weekday.lower()}"),
+                str(stats["hours_seen"]),
+                str(stats["hours_ready"]),
+                str(stats["total_samples"]),
+                _readiness_status_text(stats),
+            )
+
+        special_table = self.query_one("#special-table", DataTable)
+        special_table.clear()
+        for day_type in calendar_context.SPECIAL_DAY_TYPES:
+            stats = readiness["special_days"][day_type]
+            special_table.add_row(
                 i18n.t(f"heatmap.day_type.{day_type}"),
                 str(stats["hours_seen"]),
                 str(stats["hours_ready"]),

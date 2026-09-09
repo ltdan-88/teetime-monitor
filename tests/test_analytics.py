@@ -6,7 +6,7 @@ from src.analytics import (
     personal_stats,
     predict_crowding,
 )
-from src.calendar_context import DAY_TYPES
+from src.calendar_context import SPECIAL_DAY_TYPES, WEEKDAYS
 from src.models import ConfirmedBooking, Schedule, Slot
 from src.storage import save_confirmed_booking, save_schedule
 
@@ -123,21 +123,26 @@ def test_personal_stats_counts_visible_name(tmp_path):
 
 
 # --- crowd_heatmap / predict_crowding ------------------------------------------------
+# Reworked 2026-09-09 to group by actual weekday (plus a separate special-days panel)
+# rather than calendar_context.DAY_TYPES on one axis -- see analytics.py's module
+# docstring for the mockup mismatch this fixes.
 
 
-def test_crowd_heatmap_groups_by_day_type_and_hour(tmp_path):
+def test_crowd_heatmap_groups_ordinary_days_by_weekday_and_hour(tmp_path):
     db = tmp_path / "teetime.db"
     _save("18 Loch Tee 1", "2026-09-07", [Slot(time="09:30", booked=2, capacity=4)], path=db)  # Monday, workday
     _save("18 Loch Tee 1", "2026-09-12", [Slot(time="09:15", booked=4, capacity=4)], path=db)  # Saturday, weekend
 
     heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
 
-    assert heatmap["workday"]["09"]["average"] == 0.5
-    assert heatmap["workday"]["09"]["samples"] == 1
-    assert heatmap["weekend"]["09"]["average"] == 1.0
+    # Grouped by actual weekday, not a coarse workday/weekend split.
+    assert heatmap["by_weekday"]["Monday"]["09"]["average"] == 0.5
+    assert heatmap["by_weekday"]["Monday"]["09"]["samples"] == 1
+    assert heatmap["by_weekday"]["Saturday"]["09"]["average"] == 1.0
+    assert heatmap["special_days"] == {}
 
 
-def test_crowd_heatmap_tournament_takes_priority_over_weekend(tmp_path):
+def test_crowd_heatmap_tournament_day_goes_to_special_days_not_its_weekday(tmp_path):
     db = tmp_path / "teetime.db"
     _save(
         "18 Loch Tee 1",
@@ -152,20 +157,20 @@ def test_crowd_heatmap_tournament_takes_priority_over_weekend(tmp_path):
 
     heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
 
-    # The whole day is tagged "tournament" (not "weekend"), and the blocked 08:00 slot
-    # itself doesn't count as occupancy -- only the real 09:00 slot contributes.
-    assert "tournament" in heatmap
-    assert "weekend" not in heatmap
-    assert "08" not in heatmap["tournament"]
-    assert heatmap["tournament"]["09"]["average"] == 0.5
+    # The whole day counts as "tournament" (in special_days), not as a Saturday --
+    # and the blocked 08:00 slot itself doesn't count as occupancy, only 09:00 does.
+    assert "tournament" in heatmap["special_days"]
+    assert heatmap["by_weekday"] == {}
+    assert "08" not in heatmap["special_days"]["tournament"]
+    assert heatmap["special_days"]["tournament"]["09"]["average"] == 0.5
 
 
 def test_predict_crowding_returns_none_without_enough_samples(tmp_path):
     db = tmp_path / "teetime.db"
-    _save("18 Loch Tee 1", "2026-09-07", [Slot(time="09:00", booked=2, capacity=4)], path=db)
+    _save("18 Loch Tee 1", "2026-09-07", [Slot(time="09:00", booked=2, capacity=4)], path=db)  # Monday
 
     heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
-    assert predict_crowding("workday", "09:15", heatmap) is None  # only 1 sample
+    assert predict_crowding("Monday", "09:15", heatmap) is None  # only 1 sample
 
 
 def test_predict_crowding_returns_average_once_enough_samples(tmp_path):
@@ -176,40 +181,59 @@ def test_predict_crowding_returns_average_once_enough_samples(tmp_path):
 
     heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
     assert MIN_SAMPLES_FOR_PREDICTION == 3
-    assert predict_crowding("workday", "09:15", heatmap) == 0.5
+    assert predict_crowding("Monday", "09:15", heatmap) == 0.5
 
 
-def test_predict_crowding_returns_none_for_unknown_day_type(tmp_path):
+def test_predict_crowding_checks_special_days_too(tmp_path):
     db = tmp_path / "teetime.db"
+    for date in ["2026-01-01", "2026-05-01", "2026-12-25"]:  # 3 public holidays
+        _save("18 Loch Tee 1", date, [Slot(time="09:00", booked=2, capacity=4)], path=db)
+
+    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=["2026-01-01", "2026-05-01", "2026-12-25"], vacation_ranges=[], path=db)
+    assert predict_crowding("public_holiday", "09:15", heatmap) == 0.5
+
+
+def test_predict_crowding_returns_none_for_unknown_key(tmp_path):
     assert predict_crowding("tournament", "09:00", {}) is None
+    assert predict_crowding("Monday", "09:00", {}) is None
 
 
 # --- heatmap_readiness ---------------------------------------------------------------
 # Added 2026-09-08, direct request ("a menu to track how much data has been collected,
 # and how much is still needed to be functional") ahead of building the heatmap screen.
+# Reworked 2026-09-09 alongside crowd_heatmap() to report weekday/special-days
+# readiness separately.
 
 
-def test_heatmap_readiness_every_day_type_present_even_with_no_data_at_all():
+def test_heatmap_readiness_every_weekday_and_special_day_present_with_no_data_at_all():
     readiness = heatmap_readiness({})
-    assert set(readiness) == set(DAY_TYPES)
-    for day_type in DAY_TYPES:
-        assert readiness[day_type] == {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}
+    assert set(readiness) == {"by_weekday", "special_days"}
+    assert set(readiness["by_weekday"]) == set(WEEKDAYS)
+    assert set(readiness["special_days"]) == set(SPECIAL_DAY_TYPES)
+    for stats in {**readiness["by_weekday"], **readiness["special_days"]}.values():
+        assert stats == {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}
 
 
 def test_heatmap_readiness_counts_seen_vs_ready_hours():
     assert MIN_SAMPLES_FOR_PREDICTION == 3
     heatmap = {
-        "workday": {
-            "09": {"average": 0.5, "samples": 3},  # ready
-            "14": {"average": 0.2, "samples": 1},  # seen, not ready yet
-        }
+        "by_weekday": {
+            "Monday": {
+                "09": {"average": 0.5, "samples": 3},  # ready
+                "14": {"average": 0.2, "samples": 1},  # seen, not ready yet
+            }
+        },
+        "special_days": {},
     }
     readiness = heatmap_readiness(heatmap)
-    assert readiness["workday"] == {"hours_seen": 2, "hours_ready": 1, "total_samples": 4}
-    assert readiness["weekend"] == {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}
+    assert readiness["by_weekday"]["Monday"] == {"hours_seen": 2, "hours_ready": 1, "total_samples": 4}
+    assert readiness["by_weekday"]["Tuesday"] == {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}
 
 
-def test_heatmap_readiness_fully_ready_day_type():
-    heatmap = {"tournament": {"10": {"average": 0.9, "samples": 5}, "11": {"average": 0.8, "samples": 4}}}
+def test_heatmap_readiness_fully_ready_special_day():
+    heatmap = {
+        "by_weekday": {},
+        "special_days": {"tournament": {"10": {"average": 0.9, "samples": 5}, "11": {"average": 0.8, "samples": 4}}},
+    }
     readiness = heatmap_readiness(heatmap)
-    assert readiness["tournament"] == {"hours_seen": 2, "hours_ready": 2, "total_samples": 9}
+    assert readiness["special_days"]["tournament"] == {"hours_seen": 2, "hours_ready": 2, "total_samples": 9}

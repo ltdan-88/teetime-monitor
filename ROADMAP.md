@@ -2007,6 +2007,46 @@ Mondays feeding one real "workday" hour past the readiness floor: the table show
 green block at 09:00 and a real bold-red block at a second, fully-booked hour —
 confirmed via raw ANSI capture, not just the underlying markup string.
 
+**Reworked 2026-09-09 to actually match the original signed-off mockup**: direct
+feedback ("iirc the heatmap had to be on a daily basis, remember the mockup?"), and
+checking the real mockup file instead of relying on memory confirmed it was right —
+a genuine mismatch, not a false alarm. The mockup's grid was real days of the week
+(Sun-Sat, each its own column, captioned "Actual days of the week, not a rough
+workday/weekend split — Friday afternoon clearly isn't a Tuesday afternoon"), with
+holiday/vacation/tournament shown in a separate "special days" panel underneath, each
+compared only against *other* days of the same kind. What had actually been built
+instead (the day above) grouped by `calendar_context.DAY_TYPES` on one single axis —
+tournament/public_holiday/vacation/weekend/workday as five buckets — which collapses
+every Monday through Friday into one "workday" bucket, exactly the loss of weekday
+granularity the mockup's own caption called out.
+
+`analytics.crowd_heatmap()` now returns `{"by_weekday": {"Monday": {...}, ...,
+"Sunday": {...}}, "special_days": {"tournament": {...}, "public_holiday": {...},
+"vacation": {...}}}` — an ordinary day (`calendar_context.classify_day()` returning
+"weekend" or "workday") goes into `by_weekday` keyed by its actual weekday name, a
+special day goes into `special_days` instead and is *not* also counted toward its
+weekday, so neither group's average gets diluted by the other's days. New
+`calendar_context.WEEKDAYS` (Sun-Sat, matching the mockup's own column order) and
+`SPECIAL_DAY_TYPES` (the three DAY_TYPES that aren't "weekend"/"workday").
+`predict_crowding()` now takes a weekday name or a special day type as its lookup
+key rather than a plain day-type string, and checks whichever of the two groups
+actually holds it. `heatmap_readiness()` and `HeatmapScreen` split the same way: two
+tables now ("By weekday" — 7 rows, Sun-Sat — and "Special days" — 3 rows), rather
+than one flat list of five day-type rows.
+
+8 changed/new tests across `test_analytics.py` (crowd_heatmap()/predict_crowding()/
+heatmap_readiness()'s new shape, including a case confirming a tournament day
+contributes to `special_days` and *not* to its own weekday's average) and
+`test_tui.py` (the preview-markup helper over both groups, the screen showing 7 + 3
+rows). Verified live in an isolated sandbox, headless tmux, with three synthetic
+Mondays and three synthetic public holidays each past the readiness floor: "By
+weekday" showed Monday as "1/1 hours ready, 3 samples," "Special days" showed
+Feiertag (public holiday) the same, and the preview rendered a real yellow block for
+Monday and a real bold-red block for the fully-booked holiday hour — confirmed via
+raw ANSI capture. Going forward: a new screen or data shape gets checked against its
+own mockup (if one exists) before being called done, not just built to a written
+spec and assumed to match it.
+
 *(An earlier version of this roadmap had a separate, deferred "Phase 6 — AI-assisted
 insights, opt-in, later" here. Revised 2026-09-05: once AI is the mechanism for
 ranking/parsing/interpretation from Phase 1 onward, there's nothing left to defer — see

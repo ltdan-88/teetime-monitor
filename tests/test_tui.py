@@ -3245,50 +3245,81 @@ def test_heatmap_cell_style_thresholds():
     assert tui._heatmap_cell_style(0.49) == "open"
 
 
+def _empty_readiness():
+    return {
+        "by_weekday": {wd: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for wd in tui.calendar_context.WEEKDAYS},
+        "special_days": {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.SPECIAL_DAY_TYPES},
+    }
+
+
 def test_heatmap_preview_markup_no_preview_when_nothing_ready():
-    heatmap = {"workday": {"09": {"average": 0.2, "samples": 1}}}
-    readiness = {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.DAY_TYPES}
-    readiness["workday"] = {"hours_seen": 1, "hours_ready": 0, "total_samples": 1}
+    heatmap = {"by_weekday": {"Monday": {"09": {"average": 0.2, "samples": 1}}}, "special_days": {}}
+    readiness = _empty_readiness()
+    readiness["by_weekday"]["Monday"] = {"hours_seen": 1, "hours_ready": 0, "total_samples": 1}
     assert tui._heatmap_preview_markup(heatmap, readiness) == i18n.t("heatmap.no_preview")
 
 
 def test_heatmap_preview_markup_shows_only_ready_hours_sorted():
     heatmap = {
-        "workday": {
-            "18": {"average": 1.0, "samples": 3},  # ready, full
-            "09": {"average": 0.3, "samples": 3},  # ready, open
-            "16": {"average": 0.2, "samples": 1},  # seen but not ready -- excluded
-        }
+        "by_weekday": {
+            "Monday": {
+                "18": {"average": 1.0, "samples": 3},  # ready, full
+                "09": {"average": 0.3, "samples": 3},  # ready, open
+                "16": {"average": 0.2, "samples": 1},  # seen but not ready -- excluded
+            }
+        },
+        "special_days": {},
     }
-    readiness = {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.DAY_TYPES}
-    readiness["workday"] = {"hours_seen": 3, "hours_ready": 2, "total_samples": 7}
+    readiness = _empty_readiness()
+    readiness["by_weekday"]["Monday"] = {"hours_seen": 3, "hours_ready": 2, "total_samples": 7}
 
     markup = tui._heatmap_preview_markup(heatmap, readiness)
 
-    label = i18n.t("heatmap.day_type.workday")
+    label = i18n.t("heatmap.weekday.monday")
     assert markup == f"{label}: 09 [green]■[/] 18 [bold red]■[/]"
+
+
+def test_heatmap_preview_markup_shows_weekdays_then_special_days():
+    heatmap = {
+        "by_weekday": {"Monday": {"09": {"average": 0.3, "samples": 3}}},
+        "special_days": {"tournament": {"10": {"average": 0.9, "samples": 3}}},
+    }
+    readiness = _empty_readiness()
+    readiness["by_weekday"]["Monday"] = {"hours_seen": 1, "hours_ready": 1, "total_samples": 3}
+    readiness["special_days"]["tournament"] = {"hours_seen": 1, "hours_ready": 1, "total_samples": 3}
+
+    markup = tui._heatmap_preview_markup(heatmap, readiness)
+
+    monday_label = i18n.t("heatmap.weekday.monday")
+    tournament_label = i18n.t("heatmap.day_type.tournament")
+    lines = markup.split("\n")
+    assert lines[0].startswith(f"{monday_label}:")
+    assert lines[1].startswith(f"{tournament_label}:")
 
 
 def _heatmap_screen(club_id="0000001", course="18 Loch Tee 1", config=None):
     return tui.HeatmapScreen(club_id, course, config or {})
 
 
-def test_heatmap_screen_shows_a_row_per_day_type_even_with_no_data(tmp_path, monkeypatch):
+def test_heatmap_screen_shows_a_row_per_weekday_and_per_special_day_type(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
     async def scenario():
         app = _HostApp(_heatmap_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one("#readiness-table")
-            assert table.row_count == 5  # one per calendar_context.DAY_TYPES
+            weekday_table = app.screen.query_one("#weekday-table")
+            special_table = app.screen.query_one("#special-table")
+            assert weekday_table.row_count == 7  # one per calendar_context.WEEKDAYS
+            assert special_table.row_count == 3  # one per calendar_context.SPECIAL_DAY_TYPES
 
     _run(scenario())
 
 
 def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monkeypatch):
-    # Three Mondays (all plain workdays) at the same hour -- exactly
-    # MIN_SAMPLES_FOR_PREDICTION, so that hour should read as ready.
+    # Three Mondays at the same hour -- exactly MIN_SAMPLES_FOR_PREDICTION, so that
+    # hour should read as ready, and it should show up in the weekday table, not the
+    # special-days one.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     db_path = scrape_once._db_path("0000001")
     for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:
@@ -3305,12 +3336,12 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
         app = _HostApp(_heatmap_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one("#readiness-table")
-            workday_row = table.get_row_at(4)  # workday is last in DAY_TYPES
-            assert str(workday_row[0]) == i18n.t("heatmap.day_type.workday")
-            assert str(workday_row[1]) == "1"  # hours_seen
-            assert str(workday_row[2]) == "1"  # hours_ready
-            assert str(workday_row[3]) == "3"  # total_samples
+            weekday_table = app.screen.query_one("#weekday-table")
+            monday_row = weekday_table.get_row_at(1)  # Monday is index 1 in WEEKDAYS (Sunday first)
+            assert str(monday_row[0]) == i18n.t("heatmap.weekday.monday")
+            assert str(monday_row[1]) == "1"  # hours_seen
+            assert str(monday_row[2]) == "1"  # hours_ready
+            assert str(monday_row[3]) == "3"  # total_samples
             preview = app.screen.query_one("#preview", Static)
             assert "09" in str(preview.content)
 

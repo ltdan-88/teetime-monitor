@@ -30,9 +30,9 @@ Italian-speaking clubs; every one of them now either loads correctly or reports
 cleanly that the club publishes no tee sheet. See `src/scraper.py`'s module docstring
 for what that sweep found and fixed — several of the failures were serious, including
 one that made the tool unusable for nearly half of all clubs. `h` opens the crowd
-heatmap screen — for now a data-readiness view (how close each day type is to having
-enough history), since every real club here is still too early in accumulating that
-history for the colored grid itself to say much yet. See [`ROADMAP.md`](ROADMAP.md)
+heatmap screen — for now a data-readiness view (how close each weekday and each
+special day type is to having enough history), since every real club here is still
+too early in accumulating that history for the colored grid itself to say much yet. See [`ROADMAP.md`](ROADMAP.md)
 for the phased build plan and [`docs/spec-v1.md`](docs/spec-v1.md) for the original
 spec.
 
@@ -185,15 +185,19 @@ spec.
   time windows, and the before/after buffer are checked exactly (plain code); the
   weather/daylight sanity check and the same AI ranking behind the automatic weekly
   picks both still apply on top
-- A crowd heatmap — historical occupancy grouped by day type (workday, weekend, public
-  holiday, vacation, tournament), so a future vacation-week Monday gets compared
-  against other vacation days, not typical Mondays. Plain aggregation, with a minimum-
-  sample-size floor deciding how much of a thin, rarer-day-type history to actually
-  trust before it steers the automatic picks and search away from likely-overbooked
-  windows. `h` opens the heatmap screen: right now a readiness view (how many hours of
-  each day type have hit that floor, and how many samples each has so far), since
-  every real club here is still too early into accumulating history for the colored
-  grid itself to be worth showing yet — the same floor is what will decide when it is
+- A crowd heatmap — historical occupancy grouped by actual weekday (Sun-Sat), plus a
+  separate "special days" comparison for tournament/public holiday/vacation days, so
+  a future vacation-week Monday gets compared against other vacation days rather than
+  typical Mondays, without costing a typical Monday one of its own samples either
+  (matches the original mockup's own grid — reworked 2026-09-09 after a first version
+  grouped by day type alone and lost weekday granularity entirely). Plain aggregation,
+  with a minimum-sample-size floor deciding how much of a thin, rarer history to
+  actually trust before it steers the automatic picks and search away from
+  likely-overbooked windows. `h` opens the heatmap screen: right now a readiness view
+  (how many hours each weekday and each special day type have hit that floor, and how
+  many samples each has so far), since every real club here is still too early into
+  accumulating history for the colored grid itself to be worth showing yet — the same
+  floor is what will decide when it is
 - Local pattern-recognition analytics over accumulated history ("when is this course
   usually emptiest?")
 - Personal stats (days since you last played, rounds logged, and open-ended commentary

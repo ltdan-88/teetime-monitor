@@ -27,6 +27,20 @@ NAGER_DATE_URL = "https://date.nager.at/api/v3/PublicHolidays"
 # Most-specific first: a tournament on a public holiday is still a tournament day.
 DAY_TYPES = ["tournament", "public_holiday", "vacation", "weekend", "workday"]
 
+# The three DAY_TYPES analytics.crowd_heatmap() compares against "other days of the
+# same kind" rather than folding into the day-of-week grid below -- a vacation-week
+# Monday shouldn't be judged against a typical Monday, and (the other direction)
+# shouldn't cost a typical Monday one of its own samples either. Added 2026-09-09,
+# fixing a real mismatch against the original signed-off mockup: the heatmap grid
+# was mocked up as actual days of the week, with holiday/vacation/tournament shown
+# in a separate "special days" panel underneath -- not a workday/weekend split with
+# holiday/vacation/tournament as three more buckets on the same axis, which is what
+# actually got built the first time around. See analytics.py's module docstring.
+SPECIAL_DAY_TYPES = ["tournament", "public_holiday", "vacation"]
+
+# Sunday-first, matching the signed-off mockup's own column order.
+WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
 _DATE_FMT = "%Y-%m-%d"
 
 

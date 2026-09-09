@@ -2,11 +2,23 @@
 history (ROADMAP.md Phase 5).
 
 Raw aggregation (`crowd_heatmap`, `best_times_by_weekday`, the fixed personal-stats
-numbers) is plain SQL/code, no AI involved — grouping rows by day-type and hour is an
-exact `GROUP BY`, not a judgment call, and it needs to produce real numbers to color a
-heatmap grid. Interpreting *sparse or noisy* results (open-ended personal-stats
-commentary, "say something interesting about my play history") goes through
-`ai_assist.summarize_history()` instead — see ROADMAP.md's "AI placement" note.
+numbers) is plain SQL/code, no AI involved — grouping rows by weekday/day-type and
+hour is an exact `GROUP BY`, not a judgment call, and it needs to produce real numbers
+to color a heatmap grid. Interpreting *sparse or noisy* results (open-ended
+personal-stats commentary, "say something interesting about my play history") goes
+through `ai_assist.summarize_history()` instead — see ROADMAP.md's "AI placement" note.
+
+`crowd_heatmap()` groups by actual weekday (Sun-Sat) plus a separate "special days"
+panel for tournament/public_holiday/vacation — reworked 2026-09-09 to match the
+original signed-off mockup after direct feedback flagged a real mismatch ("iirc the
+heatmap had to be on a daily basis, remember the mockup?"): the first implementation
+grouped by `calendar_context.DAY_TYPES` instead (tournament/public_holiday/vacation/
+weekend/workday as five buckets on one axis), which loses weekday granularity within
+"workday"/"weekend" entirely — exactly what the mockup's own caption warned against
+("Friday afternoon clearly isn't a Tuesday afternoon"). See `crowd_heatmap()`'s own
+docstring for the full shape and reasoning. Going forward, a new screen or data shape
+gets checked against its own mockup (if one exists) before being called done — not
+just built to a written spec and assumed to match.
 
 Needs a few weeks of accumulated history to be useful.
 
@@ -114,11 +126,19 @@ def personal_stats(my_name: str, path: Path = DEFAULT_DB_PATH) -> dict:
 
 def _crowd_buckets(
     course: str, holidays: list[str], vacation_ranges: list[DateRange], path: Path
-) -> dict[str, dict[str, list[float]]]:
-    """Raw per-day-type/hour occupancy samples, before averaging — shared by
+) -> tuple[dict[str, dict[str, list[float]]], dict[str, dict[str, list[float]]]]:
+    """Raw per-hour occupancy samples, before averaging, split into the same two
+    groups crowd_heatmap() returns: (by_weekday, special_days) — shared by
     crowd_heatmap() (which averages them) and predict_crowding()'s minimum-sample-size
-    floor (which needs the count, not just the average)."""
-    buckets: dict[str, dict[str, list[float]]] = {}
+    floor (which needs the count, not just the average).
+
+    An ordinary day (calendar_context.classify_day() returning "weekend" or "workday")
+    goes into `by_weekday`, keyed by its actual weekday name — a special day
+    (calendar_context.SPECIAL_DAY_TYPES: tournament/public_holiday/vacation) goes into
+    `special_days` instead, keyed by that type, and is *not* also counted toward its
+    weekday — see the module docstring for why."""
+    by_weekday: dict[str, dict[str, list[float]]] = {}
+    special_days: dict[str, dict[str, list[float]]] = {}
     for date in distinct_scraped_dates(course, path):
         schedule = load_latest_schedule(course, date, path)
         if schedule is None or not schedule.slots:
@@ -126,13 +146,28 @@ def _crowd_buckets(
         day_type = calendar_context.classify_day(
             date, holidays, vacation_ranges, has_tournament=bool(schedule.events)
         )
+        if day_type in calendar_context.SPECIAL_DAY_TYPES:
+            target = special_days.setdefault(day_type, {})
+        else:
+            weekday = date_cls.fromisoformat(date).strftime("%A")
+            target = by_weekday.setdefault(weekday, {})
         for slot in schedule.slots:
             occupancy = _occupancy(slot)
             if occupancy is None:
                 continue
             hour = slot.time[:2]
-            buckets.setdefault(day_type, {}).setdefault(hour, []).append(occupancy)
-    return buckets
+            target.setdefault(hour, []).append(occupancy)
+    return by_weekday, special_days
+
+
+def _average_buckets(buckets: dict[str, dict[str, list[float]]]) -> dict[str, dict[str, dict[str, float]]]:
+    return {
+        key: {
+            hour: {"average": sum(values) / len(values), "samples": len(values)}
+            for hour, values in hours.items()
+        }
+        for key, hours in buckets.items()
+    }
 
 
 def crowd_heatmap(
@@ -140,40 +175,55 @@ def crowd_heatmap(
     holidays: list[str],
     vacation_ranges: list[DateRange],
     path: Path = DEFAULT_DB_PATH,
-) -> dict[str, dict[str, dict[str, float]]]:
-    """Historical average occupancy + sample count, grouped by calendar_context.py's
-    day-type tag and hour-of-day — e.g. {"public_holiday": {"09": {"average": 0.9,
-    "samples": 4}, ...}, "workday": {...}}. Carrying `samples` alongside `average` is a
-    shape decision made during implementation, not just bare floats as an earlier
-    sketch of this function showed — predict_crowding() needs the count to apply its
-    minimum-sample-size floor, and a heatmap display can use it too (e.g. dim or hatch
-    a cell backed by only one or two samples, rather than showing it with the same
-    visual confidence as a cell backed by dozens).
+) -> dict[str, dict[str, dict[str, dict[str, float]]]]:
+    """Historical average occupancy + sample count, as
+    {"by_weekday": {"Monday": {"09": {"average": 0.4, "samples": 6}, ...}, ...,
+    "Sunday": {...}}, "special_days": {"public_holiday": {"09": {...}, ...},
+    "vacation": {...}, "tournament": {...}}}. Carrying `samples` alongside `average`
+    is a shape decision made during implementation, not just bare floats as an
+    earlier sketch of this function showed — predict_crowding() needs the count to
+    apply its minimum-sample-size floor, and a heatmap display can use it too (e.g.
+    dim or hatch a cell backed by only one or two samples, rather than showing it
+    with the same visual confidence as a cell backed by dozens).
 
-    Grouping by day-type rather than plain weekday is the point: a Monday during summer
-    break isn't "a Monday," it's a vacation-day, and should be compared against other
-    vacation-days. This is also what lets a *future* day (with no scrape history of its
-    own) get a crowd estimate at all — classify it, then look up its day-type's pattern.
-    Plain aggregation — no AI here, just exact grouping/averaging. `holidays` and
-    `vacation_ranges` are supplied by the caller (calendar_context.fetch_public_holidays()
-    output, and the club's YAML `calendar.vacation_ranges`) rather than fetched here, so
-    this stays a pure function over already-fetched inputs, consistent with how
-    recommend.py takes already-fetched `schedules` rather than reaching for the network
-    itself. A date's own scraped `events` (from scraper.py's block_reason parsing)
-    is what determines `has_tournament` — no second tournament source needed here.
+    Reworked 2026-09-09 to match the original signed-off mockup, per direct feedback
+    ("iirc the heatmap had to be on a daily basis, remember the mockup?") that turned
+    out to be correct once checked against the actual mockup file: the mockup's grid
+    was real days of the week (Sun-Sat, each its own column — "Friday afternoon
+    clearly isn't a Tuesday afternoon"), with holiday/vacation/tournament days shown
+    in a separate "special days" panel, each compared only against *other* days of
+    the same kind (so a vacation-week Monday isn't judged against a typical Monday) —
+    not folded into the day-of-week grid as three more buckets alongside a coarse
+    workday/weekend split, which is what actually got built the first time around.
+    `by_weekday` only ever contains ordinary days (never a holiday/vacation/tournament
+    date) so neither group's average is diluted by the other's days.
+
+    This is also what lets a *future* day (with no scrape history of its own) get a
+    crowd estimate at all — classify it, then look up its weekday's or its special
+    type's pattern. Plain aggregation — no AI here, just exact grouping/averaging.
+    `holidays` and `vacation_ranges` are supplied by the caller
+    (calendar_context.fetch_public_holidays() output, and the club's YAML
+    `calendar.vacation_ranges`) rather than fetched here, so this stays a pure
+    function over already-fetched inputs, consistent with how recommend.py takes
+    already-fetched `schedules` rather than reaching for the network itself. A date's
+    own scraped `events` (from scraper.py's block_reason parsing) is what determines
+    `has_tournament` — no second tournament source needed here.
     """
-    buckets = _crowd_buckets(course, holidays, vacation_ranges, path)
+    by_weekday, special_days = _crowd_buckets(course, holidays, vacation_ranges, path)
     return {
-        day_type: {
-            hour: {"average": sum(values) / len(values), "samples": len(values)}
-            for hour, values in hours.items()
-        }
-        for day_type, hours in buckets.items()
+        "by_weekday": _average_buckets(by_weekday),
+        "special_days": _average_buckets(special_days),
     }
 
 
-def predict_crowding(day_type: str, time: str, heatmap: dict) -> float | None:
-    """Estimated occupancy (0-1) for a day-type + time, from a crowd_heatmap() result.
+def predict_crowding(key: str, time: str, heatmap: dict) -> float | None:
+    """Estimated occupancy (0-1) for a time on a given weekday or special day type,
+    from a crowd_heatmap() result. `key` is either a weekday name
+    (calendar_context.WEEKDAYS, e.g. "Monday") or a special day type
+    (calendar_context.SPECIAL_DAY_TYPES, e.g. "tournament") — whichever of
+    crowd_heatmap()'s two groups actually holds it; the caller already knows which
+    one applies (it classified the date to get here), so this just looks in both
+    rather than asking the caller to also say which group.
 
     A plain deterministic lookup with a minimum-sample-size floor
     (MIN_SAMPLES_FOR_PREDICTION), not an AI call — see the module docstring for why
@@ -181,42 +231,52 @@ def predict_crowding(day_type: str, time: str, heatmap: dict) -> float | None:
     actually fit (that function returns prose, not a number this could use as a
     machine-checkable confidence score). Returns None if the bucket has no data at all,
     or too few samples to call it a pattern yet — a single "public_holiday" data point
-    shouldn't drive a recommendation with the same weight as a well-sampled workday.
+    shouldn't drive a recommendation with the same weight as a well-sampled Monday.
     """
-    hour_buckets = heatmap.get(day_type)
-    if not hour_buckets:
+    bucket_group = heatmap.get("by_weekday", {}).get(key) or heatmap.get("special_days", {}).get(key)
+    if not bucket_group:
         return None
-    bucket = hour_buckets.get(time[:2])
+    bucket = bucket_group.get(time[:2])
     if bucket is None or bucket["samples"] < MIN_SAMPLES_FOR_PREDICTION:
         return None
     return bucket["average"]
 
 
-def heatmap_readiness(heatmap: dict) -> dict[str, dict]:
-    """Per day-type (`calendar_context.DAY_TYPES` order): how close a
-    `crowd_heatmap()` result is to actually being usable, not just its raw averages —
-    added 2026-09-08, direct request for "a menu to track how much data has been
-    collected, and how much is still needed to be functional" ahead of building the
-    heatmap screen itself. "Ready" reuses `predict_crowding()`'s own
-    `MIN_SAMPLES_FOR_PREDICTION` floor rather than a second, separately-tuned
-    threshold — the same bar that decides whether a bucket is trustworthy enough to
-    predict from is what decides whether it's trustworthy enough to display as a real
-    pattern versus "still collecting."
-
-    Every day type in `DAY_TYPES` is always a key here, even one with zero samples —
-    a club with no configured `calendar.country_code`/`vacation_ranges` yet will
-    always show 0 for "public_holiday"/"vacation", which is itself useful information
-    (that classification simply can't happen yet), not something to hide by omitting
-    the row.
-
-    Returns e.g. {"workday": {"hours_seen": 5, "hours_ready": 2, "total_samples": 34},
-    "tournament": {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}, ...}."""
+def _readiness_for(keys: list[str], group: dict) -> dict[str, dict]:
     result = {}
-    for day_type in calendar_context.DAY_TYPES:
-        hours = heatmap.get(day_type, {})
-        result[day_type] = {
+    for key in keys:
+        hours = group.get(key, {})
+        result[key] = {
             "hours_seen": len(hours),
             "hours_ready": sum(1 for bucket in hours.values() if bucket["samples"] >= MIN_SAMPLES_FOR_PREDICTION),
             "total_samples": sum(bucket["samples"] for bucket in hours.values()),
         }
     return result
+
+
+def heatmap_readiness(heatmap: dict) -> dict[str, dict[str, dict]]:
+    """How close a `crowd_heatmap()` result is to actually being usable, not just its
+    raw averages — added 2026-09-08, direct request for "a menu to track how much
+    data has been collected, and how much is still needed to be functional" ahead of
+    building the heatmap screen itself. Reworked 2026-09-09 alongside crowd_heatmap()
+    itself to report readiness per weekday and per special day type separately,
+    rather than one flat list of `calendar_context.DAY_TYPES` — see that function's
+    docstring for why. "Ready" reuses `predict_crowding()`'s own
+    `MIN_SAMPLES_FOR_PREDICTION` floor rather than a second, separately-tuned
+    threshold — the same bar that decides whether a bucket is trustworthy enough to
+    predict from is what decides whether it's trustworthy enough to display as a real
+    pattern versus "still collecting."
+
+    Every weekday and every special day type is always a key here, even one with zero
+    samples — a club with no configured `calendar.country_code`/`vacation_ranges` yet
+    will always show 0 for "public_holiday"/"vacation", which is itself useful
+    information (that classification simply can't happen yet), not something to hide
+    by omitting the row.
+
+    Returns e.g. {"by_weekday": {"Monday": {"hours_seen": 5, "hours_ready": 2,
+    "total_samples": 34}, ..., "Sunday": {...}}, "special_days": {"tournament":
+    {"hours_seen": 0, "hours_ready": 0, "total_samples": 0}, ...}}."""
+    return {
+        "by_weekday": _readiness_for(calendar_context.WEEKDAYS, heatmap.get("by_weekday", {})),
+        "special_days": _readiness_for(calendar_context.SPECIAL_DAY_TYPES, heatmap.get("special_days", {})),
+    }
