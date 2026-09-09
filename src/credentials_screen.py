@@ -100,6 +100,13 @@ class CredentialsScreen(Screen[bool]):
         self.template_path = template_path if template_path is not None else env_file.ENV_EXAMPLE_FILE
         self._saved = False
 
+    def on_mount(self) -> None:
+        # `credentials.title` has existed since this screen was first built but was
+        # never actually set anywhere -- found 2026-09-10 auditing for "further
+        # cases where it is not wired up" -- so the Header just showed whatever the
+        # parent App's own title happened to be (e.g. "teetime-monitor") instead.
+        self.title = i18n.t("credentials.title")
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(i18n.t("credentials.intro"), id="intro")

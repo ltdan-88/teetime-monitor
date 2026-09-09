@@ -1,12 +1,14 @@
 """Textual app entry point — the multi-day overview (ROADMAP.md Phase 4) and single-day
-detail screen (Phase 1), plus club/course selection (Phase 0). `DayDetailScreen`
+detail screen (Phase 1), plus club/course selection (Phase 0), ad hoc search
+(Phase 4) and the crowd-heatmap readiness view (Phase 5). `DayDetailScreen`
 implemented 2026-09-06; `OverviewScreen` added 2026-09-07 once the clubhouse-overview
-mockup's design questions were resolved (see ROADMAP.md Phase 4 for that history).
-
-Not the full app yet — ad hoc search and the Phase 5 crowd-heatmap screen aren't built
-(they depend on a typed-in-criteria form and `analytics.crowd_heatmap()` being wired
-into a real screen, not just unit-tested in isolation) — see `OverviewScreen`'s own
-docstring for why its footer deliberately doesn't bind `/` or `h` yet.
+mockup's design questions were resolved (see ROADMAP.md Phase 4 for that history);
+`SearchScreen`/`HeatmapScreen` followed 2026-09-08, once their own backends
+(`search.py`, `analytics.crowd_heatmap()`) already existed fully tested and just
+needed a screen wired up to each — see `OverviewScreen`'s own docstring for its `/`
+and `h` bindings. (An earlier version of this paragraph said these two weren't built
+yet — stale the moment they shipped, caught 2026-09-10 auditing for other screens
+that say more than the code actually does.)
 
 Startup flow:
 1. Club browser (`ClubBrowserScreen`) — the home screen. Search pc caddie's whole club
@@ -115,6 +117,8 @@ previously there was no way to back out of one short of force-quitting, per dire
 feedback: "how do I quit from club/course picker or return to the schedule?"
 """
 
+import importlib.metadata
+import sys
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 
@@ -161,6 +165,23 @@ AUTO_REFRESH_INTERVAL_SECONDS = 15 * 60
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
 _NOW_HHMM = lambda: datetime.now().strftime("%H:%M")  # noqa: E731 — same reasoning, for _initial_date()
+
+
+def _version() -> str:
+    """The installed package's own version, read from package metadata rather than
+    duplicating pyproject.toml's version string a second time here — added
+    2026-09-10, direct request: "implement a version display like with
+    brew-launcher" (that project shows its own version both via `--version` and
+    directly in its running UI's border, at all times, not gated behind a flag; see
+    `main()` for the former and `TeetimeApp.__init__`'s `sub_title` for the latter
+    here). Falls back to "dev" for a checkout that was never actually
+    `pip install`-ed (e.g. running `src/tui.py` directly against a bare clone)
+    rather than raising — a missing version shouldn't crash the app over a display
+    nicety."""
+    try:
+        return importlib.metadata.version("teetime-monitor")
+    except importlib.metadata.PackageNotFoundError:
+        return "dev"
 
 
 def _initial_date(club_id: str, course: str) -> str:
@@ -2242,6 +2263,12 @@ class TeetimeApp(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
+        # Shows in the Header's subtitle on every screen, always, not gated behind
+        # a flag or a separate "about" screen -- see _version()'s own docstring for
+        # the brew-launcher precedent this matches. Set here rather than as a
+        # `SUB_TITLE` class attribute so it's read fresh per instance (mockable in
+        # tests) instead of frozen once at import time.
+        self.sub_title = f"v{_version()}"
         # Display names for clubs picked from the directory, so the tee sheet's title
         # can say "Golfclub Domäne Musterhausen e.V." rather than a bare numeric id for
         # a club that isn't saved and therefore has no slug to show instead.
@@ -2535,6 +2562,9 @@ class TeetimeApp(App[None]):
 
 
 def main() -> None:
+    if "--version" in sys.argv or "-v" in sys.argv:
+        print(f"teetime-monitor {_version()}")
+        return
     TeetimeApp().run()
 
 

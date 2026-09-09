@@ -238,6 +238,11 @@ history — from whatever directory you run it in, not a fixed install location.
 formula's own `caveats` (shown right after install, or `brew info teetime-monitor`
 any time after) spell out both.
 
+`teetime-monitor --version` (or `-v`) prints the installed version and exits — same
+"always available, both as a flag and directly in the running UI" pattern
+`brew-launcher` itself uses; the version also shows in the app's own header the
+whole time it's running, not just via the flag.
+
 From source instead:
 
 ```bash

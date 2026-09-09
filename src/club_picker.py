@@ -149,6 +149,10 @@ class ClubSearchScreen(Screen[str | None]):
         self._saved_slug: str | None = None
 
     def on_mount(self) -> None:
+        # `club_picker.title` has existed since this screen was first built but was
+        # never actually set anywhere -- found 2026-09-10 auditing for "further
+        # cases where it is not wired up."
+        self.title = i18n.t("club_picker.title")
         self._load_directory()
 
     def compose(self) -> ComposeResult:

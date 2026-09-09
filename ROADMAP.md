@@ -2208,6 +2208,60 @@ sees it, same reasoning `CredentialsScreen`'s own BINDINGS comment already
 documents for `q`); escaping back out without saving correctly returns to
 `ClubBrowserScreen` with nothing retried.
 
+**Version display + a further "not wired up" audit, next day (2026-09-10)**: direct
+follow-up, "I need you to check further cases where it is not wired up. Also please
+implement a version display like with brew launcher." Modeled the display directly
+on that project's own: `teetime-monitor --version`/`-v` prints and exits, and the
+version also shows permanently in the running app's own Header subtitle (`v0.2.0`),
+not gated behind the flag — `_version()` reads the installed package's real metadata
+(`importlib.metadata.version("teetime-monitor")`, falling back to `"dev"` for a
+bare, never-`pip install`-ed checkout) rather than a second hand-maintained
+constant that could drift from `pyproject.toml`.
+
+The wiring audit found the CredentialsScreen gap's fix from the day before was one
+instance of a real pattern, not a one-off — checked systematically by diffing every
+i18n key against where it's actually referenced in code (`i18n.t("key")` calls, not
+just the key's own definition), surfacing every translated string that's never
+actually shown:
+- `credentials.title`/`club_picker.title` — both screens had a translated title
+  string sitting unused since they were first built; neither ever called
+  `self.title = i18n.t(...)`, so their Header just showed whatever the parent App's
+  own title happened to be. Fixed — one line each.
+- `watch.*`/`watch.reason.*` (booking_watch.py's banner text) — confirmed **not** a
+  bug: this project's own i18n.py module docstring already documents banner
+  messages as a deliberate English-only scope boundary (structured `(kind, params)`
+  storage would be needed to localize them properly, a real schema change, not
+  something to fold in quietly). These keys are prep work for that future change,
+  not a forgotten wire-up.
+- `app.no_club_id`, `button.quit`, `binding.theme`, `binding.language` — genuinely
+  unused, minor leftovers (a `print()`-based headless-scraper log line already
+  covers the one real scenario `app.no_club_id` was for; Quit is always a keybinding
+  here, never a clickable button; theme/language switching both went through
+  Textual's own command-palette mechanism instead of a named footer binding).
+  Left alone rather than deleted — harmless, and not worth a churn-only commit.
+
+Two bigger findings surfaced the same way, real enough that they're not folded into
+this same commit — see "Known risks" below for both:
+- `club_picker.py`'s whole `ClubSearchScreen` is fully orphaned. Its own module
+  docstring claims "`tui.py`'s own club picker... offers a 'search for a club'
+  entry" that pushes it — checked directly: `tui.py` never imports anything from
+  `club_picker.py` at all, not even its pure helper functions. `ClubBrowserScreen`'s
+  own inline directory search (built the same day, 2026-09-07) appears to have
+  fully superseded it — `club_config.add_favorite()` already does the same
+  geocoding-on-save `ClubSearchScreen` does — but nobody ever confirmed that and
+  removed the now-redundant ~200 lines + its own test file.
+- `avoid_predicted_crowd` (a real, saved, toggleable checkbox in Settings →
+  Priorities, added 2026-09-08) has never had any actual effect. `recommend.py`'s
+  own module docstring names the intended design (hand it to
+  `ai_assist.rank_slots()` alongside `prioritize_friends`) — and the *code* for
+  that part is real, the whole `preferences` dict does reach Claude's prompt
+  verbatim — but `prioritize_friends` has real per-candidate data behind it
+  (`_describe_candidate()` lists which friends are already booked), while
+  `avoid_predicted_crowd` doesn't: nothing calls `analytics.predict_crowding()` or
+  attaches any crowd estimate to a candidate anywhere, so Claude has the *preference*
+  in view but zero *data* to act on it with. Toggling this setting on changes
+  nothing today.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
@@ -2327,6 +2381,26 @@ silently failed to match Sonnenberg's own naming ("18-Loch Schleife") and fell b
 a hardcoded 18 for every one of that club's courses, including its real 9-hole and
 short-course options — fixed by reusing `scraper._holes_from_course_label()` instead,
 which only ever matches a leading digit and so handles both naming styles.
+- **`club_picker.py`'s `ClubSearchScreen` is orphaned code, not a wired-up feature**
+  (found 2026-09-10 auditing for "further cases where it is not wired up") — its own
+  module docstring claims `tui.py` pushes it for "search for a club," but `tui.py`
+  never imports anything from `club_picker.py` at all. `ClubBrowserScreen`'s own
+  inline directory search (built the same day as `ClubSearchScreen`, 2026-09-07)
+  appears to have fully superseded it, including the geocoding-on-save behavior
+  (now in `club_config.add_favorite()`) — but this was never confirmed and the
+  ~200 now-redundant lines (plus its own test file) were never removed. Not fixed
+  yet — deciding whether to delete it or keep it as a documented standalone
+  fallback is the user's call, not an obvious one to make unilaterally.
+- **`avoid_predicted_crowd` (Settings → Priorities) has no actual effect** (found
+  the same audit pass) — the preference reaches `ai_assist.rank_slots()`'s prompt
+  verbatim (the whole `preferences` dict does), but no candidate ever gets a
+  `analytics.predict_crowding()` estimate attached, so there's no crowd data
+  behind the preference for Claude to act on. Unlike `prioritize_friends` (which
+  has real friend-booked data per candidate via `_describe_candidate()`), toggling
+  this setting on changes nothing today. Wiring it for real means deciding how
+  much of `crowd_heatmap()`'s holiday/vacation/weekday context to thread through
+  `weekly_picks()`/`ranked_matches()`, which don't currently take any of that —
+  a real design question, not fixed yet.
 
 ## Out of scope (all phases)
 Booking/auto-booking, notifications, packaging/distribution, mobile support (pc

@@ -2517,6 +2517,41 @@ def test_course_picker_dismisses_with_selected_course():
     _run(scenario())
 
 
+# --- Version display -- added 2026-09-10, direct request: "implement a version
+# display like with brew launcher" (that project shows its version both via
+# `--version` and always, directly in its running UI's border). ------------------
+
+
+def test_version_reads_installed_package_metadata(monkeypatch):
+    monkeypatch.setattr(tui.importlib.metadata, "version", lambda name: "1.2.3")
+    assert tui._version() == "1.2.3"
+
+
+def test_version_falls_back_to_dev_when_not_installed(monkeypatch):
+    def raise_not_found(name):
+        raise tui.importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(tui.importlib.metadata, "version", raise_not_found)
+    assert tui._version() == "dev"
+
+
+def test_main_prints_version_and_exits_without_launching_the_app(monkeypatch, capsys):
+    monkeypatch.setattr(tui, "_version", lambda: "1.2.3")
+    monkeypatch.setattr(tui.sys, "argv", ["teetime-monitor", "--version"])
+    ran = []
+    monkeypatch.setattr(tui.TeetimeApp, "run", lambda self: ran.append(True))
+
+    tui.main()
+
+    assert ran == []
+    assert "teetime-monitor 1.2.3" in capsys.readouterr().out
+
+
+def test_teetime_app_shows_the_version_in_its_sub_title(monkeypatch):
+    monkeypatch.setattr(tui, "_version", lambda: "1.2.3")
+    assert tui.TeetimeApp().sub_title == "v1.2.3"
+
+
 # --- TeetimeApp startup flow ------------------------------------------------------------
 
 
