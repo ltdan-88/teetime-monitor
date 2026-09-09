@@ -2170,6 +2170,44 @@ Verified live end to end on this machine: `brew tap` + `brew install` +
 own venv actually imports the full package (`from src import tui`) — not just
 looks installed.
 
+**Login setup wired into the actual running app, same day**: direct follow-up,
+almost certainly hit right after the Homebrew install above — a fresh install has
+no `.env` yet, and "I want login setup within the tui directly when you run it."
+`CredentialsScreen` has existed since 2026-09-07, and that module's own docstring
+even flagged the gap at the time: "not yet reachable from a live user complaint
+since it isn't currently pushed from the running main app." It genuinely never was
+— only `club_picker.py`'s own separate `ClubSearchScreen` ever pushed it (and that
+screen isn't reachable from `tui.py` either; the README's file-structure listing
+overclaimed "pushable from tui.py" for it). The screen every fresh install actually
+lands on, `ClubBrowserScreen`, just printed a status line naming a separate command
+to go run instead (`picker.directory_needs_login`) whenever `r` needed a login it
+didn't have.
+
+Fixed at the one real integration point: `action_refresh_directory()` now pushes
+`CredentialsScreen()` right there the moment it discovers no credentials exist,
+instead of just describing the fix in text. New `l` binding opens the same screen
+proactively too, for a first run before ever trying `r`. Either path retries the
+directory fetch automatically once a save actually happens
+(`_on_credentials_screen_dismissed()`, the same "retry on save" convention
+`club_picker.py`'s own version already used). Tee-sheet scraping itself still needs
+no login at all (pc caddie's tee sheets are public) — this is specifically about the
+one action here that genuinely does.
+
+3 new tests, confirmed genuinely dependent by reverting (`AttributeError: module
+'src.tui' has no attribute 'CredentialsScreen'`). A new test-isolation gap caught
+along the way: `CredentialsScreen()` with no explicit path defaults to
+`env_file.ENV_FILE` (plain `.env` relative to CWD, the real repo root under
+pytest) — this is the first time anything in `test_tui.py` ever pushed that screen,
+so nothing there was protecting it yet; fixed with an autouse fixture redirecting
+both `ENV_FILE`/`ENV_EXAMPLE_FILE` to a throwaway path, same pattern as this file's
+existing `_no_real_global_preferences_file`. Verified live in an isolated sandbox,
+headless tmux: `r` with no favorites configured correctly pushes the credentials
+screen (confirmed after tabbing focus off the search box first — a focused `Input`
+gets first refusal on a printable key like `r`/`l` before any Screen-level binding
+sees it, same reasoning `CredentialsScreen`'s own BINDINGS comment already
+documents for `q`); escaping back out without saving correctly returns to
+`ClubBrowserScreen` with nothing retried.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

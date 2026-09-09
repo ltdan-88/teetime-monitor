@@ -130,6 +130,7 @@ from . import analytics, calendar_context, club_config, club_directory, geocode,
 from . import recommend, scrape_once, storage
 from . import i18n
 from . import theme as theme_module
+from .credentials_screen import CredentialsScreen
 from .search import SearchCriteria
 from .search import resolve_buffer_minutes
 from .search import search as search_slots
@@ -346,7 +347,20 @@ class ClubBrowserScreen(Screen[str | None]):
     binding this screen declares itself (see `on_input_submitted()` and
     `on_option_list_option_selected()` below) — which is exactly why it never showed
     up in the footer on its own; added explicitly to `_FOOTER_BINDINGS` below after
-    direct feedback that nothing on screen actually said to press it."""
+    direct feedback that nothing on screen actually said to press it.
+
+    `l` opens `CredentialsScreen` right here, in this same running session — added
+    2026-09-09, direct feedback: "I want login setup within the tui directly when
+    you run it." Before this, `r` without credentials configured just printed a
+    status line telling you to go run `python -m src.credentials_screen` as a
+    separate program — `CredentialsScreen` itself has existed since 2026-09-07 (its
+    own docstring even flagged "not yet reachable from a live user complaint since
+    it isn't currently pushed from the running main app"), just never actually
+    wired into this screen, the one every fresh install actually lands on. `r` now
+    pushes it automatically the same moment it discovers no credentials exist,
+    instead of only describing the fix; `l` is the same screen reached proactively,
+    for a first run before ever trying `r` at all. Either way, a save retries the
+    directory fetch automatically (`_on_credentials_screen_dismissed()`)."""
 
     CSS = """
     #club-search { margin: 0 2; }
@@ -365,6 +379,7 @@ class ClubBrowserScreen(Screen[str | None]):
     BINDINGS = [
         ("f", "toggle_favorite", "Favorite"),
         ("r", "refresh_directory", "Refresh list"),
+        ("l", "login", "Login"),
         ("escape", "cancel", "Back"),
         ("q", "quit", "Quit"),
     ]
@@ -372,6 +387,7 @@ class ClubBrowserScreen(Screen[str | None]):
         ("enter", "binding.open"),
         ("f", "binding.favorite"),
         ("r", "binding.refresh_directory"),
+        ("l", "binding.login"),
         ("escape", "binding.cancel"),
         ("q", "binding.quit"),
     ]
@@ -515,11 +531,16 @@ class ClubBrowserScreen(Screen[str | None]):
 
     def action_refresh_directory(self) -> None:
         """Re-fetch the platform club list. The only action on this screen that needs a
-        login — everything else here works without one (see club_directory.py)."""
+        login — everything else here works without one (see club_directory.py).
+
+        Pushes `CredentialsScreen` right here the moment it discovers none are
+        configured, rather than just describing the fix in a status line — see this
+        class's own docstring for the direct feedback this responds to."""
         status = self.query_one("#club-status", Static)
         credentials = club_directory.any_credentials()
         if credentials is None:
             status.update(i18n.t("picker.directory_needs_login"))
+            self.app.push_screen(CredentialsScreen(), self._on_credentials_screen_dismissed)
             return
         status.update(i18n.t("club_picker.fetching"))
         club_id, username, password = credentials
@@ -529,6 +550,20 @@ class ClubBrowserScreen(Screen[str | None]):
             status.update(i18n.t("club_picker.fetch_failed", error=exc))
             return
         status.update(i18n.t("picker.directory_refreshed", count=len(self._directory)))
+
+    def action_login(self) -> None:
+        """`CredentialsScreen`, reached proactively -- e.g. right after a fresh
+        install, before ever trying `r` and hitting the reactive push in
+        `action_refresh_directory()` above. Same screen, same dismiss handling."""
+        self.app.push_screen(CredentialsScreen(), self._on_credentials_screen_dismissed)
+
+    def _on_credentials_screen_dismissed(self, saved: bool) -> None:
+        # Same "retry automatically" convention as club_picker.py's own identical
+        # callback -- a save is exactly the signal that whatever needed a login
+        # (here, always the directory fetch) is worth attempting again right away,
+        # not making the user press 'r' a second time themselves.
+        if saved:
+            self.action_refresh_directory()
 
     def action_cancel(self) -> None:
         if self.allow_cancel:

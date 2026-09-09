@@ -5,7 +5,7 @@ import pytest
 from textual.app import App
 from textual.widgets import DataTable, Input, OptionList, Select, Static
 
-from src import i18n, scrape_once, storage, theme, tui
+from src import env_file, i18n, scrape_once, storage, theme, tui
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
@@ -50,6 +50,20 @@ def _no_real_global_preferences_file(monkeypatch, tmp_path):
     this fixture existed. Redirects the default to a throwaway path for every test
     here; a test exercising the real file explicitly overrides this locally."""
     monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_env_file(monkeypatch, tmp_path):
+    """`ClubBrowserScreen` (2026-09-09: "I want login setup within the tui directly
+    when you run it") now pushes a real `CredentialsScreen()` with no explicit path,
+    which defaults to `env_file.ENV_FILE` -- plain `.env` relative to CWD, the real
+    repo root when pytest runs. Same class of risk `_no_real_global_preferences_file`
+    above already guards against for a different file; a test that clicks Save here
+    would otherwise write to this developer's own real `.env`. `CredentialsScreen`
+    reads these live at construction time, not a frozen default, so patching the
+    module attribute is enough -- no need to also pass explicit paths through."""
+    monkeypatch.setattr(env_file, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(env_file, "ENV_EXAMPLE_FILE", tmp_path / ".env.example")
 
 
 @pytest.fixture(autouse=True)
@@ -2287,6 +2301,84 @@ def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
             app.screen.action_toggle_favorite()
             await pilot.pause()
             assert added == ["0000001"]
+
+    _run(scenario())
+
+
+# --- Inline login setup -- added 2026-09-09, direct feedback: "I want login setup
+# within the tui directly when you run it." CredentialsScreen has existed since
+# 2026-09-07 but was never actually pushed from the running main app -- `r` without
+# credentials configured used to just print a status line naming a separate command
+# to run instead. ----------------------------------------------------------------
+
+
+def test_club_browser_r_pushes_credentials_screen_when_none_configured(monkeypatch):
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
+
+    _run(scenario())
+
+
+def test_club_browser_l_opens_credentials_screen_proactively(monkeypatch):
+    # Credentials are already configured here -- 'l' still opens the screen, unlike
+    # 'r' above, which only pushes it reactively once it discovers none exist.
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: ("0000001", "user", "pass"))
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # Not pilot.press("l") -- focus starts in #club-search, and a focused
+            # Input gets first refusal on a printable key before any Screen-level
+            # binding sees it (same reasoning as CredentialsScreen's own "q" note),
+            # so a real keypress would just type "l" into the search box instead.
+            app.screen.action_login()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
+
+    _run(scenario())
+
+
+def test_saving_credentials_from_club_browser_retries_the_directory_fetch(monkeypatch):
+    # any_credentials() reports "none yet" the first time (driving the reactive push
+    # from 'r'), then "configured" from the second call onward -- simulating the
+    # save actually taking effect, same shape the real club_config-backed function
+    # would show once CredentialsScreen writes real values to .env.
+    calls = iter([None, ("0000001", "someone@example.com", "hunter2")])
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: next(calls, ("0000001", "someone@example.com", "hunter2")))
+    monkeypatch.setattr(tui.club_directory, "refresh_directory", lambda *a, **k: [("0000001", "Golfclub Musterhausen")])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
+
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            # Save itself doesn't dismiss the screen (it just writes and shows
+            # "Saved.", so a typo can be fixed without reopening it) -- escape
+            # dismisses with whatever _saved ended up as, same as the Cancel button.
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Dismissing after a real save popped CredentialsScreen and retried the
+            # fetch automatically --
+            # back on ClubBrowserScreen, with the retried fetch's own result shown.
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            status = app.screen.query_one("#club-status", Static)
+            assert i18n.t("picker.directory_refreshed", count=1) in str(status.content)
 
     _run(scenario())
 

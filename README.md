@@ -51,6 +51,10 @@ spec.
   it's fetched once and cached locally, refreshed on demand with `r`. Favorites and
   typed club ids both work with no login and no cached list at all — including on a
   brand-new install, which the old flow couldn't do
+- Login setup happens right there in the club browser, no separate command needed —
+  `r` pushes the credentials screen automatically the moment it discovers none are
+  configured, and `l` opens the same screen proactively anytime. Saving retries the
+  directory fetch right away
 - Weather needs a location pc caddie itself doesn't publish anywhere, so any club you
   open — favorited or not — gets one looked up automatically: a best-effort search
   against OpenStreetMap's free Nominatim geocoder, using the club's own name, cached
@@ -249,8 +253,11 @@ you're likely to want it:
 python -m src.credentials_screen                   # set PCC_USER/PCC_PASS from the UI -- creates .env
                                                     # for you if it doesn't exist yet (still add
                                                     # ANTHROPIC_API_KEY to it by hand afterward).
-                                                    # Needed to download the club directory (press 'r'
-                                                    # in the club browser) and to read "My Reservations"
+                                                    # Optional -- 'r'/'l' in the club browser open the
+                                                    # same screen inline, right when you need it, so
+                                                    # this is only for setting it up ahead of time.
+                                                    # Needed to download the club directory and to
+                                                    # read "My Reservations"
 cp clubs/club.example.yaml clubs/my-club.yaml      # a favorite's own set-once facts -- coordinates
                                                     # for the weather overlay, course lineup, etc.
                                                     # 'f' in the app writes a minimal version of this
@@ -372,10 +379,11 @@ Credentials are never hardcoded — read from `.env`, which is gitignored. One p
 login covers every saved club (confirmed 2026-09-05), so plain `PCC_USER`/`PCC_PASS` is
 normally all you need even with several clubs configured — see `.env.example` for the
 rarer per-club override, and for `ANTHROPIC_API_KEY`. Set `PCC_USER`/`PCC_PASS` via
-`python -m src.credentials_screen` (or club_picker.py, which opens the same screen
-automatically the moment it needs a login it doesn't have) rather than hand-editing
-`.env` — Claude never sees, types, or handles the value either way, this just saves
-opening a text editor. Fixed 2026-09-07, found while building that screen: `.env` is
+`python -m src.credentials_screen`, or `r`/`l` in the running app's club browser
+(added 2026-09-09 — before this, `r` without credentials configured just named the
+standalone command to go run separately instead of opening the same screen right
+there) — rather than hand-editing `.env`. Claude never sees, types, or handles the
+value either way, this just saves opening a text editor. Fixed 2026-09-07, found while building that screen: `.env` is
 now actually loaded into the environment (`club_config.py` calls `python-dotenv`'s
 `load_dotenv()`) — a real, easy-to-miss gap before this, since a `.env` file sitting
 there doing nothing looks identical to one that was never created. Club config files
