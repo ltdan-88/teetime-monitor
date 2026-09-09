@@ -47,6 +47,25 @@ merely pre-selected: there's no real choice left worth surfacing as one. A club'
 here reads or writes it any more, but `recommend.ranked_matches()` still passes
 whatever `config.get("ai_assist", {}).get("model", ai_assist.DEFAULT_MODEL)` finds.
 
+**`escape`/`q` made consistent with every other screen** (2026-09-09, direct
+feedback: "exiting the settings you need to hit q, while returning to the overview
+is ESC and exiting the TUI is again q. Please make key binds consistent"). This
+screen used to be the one outlier: no `escape` binding at all, and `q` meant "close
+just this screen" rather than "quit the whole app" — a real, user-visible
+inconsistency once pushed from the running `tui.py` app (where every other screen's
+`q` really does exit the process), even though it was never a problem in standalone
+mode (`SettingsApp.on_mount()`'s own dismiss-callback already exits the app the
+moment the screen closes either way, so nothing about standalone behavior actually
+changes here). Now: `escape` dismisses just this screen (what `q` used to do),
+`q` calls `self.app.exit()` directly, matching `ClubBrowserScreen`/`CoursePickerScreen`/
+`SearchScreen`/`HeatmapScreen`/`DayDetailScreen`'s own convention exactly. The
+button that dismisses the screen is relabeled "Cancel" (not "Quit") to match what
+it's always actually done, now that "Quit" unambiguously means the `q` key's new
+meaning instead. The exact same fix, for the exact same reason, was also applied to
+`credentials_screen.py` and `club_picker.py`'s `ClubSearchScreen` — both had the
+identical pattern (no `escape`, `q` = close screen), just not yet reachable from a
+live user complaint since neither is currently pushed from the running main app.
+
 `SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
 from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
 2026-09-08 once a real user asked "i don't even know where to configure from the UI":
@@ -612,15 +631,25 @@ class SettingsScreen(Screen[dict | None]):
         /* Common dialog convention (direct feedback, 2026-09-08: "buttons ... need
            to follow common layout conventions regarding placement (iirc usually
            those buttons are aligned to the right)") -- the secondary/dismissive
-           action (Quit) sits to the left of the primary one (Save), which is
-           rightmost, matching the OS-dialog "Cancel ... Save" convention rather
-           than the button row hugging the window's left edge. */
+           action (Cancel, renamed from "Quit" 2026-09-09 -- see BINDINGS' own
+           comment) sits to the left of the primary one (Save), which is rightmost,
+           matching the OS-dialog "Cancel ... Save" convention rather than the
+           button row hugging the window's left edge. */
         align: right middle;
     }
     """
 
-    BINDINGS = [("q", "quit_screen", "Quit")]
-    _FOOTER_BINDINGS = [("q", "binding.quit")]
+    # escape = back (dismiss just this screen), q = quit the whole app -- matching
+    # every other pushed screen's convention (ClubBrowserScreen, CoursePickerScreen,
+    # SearchScreen, HeatmapScreen, DayDetailScreen). Direct feedback, 2026-09-09:
+    # "exiting the settings you need to hit q, while returning to the overview is
+    # ESC and exiting the TUI is again q. Please make key binds consistent" -- this
+    # screen used to be the one outlier, with no escape binding at all and q meaning
+    # "close this screen" rather than "quit everything" (see action_cancel()'s own
+    # docstring for why that was never actually a problem in standalone mode, only
+    # once pushed from the real running app).
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
     # Below this width the side-by-side label/field layout has nowhere left to
     # shrink to (see the CSS comment above `.-narrow` for the arithmetic) -- picked
@@ -728,7 +757,12 @@ class SettingsScreen(Screen[dict | None]):
                                 yield Input(value=current, id=widget_id, classes="field-input", compact=True)
         yield Static("", id="status")
         with Horizontal(id="buttons"):
-            yield Button(i18n.t("button.quit"), id="quit")
+            # "Cancel," not "Quit" -- this button dismisses just the screen (same
+            # action as `escape`) and was mislabeled "Quit" only because it reused
+            # that existing i18n key; now that `q` genuinely means "quit the app"
+            # (see BINDINGS above), keeping this button labeled "Quit" too would
+            # have been its own new inconsistency.
+            yield Button(i18n.t("button.cancel"), id="cancel")
             yield Button(i18n.t("button.save"), id="save", variant="success")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
@@ -749,12 +783,15 @@ class SettingsScreen(Screen[dict | None]):
                 widget_values[widget_id] = widget.value
         return widget_values
 
-    def action_quit_screen(self) -> None:
+    def action_cancel(self) -> None:
         self.dismiss(self.config)
 
+    def action_quit(self) -> None:
+        self.app.exit()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "quit":
-            self.action_quit_screen()
+        if event.button.id == "cancel":
+            self.action_cancel()
             return
         if event.button.id == "save":
             try:

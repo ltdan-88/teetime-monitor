@@ -1036,12 +1036,30 @@ def test_weather_summary_none_without_daytime_forecast():
     assert tui._weather_summary([]) is None
 
 
-def test_day_tag_prefers_an_event_over_rain_or_weather():
+# _weather_cell()/_event_cell() -- split 2026-09-09 out of the old combined
+# _day_tag_or_weather(), direct feedback: "It shouldn't mix up events with weather
+# data. Can you make an extra column for the events?"
+
+
+def test_weather_cell_shows_real_weather_even_on_a_day_with_an_event():
+    # The whole point of the split: an event must never crowd out that day's actual
+    # weather from view -- they're independent columns now, not a priority order.
     schedule = Schedule(
         date="2026-09-07",
         course="18 Loch Tee 1",
         slots=[],
-        weather=[_weather("09:00", prob=95)],
+        weather=[_weather("09:00", prob=5, temp=20.0)],
+        events=["Herbstturnier"],
+    )
+    assert tui._weather_cell(schedule) == "☀ 20°/20°"
+
+
+def test_event_cell_shows_the_event_even_on_a_day_with_weather():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[],
+        weather=[_weather("09:00", prob=5, temp=20.0)],
         events=["Herbstturnier"],
     )
     # 📌, not 🏆 -- 2026-09-08 direct feedback questioning why non-weather text
@@ -1050,21 +1068,26 @@ def test_day_tag_prefers_an_event_over_rain_or_weather():
     # tournament but just as often a routine ladies'/members' day or a maintenance
     # closure -- nothing in the scraped data actually distinguishes the two, so a
     # trophy specifically claiming "competition" overclaimed what this can tell.
-    assert tui._day_tag_or_weather(schedule) == "📌 Herbstturnier"
+    assert tui._event_cell(schedule) == "📌 Herbstturnier"
 
 
-def test_day_tag_shows_rain_all_day_over_a_plain_weather_line():
+def test_event_cell_empty_without_any_event():
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[])
+    assert tui._event_cell(schedule) == ""
+
+
+def test_weather_cell_shows_rain_all_day_over_a_plain_weather_line():
     schedule = Schedule(
         date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=95)]
     )
-    assert "rain all day" in tui._day_tag_or_weather(schedule)
+    assert "rain all day" in tui._weather_cell(schedule)
 
 
-def test_day_tag_falls_back_to_the_weather_summary():
+def test_weather_cell_falls_back_to_the_weather_summary():
     schedule = Schedule(
         date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[_weather("09:00", prob=5, temp=20.0)]
     )
-    assert tui._day_tag_or_weather(schedule) == "☀ 20°/20°"
+    assert tui._weather_cell(schedule) == "☀ 20°/20°"
 
 
 def test_resolved_config_merges_global_preferences_over_club_settings(monkeypatch, tmp_path):
@@ -1307,6 +1330,36 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
     _run(scenario())
 
 
+def test_overview_screen_shows_weather_and_events_in_separate_columns(tmp_path, monkeypatch):
+    # Direct feedback on a real screenshot: "It shouldn't mix up events with weather
+    # data. Can you make an extra column for the events?"
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4)],
+            weather=[_weather("09:00", prob=5, temp=20.0)],
+            events=["Herbstturnier"],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            headers = [str(col.label) for col in table.columns.values()]
+            assert headers == ["Day", "Weather", "Events", "Heat 08–20", "Pick"]
+            row = table.get_row_at(0)  # today, Day/Weather/Events/Heat/Pick
+            assert row[1] == "☀ 20°/20°"  # real weather, not the event
+            assert row[2] == "📌 Herbstturnier"  # the event, in its own column
+
+    _run(scenario())
+
+
 def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [tui._TODAY()])  # only today
@@ -1317,7 +1370,7 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
-            assert "not open" in row[3]
+            assert "not open" in row[4]  # Pick column -- Day/Weather/Events/Heat/Pick
 
     _run(scenario())
 
@@ -1513,7 +1566,10 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             widget.value = "3"
             await pilot.click("#save")
             await pilot.pause()
-            await pilot.press("q")
+            # escape, not "q" -- SettingsScreen's own q now quits the whole app,
+            # matching every other screen's convention (2026-09-09 fix; see that
+            # module's own docstring for the direct feedback this responds to).
+            await pilot.press("escape")
             await pilot.pause()
 
             # Back on the overview, reloaded -- a saved availability change can
@@ -1557,7 +1613,7 @@ def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkey
             assert isinstance(app.screen, tui.SettingsScreen)
             await pilot.click("#save")
             await pilot.pause()
-            await pilot.press("q")
+            await pilot.press("escape")  # not "q" -- see the other e->settings test above
             await pilot.pause()
 
             # Still unsaved -- editing global settings never favorites anything.

@@ -77,14 +77,20 @@ class CredentialsScreen(Screen[bool]):
     }
     #buttons {
         padding: 1 2;
-        /* Right-aligned, Quit-then-Save -- same OS-dialog convention applied to
+        /* Right-aligned, Cancel-then-Save -- same OS-dialog convention applied to
            settings_screen.py's own #buttons, for consistency across both screens. */
         align: right middle;
     }
     """
 
-    BINDINGS = [("q", "quit_screen", "Quit")]
-    _FOOTER_BINDINGS = [("q", "binding.quit")]
+    # escape = back (dismiss just this screen), q = quit the whole app -- same fix,
+    # same day, same reason as settings_screen.py's own BINDINGS (see that module's
+    # docstring for the direct feedback: "Please make key binds consistent"). This
+    # screen had the identical outlier pattern (no escape, q = close screen), just
+    # not yet reachable from a live user complaint since it isn't currently pushed
+    # from the running main app.
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
     def __init__(self, env_path: Path | None = None, template_path: Path | None = None) -> None:
         super().__init__()
@@ -118,13 +124,16 @@ class CredentialsScreen(Screen[bool]):
                 )
         yield Static("", id="status")
         with Horizontal(id="buttons"):
-            yield Button(i18n.t("button.quit"), id="quit")
+            # "Cancel," not "Quit" -- same rename as settings_screen.py's own button,
+            # same reason: this dismisses just the screen, and "Quit" now
+            # unambiguously means the q key's "exit the whole app" instead.
+            yield Button(i18n.t("button.cancel"), id="cancel")
             yield Button(i18n.t("button.save"), id="save", variant="success")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "quit":
-            self.action_quit_screen()
+        if event.button.id == "cancel":
+            self.action_cancel()
             return
         if event.button.id == "save":
             self._save()
@@ -155,8 +164,11 @@ class CredentialsScreen(Screen[bool]):
         # as on first load.
         status.update(i18n.t("credentials.saved"))
 
-    def action_quit_screen(self) -> None:
+    def action_cancel(self) -> None:
         self.dismiss(self._saved)
+
+    def action_quit(self) -> None:
+        self.app.exit()
 
 
 class CredentialsApp(App[None]):

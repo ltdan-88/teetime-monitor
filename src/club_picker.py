@@ -112,8 +112,14 @@ class ClubSearchScreen(Screen[str | None]):
     }
     """
 
-    BINDINGS = [("q", "quit_screen", "Quit")]
-    _FOOTER_BINDINGS = [("q", "binding.quit")]
+    # escape = back (dismiss just this screen), q = quit the whole app -- same fix,
+    # same day, same reason as settings_screen.py's own BINDINGS (see that module's
+    # docstring for the direct feedback: "Please make key binds consistent"). This
+    # screen had the identical outlier pattern (no escape, q = close screen), just
+    # not yet reachable from a live user complaint since it isn't currently pushed
+    # from the running main app.
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
     MAX_RESULTS = 50
 
@@ -256,8 +262,11 @@ class ClubSearchScreen(Screen[str | None]):
         saved_key = "club_picker.saved_with_location" if "location" in stub else "club_picker.saved_no_location"
         status.update(i18n.t(saved_key, slug=slug))
 
-    def action_quit_screen(self) -> None:
+    def action_cancel(self) -> None:
         self.dismiss(self._saved_slug)
+
+    def action_quit(self) -> None:
+        self.app.exit()
 
 
 class ClubPickerApp(App[None]):

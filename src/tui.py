@@ -18,9 +18,10 @@ Startup flow:
    one) sets a valid `default_course`, or if the club has only one course at all —
    which is 46% of them, per the cross-club sweep in scraper.py's module docstring.
 3. `OverviewScreen` — the actual home screen once a club/course is picked: one row per
-   attempted day (weekday + exact ISO date, weather or a day-note/rain tag, a
-   six-block "heat strip" for 08:00-20:00, and that day's own pick — a confirmed
-   booking, a recommended ★ slot, or why neither applies), plus "This week's picks"
+   attempted day (weekday + exact ISO date, actual weather, that day's own event/
+   closure note in a separate column, a six-block "heat strip" for 08:00-20:00, and
+   that day's own pick — a confirmed booking, a recommended ★ slot, or why neither
+   applies), plus "This week's picks"
    below (only shown once `availability` rules are configured). The cursor starts on
    today's own row, unless `_initial_date()` finds today's cached schedule already
    fully in the past (direct feedback 2026-09-07: showing "today" once the course has
@@ -677,15 +678,25 @@ def _weather_summary(weather: list) -> str | None:
     return f"{icon} {max(temps):.0f}°/{min(temps):.0f}°"
 
 
-def _day_tag_or_weather(schedule: Schedule) -> str:
-    """The card's second line: a day-note flag beats a rain-all-day flag beats a
-    plain weather summary — a day with something blocking its tee sheet is the single
-    most consequential fact about it (it's not just weather-uncomfortable, whole tee
-    times are unavailable), and "it's raining all day anyway" is more useful at a
-    glance than exact temperatures. `schedule.events` names come straight from the
+def _weather_cell(schedule: Schedule) -> str:
+    """The overview's own Weather column for one day — always actual weather, or
+    nothing, never a day-note (see `_event_cell()` for that, split into its own
+    column 2026-09-09, direct feedback: "It shouldn't mix up events with weather
+    data"). A rain-all-day flag still belongs here — it's an actual weather fact,
+    just a more useful-at-a-glance one than exact temperatures — unlike a
+    tournament/closure note, which never was weather at all."""
+    if _is_rain_all_day(schedule.weather):
+        return f"🌧 {i18n.t('overview.rain_all_day')}"
+    return _weather_summary(schedule.weather) or ""
+
+
+def _event_cell(schedule: Schedule) -> str:
+    """The overview's own Events column for one day — split out of the old combined
+    Weather column (2026-09-09; see `_weather_cell()`'s own docstring for the direct
+    feedback this responds to). `schedule.events` names come straight from the
     scraped block-reason label (see `scraper._event_names()`) — untranslated, same as
     every other block_reason text in this app, since it's the club's own text, not
-    this app's UI chrome.
+    this app's UI chrome. Empty string with nothing to show, same as `_weather_cell()`.
 
     The icon (📌, not 🏆) is deliberately generic: `events` is genuinely just "the
     club published a reason a slot isn't normally bookable today," which is very
@@ -693,16 +704,11 @@ def _day_tag_or_weather(schedule: Schedule) -> str:
     members' day or a maintenance closure — nothing in the scraped data actually
     distinguishes a competitive event from a routine one (see ROADMAP.md's "Known
     risks" — no separate tournament-calendar source is implemented), so a trophy
-    specifically claiming "competition" overclaimed what this app can actually tell.
-    Changed 2026-09-08, direct feedback questioning why non-weather text was showing
-    in a column literally labeled "Weather" at all — kept as a flag rather than
-    dropped, since a blocked tee sheet is still more useful to see at a glance than
-    that day's forecast."""
+    specifically claiming "competition" would overclaim what this app can actually
+    tell."""
     if schedule.events:
         return f"📌 {schedule.events[0]}"
-    if _is_rain_all_day(schedule.weather):
-        return f"🌧 {i18n.t('overview.rain_all_day')}"
-    return _weather_summary(schedule.weather) or ""
+    return ""
 
 
 def _location_for_club(club_id: str, club_name: str) -> dict | None:
@@ -840,9 +846,12 @@ OVERVIEW_MAX_PICKS_SHOWN = 5
 
 class OverviewScreen(Screen[None]):
     """The multi-day at-a-glance home screen — one row per attempted day: weekday +
-    exact ISO date, weather (or a day-note/rain tag in its place), a six-block "heat
-    strip" showing how full 08:00-20:00 is in 2-hour windows, and that day's own pick.
-    "This week's picks" below lists the same recommendation across every loaded day —
+    exact ISO date, actual weather, that day's own event/closure note (a separate
+    Events column, split out 2026-09-09 — see `_weather_cell()`'s own docstring for
+    why a Weather column mixing the two was a real problem, not just a labeling
+    nitpick), a six-block "heat strip" showing how full 08:00-20:00 is in 2-hour
+    windows, and that day's own pick. "This week's picks" below lists the same
+    recommendation across every loaded day —
     shown only once `availability` rules are actually configured (direct feedback on
     the mockup: an unconfigured club showing "no picks" on every single day would
     read as broken, not just empty).
@@ -925,7 +934,13 @@ class OverviewScreen(Screen[None]):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns(i18n.t("table.day"), i18n.t("table.weather"), i18n.t("table.heat"), i18n.t("table.pick"))
+        table.add_columns(
+            i18n.t("table.day"),
+            i18n.t("table.weather"),
+            i18n.t("table.events"),
+            i18n.t("table.heat"),
+            i18n.t("table.pick"),
+        )
         table.cursor_type = "row"
         self._set_title()
         self.load_overview()
@@ -984,20 +999,26 @@ class OverviewScreen(Screen[None]):
 
             if one_date not in open_dates:
                 table.add_row(
-                    f"[dim]{day_cell}[/]", "[dim]—[/]", "[dim]—[/]", f"[dim]{i18n.t('overview.not_open_yet')}[/]"
+                    f"[dim]{day_cell}[/]",
+                    "[dim]—[/]",
+                    "[dim]—[/]",
+                    "[dim]—[/]",
+                    f"[dim]{i18n.t('overview.not_open_yet')}[/]",
                 )
                 continue
 
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
             if schedule is not None and schedule.slots:
                 schedules.append(schedule)
-                weather_cell = _day_tag_or_weather(schedule) or "[dim]—[/]"
+                weather_cell = _weather_cell(schedule) or "[dim]—[/]"
+                event_cell = _event_cell(schedule) or "[dim]—[/]"
                 heat_cell = _heat_strip_markup(schedule)
             else:
                 weather_cell = "[dim]…[/]"
+                event_cell = "[dim]…[/]"
                 heat_cell = "[dim]……[/]"
             pick_cell = _day_pick_text(schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates)
-            table.add_row(day_cell, weather_cell, heat_cell, pick_cell)
+            table.add_row(day_cell, weather_cell, event_cell, heat_cell, pick_cell)
 
         # Pre-highlight today, unless today's own cached schedule shows every slot
         # already passed -- see _initial_date()'s own docstring (direct feedback,

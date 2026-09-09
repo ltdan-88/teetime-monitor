@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS scrapes (
     date TEXT NOT NULL,        -- YYYY-MM-DD
     scraped_at TEXT NOT NULL,  -- ISO 8601 timestamp
     sunrise TEXT,              -- HH:MM, local time -- NULL if never fetched
-    sunset TEXT                -- HH:MM, local time -- NULL if never fetched
+    sunset TEXT,               -- HH:MM, local time -- NULL if never fetched
+    events TEXT                -- JSON-encoded list[str] -- NULL/'[]' means none
 );
 
 CREATE TABLE IF NOT EXISTS slots (
@@ -127,35 +128,37 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
     itself, crashed with `OperationalError: unable to open database file` — the
     directory just didn't exist yet.
 
-    Also migrates an existing `scrapes` table that predates the `sunrise`/`sunset`
-    columns (2026-09-08, direct feedback: "don't forget about the sunrise and
-    sunset times" — surfaced that these were never actually persisted at all, only
-    ever attached in memory during a scrape and then silently dropped, since
+    Also migrates an existing `scrapes` table that predates the `sunrise`/`sunset`/
+    `events` columns (2026-09-08, direct feedback: "don't forget about the sunrise
+    and sunset times" — surfaced that these were never actually persisted at all,
+    only ever attached in memory during a scrape and then silently dropped, since
     `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already exists in
-    an older shape). Every real scrape ever recorded is exactly the kind of history
-    this whole module exists to keep — pc caddie hides the past, so there's no
-    re-scraping it later — so an `ALTER TABLE` here, not a fresh/rebuilt database,
-    is what keeps that history intact while still picking up the new columns."""
+    an older shape; `events` followed the next day for the identical reason, see
+    `load_latest_schedule()`'s own docstring). Every real scrape ever recorded is
+    exactly the kind of history this whole module exists to keep — pc caddie hides
+    the past, so there's no re-scraping it later — so an `ALTER TABLE` here, not a
+    fresh/rebuilt database, is what keeps that history intact while still picking up
+    the new columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(scrapes)")}
-        for column in ("sunrise", "sunset"):
+        for column in ("sunrise", "sunset", "events"):
             if column not in existing_columns:
                 conn.execute(f"ALTER TABLE scrapes ADD COLUMN {column} TEXT")
 
 
 def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
-    """Log one scrape's slots (and weather/sun times, if present) as a new batch —
-    never overwrite, history matters. Returns the new scrape's row id."""
+    """Log one scrape's slots (and weather/sun times/events, if present) as a new
+    batch — never overwrite, history matters. Returns the new scrape's row id."""
     init_db(path)
     scraped_at = datetime.now(timezone.utc).isoformat()
     sunrise = schedule.sun_times.sunrise if schedule.sun_times is not None else None
     sunset = schedule.sun_times.sunset if schedule.sun_times is not None else None
     with sqlite3.connect(path) as conn:
         cursor = conn.execute(
-            "INSERT INTO scrapes (course, date, scraped_at, sunrise, sunset) VALUES (?, ?, ?, ?, ?)",
-            (schedule.course, schedule.date, scraped_at, sunrise, sunset),
+            "INSERT INTO scrapes (course, date, scraped_at, sunrise, sunset, events) VALUES (?, ?, ?, ?, ?, ?)",
+            (schedule.course, schedule.date, scraped_at, sunrise, sunset, json.dumps(schedule.events)),
         )
         scrape_id = cursor.lastrowid
         conn.executemany(
@@ -223,25 +226,39 @@ def distinct_scraped_dates(course: str, path: Path = DEFAULT_DB_PATH) -> list[st
 
 
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
-    """Return the most recent scrape's slots (+ weather + sun times, if any was
-    saved) for a course/date, or None if never scraped. `available_courses` isn't
+    """Return the most recent scrape's slots (+ weather + sun times + events, if any
+    was saved) for a course/date, or None if never scraped. `available_courses` isn't
     persisted here (see module docstring) — a caller that needs it fills it in
     separately after loading. `sun_times` *is* now (2026-09-08 — see `init_db()`'s
     own docstring for the real gap this closed: it used to be fetched at scrape
     time and then silently dropped, never actually reaching anything that loads a
     schedule back out, including every real TUI display and the daylight half of
-    `recommend.exclude_unplayable()`)."""
+    `recommend.exclude_unplayable()`).
+
+    `events` is read back verbatim from what `save_schedule()` stored, not
+    re-derived from the loaded slots' own `block_reason` the way this used to work
+    (found 2026-09-09 while splitting the overview's Weather/Events columns: a
+    `Slot` only ever carries `block_reason` text, never which `data-status` produced
+    it, so re-deriving here could never tell a genuine block-time event apart from a
+    disable-time advance-booking notice — reintroducing, on every single load, the
+    exact bug `scraper._event_names()` had already been fixed to avoid at scrape
+    time the day before). A row saved before this column existed reads back as no
+    events (`events_json` is `None`) rather than falling back to the old buggy
+    re-derivation — the next real scrape overwrites it with the correct value
+    anyway, same "no migration needed yet" stance as everywhere else in this
+    project."""
     init_db(path)
     with sqlite3.connect(path) as conn:
         row = conn.execute(
-            "SELECT id, sunrise, sunset FROM scrapes WHERE course = ? AND date = ? "
+            "SELECT id, sunrise, sunset, events FROM scrapes WHERE course = ? AND date = ? "
             "ORDER BY id DESC LIMIT 1",
             (course, date),
         ).fetchone()
         if row is None:
             return None
-        scrape_id, sunrise, sunset = row
+        scrape_id, sunrise, sunset, events_json = row
         sun_times = SunTimes(sunrise=sunrise, sunset=sunset) if sunrise and sunset else None
+        events = json.loads(events_json) if events_json else []
 
         slot_rows = conn.execute(
             "SELECT time, booked, capacity, players, block_reason FROM slots "
@@ -275,7 +292,6 @@ def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -
             for time, precipitation_probability, precipitation_mm, wind_speed_kph, temperature_c in weather_rows
         ]
 
-    events = sorted({slot.block_reason for slot in slots if slot.block_reason})
     return Schedule(date=date, course=course, slots=slots, weather=weather, sun_times=sun_times, events=events)
 
 

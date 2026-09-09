@@ -65,6 +65,13 @@ def test_save_and_load_schedule_round_trips_slots(tmp_path):
             Slot(time="06:40", booked=2, capacity=4, players=[]),
             Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs"),
         ],
+        # events is its own field, populated by scraper._event_names() before a real
+        # Schedule is ever built -- not re-derived from block_reason here any more
+        # (see load_latest_schedule()'s own docstring for why that used to be a real
+        # bug: a Slot never carries which data-status produced its block_reason, so
+        # storage.py itself could never tell a genuine event apart from an
+        # advance-booking notice after the fact).
+        events=["Golf Beginner Kurs"],
     )
 
     save_schedule(schedule, path=db)
@@ -77,6 +84,38 @@ def test_save_and_load_schedule_round_trips_slots(tmp_path):
     assert loaded.slots[1].booked == 2
     assert loaded.slots[2].block_reason == "Golf Beginner Kurs"
     assert loaded.events == ["Golf Beginner Kurs"]
+
+
+def test_load_latest_schedule_never_re_derives_events_from_block_reason(tmp_path):
+    # The real bug this fixed (2026-09-09, found while splitting the overview's
+    # Weather/Events columns): a Slot's block_reason alone can't tell a genuine
+    # block-time event apart from a disable-time advance-booking notice -- so
+    # events has to be exactly what was actually saved, never reconstructed from
+    # whatever block_reason values happen to be sitting on the loaded slots.
+    db = tmp_path / "teetime.db"
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=4, capacity=4, block_reason="4 Tage im Voraus ab 20 Uhr buchbar (KP)")],
+        events=[],  # explicitly not an event -- an advance-booking notice
+    )
+
+    save_schedule(schedule, path=db)
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+
+    assert loaded.slots[0].block_reason == "4 Tage im Voraus ab 20 Uhr buchbar (KP)"
+    assert loaded.events == []
+
+
+def test_load_latest_schedule_events_empty_for_a_row_saved_before_the_column_existed(tmp_path):
+    db = tmp_path / "old.db"
+    save_schedule(Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[]), path=db)
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE scrapes SET events = NULL")
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+
+    assert loaded.events == []
 
 
 def test_save_and_load_schedule_round_trips_players_and_weather(tmp_path):
@@ -160,10 +199,11 @@ def test_init_db_migrates_a_scrapes_table_from_before_sun_times_existed(tmp_path
     init_db(db)
 
     # The pre-existing row survived the migration untouched (just gained NULL
-    # sunrise/sunset, not lost or duplicated).
+    # sunrise/sunset/events, not lost or duplicated). `events` joined the same
+    # migration list a day later (2026-09-09), same reasoning.
     with sqlite3.connect(db) as conn:
-        rows = conn.execute("SELECT course, date, sunrise, sunset FROM scrapes").fetchall()
-    assert rows == [("18 Loch Tee 1", "2026-09-01", None, None)]
+        rows = conn.execute("SELECT course, date, sunrise, sunset, events FROM scrapes").fetchall()
+    assert rows == [("18 Loch Tee 1", "2026-09-01", None, None, None)]
 
     # And a schedule saved after the migration round-trips sun_times normally.
     schedule = Schedule(

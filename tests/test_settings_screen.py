@@ -333,7 +333,7 @@ def test_settings_screen_renders_german_labels_and_buttons(tmp_path):
             assert "Min. freie Plätze (Gruppengröße)" in labels
             assert "Regen vermeiden" in labels
             assert str(app.screen.query_one("#save", Button).label) == "Speichern"
-            assert str(app.screen.query_one("#quit", Button).label) == "Beenden"
+            assert str(app.screen.query_one("#cancel", Button).label) == "Abbrechen"
 
     asyncio.run(scenario())
 
@@ -359,21 +359,21 @@ def test_settings_screen_german_status_messages(tmp_path):
 # --- 2026-09-08 UI/UX pass (6-point direct feedback) -------------------------------
 
 
-def test_settings_screen_buttons_are_right_aligned_quit_then_save(tmp_path):
+def test_settings_screen_buttons_are_right_aligned_cancel_then_save(tmp_path):
     # Point 1: "buttons at the bottom of window need to follow common layout
     # conventions regarding placement (iirc usually those buttons are aligned to
     # the right)". Checks actual resolved positions, not just that the CSS mentions
-    # "right" -- and that Quit (secondary) sits left of Save (primary), matching the
-    # ordinary OS-dialog "Cancel ... Save" convention.
+    # "right" -- and that Cancel (secondary) sits left of Save (primary), matching
+    # the ordinary OS-dialog "Cancel ... Save" convention.
     preferences_file = tmp_path / "preferences.yaml"
 
     async def scenario():
         app = _HostApp(SettingsScreen(preferences_file))
         async with app.run_test(size=(80, 50)) as pilot:
             await pilot.pause()
-            quit_button = app.screen.query_one("#quit")
+            cancel_button = app.screen.query_one("#cancel")
             save_button = app.screen.query_one("#save")
-            assert quit_button.region.x < save_button.region.x
+            assert cancel_button.region.x < save_button.region.x
             # The row hugs the right edge of an 80-column screen, not the left.
             assert save_button.region.right > 60
 
@@ -669,5 +669,65 @@ def test_settings_screen_footer_renders_translated_hint(tmp_path):
             await pilot.pause()
             footer = app.screen.query_one(TranslatedFooter)
             assert "Beenden" in footer.render()
+
+    asyncio.run(scenario())
+
+
+# escape/q consistency -- direct feedback, 2026-09-09: "exiting the settings you need
+# to hit q, while returning to the overview is ESC and exiting the TUI is again q.
+# Please make key binds consistent." escape now dismisses just this screen (what q
+# used to do); q now quits the whole app, matching every other pushed screen.
+
+
+def test_settings_screen_escape_dismisses_just_the_screen(tmp_path):
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert len(app.screen_stack) == 2  # host app's base screen + SettingsScreen
+            await pilot.press("escape")
+            await pilot.pause()
+            assert len(app.screen_stack) == 1  # back to just the host app's base screen
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_q_quits_the_whole_app_not_just_the_screen(tmp_path, monkeypatch):
+    preferences_file = tmp_path / "preferences.yaml"
+    exited = []
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(app, "exit", lambda *a, **k: exited.append(True))
+            await pilot.press("q")
+            await pilot.pause()
+            # Still on SettingsScreen -- exit() was faked out, not the real one, so
+            # the screen itself was never dismissed the way escape/Cancel would.
+            assert len(app.screen_stack) == 2
+
+    asyncio.run(scenario())
+
+    assert exited == [True]
+
+
+def test_settings_screen_cancel_button_dismisses_not_quits(tmp_path):
+    # The button that closes the screen is "Cancel" now, not "Quit" -- it must keep
+    # dismissing (like escape), never call app.exit() the way the q key now does.
+    from textual.widgets import Button
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#cancel", Button).label) == "Cancel"
+            await pilot.click("#cancel")
+            await pilot.pause()
+            assert len(app.screen_stack) == 1
 
     asyncio.run(scenario())

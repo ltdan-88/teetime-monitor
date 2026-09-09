@@ -75,10 +75,14 @@ def test_credentials_screen_saves_username_and_password(tmp_path):
     assert load_env_value("PCC_PASS", env_path) == "hunter2"
 
 
-def test_credentials_screen_quit_without_saving_dismisses_false(tmp_path):
-    # Clicking the Quit button rather than pressing "q" -- an Input has focus on
+def test_credentials_screen_cancel_without_saving_dismisses_false(tmp_path):
+    # Clicking the Cancel button rather than pressing "q" -- an Input has focus on
     # mount, and Textual gives a focused Input first refusal on printable keys
-    # (including "q") before any Screen-level binding sees them.
+    # (including "q") before any Screen-level binding sees them. Also, "q" now quits
+    # the whole app rather than dismissing this screen (2026-09-09 fix, see this
+    # module's own BINDINGS comment) -- Cancel-the-button is the only way left to
+    # dismiss without saving, so this scenario needs it regardless of that focus
+    # detail.
     env_path = tmp_path / ".env"
     seen = []
 
@@ -87,14 +91,16 @@ def test_credentials_screen_quit_without_saving_dismisses_false(tmp_path):
         app._on_dismissed = seen.append
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.click("#quit")
+            await pilot.click("#cancel")
             await pilot.pause()
 
     asyncio.run(scenario())
     assert seen == [False]
 
 
-def test_credentials_screen_save_then_quit_dismisses_true(tmp_path):
+def test_credentials_screen_save_then_close_dismisses_true(tmp_path):
+    # "escape," not "q" any more -- q now quits the whole app rather than dismissing
+    # this screen (2026-09-09 fix, see this module's own BINDINGS comment).
     env_path = tmp_path / ".env"
     seen = []
 
@@ -107,7 +113,7 @@ def test_credentials_screen_save_then_quit_dismisses_true(tmp_path):
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
             await pilot.pause()
-            await pilot.press("q")
+            await pilot.press("escape")
             await pilot.pause()
 
     asyncio.run(scenario())

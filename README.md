@@ -154,8 +154,10 @@ spec.
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
-  refresh), showing weather (or a 📌 day-note/rain-all-day flag in its place), a
-  six-block "heat strip" for how full 08:00-20:00 is, and that day's own pick — a
+  refresh), showing real weather in its own column, that day's own event/closure
+  note (📌) in a separate Events column — split apart 2026-09-09 so a tournament or
+  maintenance closure never crowds out the actual forecast — a six-block "heat
+  strip" for how full 08:00-20:00 is, and that day's own pick — a
   confirmed booking, a recommended ★ slot, or why neither applies. That slot is the
   AI-ranked best match once `ai_assist.enabled` is on, otherwise the earliest one that
   clears your rules — not a promise that it's the best *time of day*, just the first

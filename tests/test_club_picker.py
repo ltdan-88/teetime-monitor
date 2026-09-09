@@ -177,7 +177,7 @@ def test_club_picker_retries_directory_fetch_after_credentials_saved(monkeypatch
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
             await pilot.pause()
-            await pilot.click("#quit")
+            await pilot.click("#cancel")  # CredentialsScreen's own dismiss button
             await pilot.pause()
             # Back on ClubSearchScreen now, with a real directory loaded.
             app.screen.query_one("#search").value = "leipzig"
@@ -381,17 +381,19 @@ def test_club_picker_dismisses_with_the_saved_slug_on_quit(monkeypatch, tmp_path
             await pilot.pause()
             await pilot.click("#save")
             await pilot.pause()
-            # "q" is a keybinding, not a button here -- call the action directly
-            # rather than pilot.press("q"), which would just type into whichever
-            # Input has focus instead of triggering it.
-            app.screen.action_quit_screen()
+            # "escape" is a keybinding, not a button here -- call the action
+            # directly rather than pilot.press("escape"), which would just type
+            # into whichever Input has focus instead of triggering it. (Also,
+            # pressing "q" would now quit the whole app rather than dismiss this
+            # screen -- see this module's own BINDINGS comment.)
+            app.screen.action_cancel()
             await pilot.pause()
             assert app.result == "1-golfclub-leipzig-e-v"
 
     asyncio.run(scenario())
 
 
-def test_club_picker_dismisses_with_none_when_quit_without_saving(monkeypatch, tmp_path):
+def test_club_picker_dismisses_with_none_when_cancelled_without_saving(monkeypatch, tmp_path):
     (tmp_path / "home-club.yaml").write_text("club_id: '0000001'\n")
     monkeypatch.setenv("PCC_USER", "user@example.com")
     monkeypatch.setenv("PCC_PASS", "hunter2")
@@ -401,7 +403,7 @@ def test_club_picker_dismisses_with_none_when_quit_without_saving(monkeypatch, t
         app = _HostApp("home-club", clubs_dir=tmp_path)
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.screen.action_quit_screen()
+            app.screen.action_cancel()
             await pilot.pause()
             assert app.result is None
 

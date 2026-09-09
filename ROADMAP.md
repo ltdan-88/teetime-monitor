@@ -1717,6 +1717,89 @@ render/save scenario simplified to just the one Switch). Verified the removal is
 real the same way the addition was: reverting it back out and confirming
 `ai_assist.model`'s field id genuinely stopped existing on the rendered screen.
 
+**The overview's Weather column split into Weather + Events, and a real storage bug
+found along the way, same day**: a real screenshot, direct feedback: "It shouldn't
+mix up events with weather data. Can you make an extra column for the events?" The
+2026-09-08 fix (📌 instead of 🏆) had softened the *icon*, but the actual complaint —
+a column literally labeled "Weather" showing something that isn't weather at all —
+was still there. `tui._day_tag_or_weather()` split into `_weather_cell()` (always
+real weather, or nothing) and `_event_cell()` (the day's own block-reason note, or
+nothing), each its own `OverviewScreen` column now (`Day | Weather | Events | Heat
+08–20 | Pick`).
+
+Building a real end-to-end test for this (seed a genuine scraped-and-saved schedule
+with both an event and weather, check it through the actual overview table) surfaced
+a second, independent bug — not the one being fixed, a new one this same feature
+exposed: `storage.load_latest_schedule()` was *re-deriving* `events` from the loaded
+slots' own `block_reason` (`sorted({slot.block_reason for slot in slots if
+slot.block_reason})`) instead of reading back whatever `Schedule.events` actually
+was at save time. A `Slot` only ever carries `block_reason` *text*, never which
+`data-status` produced it — so this re-derivation could never tell a genuine
+block-time event apart from a disable-time advance-booking notice, silently
+reintroducing, on every single load, the exact bug `scraper._event_names()` had
+just been fixed to avoid at scrape time the day before (see "Stop overclaiming
+'tournament'" above). Since `OverviewScreen` (and `analytics.py`) only ever see a
+schedule *after* it's round-tripped through storage, that earlier fix had never
+actually been effective for any real, persisted data — only for a schedule still
+held in memory immediately after scraping, which nothing in the running app
+actually displays.
+
+Fixed the same way `sun_times` was (see `init_db()`'s own docstring, one day
+earlier): `scrapes` gained a real `events` column (JSON-encoded), migrated in for
+existing databases via `ALTER TABLE`, written directly from `Schedule.events` at
+save time, read back verbatim at load time — no re-derivation at all any more. A row
+saved before this column existed reads back as no events, same "no migration
+fallback needed yet" stance as everywhere else in this project; the very next real
+scrape overwrites it correctly.
+
+9 new tests across `test_storage.py` (the real re-derivation bug, reproduced and
+fixed; the pre-existing-column migration) and `test_tui.py` (`_weather_cell()`/
+`_event_cell()`'s own cases, a full overview-table integration test seeding a real
+saved schedule with both an event and weather and checking both columns render
+correctly). Verified live in an isolated sandbox, headless tmux, against the real
+site (club 0000001): a fabricated event+disable-time-notice day scraped, saved, and
+reloaded through actual storage showed "☀ 20°/20°" in Weather and "📌
+Dienstag-Ladies" in Events — confirmed via `parse_schedule_html()` → `save_schedule()`
+→ `load_latest_schedule()`, the exact real pipeline the running app uses, not a
+hand-built `Schedule`.
+
+**`escape`/`q` made consistent across every screen, same session**: "Also I noticed
+that exiting the settings you need to hit q, while returning to the overview is ESC
+and exiting the TUI is again q. Please make key binds consistent." `SettingsScreen`
+was the one real outlier reachable from the running app: no `escape` binding at
+all, and `q` meant "close just this screen" rather than "quit the whole app" — a
+genuine, user-visible inconsistency once pushed from `tui.py` (where every other
+screen's `q` really does exit the process), even though it was never actually a
+problem in `SettingsScreen`'s own standalone mode (`SettingsApp.on_mount()`'s
+dismiss-callback already exits the app the moment the screen closes either way, so
+that mode's behavior is unchanged by this fix). Now: `escape` dismisses just the
+screen (what `q` used to do), `q` calls `self.app.exit()` directly, matching
+`ClubBrowserScreen`/`CoursePickerScreen`/`SearchScreen`/`HeatmapScreen`/
+`DayDetailScreen`'s own convention exactly. The button that dismisses the screen
+is relabeled "Cancel," not "Quit" — it was always really a cancel action (reusing
+an existing i18n key rather than adding one), and leaving it labeled "Quit" once
+the `q` *key* genuinely meant something different would have been its own new
+inconsistency.
+
+The identical pattern (no `escape`, `q` = close screen, a "Quit" button that's
+really Cancel) turned out to exist in two more places — `credentials_screen.py` and
+`club_picker.py`'s `ClubSearchScreen` — fixed the same way, even though neither is
+currently reachable from the running main `tui.py` app (so neither had actually
+produced a live user complaint yet, just the same latent inconsistency waiting to
+resurface whenever either gets reintegrated or run standalone).
+
+A real regression caught by the existing suite, not a new test: two already-passing
+`test_tui.py` scenarios (editing settings via `e`, saving, then closing) had been
+pressing `"q"` to close `SettingsScreen` and continue — exactly the real flow the
+user reported. Once `q` started meaning "quit," those tests would have tried to
+exit the real app mid-scenario instead of returning to the overview; fixed to press
+`escape` instead, which is now also the *correct*, consistent key to actually use.
+
+15 new/changed tests across `test_settings_screen.py`, `test_credentials_screen.py`,
+and `test_club_picker.py`, three confirmed to genuinely fail when the fix was
+temporarily reverted (a plain `NoMatches` on the renamed button id, not a
+behavioral assertion, since the old id no longer exists at all once fixed).
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and
