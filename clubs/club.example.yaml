@@ -39,13 +39,19 @@ calendar:
 # How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 
-# Estimated round duration, used to work out whether a tee time finishes before sunset
-# (Phase 2 playability highlight). Tune to your own/your group's typical pace. Not
-# moved to the shared global settings below since a round genuinely can take a
-# different amount of time on a different course.
-round_duration_minutes:
-  nine: 120
-  eighteen: 240
+# Estimated round duration, used to work out whether a tee time finishes before
+# sunset (Phase 2 playability highlight) and how long weather is checked across
+# (Phase 2's own round-length window). Also used to live here per club -- moved
+# 2026-09-09 into the same shared file as availability/preferences/ai_assist above
+# (direct request: "make pace speed adjustable in settings"), same reasoning as
+# those earlier moves: nothing about your own typical pace actually varies by club
+# here. Press `e` from the running app to adjust it (under "Timing & scraping"); a
+# club file that still has its own round_duration_minutes below keeps working as a
+# fallback (see tui._resolved_config()'s shallow merge) but no longer wins once the
+# shared file has actually set one.
+# round_duration_minutes:
+#   nine: 120
+#   eighteen: 240
 
 # Your own name, used for personal stats (Phase 5). `friends` may turn out to be
 # unnecessary — pc caddie has its own native friends list (manage it in the site itself,

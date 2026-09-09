@@ -286,10 +286,13 @@ def _slot_event_cell(slot: Slot) -> str:
     answer), a translated placeholder for a genuinely blank reason (a real, confirmed
     case — see `load_schedule()`'s own note), or blank for a normal open/occupied
     slot. Split out of the old Occupancy-column overload 2026-09-09, direct
-    feedback: "I would prefer if detailed view had a separate events column." """
+    feedback: "I would prefer if detailed view had a separate events column." The
+    📋 icon (added the same day, alongside the overview's own legend) matches the
+    overview's own Events column exactly — same meaning, same symbol, on both
+    screens."""
     if slot.block_reason is None:
         return ""
-    return slot.block_reason or i18n.t("table.not_bookable")
+    return f"📋 {slot.block_reason or i18n.t('table.not_bookable')}"
 
 
 class ClubBrowserScreen(Screen[str | None]):
@@ -753,16 +756,19 @@ def _event_cell(schedule: Schedule) -> str:
     app's UI chrome. Empty string with nothing to show, same as
     `_temperature_cell()`/`_precipitation_cell()`/`_wind_cell()`.
 
-    The icon (📌, not 🏆) is deliberately generic: `events` is genuinely just "the
+    The icon (📋, not 🏆) is deliberately generic: `events` is genuinely just "the
     club published a reason a slot isn't normally bookable today," which is very
     often a real tournament ("AK 50 Herren") but just as often a routine ladies'/
     members' day or a maintenance closure — nothing in the scraped data actually
     distinguishes a competitive event from a routine one (see ROADMAP.md's "Known
     risks" — no separate tournament-calendar source is implemented), so a trophy
     specifically claiming "competition" would overclaim what this app can actually
-    tell."""
+    tell. Changed from 📌 to 📋 2026-09-09 (see `LEGEND_*` below) — 📌 was already
+    doing double duty for confirmed bookings in the Pick column (`_day_pick_text()`),
+    which a legend listing icon meanings would have had to show twice with two
+    different meanings."""
     if schedule.events:
-        return f"📌 {schedule.events[0]}"
+        return f"📋 {schedule.events[0]}"
     return ""
 
 
@@ -795,10 +801,10 @@ def _location_for_club(club_id: str, club_name: str) -> dict | None:
 
 def _resolved_config(club_slug: str | None, club_id: str | None = None, club_name: str = "") -> dict:
     """This club's own settings (`location`, `overview_days`, `default_course`,
-    `identity`, `round_duration_minutes` — genuinely per-club facts), with your
-    global `availability`/`preferences`/`ai_assist`/scrape-interval settings shallow-
-    merged on top (added 2026-09-08, direct feedback: "i also want the settings/
-    preferences to be global and not tied to a specific club" — those aren't
+    `identity` — genuinely per-club facts), with your global `availability`/
+    `preferences`/`ai_assist`/`round_duration_minutes`/scrape-interval settings
+    shallow-merged on top (added 2026-09-08, direct feedback: "i also want the
+    settings/preferences to be global and not tied to a specific club" — those aren't
     per-club facts at all, so they overlay every club's own config rather than being
     duplicated into each one). `club_slug is None` (a club being visited without
     saving it) contributes nothing per-club from clubs/*.yaml, but still gets your
@@ -920,6 +926,39 @@ def _day_pick_text(
     return f"[dim italic]{i18n.t(message_key)}[/]"
 
 
+def _legend_line(entries: list[tuple[str, str]]) -> str:
+    """One "icon meaning" line, e.g. "★ recommended   🌧 rain   💨 wind" — added
+    2026-09-09, direct question: "Would it make sense to implement a legend, since
+    we already have so many icons?" `OverviewScreen`/`DayDetailScreen` each pass
+    their own subset (`OVERVIEW_LEGEND`/`DAY_DETAIL_LEGEND` below) rather than one
+    shared list, since the two screens don't use quite the same icons (only
+    `DayDetailScreen` has 🌙, only `OverviewScreen`'s Pick column has a standalone
+    📌 for a confirmed booking)."""
+    return "   ".join(f"{icon} {i18n.t(key)}" for icon, key in entries)
+
+
+# One (icon, i18n key) pair per icon that screen's own table can actually show —
+# kept as the single source of truth both the legend line and this comment can
+# point back to, rather than the icons living only inside each cell-building
+# function with nothing tying their meanings together in one place.
+OVERVIEW_LEGEND = [
+    ("★", "legend.recommended"),
+    ("🌧", "legend.rain"),
+    ("💨", "legend.wind"),
+    ("📋", "legend.event"),
+    ("📌", "overview.booked"),
+    ("⚠", "legend.changed"),
+]
+DAY_DETAIL_LEGEND = [
+    ("★", "legend.recommended"),
+    ("🌙", "legend.too_late"),
+    ("🌧", "legend.rain"),
+    ("💨", "legend.wind"),
+    ("📋", "legend.event"),
+    ("⚠", "legend.changed"),
+]
+
+
 OVERVIEW_MAX_PICKS_SHOWN = 5
 
 
@@ -937,6 +976,15 @@ class OverviewScreen(Screen[None]):
     shown only once `availability` rules are actually configured (direct feedback on
     the mockup: an unconfigured club showing "no picks" on every single day would
     read as broken, not just empty).
+
+    A dim `#legend` line below the picks (2026-09-09, direct question: "Would it
+    make sense to implement a legend, since we already have so many icons?") spells
+    out what every icon this screen can show actually means (`OVERVIEW_LEGEND`) —
+    added alongside a real fix, not just documentation: `_event_cell()`'s own 📌 was
+    quietly reused for two different meanings (a day's event/closure note here, a
+    confirmed booking in the Pick column) until this same change gave the Events
+    column its own icon (📋) instead, so a legend would never have to list one icon
+    twice for two different things.
 
     Data comes from whatever's already been scraped (`storage.load_latest_schedule()`
     per day), same as `DayDetailScreen` — opening this screen never blocks on a live
@@ -1012,9 +1060,11 @@ class OverviewScreen(Screen[None]):
         yield Static("", id="status")
         yield DataTable(id="overview-table")
         yield Static("", id="picks")
+        yield Static("", id="legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
+        self.query_one("#legend", Static).update(f"[dim]{_legend_line(OVERVIEW_LEGEND)}[/]")
         table = self.query_one(DataTable)
         table.add_columns(
             i18n.t("table.day"),
@@ -1594,7 +1644,12 @@ class DayDetailScreen(Screen[None]):
     dark — independent of whether `availability` rules are configured at all, since
     this is a physics fact about the slot, not a preference judgment; mutually
     exclusive with the ★ recommended-slot marker by construction, since a
-    daylight-failing candidate is never ★-recommended in the first place."""
+    daylight-failing candidate is never ★-recommended in the first place.
+
+    A dim `#legend` line below the table (`DAY_DETAIL_LEGEND`, added alongside
+    `OverviewScreen`'s own the same day — see that screen's docstring for the direct
+    question this responds to) spells out this screen's own icons, including 🌙 —
+    `OverviewScreen` has no such marker, so it isn't in that screen's own legend."""
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
@@ -1649,9 +1704,11 @@ class DayDetailScreen(Screen[None]):
         yield Static("", id="daylight")
         yield Static("", id="status")
         yield DataTable(id="table")
+        yield Static("", id="legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
+        self.query_one("#legend", Static).update(f"[dim]{_legend_line(DAY_DETAIL_LEGEND)}[/]")
         table = self.query_one(DataTable)
         table.add_columns(
             i18n.t("table.time"),

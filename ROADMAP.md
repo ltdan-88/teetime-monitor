@@ -1856,6 +1856,56 @@ table, and 🌙 correctly marked every slot too late to finish before the config
 sunset — confirmed through the real `parse_schedule_html()` → `save_schedule()` →
 `load_latest_schedule()` pipeline, not a hand-built `Schedule`.
 
+**An icon legend, and a real icon collision found while designing it, same
+session**: "Would it make sense to implement a legend, since we already have so
+many icons?" Checking the actual icon inventory before answering surfaced a real
+problem, not just an opportunity: 📌 was already doing double duty — a confirmed
+booking in the overview's Pick column (`_day_pick_text()`) *and* a day's event/
+closure note in the Events column (`_event_cell()`). The two sat in different,
+labeled columns, so it was never actively confusing in context, but a standalone
+legend would have had to list the same icon twice with two different meanings,
+which defeats the point of having one. Fixed at the source rather than working
+around it: `_event_cell()`/`_slot_event_cell()` changed from 📌 to 📋, leaving 📌
+uniquely meaning "confirmed booking" everywhere it appears.
+
+New `_legend_line()` plus `OVERVIEW_LEGEND`/`DAY_DETAIL_LEGEND` — one (icon, i18n
+key) list per screen rather than one shared list, since the two screens don't quite
+use the same icons (only `DayDetailScreen` has 🌙; only `OverviewScreen`'s Pick
+column has a standalone 📌). A dim `#legend` line renders at the bottom of both
+screens, set once in `on_mount()` (both screens already rebuild wholesale on a
+language switch, so no separate re-render path was needed).
+
+5 new tests: `_legend_line()`'s own formatting, a direct assertion that no icon
+repeats within either screen's own legend list (the regression test for the actual
+bug found), that 🌙 only appears in `DayDetailScreen`'s list, and a real render
+check on each screen. Verified live in an isolated sandbox: both legends render at
+the bottom of their real screens with the correct icons and translated meanings,
+in both English and German.
+
+**Round duration moved from per-club YAML to the shared settings screen, same
+session**: direct follow-up right after being asked (and answering) what the
+existing 120/240-minute defaults actually were: "make pace speed adjustable in
+settings ;)". Same correction `ai_assist` and `availability`/`preferences` already
+went through — `round_duration_minutes` had been kept per-club on the theory that
+pace genuinely varies by course, but the actual ask was for one adjustable pair of
+settings, not a per-club dial. Two new `Select` dropdowns under "Timing &
+scraping" (`ROUND_DURATION_NINE_CHOICES`: 60-180 min in 15-min steps;
+`ROUND_DURATION_EIGHTEEN_CHOICES`: 150-330 min in 30-min steps — a wider range
+would otherwise mean a much longer dropdown for the same "plausible values" spirit
+every other preset list here already has). No changes needed in
+`recommend._round_duration_minutes()` itself — it already just reads whatever
+`config["round_duration_minutes"]` it's handed, and `_resolved_config()`'s existing
+shallow merge means this file's value wins the same way every other global setting
+already does; a club's own value (if any) still works as a fallback.
+
+3 new tests across `test_settings_screen.py` (defaults, edited round-trip, a real
+render-and-save scenario through the actual Select widgets), all confirmed
+genuinely dependent on the change by reverting it and watching a plain `NoMatches`
+(the fields not existing at all) rather than a wrong-value assertion. Verified live
+in an isolated sandbox: the real settings screen shows both new dropdowns under
+"Timing & scraping" with "120 min"/"240 min" preselected, alongside the existing
+daylight buffer and scrape interval fields.
+
 ## Phase 5 — Local-stats analytics, crowd heatmap & personal stats
 - `analytics.py` — the *raw aggregation* stays plain SQL/code, no AI involved: it needs
   to produce actual numbers to color a heatmap grid, and grouping rows by day-type and

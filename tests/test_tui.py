@@ -587,12 +587,12 @@ def test_slot_wind_cell_blank_without_a_forecast():
 
 def test_slot_event_cell_shows_the_block_reason():
     slot = Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")
-    assert tui._slot_event_cell(slot) == "Golf Beginner Kurs"
+    assert tui._slot_event_cell(slot) == "📋 Golf Beginner Kurs"
 
 
 def test_slot_event_cell_placeholder_for_a_blank_reason():
     slot = Slot(time="10:00", booked=4, capacity=4, block_reason="")
-    assert tui._slot_event_cell(slot) == i18n.t("table.not_bookable")
+    assert tui._slot_event_cell(slot) == f"📋 {i18n.t('table.not_bookable')}"
 
 
 def test_slot_event_cell_empty_for_a_normal_slot():
@@ -1149,13 +1149,15 @@ def test_event_cell_shows_the_event_even_on_a_day_with_weather():
         weather=[_weather("09:00", prob=5, temp=20.0)],
         events=["Herbstturnier"],
     )
-    # 📌, not 🏆 -- 2026-09-08 direct feedback questioning why non-weather text
+    # 📋, not 🏆 -- 2026-09-08 direct feedback questioning why non-weather text
     # showed in the Weather column at all: `events` is genuinely just "the club
     # published a reason a slot isn't normally bookable," which is often a real
     # tournament but just as often a routine ladies'/members' day or a maintenance
     # closure -- nothing in the scraped data actually distinguishes the two, so a
     # trophy specifically claiming "competition" overclaimed what this can tell.
-    assert tui._event_cell(schedule) == "📌 Herbstturnier"
+    # Changed from an earlier 📌 to 📋 2026-09-09, once that icon turned out to
+    # already mean "confirmed booking" in the Pick column -- see _legend_line().
+    assert tui._event_cell(schedule) == "📋 Herbstturnier"
 
 
 def test_event_cell_empty_without_any_event():
@@ -1491,6 +1493,60 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
     _run(scenario())
 
 
+# _legend_line()/OVERVIEW_LEGEND/DAY_DETAIL_LEGEND -- added 2026-09-09, direct
+# question: "Would it make sense to implement a legend, since we already have so
+# many icons?"
+
+
+def test_legend_line_joins_icon_and_meaning_pairs():
+    line = tui._legend_line([("★", "legend.recommended"), ("🌧", "legend.rain")])
+    assert line == "★ recommended   🌧 rain"
+
+
+def test_overview_legend_does_not_repeat_an_icon_with_two_meanings():
+    # The real bug this responds to: 📌 used to mean both "confirmed booking" (Pick
+    # column) and "event/closure note" (Events column) -- a legend would have had to
+    # list the same icon twice with different meanings. Fixed by giving Events its
+    # own icon (📋) instead, so every icon in one screen's own legend is unique.
+    icons = [icon for icon, _ in tui.OVERVIEW_LEGEND]
+    assert len(icons) == len(set(icons))
+    assert "📌" in icons and "📋" in icons  # both still present, just not on one icon
+
+
+def test_day_detail_legend_includes_the_moon_marker_overview_does_not():
+    assert "🌙" in [icon for icon, _ in tui.DAY_DETAIL_LEGEND]
+    assert "🌙" not in [icon for icon, _ in tui.OVERVIEW_LEGEND]
+
+
+def test_overview_screen_shows_a_legend_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            legend = str(app.screen.query_one("#legend", Static).content)
+            assert "★ recommended" in legend
+            assert "📋 event/closure" in legend
+            assert "📌 booked" in legend
+
+    _run(scenario())
+
+
+def test_day_detail_shows_a_legend_line_including_the_moon(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            legend = str(app.screen.query_one("#legend", Static).content)
+            assert "🌙 too late for sunset" in legend
+
+    _run(scenario())
+
+
 def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns(tmp_path, monkeypatch):
     # Direct feedback on a real screenshot: "It shouldn't mix up events with weather
     # data. Can you make an extra column for the events?" then "can you please split
@@ -1519,7 +1575,7 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
             assert row[1] == "20°/20°"  # real temperature, not the event
             assert "5%" in row[2]
             assert "40km/h" in row[3]
-            assert row[4] == "📌 Herbstturnier"  # the event, in its own column
+            assert row[4] == "📋 Herbstturnier"  # the event, in its own column
 
     _run(scenario())
 

@@ -287,6 +287,48 @@ def test_settings_screen_ai_assist_enabled_renders_and_saves(tmp_path):
     assert saved["ai_assist"] == {"enabled": True}
 
 
+# round_duration_minutes -- moved here from clubs/*.yaml, 2026-09-09 direct request:
+# "make pace speed adjustable in settings."
+
+
+def test_config_to_widget_values_round_duration_defaults():
+    values = config_to_widget_values({})
+    assert values[_id("round_duration_minutes", "nine")] == "120"
+    assert values[_id("round_duration_minutes", "eighteen")] == "240"
+
+
+def test_widget_values_to_config_parses_edited_round_duration():
+    values = config_to_widget_values({})
+    values[_id("round_duration_minutes", "nine")] = "90"
+    values[_id("round_duration_minutes", "eighteen")] = "270"
+    updated = widget_values_to_config({}, values)
+    assert updated["round_duration_minutes"] == {"nine": 90, "eighteen": 270}
+
+
+def test_settings_screen_round_duration_fields_render_as_dropdowns_and_save(tmp_path):
+    from textual.widgets import Select
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            nine_widget = app.screen.query_one(f"#{_id('round_duration_minutes', 'nine')}")
+            eighteen_widget = app.screen.query_one(f"#{_id('round_duration_minutes', 'eighteen')}")
+            assert isinstance(nine_widget, Select)
+            assert isinstance(eighteen_widget, Select)
+            nine_widget.value = "90"
+            eighteen_widget.value = "270"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["round_duration_minutes"] == {"nine": 90, "eighteen": 270}
+
+
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     # min_open_spots (used here before 2026-09-08) and buffer_minutes (used here
     # before the same-day before/after split) both became Select dropdowns and can

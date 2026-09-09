@@ -15,10 +15,10 @@ the same standing rules into every second club you added — your own availabili
 weather comfort don't change depending on which course you're looking at, so that was
 never actually a per-club fact, just modeled as one. Now reads/writes
 `global_preferences.py`'s one shared file instead. Everything genuinely per-club
-(`club_id`, `location`, `calendar`, `overview_days`, `default_course`, `identity`,
-`round_duration_minutes`) still lives in `clubs/*.yaml`, untouched by this screen, and
-hand-edited for now — those are set-once-at-setup values, not day-to-day dials, and
-each one really does vary by club.
+(`club_id`, `location`, `calendar`, `overview_days`, `default_course`, `identity`)
+still lives in `clubs/*.yaml`, untouched by this screen, and hand-edited for now —
+those are set-once-at-setup values, not day-to-day dials, and each one really does
+vary by club.
 
 `ai_assist` (whether recommendations get AI-ranked) joined the global side the same
 day, direct request right after discussing turning it on for the first time: "the ai
@@ -65,6 +65,19 @@ meaning instead. The exact same fix, for the exact same reason, was also applied
 `credentials_screen.py` and `club_picker.py`'s `ClubSearchScreen` — both had the
 identical pattern (no `escape`, `q` = close screen), just not yet reachable from a
 live user complaint since neither is currently pushed from the running main app.
+
+`round_duration_minutes` (how long a 9- or 18-hole round takes, feeding both the
+weather-during-the-round check and the daylight/sunset cutoff) joined the global
+side too, same day, direct request right after its existing 120/240-minute defaults
+were explained: "make pace speed adjustable in settings." Same correction as
+`ai_assist` above — kept per-club on the theory that pace genuinely varies by
+course, but the actual ask was for one adjustable pair of settings (nine-hole,
+eighteen-hole), not a per-club dial. Two new `Select` dropdowns under "Timing &
+scraping" (`ROUND_DURATION_NINE_CHOICES`/`ROUND_DURATION_EIGHTEEN_CHOICES`) —
+nothing new needed in `recommend._round_duration_minutes()` itself, since it
+already just reads whatever `config["round_duration_minutes"]` it's handed, and
+`_resolved_config()`'s existing shallow merge means this file's value wins the same
+way every other global setting's already does.
 
 `SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
 from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
@@ -205,6 +218,13 @@ def _int_choices(*values: int) -> list[tuple[str, str]]:
 # value selectable" handling below, which adds it to the list rather than silently
 # discarding it.
 DAYLIGHT_BUFFER_CHOICES = _int_choices(0, 15, 30, 45, 60, 90)
+# Added 2026-09-09, direct request ("make pace speed adjustable in settings") right
+# after explaining the existing round_duration_minutes defaults (120/240) -- 15-min
+# steps for nine (a smaller range, finer granularity is cheap) and 30-min steps for
+# eighteen (a wider range would otherwise mean a much longer dropdown for the same
+# "values someone actually picks" spirit as every other preset list here).
+ROUND_DURATION_NINE_CHOICES = _int_choices(60, 75, 90, 105, 120, 135, 150, 165, 180)
+ROUND_DURATION_EIGHTEEN_CHOICES = _int_choices(150, 180, 210, 240, 270, 300, 330)
 # Includes scrape_once.py's own DEFAULT_SCRAPE_INTERVAL_MINUTES (360) -- an earlier
 # version of this list left it out, so a freshly-created settings file (nothing
 # saved yet, everything on its default) showed a plain unlabeled "360" instead of
@@ -415,6 +435,30 @@ FIELDS: list[Field] = [
         "settings.group.timing",
         30,
         choices=DAYLIGHT_BUFFER_CHOICES,
+    ),
+    # Moved here from clubs/*.yaml, 2026-09-09 direct request ("make pace speed
+    # adjustable in settings") -- round_duration_minutes was kept per-club on the
+    # theory that pace genuinely varies by course, but the actual ask was for one
+    # adjustable setting, not a per-club dial, the same correction availability/
+    # preferences/ai_assist already went through. A club file that still sets its
+    # own round_duration_minutes keeps working as a fallback via
+    # _resolved_config()'s existing shallow merge -- it just no longer wins once
+    # this screen has actually set one.
+    Field(
+        "settings.field.round_duration_nine",
+        ("round_duration_minutes", "nine"),
+        "int",
+        "settings.group.timing",
+        120,
+        choices=ROUND_DURATION_NINE_CHOICES,
+    ),
+    Field(
+        "settings.field.round_duration_eighteen",
+        ("round_duration_minutes", "eighteen"),
+        "int",
+        "settings.group.timing",
+        240,
+        choices=ROUND_DURATION_EIGHTEEN_CHOICES,
     ),
     Field(
         "settings.field.scrape_interval_normal",

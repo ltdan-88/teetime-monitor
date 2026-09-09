@@ -116,10 +116,16 @@ spec.
   genuinely the reason nothing's recommended — a separate "too dark to finish" shows
   up instead when daylight is what actually excluded everything
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
-  9- or 18-hole round before dark, based on a configurable estimated round duration
+  9- or 18-hole round before dark, based on your own estimated pace (adjustable in
+  settings, defaulting to 2 hours for 9 holes / 4 hours for 18); the single-day tee
+  sheet marks each such slot directly with a 🌙, not just a day-level summary
 - Tournament/event days flagged in their own Events column (both overview and
   single-day tee sheet) — sourced directly from the tee sheet's own scraped
   block-reason labels, not a separate events-calendar fetch
+- A dim legend line at the bottom of both screens spells out what each icon
+  actually means (★ recommended, 🌧 rain, 💨 wind, 📋 event/closure, 📌 booked,
+  ⚠ changed since booked, plus 🌙 too late for sunset on the single-day tee sheet)
+  — added once there were enough of them that guessing started to feel necessary
 - Public holidays and school-vacation periods factored in too, since both tend to mean
   a busier course
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after
@@ -128,21 +134,22 @@ spec.
   weather comfort don't change depending on which course you're checking, so it's one
   shared set of rules that applies everywhere, not something to re-enter for every
   club you add
-- A settings screen for adjusting that availability/weather preferences and the
-  scrape interval without hand-editing YAML — press `e` from the overview or the tee
-  sheet itself, no separate command needed, and works the same regardless of which
-  club is active (or even whether one is saved as a favorite at all). Still runnable
-  on its own too via `python -m src.settings_screen`. Fields are grouped into
-  collapsible sections (Availability / Weather / Priorities / AI ranking / Timing &
-  scraping); ones with only a handful of sensible values (party size, the daylight
-  buffer, both scrape intervals, and the buffer to nearby flights in 10-minute steps)
-  are dropdowns rather than free text, so they can't hold a typo; the weekday/weekend
-  time windows are hour and minute dropdowns rather than typing "17:00" by hand,
-  with the hour list itself trimmed to 05:00-21:00 — no golf club is open at 2am;
-  Save/Quit sit right-aligned like an ordinary dialog's buttons, not hugging the
-  window's left edge. Below about 72 columns wide, each field switches to
-  label-above-field instead of side-by-side, so nothing gets clipped in a narrow
-  terminal window
+- A settings screen for adjusting that availability/weather preferences, your own
+  estimated pace for 9/18 holes, and the scrape interval without hand-editing YAML —
+  press `e` from the overview or the tee sheet itself, no separate command needed,
+  and works the same regardless of which club is active (or even whether one is
+  saved as a favorite at all). Still runnable on its own too via
+  `python -m src.settings_screen`. Fields are grouped into collapsible sections
+  (Availability / Weather / Priorities / AI ranking / Timing & scraping); ones with
+  only a handful of sensible values (party size, the daylight buffer, round
+  duration, both scrape intervals, and the buffer to nearby flights in 10-minute
+  steps) are dropdowns rather than free text, so they can't hold a typo; the
+  weekday/weekend time windows are hour and minute dropdowns rather than typing
+  "17:00" by hand, with the hour list itself trimmed to 05:00-21:00 — no golf club
+  is open at 2am; Save/Cancel sit right-aligned like an ordinary dialog's buttons,
+  not hugging the window's left edge. Below about 72 columns wide, each field
+  switches to label-above-field instead of side-by-side, so nothing gets clipped in
+  a narrow terminal window
 - AI-ranked recommendations (`ai_assist.enabled`) are a plain on/off switch in that
   same settings screen — moved there from `clubs/*.yaml` on request, since wanting
   this on or off never actually varied by club. No model choice is offered alongside
@@ -369,13 +376,13 @@ Also note: `settings_screen.py` saves its whole file on every save, so any hand-
 comments in it won't survive — the checked-in `club.example.yaml` template itself is
 never touched, so it stays available as reference regardless.
 
-Your availability/weather preferences, AI-ranking choice, and scrape interval live at
-`~/.config/teetime-monitor/preferences.yaml` — one shared file, not per-club (moved
-there 2026-09-08; previously part of each club's own YAML — `ai_assist` followed the
-same day, once turning it on for the first time raised the question of where it
-belonged). `location`, `overview_days`, `default_course`, `identity`, and
-`round_duration_minutes` stay in `clubs/*.yaml`, since each of those really is a
-per-club fact.
+Your availability/weather preferences, AI-ranking choice, estimated round duration,
+and scrape interval live at `~/.config/teetime-monitor/preferences.yaml` — one shared
+file, not per-club (moved there 2026-09-08; previously part of each club's own YAML —
+`ai_assist` followed the same day, `round_duration_minutes` the day after, once
+turning each on/adjusting it for the first time raised the question of where it
+belonged). `location`, `overview_days`, `default_course`, and `identity` stay in
+`clubs/*.yaml`, since each of those really is a per-club fact.
 
 Theme choice is separate from any club's YAML — it's a "how do I like my terminal to
 look" preference, not a per-club fact — and lives in its own file,
