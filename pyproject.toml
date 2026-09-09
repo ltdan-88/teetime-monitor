@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
