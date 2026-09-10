@@ -30,3 +30,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+# club_directory_seed.json (2026-09-10) -- setuptools only bundles .py files by
+# default; without this, `pip install .` silently drops the bundled club-directory
+# snapshot, and every install (Homebrew included) loses the whole feature with no
+# error at all. Found live: installed v0.7.0 via the real Homebrew formula and
+# confirmed the file was actually missing from site-packages before adding this.
+src = ["club_directory_seed.json"]
