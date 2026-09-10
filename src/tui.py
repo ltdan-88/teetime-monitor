@@ -132,7 +132,7 @@ from textual import events
 from textual.app import App, ComposeResult, SystemCommand
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, OptionList, Select, Static
+from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
 from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, playability
@@ -645,7 +645,18 @@ class ConfirmBookingScreen(Screen[bool]):
     course itself (`_holes_from_course_label()` — the same derivation
     scraper.py's own reservation parsing already uses, since a course category like
     "18 Loch Tee 1" only ever means one hole count). Both stay editable — pre-filled,
-    not forced — for the rare case either guess is wrong."""
+    not forced — for the rare case either guess is wrong.
+
+    Found genuinely missed, dedicated bug hunt (2026-09-10): every other screen in
+    this app was carefully audited for `escape` back / `q` quit consistency and a
+    translated footer — this one never was. Had no `BINDINGS` at all (`escape` did
+    nothing, `q` either typed into a focused `Input` or did nothing) and yielded a
+    plain `Footer()` instead of `TranslatedFooter`, silently English-only regardless
+    of the app's own language setting. `escape` now dismisses the same as clicking
+    Cancel (`dismiss(False)`, no save)."""
+
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
     def __init__(
         self,
@@ -678,7 +689,13 @@ class ConfirmBookingScreen(Screen[bool]):
             with Horizontal():
                 yield Button(i18n.t("button.save"), id="save", variant="success")
                 yield Button(i18n.t("button.cancel"), id="cancel")
-        yield Footer()
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_quit(self) -> None:
+        self.app.exit()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
@@ -1680,6 +1697,10 @@ class SearchScreen(Screen[None]):
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
+        # Never actually set before this -- found live, dedicated bug hunt
+        # (2026-09-10): the mockup's own "Search" screen shows "Search this week"
+        # right in the Header, but the real screen just showed the bare app title.
+        self.title = i18n.t("search.title")
         table = self.query_one("#search-results", DataTable)
         table.add_columns(
             i18n.t("search.table.date"),

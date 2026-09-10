@@ -2343,6 +2343,49 @@ isolated sandbox, headless tmux: with no credentials configured, launch shows "p
 caddie login — v0.4.0" as the very first screen; escaping without saving correctly
 reaches the club browser next, not a dead end. 593 tests passing.
 
+**Dedicated bug hunt, later the same day (2026-09-10)**: direct instruction, after
+noticing several bugs during recent use, to spend real time finding and fixing more
+of them rather than waiting for each one to be individually reported. Approached
+systematically rather than guessing: `ruff check --select F,B` across `src/`/
+`tests/` (clean — no dead code, no undefined names), a full EN/DE i18n key-parity
+sweep (already in sync, and `test_every_english_key_has_a_german_translation`
+already guards it going forward), then — since the CredentialsScreen title gap two
+days ago turned out to be one instance of a real pattern, not a one-off — the same
+systematic cross-check against every other `Screen` subclass: does it set its own
+`self.title`, does it use `TranslatedFooter` (not Textual's own plain `Footer`),
+and does every `BINDINGS` key have a matching `_FOOTER_BINDINGS` hint. Two real,
+confirmed bugs found this way:
+
+- **`SearchScreen` never set its own title** — the original mockup's own "Search"
+  screen shows "Search this week" right in the header; the real screen just showed
+  the app's bare default title the whole time. One-line fix, new `search.title` key.
+- **`ConfirmBookingScreen` had no `BINDINGS` at all**, the one screen in this whole
+  app that didn't — `escape` did nothing (no way to back out except clicking
+  Cancel, awkward in a keyboard-first TUI), and it yielded a plain `Footer()`
+  instead of `TranslatedFooter`, so its key hints stayed English-only regardless of
+  the app's own language setting the entire time this screen existed. Both fixed
+  with the exact same `BINDINGS`/`_FOOTER_BINDINGS`/`action_cancel()`/
+  `action_quit()` shape every other screen already uses.
+
+Also checked and confirmed genuinely *not* bugs, worth recording so they don't get
+re-investigated later: `i18n.py`'s `watch.*`/`watch.reason.*` keys (flagged as
+"maybe unused" by an earlier, less careful sweep two days ago) are real, live, and
+correctly wired — `render_booking_change()` calls them directly, and `tui.py`
+already uses it to re-render `booking_watch.py`'s banners in the current language;
+the earlier sweep's own detection script had excluded `i18n.py` from its search
+entirely, missing that `render_booking_change()` *is* i18n.py's own code calling
+`t()` on its own keys. A `SettingsScreen` "AI ranking" section that briefly
+appeared empty in one live tmux check was a terminal-height/redraw artifact from
+manual `Down`-key scrolling, not a real bug — confirmed by re-rendering the same
+screen in a taller terminal with no scrolling involved at all.
+
+3 new tests (an `escape` case and a translated-footer case for
+`ConfirmBookingScreen`, a title case for `SearchScreen`), all confirmed genuinely
+dependent by reverting. Verified every fix live in an isolated sandbox, headless
+tmux, walking through the actual club browser → course picker → overview →
+day detail → confirm-booking flow end to end with seeded multi-day, multi-course
+data, not just the specific fields under test. 596 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

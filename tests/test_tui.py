@@ -937,6 +937,43 @@ def test_confirm_booking_cancel_dismisses_without_saving(tmp_path, monkeypatch):
     assert booking is None
 
 
+def test_confirm_booking_escape_dismisses_without_saving(tmp_path, monkeypatch):
+    # Found in a dedicated bug hunt (2026-09-10): this screen had no BINDINGS at
+    # all -- escape did nothing, unlike every other screen in this app.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.result is False
+
+    _run(scenario())
+
+    booking = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert booking is None
+
+
+def test_confirm_booking_footer_is_translated(tmp_path, monkeypatch):
+    # Found the same bug hunt: this screen yielded a plain Footer() instead of
+    # TranslatedFooter, so its key hints stayed English-only regardless of
+    # i18n.set_language() -- unlike every other screen in this app.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "Zurück" in text
+            assert "Beenden" in text
+
+    _run(scenario())
+
+
 # --- Pre-filled confirm form (2026-09-07, direct feedback: "I already selected a
 # specific time, and the TUI should know on which course I'm currently focused") -----
 
@@ -2184,6 +2221,19 @@ def test_search_screen_footer_renders_translated_hints():
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "Back" in text
             assert "Quit" in text
+
+    _run(scenario())
+
+
+def test_search_screen_sets_its_own_title():
+    # Never actually set before this (2026-09-10 bug hunt) -- the mockup's own
+    # "Search" screen shows "Search this week" in its Header; the real screen just
+    # showed the app's bare default title.
+    async def scenario():
+        app = _HostApp(_search_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.title == i18n.t("search.title")
 
     _run(scenario())
 
