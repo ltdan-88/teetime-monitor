@@ -124,6 +124,21 @@ def _some_credentials_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_seed_directory_by_default(monkeypatch):
+    """`ClubBrowserScreen.on_mount()` (2026-09-10, see club_directory.py's own "#4"
+    note) falls back to `club_directory.load_seed_directory()` whenever the real
+    cache is empty -- and that function resolves its default path from `__file__`,
+    an absolute path anchored to the actual installed module, not CWD, so it finds
+    the real ~1300-entry bundled `club_directory_seed.json` regardless of any test's
+    own directory isolation. Every test here that doesn't explicitly care about seed
+    behavior would otherwise silently load that real file. Defaults to empty so
+    `self._directory` stays exactly whatever `load_cached_directory()` returned,
+    same as every test here already assumed before the seed fallback existed; tests
+    exercising the seed fallback itself override this locally."""
+    monkeypatch.setattr(tui.club_directory, "load_seed_directory", lambda *a, **k: [])
+
+
+@pytest.fixture(autouse=True)
 def _fake_available_dates_by_default(monkeypatch):
     """`OverviewScreen.load_overview()` (added 2026-09-07) calls
     `fetch_available_dates(club_id)` live to know which of its day-rows are actually
@@ -2279,6 +2294,95 @@ def test_club_browser_status_mentions_enter_once_matches_are_shown(monkeypatch):
             await pilot.pause()
             status = str(app.screen.query_one("#club-status", Static).content)
             assert "enter" in status
+
+    _run(scenario())
+
+
+# --- Bundled seed directory fallback -- added 2026-09-10, direct pushback ("a First
+# time User would not know anything about a club id"): name search should work on a
+# brand-new install with zero setup, not just once a real login+fetch has happened. --
+
+
+def test_club_browser_falls_back_to_the_seed_when_the_real_cache_is_empty(monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    monkeypatch.setattr(
+        tui.club_directory, "load_seed_directory", lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V.")]
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "leipzig"
+            await pilot.pause()
+            status = str(app.screen.query_one("#club-status", Static).content)
+            assert "1 " in status or "matches" in status  # match_count, not no_directory_yet
+
+    _run(scenario())
+
+
+def test_club_browser_never_touches_the_seed_when_a_real_cache_already_exists(monkeypatch):
+    # The seed is a first-run fallback only -- a real cache, however small, always
+    # wins outright, never merged with or topped up from the bundled data.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(
+        tui.club_directory, "load_cached_directory", lambda *a, **k: [("0000001", "Golfclub Musterhausen")]
+    )
+    seed_calls = []
+    monkeypatch.setattr(tui.club_directory, "load_seed_directory", lambda *a, **k: seed_calls.append(1) or [])
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+    _run(scenario())
+    assert seed_calls == []
+
+
+def test_club_browser_shows_the_seed_specific_hint_with_no_favorites(monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    monkeypatch.setattr(
+        tui.club_directory,
+        "load_seed_directory",
+        lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V.")],
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            status = str(app.screen.query_one("#club-status", Static).content)
+            assert status == i18n.t("picker.no_favorites_hint_with_seed", count=1)
+
+    _run(scenario())
+
+
+def test_club_browser_real_refresh_clears_the_seed_flag(monkeypatch):
+    # Once a real fetch succeeds, the seed-specific hint must not linger -- the
+    # directory is genuinely live data now, not the bundled snapshot.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    monkeypatch.setattr(
+        tui.club_directory, "load_seed_directory", lambda *a, **k: [("0491605", "1. Golfclub Leipzig e.V.")]
+    )
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: ("0000001", "user", "pass"))
+    monkeypatch.setattr(
+        tui.club_directory, "refresh_directory", lambda *a, **k: [("0000002", "Golfclub Sonnenberg")]
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen._directory_is_seed is True
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            assert app.screen._directory_is_seed is False
+            status = str(app.screen.query_one("#club-status", Static).content)
+            assert status == i18n.t("picker.directory_refreshed", count=1)
 
     _run(scenario())
 

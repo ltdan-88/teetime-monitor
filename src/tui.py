@@ -366,14 +366,18 @@ class ClubBrowserScreen(Screen[str | None]):
     Replaces the old "pick one of your saved clubs" flow (2026-09-07, direct feedback):
     having to save a club to `clubs/*.yaml` before you could even look at it was
     backwards — launching should just let you choose a club and a course, and saving one
-    should only mean "favorite". Three ways in, so a missing directory cache or missing
+    should only mean "favorite". Four ways in, so a missing directory cache or missing
     credentials is never a dead end (see club_directory.py's module docstring):
 
     - An empty search box lists your favorites, which need no directory and no login.
-    - Typing searches the cached club directory, once it's been fetched.
-    - Typing a club id (e.g. "0000001") offers that club directly — no cache, no login,
-      because tee sheets are public. This is also what lets a brand-new install reach a
-      club before any credentials exist, the bootstrapping gap the old picker couldn't
+    - Typing searches the cached club directory, once it's been fetched — or, before
+      that's ever happened, the bundled reference snapshot instead (2026-09-10, see
+      club_directory.py's own "#4" note: a first search shouldn't require a login
+      just to exist at all).
+    - Typing a club id (e.g. "0000001"), or pasting a club's own pc caddie booking
+      link (2026-09-10), offers that club directly — no cache, no login, because tee
+      sheets are public. This is also what lets a brand-new install reach a club
+      before any credentials exist, the bootstrapping gap the old picker couldn't
       close.
 
     Dismisses with the chosen club's numeric id, or `None` if backed out. `f` toggles
@@ -433,6 +437,12 @@ class ClubBrowserScreen(Screen[str | None]):
         self.allow_cancel = allow_cancel
         self.initial_status = initial_status
         self._directory: list[tuple[str, str]] = []
+        # Whether `self._directory` is currently the bundled reference snapshot
+        # (club_directory.load_seed_directory()) rather than a real, live-fetched
+        # cache -- see that function's own docstring. Only ever used to pick which
+        # status hint to show; search/open/favorite all treat both sources
+        # identically.
+        self._directory_is_seed = False
         self._names: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
@@ -445,6 +455,14 @@ class ClubBrowserScreen(Screen[str | None]):
 
     def on_mount(self) -> None:
         self._directory = club_directory.load_cached_directory()
+        if not self._directory:
+            # No real fetch has ever happened on this install -- fall back to the
+            # bundled reference snapshot (2026-09-10, see club_directory.py's own
+            # module docstring "#4" note) so name search works immediately, with no
+            # login or known club id needed at all. A real `r` refresh always
+            # replaces this the moment one succeeds (see action_refresh_directory()).
+            self._directory = club_directory.load_seed_directory()
+            self._directory_is_seed = bool(self._directory)
         self._show_favorites()
         if self.initial_status:
             self.query_one("#club-status", Static).update(self.initial_status)
@@ -473,6 +491,11 @@ class ClubBrowserScreen(Screen[str | None]):
         favorites = self._favorites()
         if favorites:
             self._show_entries(favorites, i18n.t("picker.favorites_hint", count=len(self._directory)))
+        elif self._directory_is_seed:
+            # Distinct from the plain no_favorites_hint below -- there genuinely is
+            # a directory to search already (the bundled snapshot), so this says so
+            # instead of implying nothing exists to search yet.
+            self._show_entries([], i18n.t("picker.no_favorites_hint_with_seed", count=len(self._directory)))
         else:
             self._show_entries([], i18n.t("picker.no_favorites_hint"))
 
@@ -621,6 +644,7 @@ class ClubBrowserScreen(Screen[str | None]):
         except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
             status.update(i18n.t("club_picker.fetch_failed", error=exc))
             return
+        self._directory_is_seed = False  # a real fetch always wins over the bundled seed
         status.update(i18n.t("picker.directory_refreshed", count=len(self._directory)))
 
     def _verification_club_id(self) -> str | None:

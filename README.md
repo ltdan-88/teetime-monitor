@@ -52,7 +52,10 @@ spec.
 - The club directory needs one login to download (pc caddie doesn't publish it), so
   it's fetched once and cached locally, refreshed on demand with `r`. Favorites and
   typed club ids both work with no login and no cached list at all — including on a
-  brand-new install, which the old flow couldn't do
+  brand-new install, which the old flow couldn't do. Name search itself needs no
+  login either, even on the very first run before any cache exists: a bundled
+  reference snapshot (~1,300 clubs, shipped with the app) fills in until a real `r`
+  refresh replaces it with the current list
 - Login setup happens right there in the app, no separate command needed — the
   credentials screen shows first thing on launch whenever nothing's configured yet
   (entirely skippable, `escape`, since typed club ids/favorites/the tee sheet itself
@@ -338,6 +341,7 @@ teetime-monitor/
 ├── src/
 │   ├── club_config.py      # favorites: list/load/save clubs, resolve credentials (implemented)
 │   ├── club_directory.py   # locally cached pc caddie club directory + club-id parsing (implemented)
+│   ├── club_directory_seed.json # bundled ~1,300-club reference snapshot, first-run fallback only
 │   ├── global_preferences.py # shared availability/preferences/scrape-interval file, not per-club (implemented)
 │   ├── scraper.py          # direct-URL fetch, login, parsing (implemented, verified live)
 │   ├── storage.py          # SQLite persistence — scraped sheets + confirmed bookings (implemented)

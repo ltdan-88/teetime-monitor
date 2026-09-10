@@ -2573,6 +2573,42 @@ pasted a full `https://www.pccaddie.net/clubs/0497758/app.php?...` URL into
 the search box, the app correctly showed `[0497758] open this club` ready to
 open with enter. 612 tests passing.
 
+**Third round on the same thread: "What if ... it defaulted on one random club
+id ... in order to pull the club list? Then user is prompted to save his
+club"** — a genuinely better idea than the bootstrap-club-id options discussed
+first (a shared hardcoded id either exposes this developer's own real club in
+the public source again, undoing the earlier scrubbing work, or permanently
+depends on some unrelated real golf club's pc caddie subscription without their
+knowledge — neither sat right, and were raised as explicit concerns before
+building either). The actual fix ships a **bundled reference snapshot** instead
+of relying on any live login at all for the very first search: a one-time real
+fetch of the whole platform directory (1,303 real clubs, names + ids only — the
+same non-sensitive listing any logged-in user already sees via `r`), saved as
+`src/club_directory_seed.json` and checked into the repo (explicitly confirmed
+with the user first, since this both makes a live authenticated fetch using
+already-saved real credentials for a new purpose and publishes real third-party
+data into the public repo — including, confirmed and deliberately left in after
+asking, this developer's own real club among the other 1,302, no different
+from any other entry in an otherwise-complete real dataset).
+
+`club_directory.load_seed_directory()` reads this bundled file the same way
+`load_cached_directory()` reads the real one; `ClubBrowserScreen.on_mount()`
+falls back to it only when the real cache is empty, and a real `r` refresh
+always replaces it outright the moment one succeeds — never merged, never a
+competing source of truth, purely a first-run floor under an otherwise-empty
+directory. A dedicated `_directory_is_seed` flag drives a distinct status hint
+("search {count} clubs... press 'r' after logging in for the latest list") so
+it never gets mistaken for live data. Real test-isolation gap caught and fixed
+while wiring this up: the seed file's default path resolves via `__file__` (an
+absolute path anchored to the installed module, not CWD), so every existing
+test that didn't already mock the real cache would have silently loaded the
+real ~1300-entry bundled file — fixed with a new autouse fixture defaulting it
+to empty, the same pattern as every other "isolate from a real resource"
+fixture in this test file. 12 new tests, confirmed genuinely dependent by
+reverting. Verified live in an isolated sandbox: a truly fresh install (no
+credentials, no favorites, no local cache at all) searched "Leipzig" with zero
+setup and correctly found the 5 real matching clubs. 620 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -14,16 +14,31 @@ fetch would put a login in front of the one flow that shouldn't need one. Instea
 directory is fetched once, cached here as plain JSON, and reused on every later launch —
 1300+ clubs, a list that changes on the order of months, not minutes.
 
-That leaves three ways to reach a club, deliberately, so a missing cache or missing
+That leaves four ways to reach a club, deliberately, so a missing cache or missing
 credentials never becomes a dead end:
 
 1. **Favorites** — any club saved under `clubs/*.yaml`. Always available, no directory
    and no login involved. This is what the old "saved clubs" list becomes.
 2. **Search the cached directory** — the full platform, once it's been fetched.
 3. **A club id typed directly** — `looks_like_club_id()` below. Needs neither the cache
-   nor credentials, because a tee sheet is public: given the id, everything works. This
-   is also the only way to reach a club before any login has ever happened, which is
-   exactly the bootstrapping gap the old `club_picker.py` documented and couldn't close.
+   nor credentials, because a tee sheet is public: given the id, everything works.
+4. **Search a bundled seed directory** — `load_seed_directory()` below, added
+   2026-09-10, direct pushback ("a First time User would not know anything about a
+   club id"): the login-gated live directory (#2) and a typed/pasted id (#3) both
+   still assume you already have *something* — either a login, or a specific club
+   already in mind. A genuinely first-time user, with neither, previously had no way
+   to search by name at all before this. `club_directory_seed.json` (shipped in
+   `src/`, not gitignored the way the live cache under `data/` is) is a one-time,
+   real fetch of the whole platform directory (~1300 clubs, names + ids only — the
+   same non-sensitive listing any logged-in user already sees via #2) bundled with
+   the app itself, so name search works immediately on a brand-new install with zero
+   setup. Used only as a fallback when the real cache (#2) has nothing yet — the
+   moment a real login exists and `r` is pressed, the live fetch replaces it and
+   this bundled data is never consulted again for that install. Necessarily goes
+   stale over time (the live directory "changes on the order of months, not
+   minutes," same as #2's own note above) but a stale-but-searchable directory beats
+   none at all for a first search, the same reasoning behind every other fallback in
+   this list.
 """
 
 import json
@@ -37,6 +52,13 @@ from .scraper import fetch_club_directory
 
 DATA_DIR = Path("data")
 CACHE_FILENAME = "club-directory.json"
+
+# Bundled with the app itself (see module docstring's "#4" note) -- not under
+# DATA_DIR, deliberately: that whole directory is gitignored (it's per-install
+# runtime state), while this ships as part of the source tree, the same way
+# clubs/club.example.yaml is a tracked reference file sitting next to the
+# gitignored clubs/*.yaml it's a template for.
+SEED_FILE = Path(__file__).parent / "club_directory_seed.json"
 
 # pc caddie club ids are a 7-digit zero-padded number — "0" + the country's calling
 # code + a per-club number (049… = Germany, 041… = Switzerland, 0352… = Luxembourg),
@@ -94,6 +116,25 @@ def load_cached_directory(path: Path | None = None) -> list[tuple[str, str]]:
         return []
     try:
         with cache.open() as f:
+            payload = json.load(f)
+        return [(str(club_id), str(name)) for club_id, name in payload.get("clubs", [])]
+    except (json.JSONDecodeError, ValueError, TypeError, OSError):
+        return []
+
+
+def load_seed_directory(path: Path | None = None) -> list[tuple[str, str]]:
+    """The bundled reference snapshot (see module docstring's "#4" note), or [] if it's
+    somehow missing from this install. `ClubBrowserScreen` only ever calls this when
+    `load_cached_directory()` already came back empty — a real live fetch always wins
+    once one exists, so this is purely a first-run fallback, never a competing source
+    of truth. Same forgiving shape as `load_cached_directory()` for the same reason:
+    a missing/corrupt bundled file should degrade to "no seed data" quietly, not crash
+    a launch."""
+    seed = path if path is not None else SEED_FILE
+    if not seed.exists():
+        return []
+    try:
+        with seed.open() as f:
             payload = json.load(f)
         return [(str(club_id), str(name)) for club_id, name in payload.get("clubs", [])]
     except (json.JSONDecodeError, ValueError, TypeError, OSError):

@@ -78,6 +78,39 @@ def test_load_cached_directory_survives_a_corrupt_cache_file(tmp_path):
     assert club_directory.cached_at(cache) is None
 
 
+# --- the bundled seed directory -- added 2026-09-10, direct pushback ("a First time
+# User would not know anything about a club id"): a real, one-time-fetched snapshot
+# of the whole platform directory, shipped with the app so name search works on a
+# brand-new install with no login and no known club id at all. See
+# club_directory.py's own module docstring "#4" note for the full reasoning. -------
+
+
+def test_load_seed_directory_returns_empty_when_missing(tmp_path):
+    assert club_directory.load_seed_directory(tmp_path / "nope.json") == []
+
+
+def test_load_seed_directory_round_trips_like_the_cache(tmp_path):
+    seed = tmp_path / "club_directory_seed.json"
+    entries = [("0000001", "Golfclub Domäne Musterhausen e.V."), ("0491605", "1. Golfclub Leipzig e.V.")]
+    club_directory.save_directory(entries, seed)  # same JSON shape as the real cache
+    assert club_directory.load_seed_directory(seed) == entries
+
+
+def test_load_seed_directory_survives_a_corrupt_file(tmp_path):
+    seed = tmp_path / "club_directory_seed.json"
+    seed.write_text("{not json at all")
+    assert club_directory.load_seed_directory(seed) == []
+
+
+def test_the_real_bundled_seed_file_actually_exists_and_parses():
+    # Not a fixture path -- the real, shipped src/club_directory_seed.json this
+    # project committed. Confirms the file is genuinely there and well-formed,
+    # independent of whatever any other test's own isolation does.
+    entries = club_directory.load_seed_directory()
+    assert len(entries) > 1000
+    assert all(club_id and name for club_id, name in entries)
+
+
 def test_refresh_directory_fetches_and_caches(tmp_path, monkeypatch):
     cache = tmp_path / "club-directory.json"
     entries = [("0491605", "1. Golfclub Leipzig e.V.")]
