@@ -2316,6 +2316,33 @@ prompt text, `_crowd_estimates()`'s own on/off/too-few-samples cases), plus two
 existing `test_settings_screen.py` assertions updated for the new nested shape.
 590 tests passing, all new ones confirmed genuinely dependent by reverting.
 
+**Credentials screen shown first at launch, same day**: direct follow-up right
+after wiring it into `ClubBrowserScreen`'s `r`/`l`: "I want the login screen to
+appear first, whenever you don't have a login." `TeetimeApp._start()` now checks
+`club_directory.any_credentials()` once, before the club-browser loop even starts,
+and pushes `CredentialsScreen` first if nothing's configured — entirely skippable
+(`escape`/Cancel, same as everywhere else it's pushed), since real functionality
+(typed club ids, favorites, the tee sheet itself) never actually needed a login.
+Checked once, not on every loop iteration — a club with no tee sheet or a cancelled
+course picker sends that loop back to `ClubBrowserScreen` again, and re-showing
+credentials on every one of those retries would be its own new annoyance.
+
+A real, previously-invisible test-isolation gap surfaced writing this: every
+existing test building a real `TeetimeApp()` and expecting to land straight on
+`ClubBrowserScreen` was *implicitly* depending on whether this developer's own
+real machine happens to have real `PCC_USER`/`PCC_PASS` set — true here, for
+actual day-to-day use, so most such tests kept passing by accident rather than by
+design. Only surfaced now because enough of `_start()` actually reads
+`any_credentials()` for the first time. Fixed with a new autouse fixture
+(`_some_credentials_by_default`) reporting "configured" for every test here unless
+one explicitly overrides it — the same pattern `_fake_course_aliases_by_default`
+above already established for the equivalent live-network-call risk.
+
+3 new tests, confirmed genuinely dependent by reverting. Verified live in an
+isolated sandbox, headless tmux: with no credentials configured, launch shows "pc
+caddie login — v0.4.0" as the very first screen; escaping without saving correctly
+reaches the club browser next, not a dead end. 593 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

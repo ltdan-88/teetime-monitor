@@ -11,6 +11,11 @@ yet — stale the moment they shipped, caught 2026-09-10 auditing for other scre
 that say more than the code actually does.)
 
 Startup flow:
+0. `CredentialsScreen`, only if no login is configured at all yet (2026-09-10, direct
+   request: "I want the login screen to appear first, whenever you don't have a
+   login") — entirely skippable (`escape`/Cancel, same as anywhere else it's pushed),
+   since real functionality below never actually required a login to begin with. See
+   `TeetimeApp._start()`'s own docstring.
 1. Club browser (`ClubBrowserScreen`) — the home screen. Search pc caddie's whole club
    directory, pick a favorite, or type a club id straight in; no club has to be saved
    to config first. Reworked 2026-09-07 on direct feedback that requiring a club to be
@@ -2472,8 +2477,24 @@ class TeetimeApp(App[None]):
         direct feedback that having to save a club before looking at it was backwards;
         see `ClubBrowserScreen`). `allow_cancel=False` because this is the home screen
         at launch: there's nothing behind it to go back to, so `escape` shouldn't drop
-        the user onto a blank app."""
+        the user onto a blank app.
+
+        `CredentialsScreen` shows first, before any of that, whenever no login is
+        configured at all — added 2026-09-10, direct follow-up to wiring it into
+        `ClubBrowserScreen`'s own `r`/`l`: "I want the login screen to appear first,
+        whenever you don't have a login." Checked once here, not on every loop
+        iteration below (a club with no tee sheet or a cancelled course picker sends
+        this loop back to `ClubBrowserScreen` again, and re-showing credentials on
+        every one of those retries would be its own new annoyance). Still entirely
+        skippable — `escape`/Cancel dismiss it same as anywhere else it's pushed —
+        since real functionality here (typing a club id directly, favorites, the tee
+        sheet itself) never needed a login to begin with; this is a faster path to
+        set one up before ever hitting the point where you'd actually need it
+        (searching the full directory, or reading "My Reservations"), not a new
+        requirement to use the app at all."""
         self._periodic_scrape_running = False
+        if club_directory.any_credentials() is None:
+            await self.push_screen_wait(CredentialsScreen())
         while True:
             club_id = await self.push_screen_wait(
                 ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)

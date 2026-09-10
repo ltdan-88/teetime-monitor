@@ -99,6 +99,23 @@ def _fake_course_aliases_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _some_credentials_by_default(monkeypatch):
+    """`TeetimeApp._start()` (2026-09-10: "I want the login screen to appear first,
+    whenever you don't have a login") now pushes `CredentialsScreen` before
+    `ClubBrowserScreen` whenever `club_directory.any_credentials()` is `None` --
+    every test here that builds a real `TeetimeApp()` and expects to land straight
+    on `ClubBrowserScreen` would otherwise depend on whether *this developer's own
+    real machine* happens to have real `PCC_USER`/`PCC_PASS` set (it does, for
+    actual day-to-day use of this app -- exactly the kind of environment-dependent
+    flakiness that stayed invisible here until enough tests exercised a real
+    `TeetimeApp` to notice it only sometimes failing). Defaults to "configured" so
+    the credentials screen doesn't show unless a test explicitly wants it to; a test
+    exercising the missing-credentials path itself overrides this locally (see
+    `test_club_browser_r_pushes_credentials_screen_when_none_configured`)."""
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: ("0000001", "user", "pass"))
+
+
+@pytest.fixture(autouse=True)
 def _fake_available_dates_by_default(monkeypatch):
     """`OverviewScreen.load_overview()` (added 2026-09-07) calls
     `fetch_available_dates(club_id)` live to know which of its day-rows are actually
@@ -2597,6 +2614,59 @@ def test_main_prints_version_and_exits_without_launching_the_app(monkeypatch, ca
 def test_teetime_app_shows_the_version_in_its_sub_title(monkeypatch):
     monkeypatch.setattr(tui, "_version", lambda: "1.2.3")
     assert tui.TeetimeApp().sub_title == "v1.2.3"
+
+
+# --- Credentials screen shown first at startup -- added 2026-09-10, direct request:
+# "I want the login screen to appear first, whenever you don't have a login." -------
+
+
+def test_start_shows_credentials_screen_first_when_none_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
+
+    _run(scenario())
+
+
+def test_start_skips_credentials_screen_when_already_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    # The default autouse fixture already reports "configured" -- this is the same
+    # thing spelled out explicitly, as a real assertion rather than an implicit
+    # assumption every other startup test here already makes.
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
+
+
+def test_start_reaches_club_browser_after_dismissing_credentials_without_saving(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            # Entirely skippable -- escaping without saving still reaches the club
+            # browser, not a dead end or an unexpected app exit.
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
 
 
 # --- TeetimeApp startup flow ------------------------------------------------------------

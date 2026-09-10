@@ -11,15 +11,15 @@ the deterministic recommendation engine, the three Claude API calls, local-histo
 analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
-booking. The TUI opens straight into a club browser: search pc caddie's whole club
-directory, pick a favorite, or just type a club id — nothing has to be saved to config
-first, and saving a club only ever means "favorite" (`f`). Picking a club/course lands
-on the multi-day overview — the app's actual home screen (added 2026-09-07): one row
-per bookable day with weather, a heat-strip of how full the day is, and that day's own
-pick, plus "This week's picks" once you've set availability rules. Enter drills into
-the single-day tee sheet (confirming a booking, the booking-watch banners), `escape`
-pops back. There's also a credentials setup screen (`credentials_screen.py`) it opens
-automatically the moment it needs a login and none is configured yet. The TUI keeps
+booking. The TUI opens straight into a club browser — or the credentials screen
+first, if no login is configured at all yet (skippable, `escape`): search pc
+caddie's whole club directory, pick a favorite, or just type a club id — nothing has
+to be saved to config first, and saving a club only ever means "favorite" (`f`).
+Picking a club/course lands on the multi-day overview — the app's actual home screen
+(added 2026-09-07): one row per bookable day with weather, a heat-strip of how full
+the day is, and that day's own pick, plus "This week's picks" once you've set
+availability rules. Enter drills into the single-day tee sheet (confirming a
+booking, the booking-watch banners), `escape` pops back. The TUI keeps
 its data current on its own — it re-scrapes the active club's whole booking window
 once on open and periodically while it stays running, not just when `r` is pressed —
 see "Project structure" below.
@@ -51,10 +51,12 @@ spec.
   it's fetched once and cached locally, refreshed on demand with `r`. Favorites and
   typed club ids both work with no login and no cached list at all — including on a
   brand-new install, which the old flow couldn't do
-- Login setup happens right there in the club browser, no separate command needed —
-  `r` pushes the credentials screen automatically the moment it discovers none are
-  configured, and `l` opens the same screen proactively anytime. Saving retries the
-  directory fetch right away
+- Login setup happens right there in the app, no separate command needed — the
+  credentials screen shows first thing on launch whenever nothing's configured yet
+  (entirely skippable, `escape`, since typed club ids/favorites/the tee sheet itself
+  never needed one), `r` in the club browser pushes it automatically the moment it
+  discovers none are configured, and `l` opens the same screen proactively anytime.
+  Saving retries the directory fetch right away
 - Weather needs a location pc caddie itself doesn't publish anywhere, so any club you
   open — favorited or not — gets one looked up automatically: a best-effort search
   against OpenStreetMap's free Nominatim geocoder, using the club's own name, cached
