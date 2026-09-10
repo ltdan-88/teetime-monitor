@@ -142,7 +142,9 @@ def test_widget_values_to_config_parses_edited_ai_assist_enabled():
     values = config_to_widget_values({})
     values[_id("ai_assist", "enabled")] = True
     updated = widget_values_to_config({}, values)
-    assert updated["ai_assist"] == {"enabled": True}
+    # avoid_predicted_crowd lives here too now (2026-09-10, "make avoid crowds a
+    # child of AI option") -- present at its own default (False) alongside enabled.
+    assert updated["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False}
 
 
 def test_widget_values_to_config_drops_the_old_single_buffer_key_once_saved():
@@ -284,7 +286,9 @@ def test_settings_screen_ai_assist_enabled_renders_and_saves(tmp_path):
     asyncio.run(scenario())
 
     saved = global_preferences.load_preferences(preferences_file)
-    assert saved["ai_assist"] == {"enabled": True}
+    # avoid_predicted_crowd lives here too now (2026-09-10, "make avoid crowds a
+    # child of AI option") -- present at its own default (False) alongside enabled.
+    assert saved["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False}
 
 
 # round_duration_minutes -- moved here from clubs/*.yaml, 2026-09-09 direct request:

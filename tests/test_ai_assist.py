@@ -179,6 +179,35 @@ def test_rank_slots_omits_weather_without_schedule_context(monkeypatch):
     assert "rain" not in prompt
 
 
+def test_rank_slots_includes_crowd_estimate_when_given(monkeypatch):
+    # Added 2026-09-10, the actual data behind `avoid_predicted_crowd` -- previously
+    # that preference reached this same prompt with nothing for the model to act on
+    # (recommend.py handed the flag through, but no candidate ever carried a real
+    # crowd number).
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    context = {"crowd_estimates": {("2026-09-07", "18 Loch Tee 1", "18:00"): 0.8}}
+    rank_slots(candidates, context, {"avoid_predicted_crowd": True})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "historically ~80% full" in prompt
+
+
+def test_rank_slots_omits_crowd_estimate_without_one(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "historically" not in prompt
+
+
 # --- summarize_history ---------------------------------------------------------------
 
 

@@ -103,11 +103,11 @@ spec.
   2026-09-09, direct feedback: "would it be possible to integrate club and course
   selectors into the overview screen... this would make navigation much quicker").
   Picking a different club there refetches its course list and reloads in place,
-  same as picking a different course does. `s` still opens the full searchable club
-  browser ("🔍 Search for a club…") for finding and saving a club you haven't added
-  yet — the dropdowns are a faster path for ones you already switch between
-  regularly, not a replacement for discovering a new one. `escape` backs out of any
-  picker with nothing changed; `q` quits
+  same as picking a different course does. `s` still opens the full club browser,
+  where typing searches pc caddie's whole directory, for finding and saving a club
+  you haven't added yet — the dropdowns are a faster path for ones you already
+  switch between regularly, not a replacement for discovering a new one. `escape`
+  backs out of any picker with nothing changed; `q` quits
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —
@@ -202,8 +202,10 @@ spec.
   (matches the original mockup's own grid — reworked 2026-09-09 after a first version
   grouped by day type alone and lost weekday granularity entirely). Plain aggregation,
   with a minimum-sample-size floor deciding how much of a thin, rarer history to
-  actually trust before it steers the automatic picks and search away from
-  likely-overbooked windows. `h` opens the heatmap screen: right now a readiness view
+  actually trust before "avoid predicted crowds" (Settings → AI ranking — it only
+  ever does anything through that step, so that's where it lives) steers the
+  automatic picks and search away from likely-overbooked windows. `h` opens the
+  heatmap screen: right now a readiness view
   (how many hours each weekday and each special day type have hit that floor, and how
   many samples each has so far), since every real club here is still too early into
   accumulating history for the colored grid itself to be worth showing yet — the same
@@ -333,7 +335,6 @@ teetime-monitor/
 │   ├── search.py           # exact hard-filtering — party size, time windows, buffer (implemented)
 │   ├── recommend.py        # filters via search.py + weather/daylight, ranks via ai_assist (implemented)
 │   ├── settings_screen.py  # edit preferences/interval -- pushed from tui.py ('e') + standalone (implemented)
-│   ├── club_picker.py      # search pc caddie's directory, add a club -- ClubSearchScreen (pushable from tui.py) + a thin standalone wrapper (implemented)
 │   ├── geocode.py          # best-effort weather-location lookup for a new club, via OpenStreetMap (implemented)
 │   ├── credentials_screen.py # Textual screen (standalone or pushed): set PCC_USER/PCC_PASS (implemented)
 │   ├── env_file.py         # read/write .env KEY=value pairs in place (implemented)
@@ -361,7 +362,6 @@ teetime-monitor/
     ├── test_search.py
     ├── test_recommend.py
     ├── test_settings_screen.py
-    ├── test_club_picker.py
     ├── test_geocode.py
     ├── test_club_directory.py
     ├── test_credentials_screen.py

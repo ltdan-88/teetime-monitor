@@ -38,7 +38,6 @@ _STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "picker.club_title": "Which club?",
         "picker.course_title": "Which course?",
-        "picker.search_for_a_club": "🔍 Search for a club…",
         "app.no_clubs": "No clubs saved yet — copy clubs/club.example.yaml first.",
         "app.no_club_id": "clubs/{slug}.yaml has no club_id set.",
         "app.course_fetch_failed": "Couldn't load this club's course list: {error}",
@@ -163,26 +162,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "rain chance",
         "watch.reason.rain_amount": "rain amount",
         "watch.reason.wind": "wind",
-        "club_picker.title": "Add a club",
-        "club_picker.search_placeholder": "Search club name…",
-        "club_picker.slug_placeholder": "Save as (filename)…",
         "club_picker.fetching": "Fetching pc caddie's club directory…",
         "club_picker.fetch_failed": "Couldn't fetch the club directory: {error}",
-        "club_picker.no_credentials": "No PCC_USER/PCC_PASS configured yet — set them in .env first.",
-        "club_picker.match_count": "{count} matches",
         "club_picker.no_matches": "No matches",
-        "club_picker.select_prompt": "Type to search, then pick a club below",
-        "club_picker.slug_required": "Enter a filename first.",
-        "club_picker.slug_taken": "clubs/{slug}.yaml already exists — pick another name.",
-        "club_picker.pick_first": "Pick a club from the list first.",
-        "club_picker.saved_with_location": (
-            "Saved clubs/{slug}.yaml — found a location for weather automatically "
-            "(worth double-checking it in the file); calendar/preferences still up to you."
-        ),
-        "club_picker.saved_no_location": (
-            "Saved clubs/{slug}.yaml — couldn't find a location automatically; add one by "
-            "hand for weather, plus calendar/preferences (see club.example.yaml)."
-        ),
         "credentials.title": "pc caddie login",
         "credentials.intro": (
             "One pc caddie login covers every saved club. Stored in .env, on this machine only."
@@ -225,7 +207,6 @@ _STRINGS: dict[str, dict[str, str]] = {
     "de": {
         "picker.club_title": "Welcher Club?",
         "picker.course_title": "Welcher Platz?",
-        "picker.search_for_a_club": "🔍 Club suchen…",
         "app.no_clubs": "Noch kein Club gespeichert — zuerst clubs/club.example.yaml kopieren.",
         "app.no_club_id": "clubs/{slug}.yaml hat keine club_id.",
         "app.course_fetch_failed": "Kursliste des Clubs konnte nicht geladen werden: {error}",
@@ -350,26 +331,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "Regenwahrscheinlichkeit",
         "watch.reason.rain_amount": "Regenmenge",
         "watch.reason.wind": "Wind",
-        "club_picker.title": "Club hinzufügen",
-        "club_picker.search_placeholder": "Clubnamen suchen…",
-        "club_picker.slug_placeholder": "Speichern als (Dateiname)…",
         "club_picker.fetching": "Club-Verzeichnis von pc caddie wird abgerufen…",
         "club_picker.fetch_failed": "Club-Verzeichnis konnte nicht abgerufen werden: {error}",
-        "club_picker.no_credentials": "Noch kein PCC_USER/PCC_PASS konfiguriert — bitte zuerst in .env eintragen.",
-        "club_picker.match_count": "{count} Treffer",
         "club_picker.no_matches": "Keine Treffer",
-        "club_picker.select_prompt": "Suchbegriff eingeben, dann unten einen Club auswählen",
-        "club_picker.slug_required": "Bitte zuerst einen Dateinamen eingeben.",
-        "club_picker.slug_taken": "clubs/{slug}.yaml existiert bereits — bitte einen anderen Namen wählen.",
-        "club_picker.pick_first": "Bitte zuerst einen Club aus der Liste auswählen.",
-        "club_picker.saved_with_location": (
-            "clubs/{slug}.yaml gespeichert — Standort für Wetter automatisch gefunden "
-            "(bitte in der Datei prüfen); Kalender/Einstellungen weiterhin optional."
-        ),
-        "club_picker.saved_no_location": (
-            "clubs/{slug}.yaml gespeichert — kein Standort automatisch gefunden; bitte für "
-            "Wetter sowie Kalender/Einstellungen manuell ergänzen (siehe club.example.yaml)."
-        ),
         "credentials.title": "pc caddie Anmeldung",
         "credentials.intro": (
             "Eine pc caddie Anmeldung gilt für alle gespeicherten Clubs. Wird nur lokal in .env gespeichert."

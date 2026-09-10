@@ -898,7 +898,54 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
     return {**club_settings, **global_preferences.load_preferences()}
 
 
-def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list]:
+def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
+    """{(date, course, time): predicted occupancy 0-1} for every slot across
+    `schedules` — entirely skipped (empty dict, no analytics/DB work at all) unless
+    `ai_assist.avoid_predicted_crowd` is actually on, since nothing downstream does
+    anything with it otherwise. Added 2026-09-10, direct follow-up to finding
+    `avoid_predicted_crowd` had zero real effect despite reaching Claude's own
+    prompt verbatim: "make avoid crowds a child of AI option" — moving where it
+    lives in Settings only fixes the framing, not the underlying gap, so this is
+    the actual data behind it.
+
+    One `analytics.crowd_heatmap()` per distinct course across `schedules` (a real,
+    if modest, SQLite scan — cheap enough at this app's actual scale not to bother
+    caching across calls; every caller here only reaches this at all once
+    `ai_assist.enabled` is already on too, meaning a per-day paid API call is
+    already happening regardless). `calendar_context.classify_day()` picks the same
+    weekday-or-special-type key `HeatmapScreen`'s own table uses — see that
+    screen's docstring, and `analytics.crowd_heatmap()`'s, for why day-of-week
+    (not a coarse workday/weekend split) is what the underlying data is actually
+    keyed by."""
+    ai_config = config.get("ai_assist", {})
+    if not ai_config.get("avoid_predicted_crowd", False):
+        return {}
+    holidays = _holidays_for_club(config)
+    vacation_ranges = _vacation_ranges_for_club(config)
+    heatmaps: dict[str, dict] = {}
+    estimates: dict[tuple[str, str, str], float] = {}
+    for schedule in schedules:
+        if schedule.course not in heatmaps:
+            heatmaps[schedule.course] = analytics.crowd_heatmap(
+                schedule.course, holidays, vacation_ranges, path=_db_path(club_id)
+            )
+        heatmap = heatmaps[schedule.course]
+        day_type = calendar_context.classify_day(
+            schedule.date, holidays, vacation_ranges, has_tournament=bool(schedule.events)
+        )
+        key = (
+            day_type
+            if day_type in calendar_context.SPECIAL_DAY_TYPES
+            else date_cls.fromisoformat(schedule.date).strftime("%A")
+        )
+        for slot in schedule.slots:
+            estimate = analytics.predict_crowding(key, slot.time, heatmap)
+            if estimate is not None:
+                estimates[(schedule.date, schedule.course, slot.time)] = estimate
+    return estimates
+
+
+def _availability_pipeline(schedule: Schedule, config: dict, club_id: str) -> tuple[list, list]:
     """(deterministic candidates, still-playable matches) for one schedule against
     your global `availability` rules (see `_resolved_config()`) — factored out so both
     the per-day pick column below and `DayDetailScreen`'s own ★ marker derive from one
@@ -921,7 +968,8 @@ def _availability_pipeline(schedule: Schedule, config: dict) -> tuple[list, list
         return [], []
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
-    playable = recommend.ranked_matches([schedule], criteria, config)
+    crowd_estimates = _crowd_estimates([schedule], config, club_id)
+    playable = recommend.ranked_matches([schedule], criteria, config, crowd_estimates)
     return candidates, playable
 
 
@@ -950,7 +998,11 @@ def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> 
 
 
 def _day_pick_text(
-    schedule: Schedule | None, config: dict, confirmed: ConfirmedBooking | None, has_pending_change: bool
+    schedule: Schedule | None,
+    config: dict,
+    confirmed: ConfirmedBooking | None,
+    has_pending_change: bool,
+    club_id: str,
 ) -> str:
     """The overview's Pick column for one day, in priority order:
 
@@ -976,7 +1028,7 @@ def _day_pick_text(
         return text
     if schedule is None or not config.get("availability"):
         return "[dim]—[/]"
-    candidates, playable = _availability_pipeline(schedule, config)
+    candidates, playable = _availability_pipeline(schedule, config, club_id)
     if not candidates:
         return "[dim]—[/]"
     if playable:
@@ -1386,7 +1438,9 @@ class OverviewScreen(Screen[None]):
                 wind_cell = "[dim]…[/]"
                 event_cell = "[dim]…[/]"
                 heat_cell = "[dim]……[/]"
-            pick_cell = _day_pick_text(schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates)
+            pick_cell = _day_pick_text(
+                schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates, self.club_id
+            )
             table.add_row(day_cell, temperature_cell, precipitation_cell, wind_cell, event_cell, heat_cell, pick_cell)
 
         # Pre-highlight today, unless today's own cached schedule shows every slot
@@ -1410,7 +1464,7 @@ class OverviewScreen(Screen[None]):
         if not config.get("availability"):
             picks_widget.update("")  # resolved design question: only show once configured
             return
-        picks = recommend.weekly_picks(schedules, config)
+        picks = recommend.weekly_picks(schedules, config, _crowd_estimates(schedules, config, self.club_id))
         if not picks:
             picks_widget.update(f"\n[dim]{i18n.t('overview.no_matches')}[/]")
             return
@@ -1437,7 +1491,7 @@ class OverviewScreen(Screen[None]):
         )
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen(self._schedules, self._config()))
+        self.app.push_screen(SearchScreen(self._schedules, self._config(), self.club_id))
 
     def action_heatmap(self) -> None:
         self.app.push_screen(HeatmapScreen(self.club_id, self.course, self._config()))
@@ -1561,10 +1615,11 @@ class SearchScreen(Screen[None]):
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
-    def __init__(self, schedules: list[Schedule], config: dict) -> None:
+    def __init__(self, schedules: list[Schedule], config: dict, club_id: str) -> None:
         super().__init__()
         self.schedules = schedules
         self.config = config
+        self.club_id = club_id
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1652,7 +1707,8 @@ class SearchScreen(Screen[None]):
 
     def _run_search(self) -> None:
         criteria = self._build_criteria()
-        matches = recommend.ranked_matches(self.schedules, criteria, self.config)
+        crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
+        matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates)
         table = self.query_one("#search-results", DataTable)
         table.clear()
         status = self.query_one("#search-status", Static)
@@ -2131,7 +2187,9 @@ class DayDetailScreen(Screen[None]):
         closed: it used to be fetched at scrape time and silently dropped, so the
         daylight half of `exclude_unplayable()` could never actually exclude
         anything reached through this method)."""
-        _, playable = _availability_pipeline(schedule, _resolved_config(self.club_slug, self.club_id, self.club_name))
+        _, playable = _availability_pipeline(
+            schedule, _resolved_config(self.club_slug, self.club_id, self.club_name), self.club_id
+        )
         return {candidate.slot.time for candidate in playable}
 
     def refresh_banners(self) -> None:

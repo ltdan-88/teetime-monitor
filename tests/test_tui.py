@@ -1285,7 +1285,54 @@ def test_resolved_config_fills_in_a_missing_location_even_for_a_saved_club(monke
 
 def test_availability_pipeline_empty_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
-    assert tui._availability_pipeline(schedule, {}) == ([], [])
+    assert tui._availability_pipeline(schedule, {}, "0000001") == ([], [])
+
+
+# _crowd_estimates() -- added 2026-09-10, the actual data behind `avoid_predicted_crowd`
+# (moved under "AI ranking" the same day, direct follow-up: "make avoid crowds a child
+# of AI option" -- see settings_screen.py's own comment on that Field for why it only
+# ever does anything through this exact path).
+
+
+def test_crowd_estimates_empty_when_the_setting_is_off(monkeypatch):
+    def fail(*a, **k):
+        raise AssertionError("should not touch analytics.crowd_heatmap() at all when off")
+
+    monkeypatch.setattr(tui.analytics, "crowd_heatmap", fail)
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    assert tui._crowd_estimates([schedule], {}, "0000001") == {}
+
+
+def test_crowd_estimates_returns_a_real_prediction_when_enabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+            path=db_path,
+        )
+
+    config = {"ai_assist": {"avoid_predicted_crowd": True}}
+    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    estimates = tui._crowd_estimates([candidate], config, "0000001")
+
+    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
+
+
+def test_crowd_estimates_omits_a_slot_with_too_few_samples(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(date="2026-08-17", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+        path=db_path,
+    )  # only 1 Monday -- below MIN_SAMPLES_FOR_PREDICTION
+
+    config = {"ai_assist": {"avoid_predicted_crowd": True}}
+    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    assert tui._crowd_estimates([candidate], config, "0000001") == {}
 
 
 # _too_late_for_daylight() -- added 2026-09-09, direct request: "It would also be
@@ -1378,7 +1425,7 @@ def test_day_detail_star_and_moon_are_mutually_exclusive(tmp_path, monkeypatch):
 
 def test_day_pick_text_shows_a_confirmed_booking_first():
     booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00", source="manual")
-    text = tui._day_pick_text(None, {}, booking, has_pending_change=False)
+    text = tui._day_pick_text(None, {}, booking, has_pending_change=False, club_id="0000001")
     assert "14:00" in text
     assert "📌" in text
     assert "⚠" not in text
@@ -1386,13 +1433,13 @@ def test_day_pick_text_shows_a_confirmed_booking_first():
 
 def test_day_pick_text_flags_a_pending_booking_watch_change():
     booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00", source="manual")
-    text = tui._day_pick_text(None, {}, booking, has_pending_change=True)
+    text = tui._day_pick_text(None, {}, booking, has_pending_change=True, club_id="0000001")
     assert "⚠" in text
 
 
 def test_day_pick_text_dash_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
-    assert tui._day_pick_text(schedule, {}, None, False) == "[dim]—[/]"
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"
 
 
 def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
@@ -1406,7 +1453,7 @@ def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
         course="18 Loch Tee 1",
         slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
     )
-    assert tui._day_pick_text(schedule, config, None, False) == "[yellow]★[/] 09:00"
+    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/] 09:00"
 
 
 def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
@@ -1430,7 +1477,7 @@ def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
 
     monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
 
-    assert tui._day_pick_text(schedule, config, None, False) == "[yellow]★[/] 10:00"
+    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/] 10:00"
 
 
 def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
@@ -1444,7 +1491,7 @@ def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
         slots=[Slot(time="09:00", booked=0, capacity=4)],
         weather=[_weather("09:00", prob=90)],
     )
-    assert "no dry picks" in tui._day_pick_text(schedule, config, None, False)
+    assert "no dry picks" in tui._day_pick_text(schedule, config, None, False, "0000001")
 
 
 def test_day_pick_text_says_too_dark_when_only_daylight_excludes(tmp_path):
@@ -1465,7 +1512,7 @@ def test_day_pick_text_says_too_dark_when_only_daylight_excludes(tmp_path):
         slots=[Slot(time="18:00", booked=0, capacity=4)],  # far too late to finish by 19:00
         sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
     )
-    text = tui._day_pick_text(schedule, config, None, False)
+    text = tui._day_pick_text(schedule, config, None, False, "0000001")
     assert "dark" in text
     assert "dry" not in text
 
@@ -1484,7 +1531,7 @@ def test_day_pick_text_generic_message_when_both_reasons_apply(tmp_path):
         weather=[_weather("18:00", prob=90)],
         sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
     )
-    text = tui._day_pick_text(schedule, config, None, False)
+    text = tui._day_pick_text(schedule, config, None, False, "0000001")
     assert "dry" not in text
     assert "dark" not in text
     assert "playable" in text
@@ -1972,8 +2019,8 @@ def test_overview_screen_slash_opens_search_screen(tmp_path, monkeypatch):
     _run(scenario())
 
 
-def _search_screen(schedules=None, config=None):
-    return tui.SearchScreen(schedules or [], config or {})
+def _search_screen(schedules=None, config=None, club_id="0000001"):
+    return tui.SearchScreen(schedules or [], config or {}, club_id)
 
 
 def test_search_screen_prefills_from_saved_availability(tmp_path):

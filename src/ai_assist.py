@@ -146,6 +146,15 @@ def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
                 f"{conditions.max_precipitation_mm}mm, wind up to {conditions.max_wind_speed_kph}kph, "
                 f"{conditions.min_temperature_c}-{conditions.max_temperature_c}°C during the round"
             )
+
+    # Only present at all once `ai_assist.avoid_predicted_crowd` is on (recommend.py
+    # skips the analytics.crowd_heatmap() work entirely otherwise -- see
+    # ranked_matches()'s own `crowd_estimates` docstring) -- added 2026-09-10, the
+    # actual data behind that preference, which previously reached this prompt with
+    # nothing for the model to act on.
+    estimate = context.get("crowd_estimates", {}).get((candidate.date, candidate.course, slot.time))
+    if estimate is not None:
+        line += f", historically ~{estimate:.0%} full at this time"
     return line
 
 

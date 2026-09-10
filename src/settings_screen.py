@@ -5,8 +5,10 @@ by hand-editing YAML.
 
 Deliberately narrow — a screen for exactly the settings that came up in that feedback:
 `availability` (min open spots, time windows, buffer), `preferences` (rain/wind/
-temperature thresholds, friend/crowd weighting), and the scrape interval added the
-same day.
+temperature thresholds, friend weighting), and the scrape interval added the
+same day. `avoid_predicted_crowd` lives under `ai_assist` instead (moved there
+2026-09-10 — see that Field's own comment for why), since it only ever does
+anything through the AI ranking step.
 
 **Global, not per-club** (reworked 2026-09-08, direct follow-up: "i also want the
 settings/preferences to be global and not tied to a specific club"). These were
@@ -62,9 +64,10 @@ changes here). Now: `escape` dismisses just this screen (what `q` used to do),
 button that dismisses the screen is relabeled "Cancel" (not "Quit") to match what
 it's always actually done, now that "Quit" unambiguously means the `q` key's new
 meaning instead. The exact same fix, for the exact same reason, was also applied to
-`credentials_screen.py` and `club_picker.py`'s `ClubSearchScreen` — both had the
-identical pattern (no `escape`, `q` = close screen), just not yet reachable from a
-live user complaint since neither is currently pushed from the running main app.
+`credentials_screen.py`, which had the identical pattern (no `escape`, `q` = close
+screen) — not yet reachable from a live user complaint at the time, since it wasn't
+pushed from the running main app yet either (fixed 2026-09-09, see that module's
+own docstring).
 
 `round_duration_minutes` (how long a 9- or 18-hole round takes, feeding both the
 weather-during-the-round check and the daylight/sunset cutoff) joined the global
@@ -400,13 +403,6 @@ FIELDS: list[Field] = [
         "settings.group.priorities",
         False,
     ),
-    Field(
-        "settings.field.avoid_predicted_crowd",
-        ("preferences", "avoid_predicted_crowd"),
-        "bool",
-        "settings.group.priorities",
-        False,
-    ),
     # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
     # be an option in the settings menu" -- ai_assist was originally kept per-club
     # ("which model to spend on which call is a cost/quality tradeoff that's yours to
@@ -424,6 +420,21 @@ FIELDS: list[Field] = [
     Field(
         "settings.field.ai_assist_enabled",
         ("ai_assist", "enabled"),
+        "bool",
+        "settings.group.ai",
+        False,
+    ),
+    # Moved here from "Priorities" (2026-09-10, direct follow-up after finding it had
+    # zero actual effect: "make avoid crowds a child of AI option") -- it only ever
+    # does anything through ai_assist.rank_slots() (see that function's own docstring
+    # for why a hard deterministic filter never made sense for a *predicted* crowd
+    # level), so a spot in "Priorities" implying it works standalone was actively
+    # misleading. Path moved from ("preferences", "avoid_predicted_crowd") to
+    # ("ai_assist", "avoid_predicted_crowd") to match -- no migration needed for the
+    # old path, since this project is still in development, not production use.
+    Field(
+        "settings.field.avoid_predicted_crowd",
+        ("ai_assist", "avoid_predicted_crowd"),
         "bool",
         "settings.group.ai",
         False,

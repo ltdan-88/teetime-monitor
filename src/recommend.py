@@ -16,8 +16,9 @@ Three-step wrapper — two deterministic, one AI, in that order:
    anything gets called "recommended" — it's not an AI-ranking nicety, it's part of the
    baseline. Still no AI needed; these are plain threshold checks against
    already-fetched weather/playability data, aggregated across the round's duration.
-3. Hands what's left plus the club's `preferences` block (prioritize_friends, and
-   avoid_predicted_crowd once analytics.py's crowd_heatmap exists) to
+3. Hands what's left plus `prioritize_friends` and `avoid_predicted_crowd` (the
+   latter now genuinely wired to `analytics.crowd_heatmap()`/`predict_crowding()`,
+   2026-09-10 — see `ranked_matches()`'s own `crowd_estimates` parameter) to
    `ai_assist.rank_slots()`, which weighs the remaining nuanced trade-offs (e.g.
    "slightly more rain but much emptier") and writes plain-language `reasons`. This step
    is a genuine improvement, not a prerequisite — steps 1+2 alone already turn "scan the
@@ -223,7 +224,12 @@ def unplayable_reasons(candidates: list[SlotMatch], schedules: list[Schedule], c
     return reasons
 
 
-def ranked_matches(schedules: list[Schedule], criteria: SearchCriteria, config: dict) -> list[SlotMatch]:
+def ranked_matches(
+    schedules: list[Schedule],
+    criteria: SearchCriteria,
+    config: dict,
+    crowd_estimates: dict[tuple[str, str, str], float] | None = None,
+) -> list[SlotMatch]:
     """Search + exclude_unplayable + (best-effort) AI ranking for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on
     (factored out 2026-09-08, Phase 4's ad hoc search screen: same three-step
@@ -237,6 +243,16 @@ def ranked_matches(schedules: list[Schedule], criteria: SearchCriteria, config: 
     any failure calling it (no API key configured yet, a network hiccup, a rate limit)
     falls back to returning the filtered list as-is (unranked, no `reasons`) rather
     than raising — a short sane list beats no list at all.
+
+    `crowd_estimates` -- {(date, course, time): predicted occupancy 0-1} -- is
+    optional and deliberately *not* computed here: `analytics.crowd_heatmap()` needs
+    a club's public holidays (a live fetch) and its own SQLite history, and this
+    module stays a pure function over already-fetched inputs, same reasoning
+    `schedules` itself is handed in rather than scraped here. The caller (tui.py)
+    only bothers computing this at all once `ai_assist.avoid_predicted_crowd` is
+    actually on -- see that setting's own docstring in settings_screen.py for why it
+    moved under "AI ranking" rather than living in "Priorities": it only ever does
+    anything through this exact path.
     """
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
@@ -249,23 +265,32 @@ def ranked_matches(schedules: list[Schedule], criteria: SearchCriteria, config: 
         "schedules": {(schedule.date, schedule.course): schedule for schedule in schedules},
         "config": config,
     }
+    if crowd_estimates:
+        context["crowd_estimates"] = crowd_estimates
+    preferences = {
+        **config.get("preferences", {}),
+        "avoid_predicted_crowd": ai_config.get("avoid_predicted_crowd", False),
+    }
     try:
         return ai_assist.rank_slots(
             playable,
             context=context,
-            preferences=config.get("preferences", {}),
+            preferences=preferences,
             model=ai_config.get("model", ai_assist.DEFAULT_MODEL),
         )
     except Exception:
         return playable
 
 
-def weekly_picks(schedules: list[Schedule], config: dict) -> list[SlotMatch]:
+def weekly_picks(
+    schedules: list[Schedule], config: dict, crowd_estimates: dict[tuple[str, str, str], float] | None = None
+) -> list[SlotMatch]:
     """Best-ranked matches for the week, using your saved default availability --
     see `ranked_matches()` above for the actual three-step pipeline this just
-    supplies the usual criteria to."""
+    supplies the usual criteria to (including `crowd_estimates` -- see that
+    parameter's own docstring there)."""
     criteria = default_criteria_from_config(config)
-    return ranked_matches(schedules, criteria, config)
+    return ranked_matches(schedules, criteria, config, crowd_estimates)
 
 
 def diversify_by_day(picks: list[SlotMatch], max_count: int) -> list[SlotMatch]:

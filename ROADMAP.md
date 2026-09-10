@@ -2262,6 +2262,60 @@ this same commit — see "Known risks" below for both:
   in view but zero *data* to act on it with. Toggling this setting on changes
   nothing today.
 
+**Both findings above resolved, same day**: direct instruction, "1) delete
+redundant code 2) if so then make avoid crowds a child of AI option."
+
+`club_picker.py`'s `ClubSearchScreen`, `ClubPickerApp`, and every helper only it
+used were deleted outright, along with `tests/test_club_picker.py` — confirmed
+first that literally nothing else imports from the module (`grep`, not just
+memory: only its own now-deleted test file ever did). i18n keys only that screen
+used (`club_picker.title`/`search_placeholder`/`match_count`/`no_credentials`/
+`select_prompt`/`slug_*`/`pick_first`/`saved_*`, plus the never-wired
+`picker.search_for_a_club`) removed from both languages; the three keys
+`ClubBrowserScreen` also genuinely uses (`fetching`/`fetch_failed`/`no_matches`)
+kept. README's file-tree listing and its own "🔍 Search for a club…" line (an
+overclaim carried over from the same stale docstring, not just in
+`club_picker.py`) both corrected. 582 tests passing (was 603 — 21 tests deleted
+with the module, no replacements needed for dead code).
+
+`avoid_predicted_crowd` moved from `preferences` to `ai_assist` in
+`settings_screen.py`'s own `FIELDS` list (both the settings-UI group *and* the
+config path — no migration needed for the old path, this project's still in
+development) — but a location change alone would've just been a better-organized
+dead control, so the actual data got wired too, not just the framing:
+- New `tui._crowd_estimates(schedules, config, club_id)` — `{(date, course,
+  time): predicted occupancy}` for every slot, entirely skipped (no
+  `analytics`/DB work at all) unless the setting is actually on. One
+  `crowd_heatmap()` per distinct course, `calendar_context.classify_day()` to
+  pick the same weekday-or-special-type key `HeatmapScreen`'s own table uses.
+  Deliberately *not* cached across calls — a modest SQLite scan is cheap enough
+  at this app's real scale, and every caller only reaches this once
+  `ai_assist.enabled` is already on too (a per-day paid API call already
+  happening regardless).
+- `recommend.ranked_matches()`/`weekly_picks()` gained an optional
+  `crowd_estimates` parameter, threaded into `ai_assist.rank_slots()`'s own
+  `context["crowd_estimates"]` — kept as an *optional* parameter, not computed
+  inside `recommend.py` itself, since `analytics.crowd_heatmap()` needs a live
+  holiday fetch and this module stays a pure function over already-fetched
+  inputs (same reasoning `schedules` itself is handed in rather than scraped
+  here). The `preferences` dict handed to Claude's prompt now always includes
+  `avoid_predicted_crowd` read from `ai_assist`, regardless of which config
+  block it actually lives in.
+- `ai_assist._describe_candidate()` appends "historically ~X% full at this
+  time" per candidate when `context["crowd_estimates"]` has an entry for it —
+  the one piece that was actually missing before: `prioritize_friends` already
+  had real per-candidate data (who's already booked); this preference didn't.
+- Three new call sites needed threading, not just one: `OverviewScreen`'s
+  per-day pick column, its own "This week's picks," and `SearchScreen` — the
+  last of which didn't even carry `club_id` before this (needed for
+  `_db_path()`), so its constructor gained a third parameter.
+
+8 new tests across `test_recommend.py`/`test_ai_assist.py`/`test_tui.py`
+(preferences merging, context threading with and without estimates, the actual
+prompt text, `_crowd_estimates()`'s own on/off/too-few-samples cases), plus two
+existing `test_settings_screen.py` assertions updated for the new nested shape.
+590 tests passing, all new ones confirmed genuinely dependent by reverting.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
@@ -2381,26 +2435,13 @@ silently failed to match Sonnenberg's own naming ("18-Loch Schleife") and fell b
 a hardcoded 18 for every one of that club's courses, including its real 9-hole and
 short-course options — fixed by reusing `scraper._holes_from_course_label()` instead,
 which only ever matches a leading digit and so handles both naming styles.
-- **`club_picker.py`'s `ClubSearchScreen` is orphaned code, not a wired-up feature**
-  (found 2026-09-10 auditing for "further cases where it is not wired up") — its own
-  module docstring claims `tui.py` pushes it for "search for a club," but `tui.py`
-  never imports anything from `club_picker.py` at all. `ClubBrowserScreen`'s own
-  inline directory search (built the same day as `ClubSearchScreen`, 2026-09-07)
-  appears to have fully superseded it, including the geocoding-on-save behavior
-  (now in `club_config.add_favorite()`) — but this was never confirmed and the
-  ~200 now-redundant lines (plus its own test file) were never removed. Not fixed
-  yet — deciding whether to delete it or keep it as a documented standalone
-  fallback is the user's call, not an obvious one to make unilaterally.
-- **`avoid_predicted_crowd` (Settings → Priorities) has no actual effect** (found
-  the same audit pass) — the preference reaches `ai_assist.rank_slots()`'s prompt
-  verbatim (the whole `preferences` dict does), but no candidate ever gets a
-  `analytics.predict_crowding()` estimate attached, so there's no crowd data
-  behind the preference for Claude to act on. Unlike `prioritize_friends` (which
-  has real friend-booked data per candidate via `_describe_candidate()`), toggling
-  this setting on changes nothing today. Wiring it for real means deciding how
-  much of `crowd_heatmap()`'s holiday/vacation/weekday context to thread through
-  `weekly_picks()`/`ranked_matches()`, which don't currently take any of that —
-  a real design question, not fixed yet.
+- ~~`club_picker.py`'s `ClubSearchScreen` is orphaned code, not a wired-up
+  feature~~ (found 2026-09-10 auditing for "further cases where it is not wired
+  up") — **resolved the same day**: confirmed dead and deleted. See the dated
+  entry below.
+- ~~`avoid_predicted_crowd` (Settings → Priorities) has no actual effect~~ (found
+  the same audit pass) — **resolved the same day**, moved under "AI ranking" and
+  actually wired to real data. See the dated entry below.
 
 ## Out of scope (all phases)
 Booking/auto-booking, notifications, packaging/distribution, mobile support (pc

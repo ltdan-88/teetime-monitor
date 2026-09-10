@@ -379,6 +379,75 @@ def test_weekly_picks_uses_ai_assist_rank_slots_when_enabled(monkeypatch):
     assert picks[0].reasons == ["dry and empty"]
 
 
+def test_ranked_matches_merges_avoid_predicted_crowd_into_preferences(monkeypatch):
+    # avoid_predicted_crowd moved from config["preferences"] to config["ai_assist"]
+    # 2026-09-10 ("make avoid crowds a child of AI option") -- ai_assist.rank_slots()
+    # still needs it in the `preferences` dict it hands to Claude's prompt, since
+    # that's the only place the model actually sees it.
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "ai_assist": {"enabled": True, "avoid_predicted_crowd": True},
+        "preferences": {"prioritize_friends": True},
+    }
+    criteria = default_criteria_from_config(config)
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, model):
+        calls.append(preferences)
+        return candidates
+
+    import src.recommend as recommend_module
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
+
+    ranked_matches([schedule], criteria, config)
+
+    assert calls[0] == {"prioritize_friends": True, "avoid_predicted_crowd": True}
+
+
+def test_ranked_matches_threads_crowd_estimates_into_context(monkeypatch):
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
+    config = {"availability": {"weekday_window": {"after": "17:00"}}, "ai_assist": {"enabled": True}}
+    criteria = default_criteria_from_config(config)
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, model):
+        calls.append(context)
+        return candidates
+
+    import src.recommend as recommend_module
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
+
+    estimates = {("2026-09-07", "18 Loch Tee 1", "18:00"): 0.8}
+    ranked_matches([schedule], criteria, config, crowd_estimates=estimates)
+
+    assert calls[0]["crowd_estimates"] == estimates
+
+
+def test_ranked_matches_omits_crowd_estimates_from_context_when_none_given(monkeypatch):
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
+    config = {"availability": {"weekday_window": {"after": "17:00"}}, "ai_assist": {"enabled": True}}
+    criteria = default_criteria_from_config(config)
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, model):
+        calls.append(context)
+        return candidates
+
+    import src.recommend as recommend_module
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
+
+    ranked_matches([schedule], criteria, config)
+
+    assert "crowd_estimates" not in calls[0]
+
+
 def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_call_fails(monkeypatch):
     schedule = Schedule(
         date="2026-09-07",
