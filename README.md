@@ -49,7 +49,10 @@ spec.
   jumps straight to that club — or paste your club's own pc caddie booking link
   (from its website or a booking confirmation) if you don't know the bare id; the id
   is pulled straight out of it. `f` toggles a club as a favorite, `s` opens this same
-  browser to switch clubs deliberately, any time
+  browser to switch clubs deliberately, any time — landing straight on the overview
+  with the switched-to club's own saved default course too (2026-09-11), same as
+  launch: still asks when a club genuinely has more than one course and no default
+  set, just doesn't repeat a choice that already has a clear answer
 - Favorites (`clubs/*.yaml`) are exactly that — a shortcut and a place to keep a
   club's own settings, never a precondition for looking at a club. Only favorites are
   scraped on a schedule, which is what keeps a club you merely glanced at from
@@ -194,7 +197,9 @@ spec.
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
-  refresh), showing real weather split into its own Temperature/Precipitation/Wind
+  refresh; today's own row drops off the list entirely once its real sunset has
+  passed, 2026-09-11 — nothing left worth looking at for it by then), showing real
+  weather split into its own Temperature/Precipitation/Wind
   columns, that day's own event/closure note (📌) in a separate Events column —
   split apart 2026-09-09 so a tournament or maintenance closure never crowds out the
   actual forecast — a six-block "heat strip" for how full 08:00-20:00 is, and that

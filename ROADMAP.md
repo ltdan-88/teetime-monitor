@@ -2720,6 +2720,49 @@ with a remembered last-used club/course opened straight to its overview with
 zero pickers shown, and a long real club name rendered on one line instead of
 wrapping. 633 tests passing.
 
+**Answer to note 3, plus a fresh follow-up, the next day (2026-09-11).**
+
+3. **"i would prefer if today (09/11) didn't show up anymore after sunset."**
+   A real, concrete design change, not the bug the earlier investigation
+   correctly ruled out — `_initial_date()`'s own "every slot's own time has
+   passed" heuristic only ever moved the *cursor*, never touched which rows are
+   listed at all. `OverviewScreen.load_overview()` now drops today's own row
+   from the table entirely once its cached schedule's real `sun_times.sunset`
+   has passed — a genuinely different signal from `_initial_date()`'s (the
+   club's own booking hours, not the sky), used because that's specifically
+   what was asked for. Unknown (no cached schedule yet, or one with no
+   `sun_times` attached — e.g. no location configured) means "don't hide it,"
+   the same stance `recommend._fails_playability()` already takes elsewhere.
+
+   **New in the same message: "when you go to the club selector by hitting s,
+   it still asks you to select a course. This seems redundant."** Same root
+   cause and same fix shape as the launch-time pickers fixed the day before —
+   `_do_switch_club_or_course()` (the explicit `s` flow) deliberately forced
+   `always_ask_course=True` on every switch, on the theory that "you asked to
+   switch, so actively choosing is the point." That reasoning predates
+   `OverviewScreen`'s own inline course selector; now that changing course is
+   already trivial without any picker, forcing one on every switch — even onto
+   a club whose course is already unambiguous via a saved `default_course` —
+   stopped serving a purpose. Now calls `_open_club(club_id,
+   always_ask_course=False)`, the exact same call the launch flow already
+   makes: still asks when a club genuinely has more than one course and no
+   default is set (nothing about making a real choice easier changed), just no
+   longer repeats a choice that already has a clear answer.
+
+   3 new tests for the sunset behavior, 2 rewritten (`ignoring_default_course`
+   renamed to `honors_default_course...`, since that's now literally backwards)
+   and 1 new for the still-ambiguous case, all confirmed genuinely dependent by
+   reverting. Also caught and fixed a real test-isolation gap in the two new
+   `_start()`-resume tests added the day before (they never mocked
+   `club_config.list_clubs()`, so falling back to the picker flow read this
+   developer's own real `clubs/` directory) — surfaced as a `DuplicateID` crash
+   once a second real club (Hetzenhof) turned up there independently of this
+   session's own work. Verified both fixes live in an isolated sandbox: today's
+   row genuinely disappears once "now" is set past a real cached sunset, and
+   switching between two favorited clubs (each with its own saved
+   `default_course`) via `s` lands straight on the overview with no course
+   picker either time. 637 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

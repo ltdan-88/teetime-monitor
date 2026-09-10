@@ -1966,6 +1966,85 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
     _run(scenario())
 
 
+# --- Today's row drops out of the overview entirely once the sun's down for it --
+# added 2026-09-11, direct feedback: "i would prefer if today ... didn't show up
+# anymore after sunset." A genuinely different signal from _initial_date()'s own
+# "every slot's own time has passed" heuristic above (the club's booking hours, not
+# the sky) -- real sunset, since that's what was actually asked for. -------------
+
+
+def test_overview_screen_drops_todays_row_once_past_sunset(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "20:30")
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="19:50", booked=0, capacity=4)],
+            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            # Today's own row is gone entirely -- not just deprioritized -- so only
+            # the remaining overview_days - 1 rows (tomorrow onward) show at all.
+            assert tui._TODAY() not in app.screen._row_dates
+            assert table.row_count == 4
+
+    _run(scenario())
+
+
+def test_overview_screen_keeps_todays_row_before_sunset(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "18:00")
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="19:50", booked=0, capacity=4)],
+            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert tui._TODAY() in app.screen._row_dates
+
+    _run(scenario())
+
+
+def test_overview_screen_keeps_todays_row_when_no_sun_times_are_cached(tmp_path, monkeypatch):
+    # Unknown (no location configured yet, or never scraped) means "don't hide
+    # it" -- the same "unknown, not assumed bad" stance
+    # recommend._fails_playability() already takes, not a guess in either
+    # direction.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "23:00")
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert tui._TODAY() in app.screen._row_dates
+
+    _run(scenario())
+
+
 def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, monkeypatch):
     # Direct feedback 2026-09-08: "i don't even know where to configure from the UI"
     # -- settings_screen.py used to only be reachable as its own separate command,
@@ -2981,6 +3060,7 @@ def test_start_falls_back_to_pickers_when_the_remembered_course_no_longer_exists
         "load_last_active_club",
         lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "a course that no longer exists"},
     )
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
     )
@@ -3004,6 +3084,7 @@ def test_start_falls_back_to_pickers_when_the_remembered_clubs_fetch_fails(tmp_p
         "load_last_active_club",
         lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "9 Loch Tee 1"},
     )
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
     )
@@ -3029,6 +3110,7 @@ def test_start_ignores_a_remembered_club_when_none_was_ever_saved(tmp_path, monk
     # assumption every other startup test already makes.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -3294,7 +3376,12 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
 # not possible to return to the previous menus like choosing the course or login") --
 
 
-def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, monkeypatch):
+def test_switch_action_honors_default_course_skipping_the_course_picker(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-11: "when you go to the club selector by hitting s,
+    # it still asks you to select a course. This seems redundant" -- once the
+    # overview's own inline course selector already makes changing course trivial
+    # without any picker, forcing one here too, even onto a club whose course is
+    # already unambiguous (a saved default_course), stopped serving a purpose.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
@@ -3317,21 +3404,59 @@ def test_switch_action_shows_course_picker_ignoring_default_course(tmp_path, mon
             assert isinstance(app.screen, tui.ClubBrowserScreen)
             app.screen.dismiss("0000001")
             await pilot.pause()
-            # ...and always shows the course picker, even though default_course
-            # would otherwise skip it.
+            await pilot.pause()
+            # ...and lands straight on the overview with the saved default_course,
+            # no course picker at all -- this club's only own real ambiguity was
+            # already resolved.
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.course == "9 Loch Tee 1"
+            assert app.screen.club_id == "0000001"
+            # Pops back to the app's base first, so the old DayDetailScreen this
+            # switch started from isn't left buried underneath.
+            assert len(app.screen_stack) == 2  # base + the one fresh OverviewScreen
+
+    _run(scenario())
+
+
+def test_switch_action_still_shows_the_course_picker_when_genuinely_ambiguous(tmp_path, monkeypatch):
+    # No default_course set, and more than one real course -- there's still a
+    # genuine choice to make here, so this one still asks. default_course is set
+    # during the *initial* launch only (so _reach_day_detail()'s own setup stays
+    # unambiguous, same as every other test using it -- OverviewScreen's own
+    # _config() re-reads it too, not just _open_club(), so a call-counting mock
+    # can't tell "initial setup" and "the switch itself" apart reliably) and
+    # dropped right before pressing `s`, simulating the switch landing on a club
+    # with no default -- the actual scenario under test here.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    state = {"has_default": True}
+
+    def load_club_config(slug, *a, **k):
+        if state["has_default"]:
+            return {"club_id": "0000001", "default_course": "9 Loch Tee 1"}
+        return {"club_id": "0000001"}
+
+    monkeypatch.setattr(tui.club_config, "load_club_config", load_club_config)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot)
+            state["has_default"] = False
+
+            await pilot.press("s")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.dismiss("0000001")
+            await pilot.pause()
             assert isinstance(app.screen, tui.CoursePickerScreen)
 
             app.screen.dismiss("18 Loch Tee 1")
             await pilot.pause()
             await pilot.pause()
-            # Switching lands back on the overview (its own home screen), not
-            # directly on a DayDetailScreen -- pops back to the app's base first,
-            # so the old DayDetailScreen this switch started from isn't left buried
-            # underneath.
             assert isinstance(app.screen, tui.OverviewScreen)
             assert app.screen.course == "18 Loch Tee 1"
-            assert app.screen.club_id == "0000001"
-            assert len(app.screen_stack) == 2  # base + the one fresh OverviewScreen
 
     _run(scenario())
 
@@ -3359,15 +3484,15 @@ def test_switch_action_shows_club_picker_when_multiple_clubs_saved(tmp_path, mon
 
             app.screen.dismiss("0352001")
             await pilot.pause()
-            assert isinstance(app.screen, tui.CoursePickerScreen)  # ignores default_course too
-
-            app.screen.dismiss("6 Loch Platz")
             await pilot.pause()
-            await pilot.pause()
+            # Lands straight on the overview with guest-club's own saved
+            # default_course -- no course picker at all any more (2026-09-11,
+            # direct feedback: "when you go to the club selector by hitting s, it
+            # still asks you to select a course. This seems redundant").
             assert isinstance(app.screen, tui.OverviewScreen)
             assert app.screen.club_id == "0352001"
             assert app.screen.club_slug == "guest-club"
-            assert app.screen.course == "6 Loch Platz"
+            assert app.screen.course == "18 Loch Tee 1"
 
     _run(scenario())
 
@@ -3460,17 +3585,29 @@ def test_switch_action_cancelling_course_picker_leaves_schedule_unchanged(tmp_pa
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
-    monkeypatch.setattr(
-        tui.club_config,
-        "load_club_config",
-        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
-    )
+    # default_course set during the *initial* launch only (_reach_day_detail()'s
+    # own setup, kept unambiguous like every other test using it -- see the
+    # previous test's own comment for why a call-counting mock can't reliably
+    # tell "initial setup" and "the switch itself" apart), dropped right before
+    # pressing `s` so the switch step itself is a genuine choice between several
+    # real courses -- the one case that still shows the course picker at all (see
+    # the two tests above).
+    state = {"has_default": True}
+
+    def load_club_config(slug, *a, **k):
+        if state["has_default"]:
+            return {"club_id": "0000001", "default_course": "9 Loch Tee 1"}
+        return {"club_id": "0000001"}
+
+    monkeypatch.setattr(tui.club_config, "load_club_config", load_club_config)
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
             await _reach_day_detail(app, pilot)
             original_screen = app.screen
+            original_course = app.screen.course
+            state["has_default"] = False
 
             await pilot.press("s")
             await pilot.pause()
@@ -3481,7 +3618,7 @@ def test_switch_action_cancelling_course_picker_leaves_schedule_unchanged(tmp_pa
             await pilot.pause()
 
             assert app.screen is original_screen
-            assert app.screen.course == "9 Loch Tee 1"
+            assert app.screen.course == original_course
 
     _run(scenario())
 

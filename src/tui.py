@@ -1542,12 +1542,12 @@ class OverviewScreen(Screen[None]):
 
         schedules: list[Schedule] = []
         for one_date in dates:
-            self._row_dates.append(one_date)
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             suffix = f" {i18n.t('overview.today_suffix')}" if one_date == _TODAY() else ""
             day_cell = f"{weekday} {one_date}{suffix}"
 
             if one_date not in open_dates:
+                self._row_dates.append(one_date)
                 table.add_row(
                     f"[dim]{day_cell}[/]",
                     "[dim]—[/]",
@@ -1560,6 +1560,24 @@ class OverviewScreen(Screen[None]):
                 continue
 
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
+            # Drop today's own row entirely once the sun's actually down for it --
+            # direct follow-up, 2026-09-11, to _initial_date()'s own cursor-only fix
+            # below: "i would prefer if today didn't show up anymore after sunset."
+            # A genuinely different signal from _initial_date()'s own "every slot's
+            # own time has passed" heuristic (the club's booking hours, not the sky)
+            # -- deliberately real sunset here, since that's what was actually asked
+            # for. Unknown (no cached schedule yet, or one with no sun_times
+            # attached -- e.g. no location configured) means "don't hide it," the
+            # same "unknown, not assumed bad" stance recommend._fails_playability()
+            # already takes, not a guess in either direction.
+            if (
+                one_date == _TODAY()
+                and schedule is not None
+                and schedule.sun_times is not None
+                and _NOW_HHMM() > schedule.sun_times.sunset
+            ):
+                continue
+            self._row_dates.append(one_date)
             if schedule is not None and schedule.slots:
                 schedules.append(schedule)
                 temperature_cell = _temperature_cell(schedule.weather) or "[dim]—[/]"
@@ -2732,15 +2750,22 @@ class TeetimeApp(App[None]):
         launch behave identically (including favoriting, searching, and jumping to a
         club by id).
 
-        Deliberately does *not* reuse `_start()`'s `default_course` shortcut: an
-        explicit request to switch means actively choosing is the point. A club with
-        only one course still skips the course picker — there's nothing to choose.
-        Backing out at any step leaves the current schedule exactly as it was; nothing
-        is popped or replaced until a club *and* a course are both actually chosen."""
+        Now honors a saved `default_course` (2026-09-11, direct follow-up: "when you
+        go to the club selector by hitting s, it still asks you to select a course.
+        This seems redundant") — same reasoning as skipping both pickers at launch
+        entirely once a last-used club/course exists (see `_resume_last_active()`'s
+        own docstring): `OverviewScreen`'s own inline course selector already makes
+        changing course trivial without any picker, so forcing one here on every
+        switch, even onto a club whose course is already unambiguous, stopped
+        serving a purpose. Still asks when a club genuinely has more than one course
+        and no default is set — this was never about skipping the choice, only
+        about not repeating one that already has a clear answer. Backing out at any
+        step leaves the current schedule exactly as it was; nothing is popped or
+        replaced until a club *and* a course are both actually settled."""
         club_id = await self.push_screen_wait(ClubBrowserScreen(allow_cancel=True))
         if club_id is None:
             return
-        await self._open_club(club_id, always_ask_course=True)
+        await self._open_club(club_id, always_ask_course=False)
         self._periodic_scrape()
 
     def action_edit_settings(self) -> None:
