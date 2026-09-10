@@ -2384,7 +2384,25 @@ screen in a taller terminal with no scrolling involved at all.
 dependent by reverting. Verified every fix live in an isolated sandbox, headless
 tmux, walking through the actual club browser → course picker → overview →
 day detail → confirm-booking flow end to end with seeded multi-day, multi-course
-data, not just the specific fields under test. 596 tests passing.
+data, not just the specific fields under test. 596 tests passing. Released as
+**v0.6.0** (Homebrew tap updated, `brew test`/`brew audit` both clean, `--version`
+confirmed live).
+
+Continued the same bug hunt with two more systematic sweeps, both came back
+clean — recording here so they aren't redone from scratch later: (1) every
+`i18n.t(f"...")` dynamic-key call site (`weekday.{0-6}`, `heatmap.weekday.<name>`,
+`heatmap.day_type.<type>`) checked against every value Python's `.weekday()`,
+`strftime("%A").lower()`, and `calendar_context.SPECIAL_DAY_TYPES` can actually
+produce — full coverage in both languages, nothing missing; (2) every
+`query_one("#id", Type)` call site across `src/*.py` cross-checked against its
+own screen's `compose()` (including the loop-generated `search-buffer-before`/
+`search-buffer-after` ids in `SearchScreen`, which a plain `id="..."` grep alone
+would've missed) — every id resolves, and the three cross-screen
+`self.screen.query_one("#status", ...)` calls in `TeetimeApp` are all correctly
+guarded by an `isinstance()` check first. Also read through `booking_watch.py`
+and `storage.py` end to end looking for logic bugs (threshold/buffer edge cases,
+schema migration, "latest wins" queries) — both already handle their edge cases
+deliberately and correctly; no changes made.
 
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
