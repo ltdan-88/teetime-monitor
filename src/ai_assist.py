@@ -192,11 +192,30 @@ def rank_slots(
         return candidates  # fall back to the unranked order rather than losing results
 
     ranked: list[SlotMatch] = []
+    seen_indices: set[int] = set()
     for ranked_slot in sorted(ranking.ranked, key=lambda r: r.score, reverse=True):
-        if 0 <= ranked_slot.index < len(candidates):
+        # Out-of-range and duplicate indices are both possible, real model mistakes --
+        # a structured-output schema doesn't stop Claude from mentioning the same
+        # index twice, or one that doesn't exist. Both are just skipped here rather
+        # than raising or letting a duplicate reference into the result twice.
+        if 0 <= ranked_slot.index < len(candidates) and ranked_slot.index not in seen_indices:
             candidate = candidates[ranked_slot.index]
             candidate.score = ranked_slot.score
             candidate.reasons = ranked_slot.reasons
+            ranked.append(candidate)
+            seen_indices.add(ranked_slot.index)
+
+    # Any candidate Claude's response simply never mentioned -- found live 2026-09-10,
+    # a dedicated bug hunt: an incomplete ranking (plausible once the candidate list is
+    # long enough to brush against max_tokens, or just an ordinary model omission) used
+    # to make that candidate vanish from the result entirely, even though it already
+    # passed every hard filter (party size, time window, weather, daylight) before
+    # ever reaching this function. Appended here instead, unranked (score 0.0, no
+    # reasons) but still visible -- matches recommend.exclude_unplayable()'s own
+    # stated stance: silently dropping a candidate is a worse failure mode than
+    # showing an unranked one.
+    for index, candidate in enumerate(candidates):
+        if index not in seen_indices:
             ranked.append(candidate)
     return ranked
 

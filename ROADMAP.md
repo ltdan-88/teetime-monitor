@@ -2456,7 +2456,30 @@ session (`weather.py`, `analytics.py`, `search.py`, `calendar_context.py`,
   alone stops it.
 
   1 new regression test for the `club_config.py` fix, 1 new fixture for the
-  `test_scrape_once.py` isolation gap. 597 tests passing.
+  `test_scrape_once.py` isolation gap. 597 tests passing. Released as **v0.6.1**
+  (Homebrew tap updated, `brew test`/`brew audit` clean, `--version` confirmed
+  live).
+
+Read through `ai_assist.py` next and found a second real bug, more consequential
+than the first: **`rank_slots()` silently dropped any candidate Claude's ranking
+response didn't cover.** A candidate reaching this function already passed every
+hard filter (party size, time window, weather, daylight) — a genuinely bookable
+slot — but if Claude's structured-output response omitted it (a plausible,
+ordinary model imperfection, more likely the longer the candidate list gets and
+brushes against `max_tokens`) or gave it an out-of-range index, it vanished from
+the result with no error, no fallback, and no indication anything was wrong.
+Paradoxically, turning AI ranking *on* could mean seeing *fewer* real, good
+options than leaving it off — the opposite of what the feature is for. An
+existing test (`test_rank_slots_ignores_an_out_of_range_index`) had actually
+locked this exact behavior in as "expected," with no documented reasoning behind
+treating a dropped real candidate as correct rather than as data loss. Fixed to
+match `recommend.exclude_unplayable()`'s own already-stated stance elsewhere in
+this codebase: silently dropping a candidate is a worse failure mode than
+showing an unranked one. Any candidate not covered by Claude's response is now
+appended at the end, unranked (score 0, no reasons) but still visible; a
+duplicate index (Claude mentioning the same slot twice) is also now de-duplicated
+rather than adding the same candidate twice. 3 new/rewritten tests, all confirmed
+genuinely dependent by reverting. 599 tests passing.
 
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough

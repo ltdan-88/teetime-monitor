@@ -135,14 +135,58 @@ def test_rank_slots_falls_back_to_original_order_when_claude_returns_nothing(mon
     assert result == candidates
 
 
-def test_rank_slots_ignores_an_out_of_range_index(monkeypatch):
+def test_rank_slots_still_shows_a_candidate_behind_an_out_of_range_index(monkeypatch):
+    # Regression test (2026-09-10, dedicated bug hunt): this used to assert
+    # result == [] -- an out-of-range index used to make the one real, already
+    # hard-filtered candidate vanish from the result entirely, rather than still
+    # showing it (unranked) the way a candidate Claude never mentions at all now is.
     candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
     ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=5, score=90, reasons=["?"])])
     messages = _FakeMessages(parse_result=_FakeResponse(ranking))
     monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
 
     result = rank_slots(candidates, {}, {})
-    assert result == []
+    assert result == candidates
+    assert result[0].score == 0.0
+    assert result[0].reasons == []
+
+
+def test_rank_slots_appends_a_candidate_claude_never_mentioned(monkeypatch):
+    # A candidate Claude's ranking simply omits (an incomplete response -- plausible
+    # once the candidate list is long enough to brush against max_tokens, or just an
+    # ordinary model omission) is still shown, appended after the ones it did rank,
+    # rather than silently dropped.
+    candidates = [
+        _candidate("2026-09-07", "18 Loch Tee 1", "18:00"),
+        _candidate("2026-09-08", "18 Loch Tee 1", "09:00"),
+    ]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=90, reasons=["dry"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    result = rank_slots(candidates, {}, {})
+    assert [c.slot.time for c in result] == ["18:00", "09:00"]
+    assert result[0].score == 90
+    assert result[1].score == 0.0
+    assert result[1].reasons == []
+
+
+def test_rank_slots_ignores_a_duplicate_index(monkeypatch):
+    # A structured-output schema doesn't stop Claude from mentioning the same index
+    # twice -- the second mention shouldn't add a duplicate reference to the result.
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(
+        ranked=[
+            ai_assist._RankedSlot(index=0, score=90, reasons=["dry"]),
+            ai_assist._RankedSlot(index=0, score=10, reasons=["wet"]),
+        ]
+    )
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    result = rank_slots(candidates, {}, {})
+    assert len(result) == 1
+    assert result[0].score == 90
 
 
 def test_rank_slots_includes_weather_when_schedule_context_given(monkeypatch):
