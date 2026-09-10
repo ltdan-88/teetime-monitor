@@ -350,6 +350,16 @@ def _favorite_clubs() -> list[tuple[str, str]]:
     return entries
 
 
+def _any_favorite_club_id() -> str | None:
+    """A real club_id to test a login attempt against, if any favorite exists --
+    added 2026-09-10 alongside CredentialsScreen's own live-verification feature
+    (see that module's docstring). Any favorited club works: one pc caddie login is
+    platform-wide, so this doesn't need to be the *same* club the credentials will
+    later be used for."""
+    favorites = _favorite_clubs()
+    return favorites[0][0] if favorites else None
+
+
 class ClubBrowserScreen(Screen[str | None]):
     """Pick any club on the platform, by numeric pc caddie id. The app's home screen.
 
@@ -561,12 +571,28 @@ class ClubBrowserScreen(Screen[str | None]):
 
         Pushes `CredentialsScreen` right here the moment it discovers none are
         configured, rather than just describing the fix in a status line — see this
-        class's own docstring for the direct feedback this responds to."""
+        class's own docstring for the direct feedback this responds to.
+
+        `any_credentials() is None` has two genuinely different causes, told apart
+        here since 2026-09-10 (direct report: "why can't I login... why do I need to
+        hit r after login") -- no credentials saved at all (push CredentialsScreen,
+        same as before), versus credentials that are already saved and working but
+        have no favorited club yet to pair with for an authenticated request
+        (`club_directory.credentials_configured()` is True either way it's checked
+        directly, not inferred from `any_credentials()`'s own None). Pushing
+        CredentialsScreen again for the second case would be actively misleading --
+        implying the login itself is missing or wrong when it isn't."""
         status = self.query_one("#club-status", Static)
         credentials = club_directory.any_credentials()
         if credentials is None:
+            if club_directory.credentials_configured():
+                status.update(i18n.t("picker.directory_needs_a_club"))
+                return
             status.update(i18n.t("picker.directory_needs_login"))
-            self.app.push_screen(CredentialsScreen(), self._on_credentials_screen_dismissed)
+            self.app.push_screen(
+                CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
+                self._on_credentials_screen_dismissed,
+            )
             return
         status.update(i18n.t("club_picker.fetching"))
         club_id, username, password = credentials
@@ -580,8 +606,15 @@ class ClubBrowserScreen(Screen[str | None]):
     def action_login(self) -> None:
         """`CredentialsScreen`, reached proactively -- e.g. right after a fresh
         install, before ever trying `r` and hitting the reactive push in
-        `action_refresh_directory()` above. Same screen, same dismiss handling."""
-        self.app.push_screen(CredentialsScreen(), self._on_credentials_screen_dismissed)
+        `action_refresh_directory()` above. Same screen, same dismiss handling.
+        `verify_against_club_id` (2026-09-10) lets a save show real "login
+        verified"/"login rejected" feedback instead of just "Saved" whenever a
+        favorited club already exists to test against -- see credentials_screen.py's
+        own docstring for why it's optional."""
+        self.app.push_screen(
+            CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
+            self._on_credentials_screen_dismissed,
+        )
 
     def _on_credentials_screen_dismissed(self, saved: bool) -> None:
         # "Retry automatically" convention -- a save is exactly the signal that
@@ -2512,10 +2545,25 @@ class TeetimeApp(App[None]):
         sheet itself) never needed a login to begin with; this is a faster path to
         set one up before ever hitting the point where you'd actually need it
         (searching the full directory, or reading "My Reservations"), not a new
-        requirement to use the app at all."""
+        requirement to use the app at all.
+
+        Deliberately `club_directory.credentials_configured()` here, not
+        `any_credentials()` — real bug found live, 2026-09-10, direct report ("why
+        can't I login... why do I need to hit r after login"): `any_credentials()`
+        also requires an existing favorited club to pair the credentials with, which
+        a genuinely fresh install (exactly this check's own case) never has. That
+        made this screen reappear (or `ClubBrowserScreen`'s own directory refresh
+        keep saying "needs a login") every single time, regardless of how many times
+        real, correct credentials were saved — see `credentials_configured()`'s own
+        docstring for the full detail."""
         self._periodic_scrape_running = False
-        if club_directory.any_credentials() is None:
-            await self.push_screen_wait(CredentialsScreen())
+        if not club_directory.credentials_configured():
+            # verify_against_club_id: usually None here (this exact check only ever
+            # fires when there's no login configured yet, but a club could already be
+            # favorited without one -- e.g. browsed and favorited before ever setting
+            # up credentials -- so still worth trying for real verification feedback
+            # rather than assuming it's always the true-first-launch case).
+            await self.push_screen_wait(CredentialsScreen(verify_against_club_id=_any_favorite_club_id()))
         while True:
             club_id = await self.push_screen_wait(
                 ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)

@@ -115,3 +115,36 @@ def test_any_credentials_skips_a_favorite_whose_credentials_dont_resolve(monkeyp
     )
     monkeypatch.setattr(club_directory.club_config, "resolve_credentials", lambda slug: ("", ""))
     assert club_directory.any_credentials() is None
+
+
+# --- credentials_configured ---------------------------------------------------------
+# Added 2026-09-10, direct report ("why can't I login... why do I need to hit r
+# after login... how do I know if login is successful"): any_credentials() alone
+# can't tell "no credentials at all" apart from "credentials exist but no favorited
+# club exists yet to pair them with" -- a real, working PCC_USER/PCC_PASS with zero
+# favorited clubs (a genuinely fresh install, i.e. exactly the case
+# TeetimeApp._start()'s own credentials-first check exists for) made any_credentials()
+# report None forever, which looked from the outside exactly like login never worked.
+
+
+def test_credentials_configured_true_with_plain_env_vars_and_zero_favorites(monkeypatch):
+    # The exact regression scenario: real, working credentials, but no favorited
+    # club at all -- any_credentials() would still report None here (see the test
+    # above), but credentials_configured() must not depend on that.
+    monkeypatch.setattr(club_directory.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setenv("PCC_USER", "someone@example.com")
+    monkeypatch.setenv("PCC_PASS", "hunter2")
+    assert club_directory.any_credentials() is None
+    assert club_directory.credentials_configured() is True
+
+
+def test_credentials_configured_false_when_unset(monkeypatch):
+    monkeypatch.delenv("PCC_USER", raising=False)
+    monkeypatch.delenv("PCC_PASS", raising=False)
+    assert club_directory.credentials_configured() is False
+
+
+def test_credentials_configured_false_when_only_username_set(monkeypatch):
+    monkeypatch.setenv("PCC_USER", "someone@example.com")
+    monkeypatch.delenv("PCC_PASS", raising=False)
+    assert club_directory.credentials_configured() is False

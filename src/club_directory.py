@@ -27,6 +27,7 @@ credentials never becomes a dead end:
 """
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,7 +125,13 @@ def any_credentials() -> tuple[str, str, str] | None:
     Tries each saved favorite in turn: credentials are normally the plain
     PCC_USER/PCC_PASS pair shared across clubs, but `resolve_credentials()` also
     supports per-club overrides, so the club whose id is used has to be one whose
-    credentials actually resolved."""
+    credentials actually resolved.
+
+    This needs a real, favorited club_id to pair the credentials with — an
+    authenticated request has to be made *against* some specific club's login page
+    — so it returns None on a brand-new install with zero favorited clubs even
+    once real, working credentials are saved in `.env`. See `credentials_configured()`
+    below for the check that doesn't have this dependency."""
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
         club_id = config.get("club_id")
@@ -134,6 +141,24 @@ def any_credentials() -> tuple[str, str, str] | None:
         if username and password:
             return str(club_id), username, password
     return None
+
+
+def credentials_configured() -> bool:
+    """Whether PCC_USER/PCC_PASS are set at all, independent of any favorited club.
+
+    Found live, 2026-09-10, direct report ("why can't I login... why do I need to
+    hit r after login... how do I know if login is successful"): `TeetimeApp`'s own
+    "show the credentials screen first at launch" check used `any_credentials()` is
+    None for this — but `any_credentials()` also requires an existing favorited club
+    to pair the credentials with, which a genuinely fresh install (the exact case
+    that check exists for) never has yet. The result: real, correctly-saved,
+    already-verified-working credentials in `.env` were never recognized as
+    "configured" until a club was separately favorited (a distinct, later step) —
+    from the outside this looks exactly like login never actually worked, since
+    every screen that checked `any_credentials()` kept reporting "needs a login" no
+    matter how many times the credentials screen was filled in. This check only
+    looks at whether the plain env vars are set, with no club dependency at all."""
+    return bool(os.environ.get("PCC_USER")) and bool(os.environ.get("PCC_PASS"))
 
 
 def search(directory: list[tuple[str, str]], query: str, limit: int = 50) -> list[tuple[str, str]]:

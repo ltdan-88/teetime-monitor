@@ -2481,6 +2481,55 @@ duplicate index (Claude mentioning the same slot twice) is also now de-duplicate
 rather than adding the same candidate twice. 3 new/rewritten tests, all confirmed
 genuinely dependent by reverting. 599 tests passing.
 
+**"Why can't I login" / "why do I need to hit r after login" / "how do I know if
+login is successful," a day later (2026-09-10)** — direct report from real use,
+after the bug hunt above had already shipped. Diagnosed by actually running the
+real installed app's own credential-resolution and login functions against the
+real saved `.env` on this machine (never touching or printing the raw values
+myself, only pass/fail outcomes) — the credentials were genuinely correct and a
+real login succeeded, ruling out a typo or account problem. The real cause: this
+machine's actual runtime directory (wherever the Homebrew-installed binary had
+actually been run from) had zero favorited clubs, and `club_directory.
+any_credentials()` — the check `TeetimeApp._start()`'s own "show login first"
+logic and `ClubBrowserScreen`'s `r`/`l` both relied on — requires an *existing
+favorited club* to pair real credentials with, since an authenticated request has
+to be made against some specific club's login page. A brand-new install (exactly
+the case the credentials-first feature exists for) never has one yet, so
+`any_credentials()` reported "not configured" forever regardless of how many
+times real, working credentials were saved — from the outside, indistinguishable
+from login simply never working, and explaining all three symptoms at once (the
+screen never recognized its own save, `r` looped back to "needs a login" instead
+of doing anything, and "Saved to .env." never actually confirmed the login worked
+in the first place since no verification was ever attempted).
+
+Fixed with a real separation of two different questions that `any_credentials()`
+had been conflating: new `club_directory.credentials_configured()` checks only
+whether `PCC_USER`/`PCC_PASS` are set at all, with no club dependency —
+`TeetimeApp._start()` now uses this instead. `ClubBrowserScreen.
+action_refresh_directory()` now tells the two `any_credentials() is None` causes
+apart: genuinely no credentials (pushes `CredentialsScreen`, unchanged) versus
+credentials that exist but have no favorited club yet to test against (a new,
+accurate status message pointing at what to do next, instead of a misleading
+repeat of "enter your credentials"). Separately, `CredentialsScreen` gained real
+live verification: given a real club_id to test against (any favorited club, via
+new `_any_favorite_club_id()` — one pc caddie login works platform-wide, so it
+doesn't need to be the specific club being set up), saving now actually attempts
+`scraper.login()` and shows "login verified"/"login rejected" instead of just
+"Saved," with a separate "couldn't verify right now" message for a transient
+network failure so a temporary hiccup is never confused with wrong credentials.
+Falls back to the old plain "Saved" message when no club_id is available yet
+(the true first-launch case), rather than skipping verification silently.
+
+8 new tests across `test_club_directory.py`/`test_credentials_screen.py`/
+`test_tui.py`, all confirmed genuinely dependent by reverting. Verified live in
+an isolated sandbox, in German (matching this machine's actual language setting):
+walked through the exact reported scenario end to end — fresh install, no
+favorites, credentials saved (plain "Saved," no verification), `r` no longer
+loops back to "needs a login" and instead explains favoriting a club first, then
+favoriting a club and re-opening the credentials screen via `l` shows real
+"login verified" with a correct password and real "login rejected" with a wrong
+one. 607 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

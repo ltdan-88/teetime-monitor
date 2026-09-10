@@ -56,7 +56,11 @@ spec.
   (entirely skippable, `escape`, since typed club ids/favorites/the tee sheet itself
   never needed one), `r` in the club browser pushes it automatically the moment it
   discovers none are configured, and `l` opens the same screen proactively anytime.
-  Saving retries the directory fetch right away
+  Saving actually tries logging in and says so plainly ("login verified"/"login
+  rejected") once at least one club is favorited to test against — before a club has
+  been favorited, saving still writes the credentials (no verification is possible
+  yet, since a login attempt needs a real club to authenticate against), and `r`'s
+  status line says exactly that instead of misleadingly asking for a login again
 - Weather needs a location pc caddie itself doesn't publish anywhere, so any club you
   open — favorited or not — gets one looked up automatically: a best-effort search
   against OpenStreetMap's free Nominatim geocoder, using the club's own name, cached

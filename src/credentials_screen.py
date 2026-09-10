@@ -34,6 +34,20 @@ flow to see the new credentials without a restart. A fresh process picks them up
 `.env` itself instead, via club_config.py's own `load_dotenv()` call (see that
 module's docstring for the related bug this session found and fixed: `.env` was never
 actually being loaded into the environment anywhere before now).
+
+`verify_against_club_id` (added 2026-09-10, direct report: "how do I know if login
+is successful") — a real, live login attempt via `scraper.login()`, shown as a clear
+"verified"/"rejected" status rather than just "Saved to .env." (which only ever
+confirmed the *file write*, never that pc caddie actually accepted the credentials).
+Optional because a login attempt needs a real club_id to authenticate *against*, and
+this screen doesn't always have one — a genuinely fresh install (see
+`TeetimeApp._start()`, which pushes this screen before any club has ever been
+favorited) has no club_id to test with yet, so it falls back to the old plain "Saved"
+message in that case rather than skipping the save entirely. Callers that do know a
+favorited club_id (`ClubBrowserScreen.action_login()`/`action_refresh_directory()`)
+pass one so the common re-entry case gets real verification. This makes a real
+network call on save, blocking briefly — same tradeoff `ClubBrowserScreen`'s own `r`
+already makes for its "Fetching…" status, not a new pattern.
 """
 
 import os
@@ -44,7 +58,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Header, Input, Static
 
-from . import env_file, i18n
+from . import env_file, i18n, scraper
 from . import theme as theme_module
 from .translated_footer import TranslatedFooter
 
@@ -95,12 +109,21 @@ class CredentialsScreen(Screen[bool]):
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
-    def __init__(self, env_path: Path | None = None, template_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        env_path: Path | None = None,
+        template_path: Path | None = None,
+        verify_against_club_id: str | None = None,
+    ) -> None:
         super().__init__()
         # Resolved at call time, not bound as a literal default -- see env_file.py's
         # module docstring for the frozen-default gotcha this avoids.
         self.env_path = env_path if env_path is not None else env_file.ENV_FILE
         self.template_path = template_path if template_path is not None else env_file.ENV_EXAMPLE_FILE
+        # See module docstring's "verify_against_club_id" note -- a real club_id to
+        # test the saved credentials against with an actual login attempt, or None to
+        # fall back to the old "Saved to .env" message with no live verification.
+        self.verify_against_club_id = verify_against_club_id
         self._saved = False
 
     def on_mount(self) -> None:
@@ -172,7 +195,29 @@ class CredentialsScreen(Screen[bool]):
         self.query_one("#password", Input).value = ""  # never linger in the widget
         # once it's written -- re-entering edit mode always starts blank again, same
         # as on first load.
-        status.update(i18n.t("credentials.saved"))
+
+        if self.verify_against_club_id is None:
+            # No real club_id to test against yet (see module docstring's
+            # "verify_against_club_id" note) -- "Saved" only ever confirmed the file
+            # write, not that pc caddie actually accepts these credentials.
+            status.update(i18n.t("credentials.saved"))
+            return
+
+        status.update(i18n.t("credentials.verifying"))
+        try:
+            client = scraper.login(
+                self.verify_against_club_id, os.environ["PCC_USER"], os.environ.get("PCC_PASS", "")
+            )
+        except scraper.LoginError:
+            status.update(i18n.t("credentials.login_failed"))
+            return
+        except Exception as exc:  # noqa: BLE001 -- a network hiccup isn't the same
+            # thing as bad credentials -- don't tell the user their login is wrong
+            # over a transient failure that has nothing to do with it.
+            status.update(i18n.t("credentials.saved_unverified", error=exc))
+            return
+        client.close()
+        status.update(i18n.t("credentials.login_verified"))
 
     def action_cancel(self) -> None:
         self.dismiss(self._saved)

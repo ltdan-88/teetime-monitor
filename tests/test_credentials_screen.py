@@ -3,9 +3,11 @@ import os
 
 import pytest
 
+from src import credentials_screen as credentials_screen_module
 from src import i18n
 from src.credentials_screen import CredentialsScreen
 from src.env_file import load_env_value
+from src.scraper import LoginError
 
 
 @pytest.fixture(autouse=True)
@@ -44,14 +46,18 @@ from textual.app import App, ComposeResult  # noqa: E402
 
 
 class _HostApp(App[None]):
-    def __init__(self, env_path, template_path) -> None:
+    def __init__(self, env_path, template_path, verify_against_club_id=None) -> None:
         super().__init__()
         self.env_path = env_path
         self.template_path = template_path
+        self.verify_against_club_id = verify_against_club_id
         self.result: bool | None = "not set"
 
     def on_mount(self) -> None:
-        self.push_screen(CredentialsScreen(self.env_path, self.template_path), self._on_dismissed)
+        self.push_screen(
+            CredentialsScreen(self.env_path, self.template_path, self.verify_against_club_id),
+            self._on_dismissed,
+        )
 
     def _on_dismissed(self, saved: bool) -> None:
         self.result = saved
@@ -173,6 +179,113 @@ def test_credentials_screen_blank_password_keeps_existing_one(tmp_path):
 
     assert load_env_value("PCC_USER", env_path) == "new@example.com"
     assert load_env_value("PCC_PASS", env_path) == "originalpass"
+
+
+# --- Live login verification -- added 2026-09-10, direct report ("how do I know if
+# login is successful"): "Saved to .env." only ever confirmed the file write, never
+# that pc caddie actually accepted the credentials. -----------------------------
+
+
+def test_credentials_screen_without_a_club_id_shows_plain_saved_message(tmp_path):
+    # No verify_against_club_id given (the true-first-launch case, no favorited club
+    # yet to test against) -- falls back to the old message, no live login attempt.
+    from textual.widgets import Static
+
+    env_path = tmp_path / ".env"
+    calls = []
+
+    async def scenario():
+        app = _HostApp(env_path, tmp_path / ".env.example")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            calls.append(str(app.screen.query_one("#status", Static).content))
+
+    asyncio.run(scenario())
+    assert calls == [i18n.t("credentials.saved")]
+
+
+def test_credentials_screen_verifies_login_and_reports_success(tmp_path, monkeypatch):
+    from textual.widgets import Static
+
+    fake_client = type("FakeClient", (), {"close": lambda self: None})()
+    seen_calls = []
+    monkeypatch.setattr(
+        credentials_screen_module.scraper,
+        "login",
+        lambda club_id, user, password: (seen_calls.append((club_id, user, password)), fake_client)[1],
+    )
+
+    env_path = tmp_path / ".env"
+
+    async def scenario():
+        app = _HostApp(env_path, tmp_path / ".env.example", verify_against_club_id="0000001")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.login_verified")
+
+    asyncio.run(scenario())
+    assert seen_calls == [("0000001", "someone@example.com", "hunter2")]
+
+
+def test_credentials_screen_verifies_login_and_reports_rejection(tmp_path, monkeypatch):
+    from textual.widgets import Static
+
+    def fake_login(club_id, user, password):
+        raise LoginError("nope")
+
+    monkeypatch.setattr(credentials_screen_module.scraper, "login", fake_login)
+
+    env_path = tmp_path / ".env"
+
+    async def scenario():
+        app = _HostApp(env_path, tmp_path / ".env.example", verify_against_club_id="0000001")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "wrongpass"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.login_failed")
+
+    asyncio.run(scenario())
+    # The credentials are still saved to .env even though verification failed --
+    # a rejected login doesn't mean "don't write what was typed," just "tell the
+    # user it didn't work."
+    assert load_env_value("PCC_USER", env_path) == "someone@example.com"
+
+
+def test_credentials_screen_reports_unverified_on_a_network_hiccup_not_bad_credentials(tmp_path, monkeypatch):
+    from textual.widgets import Static
+
+    def fake_login(club_id, user, password):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(credentials_screen_module.scraper, "login", fake_login)
+
+    env_path = tmp_path / ".env"
+
+    async def scenario():
+        app = _HostApp(env_path, tmp_path / ".env.example", verify_against_club_id="0000001")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            status = str(app.screen.query_one("#status", Static).content)
+            # A transient failure isn't the same claim as "your credentials are
+            # wrong" -- distinct message, distinct from login_failed above.
+            assert status == i18n.t("credentials.saved_unverified", error=RuntimeError("no network"))
+
+    asyncio.run(scenario())
 
 
 def test_credentials_screen_prefills_existing_username_not_password(tmp_path):

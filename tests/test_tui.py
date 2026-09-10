@@ -102,7 +102,7 @@ def _fake_course_aliases_by_default(monkeypatch):
 def _some_credentials_by_default(monkeypatch):
     """`TeetimeApp._start()` (2026-09-10: "I want the login screen to appear first,
     whenever you don't have a login") now pushes `CredentialsScreen` before
-    `ClubBrowserScreen` whenever `club_directory.any_credentials()` is `None` --
+    `ClubBrowserScreen` whenever `club_directory.credentials_configured()` is False --
     every test here that builds a real `TeetimeApp()` and expects to land straight
     on `ClubBrowserScreen` would otherwise depend on whether *this developer's own
     real machine* happens to have real `PCC_USER`/`PCC_PASS` set (it does, for
@@ -111,8 +111,16 @@ def _some_credentials_by_default(monkeypatch):
     `TeetimeApp` to notice it only sometimes failing). Defaults to "configured" so
     the credentials screen doesn't show unless a test explicitly wants it to; a test
     exercising the missing-credentials path itself overrides this locally (see
-    `test_club_browser_r_pushes_credentials_screen_when_none_configured`)."""
+    `test_club_browser_r_pushes_credentials_screen_when_none_configured`).
+
+    Patches both `any_credentials()` (needs a favorited club to pair credentials
+    with -- see that function's own docstring) and `credentials_configured()` (the
+    plain "are PCC_USER/PCC_PASS set at all" check, added 2026-09-10 once real,
+    working credentials with zero favorited clubs turned out to make
+    `any_credentials()` alone report "not configured" forever -- see that function's
+    docstring for the real bug this fixed) so both report "configured" by default."""
     monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: ("0000001", "user", "pass"))
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: True)
 
 
 @pytest.fixture(autouse=True)
@@ -2428,6 +2436,7 @@ def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
 
 def test_club_browser_r_pushes_credentials_screen_when_none_configured(monkeypatch):
     monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: False)
 
     async def scenario():
         app = _HostApp(tui.ClubBrowserScreen())
@@ -2436,6 +2445,28 @@ def test_club_browser_r_pushes_credentials_screen_when_none_configured(monkeypat
             app.screen.action_refresh_directory()
             await pilot.pause()
             assert isinstance(app.screen, tui.CredentialsScreen)
+
+    _run(scenario())
+
+
+def test_club_browser_r_shows_needs_a_club_when_credentials_exist_but_no_favorite(monkeypatch):
+    # Real bug found live, 2026-09-10: any_credentials() is None has two different
+    # causes -- no credentials at all, or real working credentials with no favorited
+    # club yet to pair them with (see club_directory.credentials_configured()'s own
+    # docstring). Pushing CredentialsScreen again for the second case would be
+    # actively misleading, since the login itself is fine.
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: True)
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)  # not pushed into CredentialsScreen
+            status = app.screen.query_one("#club-status", Static)
+            assert i18n.t("picker.directory_needs_a_club") in str(status.content)
 
     _run(scenario())
 
@@ -2467,6 +2498,7 @@ def test_saving_credentials_from_club_browser_retries_the_directory_fetch(monkey
     # would show once CredentialsScreen writes real values to .env.
     calls = iter([None, ("0000001", "someone@example.com", "hunter2")])
     monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: next(calls, ("0000001", "someone@example.com", "hunter2")))
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: False)
     monkeypatch.setattr(tui.club_directory, "refresh_directory", lambda *a, **k: [("0000001", "Golfclub Musterhausen")])
 
     async def scenario():
@@ -2674,6 +2706,7 @@ def test_start_shows_credentials_screen_first_when_none_configured(tmp_path, mon
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: False)
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -2704,6 +2737,7 @@ def test_start_reaches_club_browser_after_dismissing_credentials_without_saving(
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: False)
 
     async def scenario():
         app = tui.TeetimeApp()
