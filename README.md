@@ -41,8 +41,10 @@ spec.
 - Open the app, pick a club, pick a course — in that order, with no setup step in
   front of it. The club browser is the home screen: an empty search box lists your
   favorites, typing searches pc caddie's whole club directory, and typing a club id
-  (e.g. `0000001`) jumps straight to that club. `f` toggles a club as a favorite,
-  `s` reopens the same browser from the tee sheet to switch clubs mid-session
+  (e.g. `0000001`) jumps straight to that club — or paste your club's own pc caddie
+  booking link (from its website or a booking confirmation) if you don't know the
+  bare id; the id is pulled straight out of it. `f` toggles a club as a favorite, `s`
+  reopens the same browser from the tee sheet to switch clubs mid-session
 - Favorites (`clubs/*.yaml`) are exactly that — a shortcut and a place to keep a
   club's own settings, never a precondition for looking at a club. Only favorites are
   scraped on a schedule, which is what keeps a club you merely glanced at from

@@ -27,6 +27,31 @@ def test_looks_like_club_id_rejects_a_too_short_number():
     assert club_directory.looks_like_club_id("18") is None
 
 
+# --- looks_like_club_id also accepts a pasted booking link -- direct pushback,
+# 2026-09-10 ("a First time User would not know anything about a club id"): a real
+# first-time user's actual starting point is their own club's pc caddie booking link,
+# not a bare 7-digit number memorized on its own. --------------------------------
+
+
+def test_looks_like_club_id_extracts_the_id_from_a_full_booking_url():
+    url = "https://www.pccaddie.net/clubs/0497758/app.php?cat=tt_timetable_course"
+    assert club_directory.looks_like_club_id(url) == "0497758"
+
+
+def test_looks_like_club_id_extracts_the_id_from_a_url_with_no_query_string():
+    url = "https://www.pccaddie.net/clubs/0000002/"
+    assert club_directory.looks_like_club_id(url) == "0000002"
+
+
+def test_looks_like_club_id_normalizes_a_missing_leading_zero_inside_a_url():
+    url = "https://www.pccaddie.net/clubs/497758/app.php"
+    assert club_directory.looks_like_club_id(url) == "0497758"
+
+
+def test_looks_like_club_id_ignores_a_url_with_no_clubs_segment():
+    assert club_directory.looks_like_club_id("https://www.pccaddie.de/golfspielende") is None
+
+
 # --- the cache ----------------------------------------------------------------------
 
 

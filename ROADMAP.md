@@ -2550,6 +2550,29 @@ club id, never favorited it, pressed `r` — directory fetch succeeded
 immediately using the already-saved credentials, no separate favorite-first
 step. 608 tests passing.
 
+**Second immediate follow-up, same day: "a First time User would not know
+anything about a club id"** — a genuinely different, deeper point than the
+chicken-and-egg fix above, and not something fixable purely in this app's own
+code: pc caddie's platform directory itself isn't publicly searchable (a
+logged-out GET returns HTTP 401 — see this module's own docstring), so finding
+an unknown club by name has to start from *some* real, known club id no matter
+what. Confirmed live there's no public, unauthenticated "find your club" page
+on pc caddie's own marketing site either. What a first-time user actually has,
+in practice, isn't a bare 7-digit number memorized on its own — it's their own
+club's pc caddie booking link, bookmarked, emailed as a confirmation, or linked
+straight from the club's own website's "book a tee time" button.
+
+Fixed by recognizing that link directly: `club_directory.looks_like_club_id()`
+now also extracts a `/clubs/<id>/` segment from anywhere inside a pasted URL
+(new `_CLUB_ID_IN_URL_RE`), not just a bare number — paste the whole link into
+the search box and it resolves exactly like typing the id would. Every hint
+that used to say "type a club id" now also mentions pasting a booking link,
+and the placeholder/status messages explain where such a link actually comes
+from. 4 new tests, confirmed genuinely dependent by reverting. Verified live:
+pasted a full `https://www.pccaddie.net/clubs/0497758/app.php?...` URL into
+the search box, the app correctly showed `[0497758] open this club` ready to
+open with enter. 612 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

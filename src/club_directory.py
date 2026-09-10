@@ -44,6 +44,20 @@ CACHE_FILENAME = "club-directory.json"
 # leading zero, since that's an easy thing to drop when typing one in by hand.
 _CLUB_ID_RE = re.compile(r"^\d{6,7}$")
 
+# Direct pushback, 2026-09-10: "a First time User would not know anything about a
+# club id" -- correct, and genuinely not solvable by anything in this app's own
+# code: pc caddie's platform directory itself isn't publicly searchable (see this
+# module's own docstring -- a logged-out GET of it returns HTTP 401), so finding an
+# unknown club by name has to start from *some* real, known club id regardless. What
+# a first-time user actually has, in practice, is their own club's own pc caddie
+# booking link -- bookmarked, emailed as a confirmation, or linked straight from the
+# club's own website's "book a tee time" button -- not a bare 7-digit number
+# memorized on its own. Recognizing that link directly (rather than requiring it to
+# be manually trimmed down to just the digits first) is the actual fix: any
+# `/clubs/<id>/...` segment pulled out of a pasted URL, wherever it appears in the
+# string, same digit-count rule as a bare id above.
+_CLUB_ID_IN_URL_RE = re.compile(r"/clubs/(\d{6,7})(?:/|$|\?)")
+
 
 def _cache_path(path: Path | None = None) -> Path:
     """Resolved at call time, not bound as a default argument — see env_file.py's
@@ -56,11 +70,17 @@ def looks_like_club_id(query: str) -> str | None:
     """The normalized club id if `query` is one, else None.
 
     Lets the club picker accept "000001" or "0000001" as a direct jump, no directory
-    lookup and no login needed — the tee sheet for any id is public."""
+    lookup and no login needed — the tee sheet for any id is public. Also accepts a
+    pasted pc caddie URL containing a `/clubs/<id>/` segment (2026-09-10 — see
+    `_CLUB_ID_IN_URL_RE`'s own comment above for why: a real first-time user's actual
+    starting point is a club's own booking link, not a bare number)."""
     candidate = query.strip()
-    if not _CLUB_ID_RE.match(candidate):
-        return None
-    return candidate.zfill(7)
+    if _CLUB_ID_RE.match(candidate):
+        return candidate.zfill(7)
+    url_match = _CLUB_ID_IN_URL_RE.search(candidate)
+    if url_match:
+        return url_match.group(1).zfill(7)
+    return None
 
 
 def load_cached_directory(path: Path | None = None) -> list[tuple[str, str]]:
