@@ -581,21 +581,41 @@ class ClubBrowserScreen(Screen[str | None]):
         (`club_directory.credentials_configured()` is True either way it's checked
         directly, not inferred from `any_credentials()`'s own None). Pushing
         CredentialsScreen again for the second case would be actively misleading --
-        implying the login itself is missing or wrong when it isn't."""
+        implying the login itself is missing or wrong when it isn't.
+
+        Real follow-up gap, same day, direct pushback ("it is a chicken-and-egg
+        problem"): the "needs a club" message originally said to *favorite* a club
+        first -- but favoriting was never actually required, just knowing a real
+        club_id to authenticate against, which the search box above already has the
+        moment a club id is typed into it, whether or not it's ever favorited (one
+        pc caddie login is platform-wide -- it doesn't have to be *your* club, or a
+        saved one, just a real id). Now tries whatever's currently typed in
+        `#club-search` before falling back to a favorite, so typing your own club's
+        id and pressing 'r' works immediately, no separate favorite-first step."""
         status = self.query_one("#club-status", Static)
         credentials = club_directory.any_credentials()
-        if credentials is None:
+        if credentials is not None:
+            club_id, username, password = credentials
+        else:
+            typed_club_id = club_directory.looks_like_club_id(
+                self.query_one("#club-search", Input).value.strip()
+            )
+            if typed_club_id is not None and club_directory.credentials_configured():
+                club_id = typed_club_id
+                username, password = club_config.resolve_credentials(typed_club_id)
+            else:
+                club_id = username = password = None
+        if not club_id or not username or not password:
             if club_directory.credentials_configured():
                 status.update(i18n.t("picker.directory_needs_a_club"))
                 return
             status.update(i18n.t("picker.directory_needs_login"))
             self.app.push_screen(
-                CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
+                CredentialsScreen(verify_against_club_id=self._verification_club_id()),
                 self._on_credentials_screen_dismissed,
             )
             return
         status.update(i18n.t("club_picker.fetching"))
-        club_id, username, password = credentials
         try:
             self._directory = club_directory.refresh_directory(club_id, username, password)
         except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
@@ -603,16 +623,24 @@ class ClubBrowserScreen(Screen[str | None]):
             return
         status.update(i18n.t("picker.directory_refreshed", count=len(self._directory)))
 
+    def _verification_club_id(self) -> str | None:
+        """A real club_id to test a saved login against -- whatever's currently typed
+        in `#club-search` if it looks like one (no favorite needed, see
+        `action_refresh_directory()`'s own docstring for why that was never actually
+        a requirement), else any favorited club's id, else None."""
+        typed = club_directory.looks_like_club_id(self.query_one("#club-search", Input).value.strip())
+        return typed if typed is not None else _any_favorite_club_id()
+
     def action_login(self) -> None:
         """`CredentialsScreen`, reached proactively -- e.g. right after a fresh
         install, before ever trying `r` and hitting the reactive push in
         `action_refresh_directory()` above. Same screen, same dismiss handling.
         `verify_against_club_id` (2026-09-10) lets a save show real "login
-        verified"/"login rejected" feedback instead of just "Saved" whenever a
-        favorited club already exists to test against -- see credentials_screen.py's
-        own docstring for why it's optional."""
+        verified"/"login rejected" feedback instead of just "Saved" whenever a real
+        club_id is already known to test against -- see credentials_screen.py's own
+        docstring for why it's optional."""
         self.app.push_screen(
-            CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
+            CredentialsScreen(verify_against_club_id=self._verification_club_id()),
             self._on_credentials_screen_dismissed,
         )
 

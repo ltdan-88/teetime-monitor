@@ -2530,6 +2530,26 @@ favoriting a club and re-opening the credentials screen via `l` shows real
 "login verified" with a correct password and real "login rejected" with a wrong
 one. 607 tests passing.
 
+**Immediate follow-up pushback, same day: "it is a chicken-and-egg problem"** —
+correct, and a real gap in the fix above, not just a wording complaint: the
+"needs a club" message told you to *favorite* a club before `r` could check
+anything, but favoriting was never actually required — the only real
+requirement is a known club_id to authenticate against, which the search box
+already has the moment a club id is typed into it (one pc caddie login works
+for any club on the platform, favorited or not, even one that isn't yours).
+`ClubBrowserScreen.action_refresh_directory()` now tries whatever's currently
+typed in `#club-search` (via `club_directory.looks_like_club_id()`) before
+falling back to a favorite, resolving credentials directly via
+`club_config.resolve_credentials()` rather than only through
+`any_credentials()`'s favorites-only scan. `l`/the reactive credentials push
+both gained the same fallback (new `ClubBrowserScreen._verification_club_id()`)
+so live login verification also works against a typed-but-unfavorited club.
+Reworded the "needs a club" message to say to type a club id, not favorite one.
+1 new test, confirmed genuinely dependent by reverting. Verified live: typed a
+club id, never favorited it, pressed `r` — directory fetch succeeded
+immediately using the already-saved credentials, no separate favorite-first
+step. 608 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -2471,6 +2471,39 @@ def test_club_browser_r_shows_needs_a_club_when_credentials_exist_but_no_favorit
     _run(scenario())
 
 
+def test_club_browser_r_uses_a_typed_club_id_with_no_favorite_needed(monkeypatch):
+    # Direct pushback the same day, right after the fix above shipped: "it is a
+    # chicken-and-egg problem" -- favoriting was never actually required, just
+    # knowing a real club_id to authenticate against, which a typed id in the search
+    # box already provides without ever being favorited. This is the case that
+    # pushback fixed: real credentials, no favorite at all, but a club id typed into
+    # #club-search -- 'r' should use it directly rather than asking for a favorite.
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: None)
+    monkeypatch.setattr(tui.club_directory, "credentials_configured", lambda: True)
+    monkeypatch.setattr(tui.club_config, "resolve_credentials", lambda club_id: ("plain-user", "plain-pass"))
+    seen_calls = []
+    monkeypatch.setattr(
+        tui.club_directory,
+        "refresh_directory",
+        lambda club_id, user, password: (seen_calls.append((club_id, user, password)), [("0000002", "Golfclub Sonnenberg")])[1],
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "0000002"
+            await pilot.pause()  # let on_input_changed's own status update settle first
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            status = app.screen.query_one("#club-status", Static)
+            assert i18n.t("picker.directory_refreshed", count=1) in str(status.content)
+
+    _run(scenario())
+    assert seen_calls == [("0000002", "plain-user", "plain-pass")]
+
+
 def test_club_browser_l_opens_credentials_screen_proactively(monkeypatch):
     # Credentials are already configured here -- 'l' still opens the screen, unlike
     # 'r' above, which only pushes it reactively once it discovers none exist.
