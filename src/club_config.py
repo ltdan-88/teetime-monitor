@@ -27,8 +27,32 @@ this module at all) — an import-time call is what actually guarantees `.env` i
 loaded before *any* of that runs, regardless of which function happens to be called
 first. `load_dotenv()`'s own default behavior of never overriding an already-set
 environment variable is exactly right here, so an env var set some other way still
-wins; its default upward directory search from this file's own location finds the
-project root's `.env` regardless of the caller's current working directory.
+wins.
+
+`find_dotenv(usecwd=True)` (found and fixed 2026-09-10, a second, deeper instance
+of the exact gap this module's own docstring above already describes once):
+`load_dotenv()` itself has no `usecwd` parameter of its own — only `find_dotenv()`
+does, so the actual fix resolves the path explicitly and hands it in rather than
+letting `load_dotenv()` search on its own. The original call here was plain
+`load_dotenv()`, and this docstring used to claim its default search
+"finds the project root's `.env` regardless of the caller's current working
+directory" — backwards for exactly the case that actually matters. Without
+`usecwd`, `find_dotenv()` walks upward from the *calling frame's own file location*,
+not the process's working directory — for a real installed package (Homebrew, or
+any `pip install`), that frame is this very file, sitting deep in `site-packages`,
+and walking up from there never reaches anywhere close to a user's real `.env`.
+Invisible in every bit of dev-repo testing this project ever did (`pytest`, a bare
+`python -c`), since either has no real calling-frame file at all (falls back to CWD
+anyway) or happens to walk up through this repo's own checkout, which coincidentally
+has its own `.env` sitting right there — neither resembles how the real, installed
+`teetime-monitor` binary actually runs. Confirmed live: the real Homebrew-installed
+app, launched interactively from `~` with real, correct, already-verified-working
+credentials sitting in `~/.env`, showed the credentials screen on *every single
+launch* — `os.environ.get("PCC_USER")` was `None` the whole time, despite the file
+being right there in the working directory this app's own README says to run it
+from. `usecwd=True` searches from `Path.cwd()` upward instead, matching what this
+docstring always intended and what the rest of this app already assumes (`env_file.
+ENV_FILE = Path(".env")`, resolved the same CWD-relative way).
 """
 
 import os
@@ -36,11 +60,11 @@ import re
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from . import geocode
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True))
 
 CLUBS_DIR = Path("clubs")
 EXAMPLE_FILENAME = "club.example.yaml"

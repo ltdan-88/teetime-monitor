@@ -127,6 +127,32 @@ def test_module_import_loads_dotenv(monkeypatch):
     assert len(calls) == 1
 
 
+def test_module_import_resolves_dotenv_path_via_cwd(monkeypatch):
+    # Regression test for a second, deeper instance of the exact gap the test above
+    # already covers, found live 2026-09-10: plain load_dotenv() with no path
+    # argument searches upward from the *calling frame's own file location*, not the
+    # process's working directory -- for a real installed package (Homebrew, any pip
+    # install), that frame is this very module, sitting deep in site-packages, and
+    # walking up from there never reaches anywhere near a user's real .env. Invisible
+    # in every bit of dev-repo testing this project ever did (pytest, a bare
+    # `python -c`), since both fall back to (or coincidentally walk up through) a
+    # directory that happens to have its own .env -- neither resembles how the real
+    # installed binary actually runs. Confirmed live: the real Homebrew-installed
+    # app, launched from a real user's home directory with real working credentials
+    # already sitting in ~/.env, showed the credentials screen on every single
+    # launch regardless -- os.environ never actually saw them. `find_dotenv
+    # (usecwd=True)` searches from the process's actual cwd instead -- verified here
+    # by checking find_dotenv() is actually asked for usecwd=True, and that its
+    # result (not some other path) is what gets handed to load_dotenv().
+    find_dotenv_calls = []
+    monkeypatch.setattr(dotenv, "find_dotenv", lambda *a, **k: find_dotenv_calls.append(k) or "/fake/.env")
+    load_dotenv_calls = []
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: load_dotenv_calls.append((a, k)))
+    importlib.reload(club_config_module)
+    assert find_dotenv_calls == [{"usecwd": True}]
+    assert load_dotenv_calls == [(("/fake/.env",), {})]
+
+
 # --- Favorites (2026-09-07): "saving clubs makes only sense in the sense of
 # Favorites" -- a club is now reached by its numeric id, and a clubs/*.yaml is
 # optional extra settings, not a precondition for looking at the club ----------------

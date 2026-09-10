@@ -2609,6 +2609,45 @@ reverting. Verified live in an isolated sandbox: a truly fresh install (no
 credentials, no favorites, no local cache at all) searched "Leipzig" with zero
 setup and correctly found the 5 real matching clubs. 620 tests passing.
 
+**The actual root cause of the whole login-discovery thread, found the same
+night while investigating three separate follow-up notes** (unrelated to any
+of them directly — found by launching the real Homebrew-installed app live to
+check the third note below, and noticing the credentials screen shouldn't have
+appeared at all given known-working credentials already sat in `~/.env`):
+`club_config.py`'s own `load_dotenv()` call — fixed 2026-09-07, and again
+partially in this same session's earlier `any_credentials()`/
+`credentials_configured()` work — had a second, deeper bug neither fix touched.
+Plain `load_dotenv()` with no path argument searches upward from the *calling
+frame's own file location*, not the process's actual working directory. For a
+real installed package (Homebrew, any `pip install`), that frame is
+`club_config.py` itself, sitting deep in `site-packages` — walking up from
+there never reaches anywhere near a user's real `.env`. This was invisible in
+literally every bit of dev-repo testing this project ever did (`pytest`, a
+bare `python -c`), since both either have no real calling-frame file at all
+(silently falls back to cwd) or happen to walk up through this repo's own
+checkout, which coincidentally has its own `.env` sitting right there — neither
+resembles how the real, installed binary actually runs. Confirmed live,
+definitively, with a debug wrapper logging the raw value: the real
+Homebrew-installed app, launched interactively from `~` with real, working,
+already-verified credentials sitting in `~/.env`, showed the credentials
+screen on *every single launch* — `os.environ.get("PCC_USER")` was `None` the
+entire time. This is almost certainly what the very first "why can't I
+login... why do I need to hit r after login" report was actually about, not
+just the favorites-dependency bug fixed earlier that day — that fix was real
+and still correct, but was treating a symptom one layer up from this.
+
+Fixed with `find_dotenv(usecwd=True)`, resolved explicitly and handed to
+`load_dotenv()` rather than let it search on its own (`load_dotenv()` itself
+has no `usecwd` parameter — only `find_dotenv()` does). Also corrected this
+module's own docstring, which had been asserting the exact opposite of what
+was actually true ("finds the project root's `.env` regardless of the
+caller's current working directory") since the day this whole mechanism was
+first added. 2 new/rewritten tests (one confirms `find_dotenv` is actually
+asked for `usecwd=True`, the other that its result — not some other path —
+is what reaches `load_dotenv()`), confirmed genuinely dependent by reverting.
+Verified live: the exact same real Homebrew install, same real `.env`, no
+longer shows the credentials screen on launch at all. 621 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
