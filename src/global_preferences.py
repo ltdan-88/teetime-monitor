@@ -74,3 +74,50 @@ def save_preferences(config: dict, path: Path | None = None) -> None:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     with resolved.open("w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
+
+
+def load_last_active_club(config_file: Path | None = None) -> dict | None:
+    """The `{"club_id", "slug", "course"}` last successfully opened, or `None` if
+    never set (a genuinely fresh install, or incomplete data). Added 2026-09-10,
+    direct feedback: "when you launch teetime-monitor you are greeted with which
+    club to select, then which course. I think this is redundant since you can now
+    select club and courses from the overview." Once `OverviewScreen`'s own inline
+    switcher (2026-09-09) could change either one in place, forcing the same
+    two-screen picker flow at *every* launch stopped making sense — this is what
+    lets `TeetimeApp._start()` jump straight back into the last-used club/course
+    instead, falling back to the full picker flow only when this is missing or
+    turns out to be stale (see `_resume_last_active()`'s own docstring).
+
+    Deliberately *not* stored in `PREFERENCES_FILE` alongside actual user-edited
+    preferences, despite otherwise fitting this module's own theme (global, not
+    per-club, small): a real bug found live while building this very feature —
+    `_resolved_config()` merges `load_preferences()`'s *entire* dict wholesale on
+    top of a club's own settings, with no filtering of which keys are genuine
+    preferences, so a `last_active` key living there would leak into every
+    resolved club config anywhere in the app (recommend.py, scrape_once.py, ...),
+    not just the one place that actually needs it. Uses `user_config`'s own flat
+    `KEY=value` file instead — the same one `theme.py`/`i18n.py` already use for
+    exactly this kind of "global app state, never part of a resolved club config"
+    data — three flat keys (`LAST_CLUB_ID`/`LAST_CLUB_SLUG`/`LAST_COURSE`) rather
+    than the nested shape this module's own YAML file holds."""
+    resolved = config_file if config_file is not None else user_config.CONFIG_FILE
+    club_id = user_config.load_value("LAST_CLUB_ID", resolved)
+    course = user_config.load_value("LAST_COURSE", resolved)
+    if not club_id or not course:
+        return None
+    return {"club_id": club_id, "slug": user_config.load_value("LAST_CLUB_SLUG", resolved), "course": course}
+
+
+def save_last_active_club(club_id: str, slug: str | None, course: str, config_file: Path | None = None) -> None:
+    """Remember the club/course a later launch should resume straight into — see
+    `load_last_active_club()`'s own docstring for the full detail, including why
+    this deliberately isn't stored in `PREFERENCES_FILE`. Called every time a
+    club/course open or inline switch actually succeeds (`TeetimeApp._open_club()`,
+    which also backs the explicit `s`-to-switch flow; `OverviewScreen.
+    _switch_club()`/`_switch_course()`), not just once at startup, so switching
+    mid-session updates what a later relaunch resumes into rather than freezing on
+    whatever was first opened."""
+    resolved = config_file if config_file is not None else user_config.CONFIG_FILE
+    user_config.save_value("LAST_CLUB_ID", club_id, resolved)
+    user_config.save_value("LAST_CLUB_SLUG", slug or "", resolved)
+    user_config.save_value("LAST_COURSE", course, resolved)

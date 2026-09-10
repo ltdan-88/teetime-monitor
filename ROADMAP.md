@@ -2648,6 +2648,78 @@ is what reaches `load_dotenv()`), confirmed genuinely dependent by reverting.
 Verified live: the exact same real Homebrew install, same real `.env`, no
 longer shows the credentials screen on launch at all. 621 tests passing.
 
+**Three real-use notes, the same night, right after v0.7.2's fixes above.**
+
+1. **"When you launch teetime-monitor you are greeted with which club to select,
+   then which course. I think this is redundant since you can now select club
+   and courses from the overview."** Correct — `TeetimeApp._start()` always
+   pushed `ClubBrowserScreen` then (if needed) `CoursePickerScreen`, at *every*
+   launch, even though `OverviewScreen`'s own inline club/course selectors
+   (2026-09-09) already cover "change what I'm looking at" without leaving the
+   overview. New `global_preferences.load_last_active_club()`/
+   `save_last_active_club()` remember the `{club_id, slug, course}` from
+   whichever club/course open or inline switch last actually succeeded
+   (`TeetimeApp._open_club()` — also backs the explicit `s`-to-switch flow —
+   and `OverviewScreen._switch_club()`/`_switch_course()`); `_start()` now tries
+   `_resume_last_active()` first, landing straight on `OverviewScreen` with no
+   picker shown at all, falling back to the full picker flow only when nothing's
+   remembered yet or the remembered course no longer exists on a live re-check.
+   Deliberately stored via `user_config`'s own flat file, not `PREFERENCES_FILE`
+   — a real bug caught building this: `_resolved_config()` merges
+   `load_preferences()`'s *entire* dict wholesale into every club's own config,
+   so a `last_active` key living there would have leaked into every resolved
+   config anywhere in the app (recommend.py, scrape_once.py, ...), not just the
+   one place that needed it.
+
+   Building this also surfaced a second, genuinely separate bug in
+   `OverviewScreen._refresh_course_options()`: its own `set_options()` call
+   briefly resets the course `Select`'s value to whatever its new first option
+   is, firing a real (non-blank) `Select.Changed` for that transient wrong value
+   before the very next line corrects it back — harmless before
+   `_switch_course()` persisted anything (just an extra, instantly-superseded
+   reload), but with persistence added, that transient value was being written
+   out as if it were a real, deliberate switch. A same-purpose guard flag
+   couldn't fix this reliably (confirmed empirically, not just reasoned about):
+   `Select.Changed` is a queued message, delivered on a later event-loop turn
+   than the one the guard's own `finally` block already cleared on. Fixed at
+   the actual source instead — the active course is now always kept first in
+   the list handed to `set_options()`, so the transient state during a rebuild
+   is already correct and there's nothing spurious left to guard against.
+
+2. **"Dropdown for club name should be wider for longer names."** Confirmed
+   live — `#switcher Select { width: 34; }` applied to both dropdowns
+   regardless of content, and a real club name ("Golfclub Domäne Niederreutin
+   e.V.") wrapped across two lines inside that box. `#club-select` now uses
+   `width: auto` (capped at `max-width: 60`) so it sizes to its own favorites
+   list instead of a fixed guess; `#course-select` keeps the original fixed
+   width, since course names are reliably much shorter.
+
+3. **"Why does the overview still show today at this time of day?"**
+   Investigated thoroughly rather than assumed: launched the real app live at
+   22:25 with real, fresh (14-minutes-old) scrape data whose last real slot was
+   19:50, and confirmed via raw ANSI capture that the cursor genuinely
+   highlights *tomorrow's* row, not today's — `_initial_date()`'s own logic is
+   working correctly right now, live, against real data. Today's row still
+   lists (correctly labeled "(today)") and correctly shows "too dark to
+   finish" as its own pick — showing the day at all isn't a bug, the overview
+   is a rolling multi-day window that always starts from today. No fix made;
+   flagged to the user with this evidence and a request for more detail on
+   what's actually being observed, since the code's real, live behavior
+   doesn't match a bug as described.
+
+14 new/rewritten tests across `test_global_preferences.py`/`test_tui.py`, all
+confirmed genuinely dependent by reverting (including the transient-Select
+bug, reproduced and fixed independently of the last-active-club feature that
+surfaced it). Also cleaned up a real, if minor, side effect of this same work:
+before an isolation fixture caught it, one full test-suite run briefly wrote
+fictional test values into this developer's own real, shared
+`~/.config/teetime-monitor/config` file (`user_config.CONFIG_FILE` is a real
+absolute path, not sandboxed by any per-repo checkout) — found and reverted by
+hand immediately after. Verified live in an isolated sandbox: a favorited club
+with a remembered last-used club/course opened straight to its overview with
+zero pickers shown, and a long real club name rendered on one line instead of
+wrapping. 633 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

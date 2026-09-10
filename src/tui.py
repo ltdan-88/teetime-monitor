@@ -1302,8 +1302,14 @@ class OverviewScreen(Screen[None]):
         align: left middle;
     }
     #switcher Select {
-        width: 34;
         margin-right: 2;
+    }
+    #club-select {
+        width: auto;
+        max-width: 60;
+    }
+    #course-select {
+        width: 34;
     }
     """
 
@@ -1402,13 +1408,31 @@ class OverviewScreen(Screen[None]):
         never blocks on the network. Silently keeps the single-entry fallback on a
         failed fetch, same graceful-degradation every other live lookup here already
         follows, rather than surfacing a fetch error for a dropdown that still works
-        fine with just the one course it already knows about."""
+        fine with just the one course it already knows about.
+
+        `self.course` is always kept first in the list handed to `set_options()`,
+        not just included somewhere — real bug found live, 2026-09-10, while adding
+        last-active-club persistence: `set_options()` briefly resets the Select's
+        own value to its new *first* option before the very next line explicitly
+        corrects it back to `self.course`, firing a real (non-blank) `Select.Changed`
+        for that transient wrong value in between. A `_updating_course_options`-style
+        guard flag can't catch this reliably either: `Select.Changed` is delivered
+        as a queued message, processed on a later turn of the event loop than the
+        one this coroutine's own body (guard included) already finished on, so a
+        flag cleared at the end of this function is already back to `False` by the
+        time the handler actually runs (confirmed empirically, not just reasoned
+        about, before landing on this fix instead). Keeping `self.course` first
+        removes the transient wrong value altogether — the momentary state during
+        the rebuild is already correct, so there's nothing spurious left to guard
+        against. Harmless before `_switch_course()` also persisted the active
+        course (just an extra, immediately-superseded `load_overview()` call); once
+        it did, that transient wrong value was being written out as if it were a
+        real, deliberate switch."""
         try:
             courses = list(fetch_course_aliases(self.club_id))
         except Exception:  # noqa: BLE001 — see docstring
             return
-        if self.course not in courses:
-            courses = [self.course, *courses]  # keep the active value selectable
+        courses = [self.course, *(c for c in courses if c != self.course)]
         select = self.query_one("#course-select", Select)
         select.set_options((course, course) for course in courses)
         select.value = self.course
@@ -1458,6 +1482,9 @@ class OverviewScreen(Screen[None]):
         app._club_slug = slug
         app._club_config = {**config, "club_id": club_id}
         app._periodic_scrape()
+        # So the *next* launch resumes here too, not back at the club/course
+        # pickers -- see global_preferences.load_last_active_club()'s own docstring.
+        global_preferences.save_last_active_club(club_id, slug, course)
 
     def _switch_course(self, course: str) -> None:
         """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
@@ -1466,6 +1493,7 @@ class OverviewScreen(Screen[None]):
         self.course = course
         self._set_title()
         self.load_overview()
+        global_preferences.save_last_active_club(self.club_id, self.club_slug, course)
 
     @property
     def db_path(self):
@@ -2576,6 +2604,11 @@ class TeetimeApp(App[None]):
         # (the function's own argument), so it's merged in regardless of whether the
         # rest of `config` came from a real file or not.
         self._club_config = {**config, "club_id": club_id}
+        # Remembered so the *next* launch can skip both pickers entirely -- see
+        # global_preferences.load_last_active_club()'s own docstring. Covers both
+        # the initial launch flow and the explicit `s`-to-switch flow, since both
+        # funnel through this same function.
+        global_preferences.save_last_active_club(club_id, slug, course)
         return True
 
     async def _start(self) -> None:
@@ -2607,7 +2640,12 @@ class TeetimeApp(App[None]):
         made this screen reappear (or `ClubBrowserScreen`'s own directory refresh
         keep saying "needs a login") every single time, regardless of how many times
         real, correct credentials were saved — see `credentials_configured()`'s own
-        docstring for the full detail."""
+        docstring for the full detail.
+
+        Tries to resume straight into the last-used club/course first (2026-09-10,
+        see `_resume_last_active()`'s own docstring) — both pickers below are a
+        fallback for when that's missing or turns out stale, not the default path
+        for a returning user any more."""
         self._periodic_scrape_running = False
         if not club_directory.credentials_configured():
             # verify_against_club_id: usually None here (this exact check only ever
@@ -2616,6 +2654,13 @@ class TeetimeApp(App[None]):
             # up credentials -- so still worth trying for real verification feedback
             # rather than assuming it's always the true-first-launch case).
             await self.push_screen_wait(CredentialsScreen(verify_against_club_id=_any_favorite_club_id()))
+
+        last_active = global_preferences.load_last_active_club()
+        if last_active is not None and await self._resume_last_active(last_active):
+            self._periodic_scrape()
+            self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
+            return
+
         while True:
             club_id = await self.push_screen_wait(
                 ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)
@@ -2631,6 +2676,40 @@ class TeetimeApp(App[None]):
             # whole app over one bad pick.
         self._periodic_scrape()
         self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
+
+    async def _resume_last_active(self, last_active: dict) -> bool:
+        """Jump straight into the remembered club/course from a previous session,
+        skipping both pickers entirely — added 2026-09-10, direct feedback: "when
+        you launch teetime-monitor you are greeted with which club to select, then
+        which course. I think this is redundant since you can now select club and
+        courses from the overview." Once `OverviewScreen`'s own inline switcher
+        (2026-09-09) already covers "change club/course without leaving the
+        overview," asking again at every single launch — even a returning user
+        opening the exact same club as always — stopped serving a purpose; `s`
+        still opens the full picker flow for genuinely finding something new (see
+        `_do_switch_club_or_course()`'s own docstring).
+
+        Returns `False` (falls back to the normal picker flow in `_start()`) if the
+        remembered course no longer exists on this club's real, live course list —
+        renamed, or the club's own lineup changed — or the live fetch itself fails
+        outright. A stale remembered choice should degrade to asking again, the
+        same way any other live-fetch failure elsewhere in this app does, not
+        silently open onto a course that doesn't exist any more."""
+        club_id = last_active["club_id"]
+        slug = last_active.get("slug")
+        course = last_active["course"]
+        config = club_config.load_club_config(slug) if slug else {}
+        try:
+            courses = list(fetch_course_aliases(club_id))
+        except Exception:  # noqa: BLE001 — any live-fetch failure just means "ask instead"
+            return False
+        if course not in courses:
+            return False
+        replacement = OverviewScreen(club_id, slug, course, club_name=self._club_names.get(club_id, ""))
+        await self.push_screen(replacement)
+        self._club_slug = slug
+        self._club_config = {**config, "club_id": club_id}
+        return True
 
     def action_switch_club_or_course(self) -> None:
         """Re-open the club/course pickers on demand — direct feedback 2026-09-07:

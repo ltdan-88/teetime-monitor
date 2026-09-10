@@ -5,7 +5,7 @@ import pytest
 from textual.app import App
 from textual.widgets import DataTable, Input, OptionList, Select, Static
 
-from src import env_file, i18n, scrape_once, storage, theme, tui
+from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
@@ -139,6 +139,21 @@ def _no_real_seed_directory_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_last_active_club_by_default(monkeypatch, tmp_path):
+    """`TeetimeApp._start()` (2026-09-10, see global_preferences.
+    load_last_active_club()'s own docstring) now checks for a remembered last-used
+    club/course on every launch -- and that function reads `user_config.CONFIG_FILE`
+    directly, a real shared file (`~/.config/teetime-monitor/config`) that patching
+    `theme.CONFIG_FILE` alone does *not* isolate from (that's a separate, aliased
+    copy of the same Path, captured once at theme.py's own import time -- patching
+    it doesn't reach code that reads `user_config.CONFIG_FILE` itself). Every test
+    here that builds a real `TeetimeApp()` would otherwise read/write this
+    developer's own real file -- caught live while building this exact feature, the
+    same class of leak this project has hit and fixed more than once before."""
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "user-config-for-last-active")
+
+
+@pytest.fixture(autouse=True)
 def _fake_available_dates_by_default(monkeypatch):
     """`OverviewScreen.load_overview()` (added 2026-09-07) calls
     `fetch_available_dates(club_id)` live to know which of its day-rows are actually
@@ -193,9 +208,11 @@ async def _reach_overview(app, pilot, club_id="0000001"):
     """Drive the club-first startup flow (2026-09-07) up to the multi-day overview --
     the app's actual home screen once a club/course is picked.
 
-    The app now always opens on `ClubBrowserScreen` — a club no longer has to be saved
-    to config before it can be looked at, so there's no "only one saved club, skip the
-    picker" shortcut at launch any more."""
+    Opens on `ClubBrowserScreen` here because every test using this helper leaves
+    `global_preferences.load_last_active_club()` at its autouse-fixture default of
+    "nothing remembered yet" (see `_no_real_last_active_club_by_default`) -- a real
+    launch with a remembered club/course instead skips straight to `OverviewScreen`
+    (2026-09-10, see `TeetimeApp._resume_last_active()`'s own docstring)."""
     await pilot.pause()
     assert isinstance(app.screen, tui.ClubBrowserScreen)
     app.screen.dismiss(club_id)
@@ -2920,6 +2937,131 @@ def test_app_opens_the_club_browser_then_honors_default_course(tmp_path, monkeyp
     _run(scenario())
 
 
+# --- Resume the last-used club/course, skipping both pickers -- added 2026-09-10,
+# direct feedback: "when you launch teetime-monitor you are greeted with which club
+# to select, then which course. I think this is redundant since you can now select
+# club and courses from the overview." ------------------------------------------
+
+
+def test_start_resumes_the_last_active_club_skipping_both_pickers(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "9 Loch Tee 1"},
+    )
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
+    )
+    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: {"9 Loch Tee 1": "COU1"})
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            # Never shown ClubBrowserScreen or CoursePickerScreen at all -- straight
+            # to the overview with the remembered club/course.
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.club_id == "0000001"
+            assert app.screen.course == "9 Loch Tee 1"
+
+    _run(scenario())
+
+
+def test_start_falls_back_to_pickers_when_the_remembered_course_no_longer_exists(tmp_path, monkeypatch):
+    # The club's own course lineup changed since -- a stale remembered choice
+    # should degrade to asking again, not silently open onto a course that
+    # doesn't exist any more.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "a course that no longer exists"},
+    )
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
+    )
+    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: {"9 Loch Tee 1": "COU1"})
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
+
+
+def test_start_falls_back_to_pickers_when_the_remembered_clubs_fetch_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "9 Loch Tee 1"},
+    )
+    monkeypatch.setattr(
+        tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
+    )
+
+    def boom(club_id):
+        raise RuntimeError("no network")
+
+    monkeypatch.setattr(tui, "fetch_course_aliases", boom)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
+
+
+def test_start_ignores_a_remembered_club_when_none_was_ever_saved(tmp_path, monkeypatch):
+    # The default, autouse-fixture-backed case (see _no_real_last_active_club_by_
+    # default) -- explicit here as a real assertion rather than an implicit
+    # assumption every other startup test already makes.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
+
+
+def test_open_club_saves_the_last_active_club(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+    saved = []
+    monkeypatch.setattr(
+        tui.global_preferences, "save_last_active_club", lambda *a, **k: saved.append(a)
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+
+    _run(scenario())
+    assert saved == [("0000001", "home-club", "9 Loch Tee 1")]
+
+
 # --- Auto-refresh (2026-09-07, direct feedback: "can we make autorefresh for the
 # maximum timeframe, whenever you run the TUI and at the defined time intervals? I
 # think hitting 'r' makes only sense as a manual override") ------------------------
@@ -3646,6 +3788,41 @@ def test_day_detail_banner_renders_localized_from_params(tmp_path, monkeypatch):
 # docstring for the real bug this fixes once before). ---------------------------------
 
 
+def test_refresh_course_options_does_not_spuriously_switch_the_active_course(tmp_path, monkeypatch):
+    # Regression test for a real bug found live, 2026-09-10, while adding
+    # last-active-club persistence: _refresh_course_options()'s own set_options()
+    # call used to briefly reset the course Select to its new first option (not
+    # necessarily the active course) before immediately correcting it back --
+    # firing a real, non-blank Select.Changed for that transient wrong value along
+    # the way, which on_select_changed() treated as a genuine switch. Harmless
+    # before _switch_course() started persisting state, but not any more. The
+    # active course is now kept first in the options list handed to set_options(),
+    # so there's no transient wrong value left to spuriously switch to.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    # The live course list's own order puts the active course last -- exactly the
+    # shape that used to produce a transient first-option value different from it.
+    monkeypatch.setattr(
+        tui, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": "COUB", "9 Loch Tee 1": "COU1"}
+    )
+    switches = []
+    saved = []
+    monkeypatch.setattr(tui.global_preferences, "save_last_active_club", lambda *a, **k: saved.append(a))
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "9 Loch Tee 1")
+        screen._switch_course = lambda course: switches.append(course)
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert screen.course == "9 Loch Tee 1"  # never actually changed
+            assert screen.query_one("#course-select", Select).value == "9 Loch Tee 1"
+
+    _run(scenario())
+    assert switches == []  # _switch_course() itself never got called at all
+    assert saved == []  # and so nothing spurious was ever persisted either
+
+
 def test_overview_screen_switches_course_inline_without_leaving_the_screen(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
@@ -3663,6 +3840,23 @@ def test_overview_screen_switches_course_inline_without_leaving_the_screen(tmp_p
             assert "9 Loch Tee 1" in screen.title
 
     _run(scenario())
+
+
+def test_overview_screen_switching_course_inline_saves_the_last_active_club(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    saved = []
+    monkeypatch.setattr(tui.global_preferences, "save_last_active_club", lambda *a, **k: saved.append(a))
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#course-select", Select).value = "9 Loch Tee 1"
+            await pilot.pause()
+
+    _run(scenario())
+    assert saved == [("0000001", "musterhausen", "9 Loch Tee 1")]
 
 
 def test_overview_screen_switches_club_inline_and_keeps_periodic_scrape_in_sync(tmp_path, monkeypatch):
@@ -3714,6 +3908,36 @@ def test_overview_screen_switches_club_inline_and_keeps_periodic_scrape_in_sync(
             assert calls[-1][0] == "second-club"
 
     _run(scenario())
+
+
+def test_overview_screen_switching_club_inline_saves_the_last_active_club(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "second-club"])
+    configs = {
+        "home-club": {"club_id": "0000001"},
+        "second-club": {"club_id": "0500000", "name": "Musterclub", "default_course": "9 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(
+        tui,
+        "fetch_course_aliases",
+        lambda club_id: {"9 Loch Tee 1": "COU1"} if club_id == "0500000" else {"18 Loch Tee 1": "COUB"},
+    )
+    saved = []
+    monkeypatch.setattr(tui.global_preferences, "save_last_active_club", lambda *a, **k: saved.append(a))
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot, club_id="0000001")
+            saved.clear()  # drop whatever _open_club() itself already saved on open
+            app.screen.query_one("#club-select", Select).value = "0500000"
+            await pilot.pause()
+            await pilot.pause()
+
+    _run(scenario())
+    assert saved == [("0500000", "second-club", "9 Loch Tee 1")]
 
 
 # HeatmapScreen (ROADMAP.md Phase 5) -- added 2026-09-08, direct request: "Can we

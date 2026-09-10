@@ -11,11 +11,12 @@ the deterministic recommendation engine, the three Claude API calls, local-histo
 analytics/crowd-heatmap, and login (a plain form POST, confirmed 2026-09-06 by
 inspecting the real site — no browser automation needed for it either). "My
 Reservations" parsing is fully confirmed too (2026-09-07), against a real demo
-booking. The TUI opens straight into a club browser — or the credentials screen
-first, if no login is configured at all yet (skippable, `escape`): search pc
-caddie's whole club directory, pick a favorite, or just type a club id — nothing has
-to be saved to config first, and saving a club only ever means "favorite" (`f`).
-Picking a club/course lands on the multi-day overview — the app's actual home screen
+booking. The TUI opens straight back into whichever club/course you had open last
+(2026-09-10) — or the club browser, the first time there's nothing to resume, or
+the credentials screen first if no login is configured at all yet (skippable,
+`escape`): search pc caddie's whole club directory, pick a favorite, or just type a
+club id — nothing has to be saved to config first, and saving a club only ever means
+"favorite" (`f`). Picking a club/course lands on the multi-day overview — the app's actual home screen
 (added 2026-09-07): one row per bookable day with weather, a heat-strip of how full
 the day is, and that day's own pick, plus "This week's picks" once you've set
 availability rules. Enter drills into the single-day tee sheet (confirming a
@@ -38,13 +39,17 @@ spec.
 
 ## Planned capabilities
 
-- Open the app, pick a club, pick a course — in that order, with no setup step in
-  front of it. The club browser is the home screen: an empty search box lists your
-  favorites, typing searches pc caddie's whole club directory, and typing a club id
-  (e.g. `0000001`) jumps straight to that club — or paste your club's own pc caddie
-  booking link (from its website or a booking confirmation) if you don't know the
-  bare id; the id is pulled straight out of it. `f` toggles a club as a favorite, `s`
-  reopens the same browser from the tee sheet to switch clubs mid-session
+- Open the app and land straight back on whichever club/course you had open last
+  (2026-09-10) — the overview's own inline club/course selectors (see below) already
+  cover "change what I'm looking at," so asking again with a separate pair of
+  pickers at every single launch stopped making sense. Falls back to the full picker
+  flow the first time there's nothing to resume yet, or if the remembered course no
+  longer exists. The club browser: an empty search box lists your favorites, typing
+  searches pc caddie's whole club directory, and typing a club id (e.g. `0000001`)
+  jumps straight to that club — or paste your club's own pc caddie booking link
+  (from its website or a booking confirmation) if you don't know the bare id; the id
+  is pulled straight out of it. `f` toggles a club as a favorite, `s` opens this same
+  browser to switch clubs deliberately, any time
 - Favorites (`clubs/*.yaml`) are exactly that — a shortcut and a place to keep a
   club's own settings, never a precondition for looking at a club. Only favorites are
   scraped on a schedule, which is what keeps a club you merely glanced at from
