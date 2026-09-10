@@ -1,14 +1,17 @@
 """A Textual screen for setting up pc caddie login credentials — direct follow-up to
-club_picker.py: "I want to setup credentials from UI. It should be user friendly,"
-since hand-editing `.env` in a text editor was the only path before this.
+a request made while building the club picker: "I want to setup credentials from UI.
+It should be user friendly," since hand-editing `.env` in a text editor was the only
+path before this.
 
 `CredentialsScreen` is a plain `Screen[bool]`, not a standalone `App` — it's meant to
-be *pushed* from another app (see club_picker.py, which pushes it automatically the
-moment it discovers no credentials are configured yet, letting the user fill them in
-without leaving the picker) as well as runnable on its own via `CredentialsApp`
-(`python -m src.credentials_screen`). Dismisses with `True` if a save happened during
-the screen's lifetime, `False` otherwise — a caller (club_picker.py) uses that to
-decide whether to retry whatever needed credentials in the first place.
+be *pushed* from another app (see tui.py's `ClubBrowserScreen`, which pushes it
+automatically the moment it discovers no credentials are configured yet, letting the
+user fill them in without leaving the browser, and `TeetimeApp._start()`, which pushes
+it before anything else at launch if no credentials exist at all yet) as well as
+runnable on its own via `CredentialsApp` (`python -m src.credentials_screen`).
+Dismisses with `True` if a save happened during the screen's lifetime, `False`
+otherwise — a caller (`ClubBrowserScreen`) uses that to decide whether to retry
+whatever needed credentials in the first place.
 
 Only ever writes what the user types into these two Input widgets to `.env` via
 env_file.py — Claude never sees, types, or handles the value at any point; this is no
@@ -26,8 +29,8 @@ Quit-then-Save button row -- since this screen had the identical field-row-heigh
 mismatch and left-hugging buttons, just never called out by name.
 
 Also updates `os.environ` directly for the *current* process on save, not just the
-file on disk — needed for club_picker.py's own "retry automatically once saved" flow
-to see the new credentials without a restart. A fresh process picks them up from
+file on disk — needed for `ClubBrowserScreen`'s own "retry automatically once saved"
+flow to see the new credentials without a restart. A fresh process picks them up from
 `.env` itself instead, via club_config.py's own `load_dotenv()` call (see that
 module's docstring for the related bug this session found and fixed: `.env` was never
 actually being loaded into the environment anywhere before now).
@@ -181,8 +184,8 @@ class CredentialsScreen(Screen[bool]):
 class CredentialsApp(App[None]):
     """Thin standalone wrapper so CredentialsScreen is runnable on its own:
     `python -m src.credentials_screen`. Not used when the screen is pushed from
-    another app (club_picker.py) — that app supplies its own theme/language setup and
-    push_screen() call directly."""
+    another app (tui.py's TeetimeApp) — that app supplies its own theme/language setup
+    and push_screen() call directly."""
 
     TITLE = "teetime-monitor"
 

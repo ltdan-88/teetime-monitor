@@ -7,7 +7,7 @@ display order; the actual key dispatch still goes through each Screen/App's own
 `BINDINGS`/`action_*` methods, this widget only controls what's shown.
 
 Factored out 2026-09-07 once a 4th screen (credentials_screen.py) needed the exact
-same widget — tui.py, settings_screen.py, and club_picker.py each re-export
+same widget — tui.py, settings_screen.py, and credentials_screen.py each re-export
 `TranslatedFooter` from here (`from .translated_footer import TranslatedFooter`)
 rather than defining their own copy, so existing imports/tests
 (`from src.tui import TranslatedFooter`, etc.) keep working unchanged.

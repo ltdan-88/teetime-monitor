@@ -2399,10 +2399,26 @@ own screen's `compose()` (including the loop-generated `search-buffer-before`/
 `search-buffer-after` ids in `SearchScreen`, which a plain `id="..."` grep alone
 would've missed) — every id resolves, and the three cross-screen
 `self.screen.query_one("#status", ...)` calls in `TeetimeApp` are all correctly
-guarded by an `isinstance()` check first. Also read through `booking_watch.py`
-and `storage.py` end to end looking for logic bugs (threshold/buffer edge cases,
-schema migration, "latest wins" queries) — both already handle their edge cases
-deliberately and correctly; no changes made.
+guarded by an `isinstance()` check first. Also read through `booking_watch.py`,
+`storage.py`, `weather.py`, `analytics.py`, `search.py`, and `calendar_context.py`
+end to end looking for logic bugs (threshold/buffer edge cases, schema migration,
+"latest wins" queries, weekday/special-day bucket separation) — all already handle
+their edge cases deliberately and correctly; no functional changes made.
+
+One real documentation defect found and fixed while reading `club_config.py`:
+several modules (`club_config.py`, `credentials_screen.py`, `geocode.py`,
+`scraper.py`, `translated_footer.py`, `club_directory.py`, `tui.py`) still
+described the deleted `club_picker.py`/`ClubSearchScreen` as a live module with
+real current responsibilities (pushing `CredentialsScreen`, backing the
+searchable club directory, re-exporting `TranslatedFooter`) — left behind by
+that deletion earlier the same day and never swept afterward. Rewritten to
+correctly point at `tui.py`'s `ClubBrowserScreen`, which already does all of it.
+Also found, in `geocode.py`: a stray `[[teetime-monitor-no-migration-needed]]`
+memory-file cross-reference that had leaked into the actual shipped docstring
+from an earlier session — not markdown or code syntax of any kind here, just an
+internal note-taking artifact that didn't belong in the file. Purely
+documentation/comments — no behavior changed, all 596 tests still pass
+unmodified, `ruff check --select F,B` still clean.
 
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough

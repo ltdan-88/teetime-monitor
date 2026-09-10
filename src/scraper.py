@@ -85,8 +85,8 @@ unseen markup — see `_parse_my_reservations_html()`.
 id="user_association_club">` — the entire pc caddie platform directory, rendered
 server-side rather than fetched per keystroke (confirmed via `read_network_requests`
 while inspecting live: nothing fires as you type in the site's own search box). This
-is what backs `club_picker.py`'s searchable "add a club by name" screen — see that
-module and `_parse_club_directory_html()`.
+is what backs `tui.py`'s `ClubBrowserScreen` searchable "add a club by name" flow —
+see that class and `_parse_club_directory_html()`.
 
 **Cross-club validation (2026-09-07)** — everything above was written against two real
 clubs, so it was checked against a spread of 45 more, sampled across German, Swiss,
@@ -656,7 +656,8 @@ def _parse_club_directory_html(html: str) -> list[tuple[str, str]]:
 
     Confirmed 2026-09-07: pc caddie's own "search for a club by name" feature — both
     the web version's "Home club" field on this page and the mobile app's "Alle Clubs"
-    tab (see club_picker.py) — isn't backed by a live per-keystroke API call. The
+    tab (see `tui.py`'s `ClubBrowserScreen`, which mimics the same feature) — isn't
+    backed by a live per-keystroke API call. The
     entire platform directory (1300+ clubs at the time of inspection) is rendered
     server-side into one plain `<select id="user_association_club">`, one
     `<option value="club_id">[club_id] Name</option>` per club; whatever search box
@@ -674,8 +675,8 @@ def _parse_club_directory_html(html: str) -> list[tuple[str, str]]:
         if not club_id:
             continue  # the blank placeholder option, not a real club
         # Strip the redundant "[club_id] " prefix pc caddie puts in its own display
-        # text -- club_picker.py re-adds it at display time, but wants a clean `name`
-        # to search against.
+        # text -- tui.py's ClubBrowserScreen re-adds it at display time, but wants a
+        # clean `name` to search against.
         name = re.sub(rf"^\[{re.escape(club_id)}\]\s*", "", option.get_text(strip=True))
         entries.append((club_id, name))
     return entries
@@ -683,9 +684,9 @@ def _parse_club_directory_html(html: str) -> list[tuple[str, str]]:
 
 def fetch_club_directory(club_id: str, username: str, password: str) -> list[tuple[str, str]]:
     """Log in and fetch pc caddie's own full club directory — every club on the
-    platform, not just this one. The mechanism behind club_picker.py's searchable
-    "add a club by name" screen, matching pc caddie's own in-app club-search feature
-    (see module docstring and `_parse_club_directory_html()`).
+    platform, not just this one. The mechanism behind `tui.py`'s `ClubBrowserScreen`
+    searchable "add a club by name" flow, matching pc caddie's own in-app club-search
+    feature (see module docstring and `_parse_club_directory_html()`).
 
     `club_id` only needs to be *a* club you can already log into — one pc caddie
     login works across every club on the platform (confirmed 2026-09-05), so the

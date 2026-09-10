@@ -137,10 +137,9 @@ def any_credentials() -> tuple[str, str, str] | None:
 
 
 def search(directory: list[tuple[str, str]], query: str, limit: int = 50) -> list[tuple[str, str]]:
-    """Case-insensitive substring match on the club name — the same friendlier
-    behavior `club_picker.search_club_directory()` chose over pc caddie's own
-    exact/umlaut-sensitive matching, kept identical here so both screens behave the
-    same. A blank query returns nothing (the picker shows favorites instead)."""
+    """Case-insensitive substring match on the club name — a friendlier choice than
+    pc caddie's own exact/umlaut-sensitive matching. A blank query returns nothing
+    (`tui.py`'s `ClubBrowserScreen` shows favorites instead in that case)."""
     needle = query.strip().lower()
     if not needle:
         return []

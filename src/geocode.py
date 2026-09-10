@@ -40,11 +40,11 @@ the real address if precision ever mattered for something else. Returns `None` o
 no match or any request failure, the same "don't fabricate, don't crash" contract
 `scrape_once._attach_weather()` already expects of a `location` lookup.
 
-Used by `club_picker.py` when a new club is saved — the one moment a club's real
-name is known and nothing's been geocoded for it yet. Deliberately not re-run for
-already-saved clubs (no "back-fill every existing club automatically" pass) —
-consistent with this project's current stance while it has no real users yet (see
-the [[teetime-monitor-no-migration-needed]] memory note): a one-time,
+Used by `club_config.new_club_stub_with_location()` when a new club is saved — the
+one moment a club's real name is known and nothing's been geocoded for it yet.
+Deliberately not re-run for already-saved clubs (no "back-fill every existing club
+automatically" pass) — consistent with this project's current stance while it has no
+real users yet, so no migration/backfill machinery is warranted: a one-time,
 one-directional lookup at save time is all this needs for now.
 
 Nominatim's own usage policy

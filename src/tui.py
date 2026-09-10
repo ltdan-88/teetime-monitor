@@ -333,7 +333,7 @@ def _favorite_clubs() -> list[tuple[str, str]]:
     other's screen.
 
     `config.get("name")` -- the club's real display name, if it was ever actually
-    known (a directory search, or club_picker.py's own screen) and so persisted by
+    known (via a directory search) and so persisted by
     club_config.new_club_stub() (2026-09-08). Real bug found live: this used to hand
     back `slug` here unconditionally -- close enough to read at a glance, but a
     confirmed dead end for geocode.find_club_location() (which this same value feeds
@@ -584,10 +584,10 @@ class ClubBrowserScreen(Screen[str | None]):
         self.app.push_screen(CredentialsScreen(), self._on_credentials_screen_dismissed)
 
     def _on_credentials_screen_dismissed(self, saved: bool) -> None:
-        # Same "retry automatically" convention as club_picker.py's own identical
-        # callback -- a save is exactly the signal that whatever needed a login
-        # (here, always the directory fetch) is worth attempting again right away,
-        # not making the user press 'r' a second time themselves.
+        # "Retry automatically" convention -- a save is exactly the signal that
+        # whatever needed a login (here, always the directory fetch) is worth
+        # attempting again right away, not making the user press 'r' a second time
+        # themselves.
         if saved:
             self.action_refresh_directory()
 

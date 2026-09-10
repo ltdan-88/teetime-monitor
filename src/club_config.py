@@ -20,7 +20,7 @@ and have it work right away."
 
 Fixed at import time, here, rather than lazily inside `resolve_credentials()` itself:
 every real entry point (`tui.py`, `scrape_once.py`, `settings_screen.py`,
-`club_picker.py`) already imports this module before doing anything else, including
+`credentials_screen.py`) already imports this module before doing anything else, including
 before `ai_assist.py` ever constructs an `anthropic.Anthropic()` client (which reads
 `ANTHROPIC_API_KEY` from the environment internally, on its own, with no call into
 this module at all) — an import-time call is what actually guarantees `.env` is
@@ -53,8 +53,9 @@ def slugify(name: str) -> str:
     """A reasonable filename slug from a club's display name — e.g. "Golfclub Domäne
     Musterhausen e.V." -> "golfclub-domane-musterhausen-e-v". Not guaranteed unique and
     not a real transliteration; good enough as a filename and as a default the user can
-    edit. Moved here from club_picker.py 2026-09-07 so the favorites helpers below and
-    that screen share one implementation rather than drifting apart."""
+    edit. Moved here 2026-09-07 from the now-deleted club_picker.py so the favorites
+    helpers below and that screen's own search flow shared one implementation rather
+    than drifting apart."""
     normalized = name.lower()
     for umlaut, plain in _UMLAUT_FOLDS.items():
         normalized = normalized.replace(umlaut, plain)
@@ -93,7 +94,8 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) ->
 
 
 def new_club_stub(club_id: str, name: str = "") -> dict:
-    """A minimal starting config for a club just picked via club_picker.py — only
+    """A minimal starting config for a club just picked from `tui.py`'s
+    `ClubBrowserScreen` directory search — only
     `club_id` comes from pc caddie's own directory; every other field (location,
     calendar, availability, preferences, ...) is a personal fact the picker has no way
     to know, and stays whatever each consumer already falls back to when it's missing
@@ -109,9 +111,9 @@ def new_club_stub(club_id: str, name: str = "") -> dict:
     rather than a live directory search — silently correct-looking in most places
     (a slug reads close enough to a name at a glance) but a real, confirmed dead end
     for `geocode.find_club_location()`, which needs the actual name to have any
-    chance of matching. Persisting the real name once it's genuinely known (a
-    directory search, or `club_picker.py`'s own screen) means a later un/re-favorite
-    from the plain list can find it again here instead of falling back to the slug."""
+    chance of matching. Persisting the real name once it's genuinely known (via a
+    directory search) means a later un/re-favorite from the plain list can find it
+    again here instead of falling back to the slug."""
     stub = {"club_id": club_id, "default_course": "", "default_date": "today"}
     if name:
         stub["name"] = name
@@ -151,8 +153,8 @@ def new_club_stub_with_location(club_id: str, name: str = "") -> dict:
     and something was found (2026-09-08 — see `geocode.py`'s module docstring for
     what this lookup can and can't do). Factored out so both ways of adding a club
     get the same treatment: `add_favorite()` below (`tui.py`'s `f`-to-favorite, the
-    app's everyday one-keypress way to save a club) and `club_picker.py`'s own
-    "search the whole directory, save as a new file" screen. `name` is blank
+    app's everyday one-keypress way to save a club) and `ClubBrowserScreen`'s own
+    "search the whole directory, save as a new file" flow. `name` is blank
     whenever the caller has no name to geocode with (e.g. a club favorited by
     typed-in id alone, never seen in a directory search) — skipped in that case,
     same as a blank name is skipped anywhere else in this project."""
