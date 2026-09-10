@@ -2420,6 +2420,44 @@ internal note-taking artifact that didn't belong in the file. Purely
 documentation/comments — no behavior changed, all 596 tests still pass
 unmodified, `ruff check --select F,B` still clean.
 
+Continued reading through every remaining `src/` module not yet covered this
+session (`weather.py`, `analytics.py`, `search.py`, `calendar_context.py`,
+`club_config.py`, `club_directory.py`, `geocode.py`, `env_file.py`,
+`global_preferences.py`, `theme.py`, `models.py`, `playability.py`,
+`user_config.py`, `scrape_once.py`) end to end. One real bug found:
+
+- **`club_config.py`'s `list_clubs()`/`load_club_config()`/`save_club_config()`
+  still used the frozen-default `clubs_dir: Path = CLUBS_DIR` pattern**, while the
+  other four functions in the same file (`slug_for_club_id()`, `is_favorite()`,
+  `add_favorite()`, `remove_favorite()`) had already been fixed to resolve
+  `CLUBS_DIR` at call time instead — exactly the gotcha `env_file.py`'s own
+  docstring already warns about, and the same one this project's own ad hoc test
+  sandboxes have been bitten by more than once (see the earlier "real data leak
+  into a bug hunt sandbox" note). Fixed all three to match the other four.
+  Confirmed genuinely dependent by reverting: proving the old bug live actually
+  wrote a real file into this project's own real `clubs/` directory (since the
+  whole point of the bug is that a monkeypatched `CLUBS_DIR` gets ignored) —
+  caught and deleted immediately, no real data involved (it was the regression
+  test's own synthetic `club_id: "0000001"` fixture, not anything real).
+
+  That stray file then briefly caused a second, previously-latent bug to
+  surface: every `scrape_once.run()` call across `test_scrape_once.py` omits
+  `slug`, so `run()`'s `if config is None or slug is None:` guard always reaches
+  `_club_config_and_slug_for_id()` -> `club_config.list_clubs()` regardless of
+  what `config` was given — several tests' own comments claimed passing
+  `config={}` alone was sufficient isolation from the developer's real
+  `clubs/*.yaml`, which was never actually true, just uncoincidentally
+  unexercised until a real file with a matching fake `club_id` showed up. Added
+  an autouse fixture pointing `CLUBS_DIR` at an empty directory for every test in
+  that file — made possible by the `club_config.py` fix above, since a plain
+  `monkeypatch.setattr(scrape_once.club_config, "CLUBS_DIR", ...)` didn't used to
+  reach these functions at all. Confirmed both ways: reproduced the failure with
+  the stray file present and the new fixture removed, then confirmed the fixture
+  alone stops it.
+
+  1 new regression test for the `club_config.py` fix, 1 new fixture for the
+  `test_scrape_once.py` isolation gap. 597 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

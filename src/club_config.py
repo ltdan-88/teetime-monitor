@@ -63,24 +63,40 @@ def slugify(name: str) -> str:
     return slug or "club"
 
 
-def list_clubs(clubs_dir: Path = CLUBS_DIR) -> list[str]:
-    """Club ids available to pick from (every clubs/*.yaml except the example template)."""
-    if not clubs_dir.exists():
+def list_clubs(clubs_dir: Path | None = None) -> list[str]:
+    """Club ids available to pick from (every clubs/*.yaml except the example template).
+
+    `clubs_dir` defaults to `None`, resolved to the module-level `CLUBS_DIR` at call
+    time rather than bound as a literal default (2026-09-10, found in a dedicated bug
+    hunt: this and the two functions below were the last holdouts of the frozen-
+    default gotcha already fixed everywhere else in this file -- slug_for_club_id(),
+    is_favorite(), add_favorite(), and remove_favorite() already used this exact
+    pattern. A plain `clubs_dir: Path = CLUBS_DIR` default freezes at import time, so
+    `monkeypatch.setattr(club_config, "CLUBS_DIR", ...)` silently fails to reach any
+    call that omits the argument -- the same mistake this project's own ad hoc test
+    sandboxes have hit more than once by reaching for the obvious-looking constant
+    instead of the functions themselves)."""
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    if not directory.exists():
         return []
-    return sorted(p.stem for p in clubs_dir.glob("*.yaml") if p.name != EXAMPLE_FILENAME)
+    return sorted(p.stem for p in directory.glob("*.yaml") if p.name != EXAMPLE_FILENAME)
 
 
-def load_club_config(club_id: str, clubs_dir: Path = CLUBS_DIR) -> dict:
-    """Load one club's YAML config as a plain dict."""
-    path = clubs_dir / f"{club_id}.yaml"
+def load_club_config(club_id: str, clubs_dir: Path | None = None) -> dict:
+    """Load one club's YAML config as a plain dict. See list_clubs() above for why
+    `clubs_dir` resolves at call time rather than as a bound default."""
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    path = directory / f"{club_id}.yaml"
     with path.open() as f:
         return yaml.safe_load(f) or {}
 
 
-def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) -> None:
+def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) -> None:
     """Write a club's config back to its YAML file — the mechanism behind the
     settings_screen.py TUI (added 2026-09-06, per direct feedback that preferences
-    needed to be editable from the UI, not just by hand-editing YAML).
+    needed to be editable from the UI, not just by hand-editing YAML). See
+    list_clubs() above for why `clubs_dir` resolves at call time rather than as a
+    bound default.
 
     Known limitation: this rewrites the whole file via `yaml.safe_dump`, so any
     comments in the existing file (including every explanatory comment copied over
@@ -88,7 +104,8 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path = CLUBS_DIR) ->
     for now rather than pulling in a round-trip-preserving YAML library — the
     checked-in `club.example.yaml` template stays fully commented as the reference
     either way, and this only affects a club's own gitignored copy."""
-    path = clubs_dir / f"{club_id}.yaml"
+    directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
+    path = directory / f"{club_id}.yaml"
     with path.open("w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 

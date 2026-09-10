@@ -44,6 +44,23 @@ def test_load_club_config_reads_yaml(tmp_path):
     assert config["club_url"] == "https://example.test"
 
 
+def test_list_clubs_load_club_config_and_save_club_config_honor_a_patched_clubs_dir(tmp_path, monkeypatch):
+    # Regression test (2026-09-10, dedicated bug hunt): these three functions used to
+    # take `clubs_dir: Path = CLUBS_DIR` -- a literal default frozen at import time --
+    # while every other function in this file (slug_for_club_id, is_favorite,
+    # add_favorite, remove_favorite) already resolved it at call time instead.
+    # Monkeypatching the module's own CLUBS_DIR constant silently failed to reach any
+    # of these three when called with no explicit clubs_dir, exactly the frozen-default
+    # gotcha this project has been bitten by more than once elsewhere. Calling each
+    # with no clubs_dir argument at all, after only patching CLUBS_DIR, is what
+    # actually exercises the fix -- passing tmp_path explicitly (as every other test in
+    # this file does) would pass even with the old buggy signatures.
+    monkeypatch.setattr(club_config_module, "CLUBS_DIR", tmp_path)
+    save_club_config("home-club", {"club_id": "0000001"})
+    assert list_clubs() == ["home-club"]
+    assert load_club_config("home-club")["club_id"] == "0000001"
+
+
 def test_resolve_credentials_prefers_namespaced_over_plain(monkeypatch):
     monkeypatch.setenv("PCC_USER", "plain-user")
     monkeypatch.setenv("PCC_PASS", "plain-pass")

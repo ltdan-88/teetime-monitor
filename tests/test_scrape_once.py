@@ -16,6 +16,23 @@ def _no_real_global_preferences_file(monkeypatch, tmp_path):
     monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_clubs_dir(monkeypatch, tmp_path):
+    """Every `scrape_once.run()` call in this file omits `slug`, so `run()`'s own
+    `if config is None or slug is None:` guard fires regardless of what `config` was
+    given, reaching `_club_config_and_slug_for_id()` -> `club_config.list_clubs()` ->
+    whatever real `clubs/*.yaml` the developer running these tests happens to have on
+    disk. Several tests' own comments claimed passing `config={}` alone was enough
+    isolation from that — it wasn't, and this genuinely broke live (2026-09-10, same
+    bug hunt that fixed club_config.py's frozen-default gotcha): a leftover
+    regression-test artifact under the real `clubs/` dir with `club_id: "0000001"` —
+    the same fake id used everywhere in this file — made `_club_config_and_slug_for_id`
+    match it and `run()` reach the real pc caddie site over the network. Points
+    `CLUBS_DIR` at an empty directory instead, for every test here, regardless of
+    which of `config`/`slug` a given call happens to pass."""
+    monkeypatch.setattr(scrape_once.club_config, "CLUBS_DIR", tmp_path / "clubs")
+
+
 # scrape_due_for_club() now fetches each club's own course list live (fetch_course_aliases()
 # -- see scraper.py's module docstring on why a hardcoded constant isn't safe across clubs)
 # rather than assuming a fixed set, so any test exercising that path needs this mocked --
