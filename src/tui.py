@@ -144,7 +144,7 @@ from .credentials_screen import CredentialsScreen
 from .search import SearchCriteria
 from .search import resolve_buffer_minutes
 from .search import search as search_slots
-from .models import ConfirmedBooking, DateRange, Schedule, Slot, TimeWindow, WeatherPoint
+from .models import ConfirmedBooking, DateRange, Schedule, Slot, SlotMatch, TimeWindow, WeatherPoint
 from .scrape_once import _attach_weather, _db_path
 from .settings_screen import (
     BUFFER_CHOICES,
@@ -1887,6 +1887,22 @@ class SearchScreen(Screen[None]):
     itself already filtered to one active course, so every result here shares
     the same one; it joins the Header's own title instead of repeating on every
     row.
+
+    Occupancy/Players/Temperature/Precipitation/Wind columns (2026-09-13, direct
+    question: "why does adhoc search not show occupancy, player, or weather
+    data?") — a `SlotMatch.slot` already carries `booked`/`capacity`/`players`,
+    and the matching `Schedule.weather` is already in `self.schedules`; reuses
+    `DayDetailScreen`'s own `_slot_temperature_cell()`/`_slot_precipitation_cell()`/
+    `_slot_wind_cell()` directly rather than a second, parallel set of weather
+    formatters, so the two screens can't drift on how a number gets displayed.
+
+    `c` confirms the highlighted result (2026-09-13, direct question: "can we
+    confirm tee times from adhoc search?") — same `ConfirmBookingScreen` as
+    `DayDetailScreen`'s own `c`, pre-filled from the highlighted row's own
+    date/course/time (`self._row_matches`, the search equivalent of that
+    screen's `_row_times`) rather than whatever date/course happened to be
+    active when this screen was opened, since a single search's results can
+    span several different days.
     """
 
     CSS = """
@@ -1931,14 +1947,19 @@ class SearchScreen(Screen[None]):
     }
     """
 
-    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
-    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+    BINDINGS = [("c", "confirm", "Confirm tee time"), ("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("c", "binding.confirm"), ("escape", "binding.cancel"), ("q", "binding.quit")]
 
     def __init__(self, schedules: list[Schedule], config: dict, club_id: str) -> None:
         super().__init__()
         self.schedules = schedules
         self.config = config
         self.club_id = club_id
+        # This result's own SlotMatch, in table row order -- lets `c` confirm the
+        # highlighted row's exact date/course/time without re-deriving it from
+        # display text, same reasoning DayDetailScreen's own `_row_times` already
+        # follows for the identical purpose.
+        self._row_matches: list[SlotMatch] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -2007,10 +2028,16 @@ class SearchScreen(Screen[None]):
         if self.schedules:
             title = f"{title} — {self.schedules[0].course}"
         self.title = title
+        units = self.config.get("units", units_module.DEFAULT_UNITS)
         table = self.query_one("#search-results", DataTable)
         table.add_columns(
             i18n.t("search.table.date"),
             i18n.t("table.time"),
+            i18n.t("table.occupancy"),
+            i18n.t("table.players"),
+            _column_header("table.temperature", "temperature", units),
+            _column_header("table.precipitation", "precipitation", units),
+            _column_header("table.wind", "wind", units),
             i18n.t("search.table.notes"),
         )
 
@@ -2042,14 +2069,51 @@ class SearchScreen(Screen[None]):
         matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates)
         table = self.query_one("#search-results", DataTable)
         table.clear()
+        self._row_matches = []
         status = self.query_one("#search-status", Static)
         if not matches:
             status.update(i18n.t("search.no_matches"))
             return
         status.update("")
+        units = self.config.get("units", units_module.DEFAULT_UNITS)
+        # Same (date, course) -> Schedule lookup DayDetailScreen's own
+        # load_schedule() already does implicitly via storage -- here it's an
+        # in-memory match against self.schedules instead, since this screen never
+        # re-fetches anything.
+        schedule_by_key = {(schedule.date, schedule.course): schedule for schedule in self.schedules}
         for match in matches:
+            self._row_matches.append(match)
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(match.date).weekday()}")
-            table.add_row(f"{weekday} {match.date}", match.slot.time, ", ".join(match.reasons))
+            schedule = schedule_by_key.get((match.date, match.course))
+            weather = schedule.weather if schedule is not None else []
+            occupancy = f"{match.slot.booked}/{match.slot.capacity}"
+            players = ", ".join(match.slot.players) if match.slot.players else ""
+            table.add_row(
+                f"{weekday} {match.date}",
+                match.slot.time,
+                occupancy,
+                players,
+                _slot_temperature_cell(weather, match.slot.time, units),
+                _slot_precipitation_cell(weather, match.slot.time, units),
+                _slot_wind_cell(weather, match.slot.time, units),
+                ", ".join(match.reasons),
+            )
+
+    def action_confirm(self) -> None:
+        table = self.query_one("#search-results", DataTable)
+        if not (0 <= table.cursor_row < len(self._row_matches)):
+            return  # no results yet, or the "no matches" placeholder state
+        match = self._row_matches[table.cursor_row]
+
+        def on_result(confirmed: bool | None) -> None:
+            if confirmed:
+                self.query_one("#search-status", Static).update(i18n.t("confirm.confirmed"))
+
+        default_holes = _holes_from_course_label(match.course)
+        self.app.push_screen(
+            ConfirmBookingScreen(self.club_id, match.course, match.date, match.slot.time, default_holes),
+            on_result,
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
