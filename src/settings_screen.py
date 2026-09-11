@@ -175,7 +175,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Collapsible, Header, Input, Label, Select, Static, Switch
 
-from . import global_preferences, i18n
+from . import global_preferences, i18n, units
 from . import theme as theme_module
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
@@ -361,6 +361,17 @@ FIELDS: list[Field] = [
         0,
         choices=BUFFER_CHOICES,
     ),
+    # Direct feedback, 2026-09-13: "Can we adjust format (metric/imperial) in
+    # settings?" -- a display-only preference (see units.py's own module
+    # docstring for the deliberate scope boundary: the *_c/*_kph/*_mm threshold
+    # fields just below stay in their existing fixed unit regardless of this
+    # setting). Rendered via its own compose()/widget_values_to_config() branches
+    # below (kind="str", no numeric parsing) rather than the generic
+    # `field.choices` path everything else uses, since its two options need
+    # localized labels looked up fresh at compose() time -- a frozen
+    # module-level choices list (the pattern every other dropdown here uses)
+    # would go stale the moment the UI language changes.
+    Field("settings.field.units", ("units",), "str", "settings.group.weather", units.DEFAULT_UNITS),
     Field("settings.field.avoid_rain", ("preferences", "avoid_rain"), "bool", "settings.group.weather", False),
     Field(
         "settings.field.avoid_rain_probability",
@@ -555,6 +566,8 @@ def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict
         elif field.kind == "optional_time":
             text = str(raw).strip()
             _set_path(updated, field.path, text if text else None)
+        elif field.kind == "str":
+            _set_path(updated, field.path, str(raw).strip() or field.default)
 
     # A time window with neither "after" nor "before" set means "no window at all"
     # (see search.py's SearchCriteria docstring: a day type with no window configured
@@ -791,6 +804,23 @@ class SettingsScreen(Screen[dict | None]):
                                         id=mm_id,
                                         classes="time-part",
                                     )
+                            elif field.kind == "str":
+                                # Localized choices looked up here, not as a
+                                # frozen module-level list (unlike every other
+                                # dropdown's `field.choices`) -- see FIELDS'
+                                # own comment on this field for why.
+                                unit_options = [
+                                    (i18n.t("settings.units.metric"), units.METRIC),
+                                    (i18n.t("settings.units.imperial"), units.IMPERIAL),
+                                ]
+                                yield Select(
+                                    unit_options,
+                                    value=current,
+                                    allow_blank=False,
+                                    compact=True,
+                                    id=widget_id,
+                                    classes="field-input",
+                                )
                             elif field.choices is not None:
                                 options = field.choices
                                 # A value saved outside the preset list (hand-edited

@@ -333,6 +333,30 @@ def test_settings_screen_round_duration_fields_render_as_dropdowns_and_save(tmp_
     assert saved["round_duration_minutes"] == {"nine": 90, "eighteen": 270}
 
 
+def test_settings_screen_units_field_defaults_to_metric_and_saves_imperial(tmp_path):
+    # Direct feedback, 2026-09-13: "Can we adjust format (metric/imperial) in
+    # settings?"
+    from textual.widgets import Select
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            widget = app.screen.query_one(f"#{_id('units')}")
+            assert isinstance(widget, Select)
+            assert widget.value == "metric"
+            widget.value = "imperial"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["units"] == "imperial"
+
+
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     # min_open_spots (used here before 2026-09-08) and buffer_minutes (used here
     # before the same-day before/after split) both became Select dropdowns and can

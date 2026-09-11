@@ -138,6 +138,7 @@ from textual.widgets.option_list import Option
 from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, playability
 from . import recommend, scrape_once, storage
 from . import i18n
+from . import units as units_module
 from . import theme as theme_module
 from .credentials_screen import CredentialsScreen
 from .search import SearchCriteria
@@ -262,6 +263,18 @@ _SLOT_RAIN_ICON_THRESHOLD_PERCENT = 50
 _SLOT_WIND_ICON_THRESHOLD_KPH = 30
 
 
+def _column_header(label_key: str, unit_kind: str, units: str) -> str:
+    """A table column header with its unit spelled out (2026-09-13, direct
+    feedback: "can we integrate units into header" — shipped first as fixed
+    "(°C)"/"(km/h)"/"(%/mm)" text; this is what makes the label itself track the
+    metric/imperial setting once that became adjustable too, same day, second
+    remark: "Can we adjust format (metric/imperial) in settings?"). `unit_kind`
+    is one of `units_module.SYMBOLS`'s own keys ("temperature"/"wind"/
+    "precipitation")."""
+    symbol = units_module.SYMBOLS.get(units, units_module.SYMBOLS[units_module.METRIC])[unit_kind]
+    return f"{i18n.t(label_key)} ({symbol})"
+
+
 def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> WeatherPoint | None:
     """The hourly forecast point covering one exact slot time — an hourly point's
     own timestamp is the *start* of the hour it covers (a 14:20 slot falls under the
@@ -273,45 +286,62 @@ def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> We
     return max(covering, key=lambda point: point.time) if covering else None
 
 
-def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str) -> str:
+def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
     """One row's own Temperature column — that hour's forecast temperature, or
     blank with no forecast to show. Split out of the old combined
     `_slot_weather_cell()` 2026-09-09, direct feedback: "can you please split
     weather into Temperature, Precipitation, and wind columns (both in the overview
     and detailed view)?" — see `_slot_precipitation_cell()`'s own docstring for why
     each split column now shows its real number unconditionally, not just when a
-    threshold fires."""
+    threshold fires. `units` (2026-09-13, "Can we adjust format (metric/imperial)
+    in settings?") converts for display only — the stored value, and every other
+    caller of this same weather data, stays in °C regardless."""
     point = _weather_point_for_time(weather_points, time)
     if point is None or point.temperature_c is None:
         return ""
-    return f"{point.temperature_c:.0f}°"
+    return f"{units_module.display_temperature(point.temperature_c, units):.0f}°"
 
 
-def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str) -> str:
+def _precipitation_amount_text(mm: float, units: str) -> str:
+    """A precipitation amount, converted and labelled for display — 1 decimal in
+    mm (the existing convention), 2 in inches (a metric mm value under 1 rounds to
+    "0.0in" at 1 decimal, losing the number entirely for exactly the light-rain
+    case this column exists to show). Shared by the day-level and per-slot
+    Precipitation columns so the two can't drift on formatting."""
+    amount = units_module.display_precipitation_mm(mm, units)
+    decimals = 2 if units == units_module.IMPERIAL else 1
+    return f"{amount:.{decimals}f}{units_module.precipitation_amount_label(units)}"
+
+
+def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
     """One row's own Precipitation column — the real rain probability (and amount,
     once measurable), always shown now that it has its own dedicated column, not
     just once a threshold fires (that threshold — `_SLOT_RAIN_ICON_THRESHOLD_PERCENT`
     — still decides whether the 🌧 icon itself shows, a "worth noticing at a
     glance" flag layered on top of the real number, not a gate on the number
-    itself). Blank with no forecast to show."""
+    itself). Blank with no forecast to show. `units` only ever affects the amount
+    (mm/in) — the probability is already a unit-agnostic percentage."""
     point = _weather_point_for_time(weather_points, time)
     if point is None:
         return ""
     probability = point.precipitation_probability or 0
-    mm = f"/{point.precipitation_mm:.1f}mm" if point.precipitation_mm else ""
+    mm = f"/{_precipitation_amount_text(point.precipitation_mm, units)}" if point.precipitation_mm else ""
     icon = "🌧 " if probability >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
     return f"{icon}{probability:.0f}%{mm}"
 
 
-def _slot_wind_cell(weather_points: list[WeatherPoint], time: str) -> str:
+def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
     """One row's own Wind column — same "real number always, icon only above the
     threshold" treatment as `_slot_precipitation_cell()`. Blank with no forecast to
-    show."""
+    show. The 💨 icon's own threshold (`_SLOT_WIND_ICON_THRESHOLD_KPH`) is always
+    checked against the real km/h value, never the display-converted one — it's an
+    internal "worth noticing" cutoff, not something a user sets in either unit."""
     point = _weather_point_for_time(weather_points, time)
     if point is None or point.wind_speed_kph is None:
         return ""
     icon = "💨 " if point.wind_speed_kph >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
-    return f"{icon}{point.wind_speed_kph:.0f}km/h"
+    speed = units_module.display_wind_speed(point.wind_speed_kph, units)
+    return f"{icon}{speed:.0f}{units_module.wind_unit_label(units)}"
 
 
 def _slot_event_cell(slot: Slot) -> str:
@@ -879,22 +909,25 @@ def _is_rain_all_day(weather: list) -> bool:
     return all((w.precipitation_probability or 0) >= _RAIN_ALL_DAY_THRESHOLD_PERCENT for w in daytime)
 
 
-def _temperature_cell(weather: list[WeatherPoint]) -> str:
+def _temperature_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
     """The overview's own Temperature column for one day — daytime (08:00-20:00)
     high/low, e.g. "24°/14°", or blank with no forecast to show (a schedule that
     was never weather-attached — e.g. `location` not configured yet). Split out of
     the old combined Weather column 2026-09-09, direct feedback: "can you please
     split weather into Temperature, Precipitation, and wind columns (both in the
     overview and detailed view)?" — see `_precipitation_cell()`'s own docstring for
-    the rest of that split."""
+    the rest of that split. `units` (2026-09-13) converts for display only, same as
+    `_slot_temperature_cell()`'s own."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     temps = [w.temperature_c for w in daytime if w.temperature_c is not None]
     if not temps:
         return ""
-    return f"{max(temps):.0f}°/{min(temps):.0f}°"
+    high = units_module.display_temperature(max(temps), units)
+    low = units_module.display_temperature(min(temps), units)
+    return f"{high:.0f}°/{low:.0f}°"
 
 
-def _precipitation_cell(weather: list[WeatherPoint]) -> str:
+def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
     """The overview's own Precipitation column for one day — "rain all day" when
     every daytime point crosses `_RAIN_ALL_DAY_THRESHOLD_PERCENT` (still worth its
     own phrase rather than an average, the same reasoning `_is_rain_all_day()`
@@ -911,24 +944,27 @@ def _precipitation_cell(weather: list[WeatherPoint]) -> str:
         return f"🌧 {i18n.t('overview.rain_all_day')}"
     avg_chance = sum((w.precipitation_probability or 0) for w in daytime) / len(daytime)
     total_mm = sum((w.precipitation_mm or 0) for w in daytime)
-    mm_part = f"/{total_mm:.1f}mm" if total_mm else ""
+    mm_part = f"/{_precipitation_amount_text(total_mm, units)}" if total_mm else ""
     icon = "🌧 " if avg_chance >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
     return f"{icon}{avg_chance:.0f}%{mm_part}"
 
 
-def _wind_cell(weather: list[WeatherPoint]) -> str:
+def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
     """The overview's own Wind column for one day — the day's peak daytime wind
     speed (max, not average — the same "worst case across the window" reasoning
     `weather.conditions_during_round()` already applies to a single round), shown
     unconditionally now that this has its own column; the 💨 icon is still gated on
-    `_SLOT_WIND_ICON_THRESHOLD_KPH`. Blank with no daytime forecast at all."""
+    `_SLOT_WIND_ICON_THRESHOLD_KPH` (the real km/h value, not the display-converted
+    one — same reasoning as `_slot_wind_cell()`'s own). Blank with no daytime
+    forecast at all."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     winds = [w.wind_speed_kph for w in daytime if w.wind_speed_kph is not None]
     if not winds:
         return ""
     peak = max(winds)
     icon = "💨 " if peak >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
-    return f"{icon}{peak:.0f}km/h"
+    speed = units_module.display_wind_speed(peak, units)
+    return f"{icon}{speed:.0f}{units_module.wind_unit_label(units)}"
 
 
 def _event_cell(schedule: Schedule) -> str:
@@ -1597,11 +1633,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def on_mount(self) -> None:
         self._render_legend()
         table = self.query_one(DataTable)
+        units = self._config().get("units", units_module.DEFAULT_UNITS)
         table.add_columns(
             i18n.t("table.day"),
-            i18n.t("table.temperature"),
-            i18n.t("table.precipitation"),
-            i18n.t("table.wind"),
+            _column_header("table.temperature", "temperature", units),
+            _column_header("table.precipitation", "precipitation", units),
+            _column_header("table.wind", "wind", units),
             i18n.t("table.events"),
             i18n.t("table.heat"),
             i18n.t("table.pick"),
@@ -1653,6 +1690,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     def load_overview(self) -> None:
         config = self._config()
+        units = config.get("units", units_module.DEFAULT_UNITS)
         dates, open_dates = self._display_dates(config)
         table = self.query_one(DataTable)
         table.clear()
@@ -1701,9 +1739,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._row_dates.append(one_date)
             if schedule is not None and schedule.slots:
                 schedules.append(schedule)
-                temperature_cell = _temperature_cell(schedule.weather) or "[dim]—[/]"
-                precipitation_cell = _precipitation_cell(schedule.weather) or "[dim]—[/]"
-                wind_cell = _wind_cell(schedule.weather) or "[dim]—[/]"
+                temperature_cell = _temperature_cell(schedule.weather, units) or "[dim]—[/]"
+                precipitation_cell = _precipitation_cell(schedule.weather, units) or "[dim]—[/]"
+                wind_cell = _wind_cell(schedule.weather, units) or "[dim]—[/]"
                 event_cell = _event_cell(schedule) or "[dim]—[/]"
                 heat_cell = _heat_strip_markup(schedule)
             else:
@@ -2382,13 +2420,14 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     def on_mount(self) -> None:
         self._render_legend()
         table = self.query_one(DataTable)
+        units = _resolved_config(self.club_slug, self.club_id, self.club_name).get("units", units_module.DEFAULT_UNITS)
         table.add_columns(
             i18n.t("table.time"),
             i18n.t("table.occupancy"),
             i18n.t("table.players"),
-            i18n.t("table.temperature"),
-            i18n.t("table.precipitation"),
-            i18n.t("table.wind"),
+            _column_header("table.temperature", "temperature", units),
+            _column_header("table.precipitation", "precipitation", units),
+            _column_header("table.wind", "wind", units),
             i18n.t("table.events"),
         )
         table.cursor_type = "row"
@@ -2451,6 +2490,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         now = _NOW_HHMM() if self.date == _TODAY() else None
         recommended_times = self._recommended_times(schedule)
         config = _resolved_config(self.club_slug, self.club_id, self.club_name)
+        units = config.get("units", units_module.DEFAULT_UNITS)
         # Whichever row is nearest sunrise/sunset carries its own note in the Events
         # column below (plain wording plus the exact time, not an icon -- 2026-09-13
         # follow-up on the very feature that first added this: "i don't like the
@@ -2485,9 +2525,9 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 extra_events.append(i18n.t("events.sunset", time=schedule.sun_times.sunset))
             if confirmed is not None and slot.time == confirmed.time:
                 extra_events.append(f"📌 {i18n.t('overview.booked')}")
-            temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time), is_past)
-            precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time), is_past)
-            wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time), is_past)
+            temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units), is_past)
+            precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units), is_past)
+            wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units), is_past)
             if slot.block_reason is not None:
                 # A real, confirmed case (Sonnenberg, 2026-09-08): pc caddie's own
                 # merged free-seat cell for a block-time/disable-time row can be
@@ -2744,15 +2784,21 @@ class TeetimeApp(App[None]):
 
     def _rebuild_current_screen(self) -> None:
         """Replace the current screen with a fresh instance of itself so every label,
-        table header, and status message re-renders in the new language immediately —
-        simpler and more reliable than a partial recompose that would also need to
-        manually re-run load_schedule()/refresh_banners() (or load_overview()) by
-        hand. Handles both DayDetailScreen and OverviewScreen (renamed from
-        `_rebuild_day_detail_screen` 2026-09-07 once a second screen needed the same
-        treatment) — a no-op for anything else (e.g. mid-picker when switching
-        language), since those screens are transient enough that the next one shown
-        will already use the new language, and this app deliberately doesn't chase
-        every transient screen's live re-render (see module docstring)."""
+        table header, and status message re-renders immediately — simpler and more
+        reliable than a partial recompose that would also need to manually re-run
+        load_schedule()/refresh_banners() (or load_overview()) by hand. Handles both
+        DayDetailScreen and OverviewScreen (renamed from `_rebuild_day_detail_screen`
+        2026-09-07 once a second screen needed the same treatment) — a no-op for
+        anything else (e.g. mid-picker when switching language), since those screens
+        are transient enough that the next one shown will already reflect the change,
+        and this app deliberately doesn't chase every transient screen's live
+        re-render (see module docstring).
+
+        Originally just the language-switch helper; reused as-is by
+        `_do_edit_settings()` too (2026-09-13, once a units change also needed a full
+        header rebuild, not just a row-content reload) — a table's own column
+        headers, unlike its rows, are only ever set once in `on_mount()`, so nothing
+        short of a fresh instance actually picks up a changed unit label."""
         screen = self.screen
         if isinstance(screen, DayDetailScreen):
             replacement = DayDetailScreen(
@@ -3017,10 +3063,14 @@ class TeetimeApp(App[None]):
         # A saved availability/preferences change should be reflected immediately --
         # not just on the next scheduled reload -- since it can change the ★ marker,
         # the overview's per-day pick column, and "This week's picks" all at once.
-        if isinstance(self.screen, DayDetailScreen):
-            self.screen.load_schedule()
-        elif isinstance(self.screen, OverviewScreen):
-            self.screen.load_overview()
+        # Uses the same full-rebuild helper _rebuild_current_screen() already uses
+        # for a language switch (2026-09-13, once a units change also needed a
+        # rebuild, not just a reload -- the old direct load_schedule()/
+        # load_overview() calls refresh row content but never touch a table's own
+        # column headers, which are only ever set once in on_mount()) -- a plain
+        # reload would leave a stale "(°C)" header showing next to freshly
+        # converted °F numbers.
+        self._rebuild_current_screen()
 
     def _periodic_scrape(self) -> None:
         """Best-effort background scrape of this club's whole overview window — direct

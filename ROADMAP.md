@@ -2996,6 +2996,49 @@ showing units. 647 tests passing.
   cancellation without erasing history. Not implemented yet — real design
   work, not queued as "easy."
 
+**2) "Can we adjust format (metric/imperial) in settings?"** New `units.py`
+module — pure conversion functions (`celsius_to_fahrenheit`, `kph_to_mph`,
+`mm_to_inches`) plus display-facing wrappers, deliberately scoped to just the
+three physical quantities this app ever shows (temperature, wind, precipitation
+amount); a percentage (rain probability, occupancy) is already unit-agnostic
+and untouched. Deliberately does NOT convert `settings_screen.py`'s own
+threshold fields (`avoid_temp_below_c`, `avoid_wind_kph`, `avoid_rain_mm`) —
+those stay in one fixed unit regardless of the display preference, since
+converting a stored threshold bidirectionally (so an edit in "imperial mode"
+round-trips correctly) is a real, separate feature `units.py`'s own module
+docstring calls out explicitly as out of scope for now.
+
+New `Field("settings.field.units", ("units",), "str", ...)` in
+`settings_screen.py` — a new `kind="str"` (round-trips as a plain string, no
+numeric parsing) rendered via its own `compose()` branch rather than the
+generic `field.choices` path every other dropdown uses, since its two option
+labels need `i18n.t()` looked up fresh at compose time — a frozen
+module-level choices list (the existing pattern) would go stale the moment
+the UI language changes, a bug class that just hadn't come up yet since no
+prior dropdown's own labels were ever anything but plain numbers.
+
+`tui.py`'s six weather cell-builders (`_temperature_cell`/
+`_precipitation_cell`/`_wind_cell` for the overview, `_slot_*` versions for
+day-detail) all take a `units` parameter now, resolved once per screen load
+from `config.get("units", "metric")`. New `_column_header()` makes column
+headers track the setting too (the "(°C)"/"(km/h)"/"(%/mm)" suffixes shipped
+as fixed text one version ago now read from `units.SYMBOLS`), which meant
+`_do_edit_settings()` needed to switch from a plain `load_schedule()`/
+`load_overview()` reload to the same full `_rebuild_current_screen()` helper
+already used for language switches — a table's own column headers are only
+ever set once in `on_mount()`, so a plain content reload would leave a stale
+header next to freshly converted numbers. Icon thresholds
+(`_SLOT_WIND_ICON_THRESHOLD_KPH` and friends) stay checked against the real
+km/h value regardless of display unit — an internal "worth noticing" cutoff,
+not something a user sets in either unit.
+
+18 new tests (`test_units.py`'s own pure-function coverage, imperial-mode
+cell/header tests, the settings-field round-trip, and one full
+save-then-rebuild integration test), all confirmed genuinely dependent by
+reverting (`src/units.py` moved aside, the three touched modules stashed).
+670 tests passing. Verified live: the new Units dropdown renders correctly
+under Settings → Weather, defaulting to Metric.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
