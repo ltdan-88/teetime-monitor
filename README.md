@@ -119,16 +119,22 @@ spec.
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
   for the rare same-day-booking timing gap — pre-filled from whatever row is
   highlighted and the course you're already viewing, not re-typed by hand
-- Two dropdowns right at the top of the overview — club and course — switch between
-  clubs/courses you already have saved without leaving the screen at all (added
-  2026-09-09, direct feedback: "would it be possible to integrate club and course
-  selectors into the overview screen... this would make navigation much quicker").
-  Picking a different club there refetches its course list and reloads in place,
-  same as picking a different course does. `s` still opens the full club browser,
-  where typing searches pc caddie's whole directory, for finding and saving a club
-  you haven't added yet — the dropdowns are a faster path for ones you already
-  switch between regularly, not a replacement for discovering a new one. `escape`
-  backs out of any picker with nothing changed; `q` quits
+- Two labelled dropdowns near the top — club and course, stacked one under the
+  other — switch between clubs/courses you already have saved without leaving the
+  screen at all (added 2026-09-09, direct feedback: "would it be possible to
+  integrate club and course selectors into the overview screen... this would make
+  navigation much quicker"; both stacked, widened, and labelled, and the identical
+  pair added to the day-detail screen too, 2026-09-11 direct feedback). Picking a
+  different club there refetches its course list and reloads in place, same as
+  picking a different course does — the day-detail screen reloads the same date
+  you're already looking at, for the newly-switched club/course. `s` still opens
+  the full club browser, where typing searches pc caddie's whole directory, for
+  finding and saving a club you haven't added yet — the dropdowns are a faster
+  path for ones you already switch between regularly, not a replacement for
+  discovering a new one. `escape` backs out of any picker with nothing changed;
+  `q` quits. The header just shows "teetime-monitor" (plus the current date on the
+  day-detail screen) rather than repeating the club/course the dropdowns already
+  show right below it
 - A booking doesn't stop being watched once it's confirmed: if someone joins your
   flight, a neighboring slot fills in and shrinks your buffer, or the weather forecast
   for the round itself gets worse, a plain banner shows up next time you open the app —

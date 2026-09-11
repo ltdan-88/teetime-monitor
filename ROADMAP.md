@@ -2818,6 +2818,44 @@ space. Verified live: the course name now renders in full. 638 tests
 passing (no test asserted the old side-by-side layout, only values/selection
 behavior).
 
+**Three related notes, same day (2026-09-11): "1) I want labels to the left of
+club and course selector drop downs. 2) I want the club and course selector
+drop downs also implemented in the detailed view. 3) I want the header to
+include the name of the TUI 'teetime-monitor' and remove the club/course
+names since they will be redundant."**
+
+1/2 together meant `OverviewScreen`'s whole `#switcher` block — options list,
+`Select.Changed` handler, `_switch_club()`/`_switch_course()`, the course-fetch
+worker — needed a second, identical home on `DayDetailScreen`. Factored the
+whole thing out into a new `_ClubCourseSwitcher` mixin instead of copy-pasting
+it: the switching logic carries real, hard-won behavior (the `Select.Changed`
+transient-value-ordering fix from the last-active-club feature, 2026-09-10)
+that a second, independently-maintained copy would risk quietly drifting out
+of sync with. A subclass supplies its own `club_id`/`club_slug`/`club_name`/
+`course` (both screens already had these) and one new `_reload()` hook —
+`load_overview()` on the overview, `load_schedule()` on day-detail, reloading
+the *same date* rather than bouncing back to the overview. Labels use a new
+`.switcher-row`/`.switcher-label` pair, deliberately styled like
+`settings_screen.py`/`SearchScreen`'s own existing `.field-row`/`.field-label`
+convention rather than inventing a second visual pattern for the same idea.
+
+3 removed `_set_title()`'s club/course text from both screens entirely —
+`OverviewScreen` no longer sets a screen-level title at all (Header falls back
+to `TeetimeApp.TITLE = "teetime-monitor"`); `DayDetailScreen` keeps a
+`_set_title()` of its own, but now just `"teetime-monitor — {date}"` — the
+date isn't shown anywhere else on that screen, unlike club/course, which the
+new dropdowns make genuinely redundant.
+
+5 new tests (switcher labels on both screens, day-detail's inline club/course
+switch keeping the same date, day-detail's title format) plus 2 existing
+overview-switch tests updated for the new title-less behavior — all confirmed
+genuinely dependent by reverting the whole change and watching every one fail
+for the expected reason (`#club-select` didn't even exist on `DayDetailScreen`
+yet; the old title still had the club name baked in). Verified live: labelled,
+stacked dropdowns on both the overview and a drilled-into day, header reading
+plain "teetime-monitor" on the overview and "teetime-monitor — 2026-09-11" on
+day-detail. 643 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

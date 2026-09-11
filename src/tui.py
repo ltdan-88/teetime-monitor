@@ -1230,8 +1230,181 @@ DAY_DETAIL_LEGEND = [
 
 OVERVIEW_MAX_PICKS_SHOWN = 5
 
+# Shared by both OverviewScreen and DayDetailScreen's own #switcher (2026-09-11,
+# "I want the club and course selector drop downs also implemented in the
+# detailed view") -- one constant rather than two copies drifting apart, same
+# reasoning as factoring _ClubCourseSwitcher out below in the first place.
+_SWITCHER_CSS = """
+#switcher {
+    height: auto;
+    padding: 0 2;
+}
+.switcher-row {
+    height: 1;
+    margin-bottom: 1;
+    align: left middle;
+}
+.switcher-label {
+    width: 10;
+    content-align: right middle;
+    padding-right: 2;
+}
+#club-select, #course-select {
+    width: auto;
+    max-width: 60;
+}
+"""
 
-class OverviewScreen(Screen[None]):
+
+class _ClubCourseSwitcher:
+    """Shared inline club/course dropdown behavior for `OverviewScreen` and
+    `DayDetailScreen` (2026-09-11, direct feedback: "I want the club and course
+    selector drop downs also implemented in the detailed view") -- factored out
+    here rather than copy-pasted a second time, since the switching logic below
+    carries real, hard-won behavior (see `_refresh_course_options()`'s own
+    docstring for the `Select.Changed` transient-value bug this shape avoids)
+    that a second, independently-maintained copy would risk quietly drifting out
+    of sync with.
+
+    A subclass needs its own `club_id`/`club_slug`/`club_name`/`course`
+    attributes (both screens already have these for other reasons) and a
+    `_reload()` method that re-renders whatever this screen shows for the
+    *current* club_id/course (`load_overview()` / `load_schedule()`
+    respectively) -- that renders-what-exactly difference is the only thing
+    that actually varies between the two screens' switchers. Neither screen
+    sets its own Header title any more (2026-09-11, direct feedback: "I want
+    the header to include the name of the TUI 'teetime-monitor' and remove the
+    club/course names since they will be redundant" -- redundant precisely
+    because the labelled dropdowns right below the header already show both),
+    so switching doesn't need to touch it either.
+
+    Labelled rows, not bare dropdowns (2026-09-11, same feedback: "I want
+    labels to the left of club and course selector drop downs") -- reuses the
+    same `.field-row`/`.field-label`-style left-label convention
+    `settings_screen.py`/`SearchScreen` already established elsewhere in this
+    app (`.switcher-row`/`.switcher-label` here, since these rows sit directly
+    in a screen's own `#switcher` rather than a settings form), rather than
+    inventing a second visual pattern for the same idea."""
+
+    def _club_select_options(self) -> list[tuple[str, str]]:
+        """(label, club_id) pairs for the inline club selector -- every saved
+        favorite, plus the currently active club if it isn't one (visited via a
+        directory search without saving, or a bare typed-in id), so the dropdown
+        always has a valid value to show -- same "inject the current value if
+        it's missing from the presets" convention every dropdown in this app
+        already follows (see settings_screen.py)."""
+        favorites = _favorite_clubs()
+        if self.club_id not in {club_id for club_id, _ in favorites}:
+            favorites = [(self.club_id, self.club_name or self.club_slug or self.club_id), *favorites]
+        return [(name, club_id) for club_id, name in favorites]
+
+    def _compose_switcher(self) -> ComposeResult:
+        with Vertical(id="switcher"):
+            with Horizontal(classes="switcher-row"):
+                yield Label(i18n.t("switcher.club_label"), classes="switcher-label")
+                yield Select(
+                    self._club_select_options(), value=self.club_id, allow_blank=False,
+                    compact=True, id="club-select",
+                )
+            with Horizontal(classes="switcher-row"):
+                yield Label(i18n.t("switcher.course_label"), classes="switcher-label")
+                # Just the current course at first -- the club's full list needs a
+                # live fetch (fetch_course_aliases()), kicked off from on_mount()
+                # instead so compose() itself never blocks on the network, same
+                # rule every other screen here already follows.
+                yield Select(
+                    [(self.course, self.course)], value=self.course, allow_blank=False,
+                    compact=True, id="course-select",
+                )
+
+    async def _refresh_course_options(self) -> None:
+        """Fills the course selector in with the active club's *real* course list,
+        once fetched -- `_compose_switcher()` seeds it with just the current course
+        so mounting never blocks on the network. Silently keeps the single-entry
+        fallback on a failed fetch, same graceful-degradation every other live
+        lookup here already follows, rather than surfacing a fetch error for a
+        dropdown that still works fine with just the one course it already knows
+        about.
+
+        `self.course` is always kept first in the list handed to `set_options()`,
+        not just included somewhere — real bug found live, 2026-09-10, while
+        adding last-active-club persistence: `set_options()` briefly resets the
+        Select's own value to its new *first* option before the very next line
+        explicitly corrects it back to `self.course`, firing a real (non-blank)
+        `Select.Changed` for that transient wrong value in between. A guard-flag
+        approach can't catch this reliably either: `Select.Changed` is delivered
+        as a queued message, processed on a later turn of the event loop than the
+        one this coroutine's own body (guard included) already finished on.
+        Keeping `self.course` first removes the transient wrong value altogether
+        — the momentary state during the rebuild is already correct, so there's
+        nothing spurious left to guard against."""
+        try:
+            courses = list(fetch_course_aliases(self.club_id))
+        except Exception:  # noqa: BLE001 — see docstring
+            return
+        courses = [self.course, *(c for c in courses if c != self.course)]
+        select = self.query_one("#course-select", Select)
+        select.set_options((course, course) for course in courses)
+        select.value = self.course
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.value is Select.BLANK:
+            return  # a transient state while set_options() rebuilds the list
+        if event.select.id == "club-select" and event.value != self.club_id:
+            self.run_worker(self._switch_club(event.value), exclusive=True, group="switch")
+        elif event.select.id == "course-select" and event.value != self.course:
+            self._switch_course(event.value)
+
+    async def _switch_club(self, club_id: str) -> None:
+        """The inline club selector's own version of `TeetimeApp._open_club()` --
+        same bookkeeping (resolve slug/config, pick a course, update the App's own
+        `_club_slug`/`_club_config` so the periodic background scrape follows the
+        switch too — see that method's own docstring for the real bug this exact
+        step fixed once before), but updates this same screen's state and reloads
+        in place instead of pushing a new one."""
+        slug = club_config.slug_for_club_id(club_id)
+        config = club_config.load_club_config(slug) if slug else {}
+        name = dict(_favorite_clubs()).get(club_id, "")
+        try:
+            courses = list(fetch_course_aliases(club_id))
+        except NoTeeSheetError:
+            self.query_one("#status", Static).update(i18n.t("app.no_tee_sheet", club_id=club_id))
+            self.query_one("#club-select", Select).value = self.club_id  # revert the dropdown
+            return
+        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
+            self.query_one("#status", Static).update(i18n.t("app.course_fetch_failed", error=exc))
+            self.query_one("#club-select", Select).value = self.club_id
+            return
+        default_course = config.get("default_course")
+        course = default_course if default_course in courses else courses[0]
+
+        self.club_id = club_id
+        self.club_slug = slug
+        self.club_name = name
+        self.course = course
+        course_select = self.query_one("#course-select", Select)
+        course_select.set_options((c, c) for c in courses)
+        course_select.value = course
+        self._reload()
+
+        app = self.app
+        app._club_slug = slug
+        app._club_config = {**config, "club_id": club_id}
+        app._periodic_scrape()
+        # So the *next* launch resumes here too, not back at the club/course
+        # pickers -- see global_preferences.load_last_active_club()'s own docstring.
+        global_preferences.save_last_active_club(club_id, slug, course)
+
+    def _switch_course(self, course: str) -> None:
+        """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
+        already scrapes every one of a club's courses regardless of which one is
+        showing here, so only this screen's own state needs to change."""
+        self.course = course
+        self._reload()
+        global_preferences.save_last_active_club(self.club_id, self.club_slug, course)
+
+
+class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     """The multi-day at-a-glance home screen — one row per attempted day: weekday +
     exact ISO date, weather split into its own Temperature/Precipitation/Wind
     columns (2026-09-09, direct feedback: "can you please split weather into
@@ -1297,33 +1470,26 @@ class OverviewScreen(Screen[None]):
     (added 2026-09-09, direct feedback: "would it be possible to integrate club and
     course selectors into the overview screen... this would make navigation much
     quicker"). Changing either one reloads in place (`_switch_club()`/
-    `_switch_course()`) rather than pushing a new screen. The club dropdown only
-    lists favorites (`_favorite_clubs()`) plus the currently active club if it isn't
-    one — finding a club you haven't saved yet still needs `s`'s full searchable
-    `ClubBrowserScreen`, which stays exactly as it was; the inline selectors are an
-    additional fast path for clubs you're already switching between regularly, not a
-    replacement for discovering a new one.
+    `_switch_course()`, both actually defined on the shared `_ClubCourseSwitcher`
+    mixin — see its own docstring) rather than pushing a new screen. The club
+    dropdown only lists favorites (`_favorite_clubs()`) plus the currently active
+    club if it isn't one — finding a club you haven't saved yet still needs `s`'s
+    full searchable `ClubBrowserScreen`, which stays exactly as it was; the inline
+    selectors are an additional fast path for clubs you're already switching
+    between regularly, not a replacement for discovering a new one.
 
-    Stacked (course under club) rather than side by side, and both widened to fit a
-    real course name without truncating (2026-09-11, direct feedback: "make course
-    dropdown in overview wider and position it under the club selection dropdown") —
-    the original single-row layout is what forced `#course-select`'s own narrower
-    fixed width in the first place."""
+    Stacked (course under club) rather than side by side, both widened to fit a
+    real course name without truncating, and now with a label to the left of each
+    (2026-09-11, direct feedback in two parts: "make course dropdown in overview
+    wider and position it under the club selection dropdown," then "I want labels
+    to the left of club and course selector drop downs") — the original
+    single-row layout is what forced `#course-select`'s own narrower fixed width
+    in the first place. `DayDetailScreen` now has the identical switcher too
+    (same feedback, part three: "I want the club and course selector drop downs
+    also implemented in the detailed view") — see `_ClubCourseSwitcher` for what's
+    actually shared between the two."""
 
-    CSS = """
-    #switcher {
-        height: 6;
-        padding: 0 2;
-        align: left top;
-    }
-    #switcher Select {
-        margin-bottom: 1;
-    }
-    #club-select, #course-select {
-        width: auto;
-        max-width: 60;
-    }
-    """
+    CSS = _SWITCHER_CSS
 
     BINDINGS = [
         ("/", "search", "Search"),
@@ -1357,27 +1523,9 @@ class OverviewScreen(Screen[None]):
         self.course = course
         self._row_dates: list[str] = []
 
-    def _club_select_options(self) -> list[tuple[str, str]]:
-        """(label, club_id) pairs for the inline club selector -- every saved
-        favorite, plus the currently active club if it isn't one (visited via search
-        without saving, or a bare typed-in id), so the dropdown always has a valid
-        value to show -- same "inject the current value if it's missing from the
-        presets" convention every dropdown in this app already follows (see
-        settings_screen.py)."""
-        favorites = _favorite_clubs()
-        if self.club_id not in {club_id for club_id, _ in favorites}:
-            favorites = [(self.club_id, self.club_name or self.club_slug or self.club_id), *favorites]
-        return [(name, club_id) for club_id, name in favorites]
-
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical(id="switcher"):
-            yield Select(self._club_select_options(), value=self.club_id, allow_blank=False, compact=True, id="club-select")
-            # Just the current course at first -- the club's full list needs a live
-            # fetch (fetch_course_aliases()), kicked off from on_mount() instead so
-            # compose() itself never blocks on the network, same rule every other
-            # screen here already follows.
-            yield Select([(self.course, self.course)], value=self.course, allow_blank=False, compact=True, id="course-select")
+        yield from self._compose_switcher()
         yield Static("", id="status")
         yield DataTable(id="overview-table")
         yield Static("", id="picks")
@@ -1397,7 +1545,6 @@ class OverviewScreen(Screen[None]):
             i18n.t("table.pick"),
         )
         table.cursor_type = "row"
-        self._set_title()
         self.load_overview()
         self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
 
@@ -1414,107 +1561,14 @@ class OverviewScreen(Screen[None]):
         wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
         self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
 
-    async def _refresh_course_options(self) -> None:
-        """Fills the course selector in with the active club's *real* course list,
-        once fetched -- compose() seeds it with just the current course so mounting
-        never blocks on the network. Silently keeps the single-entry fallback on a
-        failed fetch, same graceful-degradation every other live lookup here already
-        follows, rather than surfacing a fetch error for a dropdown that still works
-        fine with just the one course it already knows about.
-
-        `self.course` is always kept first in the list handed to `set_options()`,
-        not just included somewhere — real bug found live, 2026-09-10, while adding
-        last-active-club persistence: `set_options()` briefly resets the Select's
-        own value to its new *first* option before the very next line explicitly
-        corrects it back to `self.course`, firing a real (non-blank) `Select.Changed`
-        for that transient wrong value in between. A `_updating_course_options`-style
-        guard flag can't catch this reliably either: `Select.Changed` is delivered
-        as a queued message, processed on a later turn of the event loop than the
-        one this coroutine's own body (guard included) already finished on, so a
-        flag cleared at the end of this function is already back to `False` by the
-        time the handler actually runs (confirmed empirically, not just reasoned
-        about, before landing on this fix instead). Keeping `self.course` first
-        removes the transient wrong value altogether — the momentary state during
-        the rebuild is already correct, so there's nothing spurious left to guard
-        against. Harmless before `_switch_course()` also persisted the active
-        course (just an extra, immediately-superseded `load_overview()` call); once
-        it did, that transient wrong value was being written out as if it were a
-        real, deliberate switch."""
-        try:
-            courses = list(fetch_course_aliases(self.club_id))
-        except Exception:  # noqa: BLE001 — see docstring
-            return
-        courses = [self.course, *(c for c in courses if c != self.course)]
-        select = self.query_one("#course-select", Select)
-        select.set_options((course, course) for course in courses)
-        select.value = self.course
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.value is Select.BLANK:
-            return  # a transient state while set_options() rebuilds the list
-        if event.select.id == "club-select" and event.value != self.club_id:
-            self.run_worker(self._switch_club(event.value), exclusive=True, group="switch")
-        elif event.select.id == "course-select" and event.value != self.course:
-            self._switch_course(event.value)
-
-    async def _switch_club(self, club_id: str) -> None:
-        """The inline club selector's own version of `TeetimeApp._open_club()` --
-        same bookkeeping (resolve slug/config, pick a course, update the App's own
-        `_club_slug`/`_club_config` so the periodic background scrape follows the
-        switch too — see that method's own docstring for the real bug this exact
-        step fixed once before), but updates this same screen's state and reloads in
-        place instead of pushing a new one."""
-        slug = club_config.slug_for_club_id(club_id)
-        config = club_config.load_club_config(slug) if slug else {}
-        name = dict(_favorite_clubs()).get(club_id, "")
-        try:
-            courses = list(fetch_course_aliases(club_id))
-        except NoTeeSheetError:
-            self.query_one("#status", Static).update(i18n.t("app.no_tee_sheet", club_id=club_id))
-            self.query_one("#club-select", Select).value = self.club_id  # revert the dropdown
-            return
-        except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
-            self.query_one("#status", Static).update(i18n.t("app.course_fetch_failed", error=exc))
-            self.query_one("#club-select", Select).value = self.club_id
-            return
-        default_course = config.get("default_course")
-        course = default_course if default_course in courses else courses[0]
-
-        self.club_id = club_id
-        self.club_slug = slug
-        self.club_name = name
-        self.course = course
-        self._set_title()
-        course_select = self.query_one("#course-select", Select)
-        course_select.set_options((c, c) for c in courses)
-        course_select.value = course
+    def _reload(self) -> None:
+        """The `_ClubCourseSwitcher` mixin's own hook -- what "reload after a
+        club/course switch" means on this particular screen."""
         self.load_overview()
-
-        app = self.app
-        app._club_slug = slug
-        app._club_config = {**config, "club_id": club_id}
-        app._periodic_scrape()
-        # So the *next* launch resumes here too, not back at the club/course
-        # pickers -- see global_preferences.load_last_active_club()'s own docstring.
-        global_preferences.save_last_active_club(club_id, slug, course)
-
-    def _switch_course(self, course: str) -> None:
-        """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
-        already scrapes every one of a club's courses regardless of which one is
-        showing here, so only this screen's own state needs to change."""
-        self.course = course
-        self._set_title()
-        self.load_overview()
-        global_preferences.save_last_active_club(self.club_id, self.club_slug, course)
 
     @property
     def db_path(self):
         return _db_path(self.club_id)
-
-    def _set_title(self) -> None:
-        label = self.club_name or self.club_slug or self.club_id
-        star = "★ " if self.club_slug else ""
-        self.title = f"{star}{label} — {self.course}"
 
     def _config(self) -> dict:
         return _resolved_config(self.club_slug, self.club_id, self.club_name)
@@ -1536,7 +1590,6 @@ class OverviewScreen(Screen[None]):
         return (dates, open_dates) if open_dates else (dates, set(dates))
 
     def load_overview(self) -> None:
-        self._set_title()  # picks up club_slug if this club was just favorited
         config = self._config()
         dates, open_dates = self._display_dates(config)
         table = self.query_one(DataTable)
@@ -2119,7 +2172,7 @@ class HeatmapScreen(Screen[None]):
         self.app.exit()
 
 
-class DayDetailScreen(Screen[None]):
+class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     """The single-day tee sheet: Time | Occupancy | Players | Temperature |
     Precipitation | Wind | Events, colored by fill ratio — mirroring
     `OverviewScreen`'s own column split (2026-09-09, direct feedback: "Basically
@@ -2150,7 +2203,17 @@ class DayDetailScreen(Screen[None]):
     A dim `#legend` line below the table (`DAY_DETAIL_LEGEND`, added alongside
     `OverviewScreen`'s own the same day — see that screen's docstring for the direct
     question this responds to) spells out this screen's own icons, including 🌙 —
-    `OverviewScreen` has no such marker, so it isn't in that screen's own legend."""
+    `OverviewScreen` has no such marker, so it isn't in that screen's own legend.
+
+    The same labelled club/course `#switcher` dropdowns as `OverviewScreen`
+    (2026-09-11, direct feedback: "I want the club and course selector drop downs
+    also implemented in the detailed view") — see `_ClubCourseSwitcher` for what's
+    actually shared. Switching either one reloads this exact same date for the
+    new club/course rather than bouncing back to the overview; `s` still opens the
+    full club browser for finding a club you haven't saved yet, same relationship
+    to the dropdowns as on the overview."""
+
+    CSS = _SWITCHER_CSS
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
@@ -2201,6 +2264,7 @@ class DayDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        yield from self._compose_switcher()
         yield Static("", id="banners")
         yield Static("", id="daylight")
         yield Static("", id="status")
@@ -2223,6 +2287,7 @@ class DayDetailScreen(Screen[None]):
         table.cursor_type = "row"
         self.refresh_banners()
         self.load_schedule()
+        self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
 
     def on_resize(self, event: events.Resize) -> None:
         # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
@@ -2237,16 +2302,26 @@ class DayDetailScreen(Screen[None]):
         wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
         self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
 
+    def _reload(self) -> None:
+        """The `_ClubCourseSwitcher` mixin's own hook -- what "reload after a
+        club/course switch" means on this particular screen: this exact same
+        date, for the newly-switched club/course."""
+        self.load_schedule()
+
     @property
     def db_path(self):
         return _db_path(self.club_id)
 
     def _set_title(self) -> None:
-        # Prefer the club's own name/slug, but a club reached straight by id has
-        # neither — fall back to the id rather than showing "None".
-        label = self.club_name or self.club_slug or self.club_id
-        star = "★ " if self.club_slug else ""
-        self.title = f"{star}{label} — {self.course} — {self.date}"
+        # Club/course dropped from here (2026-09-11, direct feedback: "I want
+        # the header to include the name of the TUI 'teetime-monitor' and
+        # remove the club/course names since they will be redundant" -- the
+        # labelled #switcher dropdowns right below the header already show
+        # both). The date stays, unlike on OverviewScreen (which has no title
+        # override at all any more, falling back to the App's own plain
+        # `TITLE`) -- this screen is one specific day, and nothing else on it
+        # shows which one.
+        self.title = f"{TeetimeApp.TITLE} — {self.date}"
 
     def load_schedule(self) -> None:
         self._set_title()
