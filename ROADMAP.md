@@ -2784,6 +2784,29 @@ confirmed genuinely dependent by reverting. Verified live in an isolated
 sandbox: at 21:15, today's row is gone and the list starts at tomorrow.
 637 tests passing.
 
+**Real crash, reported directly (2026-09-11): "No such file or directory:
+'clubs/golfclub-hetzenhof-e-v.yaml'".** `_resume_last_active()` (the
+straight-to-overview feature added two days earlier) read the remembered
+club's saved YAML with no error handling at all, unlike every other spot in
+this file that reads a possibly-missing club file (`_resolved_config()`
+already guards the identical call with `except FileNotFoundError:`). `clubs/`
+is deliberately cwd-relative — see `club_config.py`'s own module docstring
+and the README's "reads its own state ... from whatever directory you run it
+in, not a fixed install location," the same `terraform`/`docker-compose`-style
+choice made from the start — but the remembered slug in
+`~/.config/teetime-monitor/config` is not cwd-relative at all, so a remembered
+club whose file lives in a different launch directory's `clubs/` folder reads
+as plain "missing" here, and the app crashed outright instead of falling back.
+Reproduced live against the exact reported path before fixing: launching with
+the remembered slug's file absent from `CLUBS_DIR` raised the identical
+`FileNotFoundError` straight out of the Textual worker running `_start()`.
+
+Fixed the same way `_resolved_config()` already does it — degrades to an
+empty config and keeps going, since the live `fetch_course_aliases()` check
+right after is what actually decides whether the remembered club/course is
+still good, not whether its local settings file happens to be readable. One
+new test, confirmed genuinely dependent by reverting; 638 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

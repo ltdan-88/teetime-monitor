@@ -3033,6 +3033,50 @@ def test_start_resumes_the_last_active_club_skipping_both_pickers(tmp_path, monk
     _run(scenario())
 
 
+def test_start_resumes_the_last_active_club_even_when_its_yaml_file_is_missing(tmp_path, monkeypatch):
+    # Real crash, found live 2026-09-11: clubs/*.yaml is deliberately cwd-relative
+    # (see club_config.py's own docstring), but the remembered slug in
+    # ~/.config/teetime-monitor/config is not -- it survives across whatever
+    # directory teetime-monitor happens to be launched from next. Launching from a
+    # directory whose clubs/ doesn't have this particular file raised an unguarded
+    # FileNotFoundError straight out of _resume_last_active() and crashed the whole
+    # app before it ever got a chance to fall back to the pickers. This should
+    # degrade to an empty config and still resume -- the live fetch_course_aliases()
+    # check right after is what actually decides whether the remembered club/course
+    # is still good, not whether its local settings file happens to be readable.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "9 Loch Tee 1"},
+    )
+    # list_clubs() and load_club_config() both read the same real clubs/ directory,
+    # so they can't disagree about whether "home-club" is there -- the true-to-life
+    # shape of this bug is a clubs/ directory that simply doesn't have this file at
+    # all (list_clubs() -> []), while the *remembered* slug (a separate, non-
+    # cwd-relative file -- see global_preferences.load_last_active_club()) still
+    # names it anyway.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+
+    def missing(slug, *a, **k):
+        raise FileNotFoundError(2, "No such file or directory", f"clubs/{slug}.yaml")
+
+    monkeypatch.setattr(tui.club_config, "load_club_config", missing)
+    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: {"9 Loch Tee 1": "COU1"})
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.club_id == "0000001"
+            assert app.screen.course == "9 Loch Tee 1"
+
+    _run(scenario())
+
+
 def test_start_falls_back_to_pickers_when_the_remembered_course_no_longer_exists(tmp_path, monkeypatch):
     # The club's own course lineup changed since -- a stale remembered choice
     # should degrade to asking again, not silently open onto a course that
