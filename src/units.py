@@ -61,9 +61,13 @@ def display_precipitation_mm(mm: float, units: str = DEFAULT_UNITS) -> float:
     return mm_to_inches(mm) if units == IMPERIAL else mm
 
 
-def wind_unit_label(units: str = DEFAULT_UNITS) -> str:
-    return "mph" if units == IMPERIAL else "km/h"
-
-
 def precipitation_amount_label(units: str = DEFAULT_UNITS) -> str:
+    """The only remaining per-cell unit label (2026-09-13, direct follow-up:
+    "since the units are now in the headers, we don't need the units in the
+    rows, right?") -- temperature/wind cells dropped their own "°"/"km/h"
+    suffixes once the column header started stating the unit (a
+    `wind_unit_label()` counterpart used to live here too), but a
+    precipitation cell packs two different numbers together ("70%/1.5mm"), so
+    this one still earns its keep: it's what tells the second number apart
+    from the first, not just a repeat of the header."""
     return "in" if units == IMPERIAL else "mm"

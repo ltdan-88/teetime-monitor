@@ -3171,6 +3171,22 @@ reverting and watching all 9 fail for the expected reason. Verified live: the
 footer now reads "enter Tee-Zeit bestätigen/stornieren", and `enter` on a row
 opens the confirm form exactly as `c` used to. 681 tests passing.
 
+**Direct follow-up, same day: "Since the units are now in the headers, we
+don't need the units in the rows, right?"** Right, for the two single-value
+columns: `_temperature_cell()`/`_slot_temperature_cell()` drop their own "°"
+suffix, `_wind_cell()`/`_slot_wind_cell()` drop "km/h"/"mph" — both overview
+and day-detail, day-level and per-slot. The one deliberate exception:
+Precipitation keeps its own "%"/"mm"/"in" suffixes, since that single cell
+packs two different numbers together ("70%/1.5mm") — the suffixes are doing
+real, per-cell work telling the probability apart from the amount, not just
+repeating what the header already says. `units.py`'s own `wind_unit_label()`
+became genuinely dead code once nothing built a per-cell wind suffix any
+more — removed, along with its now-pointless test, rather than left behind
+as an unused function nobody would notice going stale.
+
+14 tests updated for the new bare-number format, confirmed genuinely
+dependent by reverting. Verified live on both screens. 680 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -39,11 +39,6 @@ def test_display_precipitation_mm_imperial_converts():
     assert round(units.display_precipitation_mm(25.4, units="imperial"), 2) == 1.0
 
 
-def test_wind_unit_label():
-    assert units.wind_unit_label("metric") == "km/h"
-    assert units.wind_unit_label("imperial") == "mph"
-
-
 def test_precipitation_amount_label():
     assert units.precipitation_amount_label("metric") == "mm"
     assert units.precipitation_amount_label("imperial") == "in"
@@ -53,5 +48,4 @@ def test_defaults_to_metric_when_units_omitted():
     assert units.display_temperature(16) == 16
     assert units.display_wind_speed(10) == 10
     assert units.display_precipitation_mm(5) == 5
-    assert units.wind_unit_label() == "km/h"
     assert units.precipitation_amount_label() == "mm"

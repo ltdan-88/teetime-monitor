@@ -160,8 +160,10 @@ spec.
   and each tee time whose round wouldn't finish before dark gets its own 🌙
   marker in the Time column — independent of whether you've set any
   availability rules at all. Column headers spell out units (°C/km/h/mm by
-  default, switchable to °F/mph/in in Settings — see below) rather than
-  leaving you to infer them from the numbers. The overview's own day-level
+  default, switchable to °F/mph/in in Settings — see below), so Temperature
+  and Wind cells are bare numbers rather than repeating the unit on every row;
+  Precipitation keeps its own "%"/"mm" markers since that one cell packs two
+  different numbers together (chance and amount). The overview's own day-level
   "no dry picks" message only appears when weather is genuinely the reason
   nothing's recommended — a separate "too dark to finish" shows up instead
   when daylight is what actually excluded everything
