@@ -197,8 +197,8 @@ spec.
 - A multi-day at-a-glance overview as the home screen (`OverviewScreen`, added
   2026-09-07) — one row per day the club is actually taking bookings for right now
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
-  refresh; today's own row drops off the list entirely once its real sunset has
-  passed, 2026-09-11 — nothing left worth looking at for it by then), showing real
+  refresh; today's own row drops off the list entirely after 9pm, 2026-09-11 —
+  nothing left worth looking at for it by then), showing real
   weather split into its own Temperature/Precipitation/Wind
   columns, that day's own event/closure note (📌) in a separate Events column —
   split apart 2026-09-09 so a tournament or maintenance closure never crowds out the

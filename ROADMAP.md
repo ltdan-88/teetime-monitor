@@ -2763,6 +2763,27 @@ wrapping. 633 tests passing.
    `default_course`) via `s` lands straight on the overview with no course
    picker either time. 637 tests passing.
 
+**Same-day refinement: "I would prefer that the current day disappears from
+the overview whenever it is after 9 pm."** Simplifying the sunset-based
+version above to a plain fixed clock time — new `TODAY_HIDDEN_AFTER_HHMM =
+"21:00"` constant, compared directly against `_NOW_HHMM()` with no cached
+schedule or `sun_times` involved at all any more (simpler, and predictable
+year-round rather than shifting with the season). Genuinely different from
+`_initial_date()`'s own "every slot's own time has passed" cursor-only
+heuristic, which stays as-is. Surfaced one real, expected interaction while
+updating the test suite: `test_overview_screen_highlights_tomorrows_row_once_
+today_is_fully_closed` used a "now" of 22:00 — already past the new 21:00
+cutoff, so today's row was gone entirely by the time that test's own
+cursor-position assertion ran, making tomorrow row 0 instead of the expected
+row 1 as a side effect of the *other* new feature, not a bug in either one.
+Fixed by moving that test's own "now" to 20:00 (after the club's last slot,
+so `_initial_date()`'s own logic still has something to react to, but before
+the new cutoff, so today's row still exists to move the cursor off of) —
+each feature now verified independently again. 3 new/rewritten cutoff tests,
+confirmed genuinely dependent by reverting. Verified live in an isolated
+sandbox: at 21:15, today's row is gone and the list starts at tomorrow.
+637 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

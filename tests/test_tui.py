@@ -1949,9 +1949,15 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
     # that opened straight on a DayDetailScreen, and silently stopped being called at
     # all once that flow became this overview screen instead. Fixed by using it to
     # pick which row starts highlighted here, rather than leaving it dead code.
+    #
+    # "20:00" here, not the original 22:00 -- deliberately *before*
+    # TODAY_HIDDEN_AFTER_HHMM (21:00, added 2026-09-11), so today's own row still
+    # exists to move the cursor *off of*. At or past that cutoff, today's row is
+    # gone entirely (see the dedicated tests below), and tomorrow becoming row 0 is
+    # simply a side effect of that, not this function's own doing.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "20:00")
     storage.save_schedule(
         Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
@@ -1966,26 +1972,20 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
     _run(scenario())
 
 
-# --- Today's row drops out of the overview entirely once the sun's down for it --
-# added 2026-09-11, direct feedback: "i would prefer if today ... didn't show up
-# anymore after sunset." A genuinely different signal from _initial_date()'s own
-# "every slot's own time has passed" heuristic above (the club's booking hours, not
-# the sky) -- real sunset, since that's what was actually asked for. -------------
+# --- Today's row drops out of the overview entirely once it's past a fixed clock
+# cutoff -- added 2026-09-11, direct feedback ("i would prefer if today ... didn't
+# show up anymore after sunset"), refined the very same day to a plain fixed time
+# instead ("I would prefer that the current day disappears from the overview
+# whenever it is after 9 pm") -- simpler and predictable year-round, and no longer
+# needs a cached schedule to exist at all. Genuinely different from _initial_date()'s
+# own "every slot's own time has passed" heuristic above (the club's booking hours,
+# not a fixed cutoff). --------------------------------------------------------------
 
 
-def test_overview_screen_drops_todays_row_once_past_sunset(tmp_path, monkeypatch):
+def test_overview_screen_drops_todays_row_once_past_the_cutoff(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "20:30")
-    storage.save_schedule(
-        Schedule(
-            date=tui._TODAY(),
-            course="18 Loch Tee 1",
-            slots=[Slot(time="19:50", booked=0, capacity=4)],
-            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
-        ),
-        path=scrape_once._db_path("0000001"),
-    )
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "21:01")
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
@@ -2000,19 +2000,11 @@ def test_overview_screen_drops_todays_row_once_past_sunset(tmp_path, monkeypatch
     _run(scenario())
 
 
-def test_overview_screen_keeps_todays_row_before_sunset(tmp_path, monkeypatch):
+def test_overview_screen_keeps_todays_row_exactly_at_the_cutoff(tmp_path, monkeypatch):
+    # TODAY_HIDDEN_AFTER_HHMM itself is still shown -- only strictly *after* it hides.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "18:00")
-    storage.save_schedule(
-        Schedule(
-            date=tui._TODAY(),
-            course="18 Loch Tee 1",
-            slots=[Slot(time="19:50", booked=0, capacity=4)],
-            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
-        ),
-        path=scrape_once._db_path("0000001"),
-    )
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: tui.TODAY_HIDDEN_AFTER_HHMM)
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
@@ -2023,18 +2015,10 @@ def test_overview_screen_keeps_todays_row_before_sunset(tmp_path, monkeypatch):
     _run(scenario())
 
 
-def test_overview_screen_keeps_todays_row_when_no_sun_times_are_cached(tmp_path, monkeypatch):
-    # Unknown (no location configured yet, or never scraped) means "don't hide
-    # it" -- the same "unknown, not assumed bad" stance
-    # recommend._fails_playability() already takes, not a guess in either
-    # direction.
+def test_overview_screen_keeps_todays_row_well_before_the_cutoff(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "23:00")
-    storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
-        path=scrape_once._db_path("0000001"),
-    )
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))

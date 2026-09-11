@@ -168,6 +168,15 @@ from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, se
 # every time. See TeetimeApp._periodic_scrape()'s own docstring.
 AUTO_REFRESH_INTERVAL_SECONDS = 15 * 60
 
+# When today's own row drops off the overview entirely -- direct feedback,
+# 2026-09-11, refining the very same day's earlier "after sunset" version: "I would
+# prefer that the current day disappears from the overview whenever it is after
+# 9 pm." A plain fixed clock time now, deliberately, not sunset -- simpler and more
+# predictable than a value that shifts with the season and needs a real cached
+# schedule with sun_times to even exist yet. See OverviewScreen.load_overview()'s
+# own comment for where this is used.
+TODAY_HIDDEN_AFTER_HHMM = "21:00"
+
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
 _NOW_HHMM = lambda: datetime.now().strftime("%H:%M")  # noqa: E731 — same reasoning, for _initial_date()
 
@@ -1560,22 +1569,16 @@ class OverviewScreen(Screen[None]):
                 continue
 
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
-            # Drop today's own row entirely once the sun's actually down for it --
-            # direct follow-up, 2026-09-11, to _initial_date()'s own cursor-only fix
-            # below: "i would prefer if today didn't show up anymore after sunset."
-            # A genuinely different signal from _initial_date()'s own "every slot's
-            # own time has passed" heuristic (the club's booking hours, not the sky)
-            # -- deliberately real sunset here, since that's what was actually asked
-            # for. Unknown (no cached schedule yet, or one with no sun_times
-            # attached -- e.g. no location configured) means "don't hide it," the
-            # same "unknown, not assumed bad" stance recommend._fails_playability()
-            # already takes, not a guess in either direction.
-            if (
-                one_date == _TODAY()
-                and schedule is not None
-                and schedule.sun_times is not None
-                and _NOW_HHMM() > schedule.sun_times.sunset
-            ):
+            # Drop today's own row entirely once it's past TODAY_HIDDEN_AFTER_HHMM
+            # -- direct follow-up, 2026-09-11, refining the very same day's earlier
+            # "after sunset" version to a plain fixed clock time instead ("I would
+            # prefer that the current day disappears ... whenever it is after
+            # 9 pm"). Genuinely different from _initial_date()'s own "every slot's
+            # own time has passed" heuristic below (the club's booking hours, not a
+            # fixed cutoff), and no longer needs a cached schedule/sun_times to
+            # exist at all -- a plain clock comparison, simpler and predictable
+            # year-round.
+            if one_date == _TODAY() and _NOW_HHMM() > TODAY_HIDDEN_AFTER_HHMM:
                 continue
             self._row_dates.append(one_date)
             if schedule is not None and schedule.slots:
