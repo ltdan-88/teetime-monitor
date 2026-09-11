@@ -295,11 +295,17 @@ def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str, units:
     each split column now shows its real number unconditionally, not just when a
     threshold fires. `units` (2026-09-13, "Can we adjust format (metric/imperial)
     in settings?") converts for display only — the stored value, and every other
-    caller of this same weather data, stays in °C regardless."""
+    caller of this same weather data, stays in °C regardless.
+
+    No "°" suffix here any more (2026-09-13, direct follow-up once the column
+    header started spelling out the unit: "since the units are now in the
+    headers, we don't need the units in the rows, right?") — the header already
+    says "(°C)"/"(°F)", so a bare number reads the same without repeating it on
+    every single row."""
     point = _weather_point_for_time(weather_points, time)
     if point is None or point.temperature_c is None:
         return ""
-    return f"{units_module.display_temperature(point.temperature_c, units):.0f}°"
+    return f"{units_module.display_temperature(point.temperature_c, units):.0f}"
 
 
 def _precipitation_amount_text(mm: float, units: str) -> str:
@@ -320,7 +326,14 @@ def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str, unit
     — still decides whether the 🌧 icon itself shows, a "worth noticing at a
     glance" flag layered on top of the real number, not a gate on the number
     itself). Blank with no forecast to show. `units` only ever affects the amount
-    (mm/in) — the probability is already a unit-agnostic percentage."""
+    (mm/in) — the probability is already a unit-agnostic percentage.
+
+    Deliberately keeps its own "%"/"mm"/"in" suffixes even though the column
+    header now states the unit too (2026-09-13, unlike `_slot_temperature_cell()`/
+    `_slot_wind_cell()`, which dropped theirs the same day) — this is the one
+    column packing two different numbers into a single cell ("70%/1.5mm"), so
+    the suffixes are doing real, per-cell work distinguishing which number is
+    the probability and which is the amount, not just repeating the header."""
     point = _weather_point_for_time(weather_points, time)
     if point is None:
         return ""
@@ -335,13 +348,17 @@ def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = 
     threshold" treatment as `_slot_precipitation_cell()`. Blank with no forecast to
     show. The 💨 icon's own threshold (`_SLOT_WIND_ICON_THRESHOLD_KPH`) is always
     checked against the real km/h value, never the display-converted one — it's an
-    internal "worth noticing" cutoff, not something a user sets in either unit."""
+    internal "worth noticing" cutoff, not something a user sets in either unit.
+
+    No "km/h"/"mph" suffix here any more (2026-09-13, same follow-up as
+    `_slot_temperature_cell()`'s own docstring) — the column header already
+    states it."""
     point = _weather_point_for_time(weather_points, time)
     if point is None or point.wind_speed_kph is None:
         return ""
     icon = "💨 " if point.wind_speed_kph >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
     speed = units_module.display_wind_speed(point.wind_speed_kph, units)
-    return f"{icon}{speed:.0f}{units_module.wind_unit_label(units)}"
+    return f"{icon}{speed:.0f}"
 
 
 def _slot_event_cell(slot: Slot) -> str:
@@ -978,20 +995,22 @@ def _is_rain_all_day(weather: list) -> bool:
 
 def _temperature_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
     """The overview's own Temperature column for one day — daytime (08:00-20:00)
-    high/low, e.g. "24°/14°", or blank with no forecast to show (a schedule that
+    high/low, e.g. "24/14", or blank with no forecast to show (a schedule that
     was never weather-attached — e.g. `location` not configured yet). Split out of
     the old combined Weather column 2026-09-09, direct feedback: "can you please
     split weather into Temperature, Precipitation, and wind columns (both in the
     overview and detailed view)?" — see `_precipitation_cell()`'s own docstring for
     the rest of that split. `units` (2026-09-13) converts for display only, same as
-    `_slot_temperature_cell()`'s own."""
+    `_slot_temperature_cell()`'s own. No "°" suffix any more (2026-09-13, same
+    follow-up as that function's own docstring) — the column header already
+    states the unit."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     temps = [w.temperature_c for w in daytime if w.temperature_c is not None]
     if not temps:
         return ""
     high = units_module.display_temperature(max(temps), units)
     low = units_module.display_temperature(min(temps), units)
-    return f"{high:.0f}°/{low:.0f}°"
+    return f"{high:.0f}/{low:.0f}"
 
 
 def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
@@ -1003,7 +1022,13 @@ def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.D
     behind a threshold the way the combined cell used to be. The 🌧 icon itself is
     still gated on `_SLOT_RAIN_ICON_THRESHOLD_PERCENT` — a "worth noticing at a
     glance" flag layered on top of the real number, not a replacement for it. Blank
-    with no daytime forecast at all."""
+    with no daytime forecast at all.
+
+    Deliberately keeps its own "%"/"mm"/"in" suffixes despite the column header
+    also stating the unit now (2026-09-13) — same reasoning as
+    `_slot_precipitation_cell()`'s own docstring: this cell packs two different
+    numbers together, so the suffixes distinguish which one is which, not just
+    repeat the header."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     if not daytime:
         return ""
@@ -1023,7 +1048,9 @@ def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UN
     unconditionally now that this has its own column; the 💨 icon is still gated on
     `_SLOT_WIND_ICON_THRESHOLD_KPH` (the real km/h value, not the display-converted
     one — same reasoning as `_slot_wind_cell()`'s own). Blank with no daytime
-    forecast at all."""
+    forecast at all. No "km/h"/"mph" suffix any more (2026-09-13, same follow-up
+    as `_slot_wind_cell()`'s own docstring) — the column header already states
+    the unit."""
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     winds = [w.wind_speed_kph for w in daytime if w.wind_speed_kph is not None]
     if not winds:
@@ -1031,7 +1058,7 @@ def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UN
     peak = max(winds)
     icon = "💨 " if peak >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
     speed = units_module.display_wind_speed(peak, units)
-    return f"{icon}{speed:.0f}{units_module.wind_unit_label(units)}"
+    return f"{icon}{speed:.0f}"
 
 
 def _event_cell(schedule: Schedule) -> str:

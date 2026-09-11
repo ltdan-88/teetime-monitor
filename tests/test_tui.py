@@ -696,8 +696,11 @@ def test_weather_point_for_time_none_with_no_forecast_at_all():
 
 
 def test_slot_temperature_cell_shows_the_temperature():
+    # No "°" suffix -- the column header already states the unit (2026-09-13,
+    # direct follow-up: "since the units are now in the headers, we don't
+    # need the units in the rows, right?").
     points = [WeatherPoint(time="14:00", temperature_c=16)]
-    assert tui._slot_temperature_cell(points, "14:00") == "16°"
+    assert tui._slot_temperature_cell(points, "14:00") == "16"
 
 
 def test_slot_temperature_cell_blank_without_a_forecast():
@@ -745,14 +748,16 @@ def test_slot_wind_cell_shows_a_wind_icon_past_the_threshold():
 
 
 def test_slot_wind_cell_shows_the_actual_wind_speed():
+    # No "km/h" suffix -- the column header already states the unit
+    # (2026-09-13, same follow-up as _slot_temperature_cell()'s own test).
     points = [WeatherPoint(time="14:00", wind_speed_kph=45)]
-    assert "45km/h" in tui._slot_wind_cell(points, "14:00")
+    assert "45" in tui._slot_wind_cell(points, "14:00")
 
 
 def test_slot_wind_cell_shows_the_real_number_below_threshold_too():
     points = [WeatherPoint(time="14:00", wind_speed_kph=5)]
     cell = tui._slot_wind_cell(points, "14:00")
-    assert cell == "5km/h"
+    assert cell == "5"
     assert "💨" not in cell
 
 
@@ -766,12 +771,12 @@ def test_slot_wind_cell_blank_without_a_forecast():
 
 def test_slot_temperature_cell_converts_to_fahrenheit_in_imperial():
     points = [WeatherPoint(time="14:00", temperature_c=0)]
-    assert tui._slot_temperature_cell(points, "14:00", units="imperial") == "32°"
+    assert tui._slot_temperature_cell(points, "14:00", units="imperial") == "32"
 
 
 def test_slot_wind_cell_converts_to_mph_in_imperial():
     points = [WeatherPoint(time="14:00", wind_speed_kph=16)]  # below the icon threshold
-    assert tui._slot_wind_cell(points, "14:00", units="imperial") == "10mph"
+    assert tui._slot_wind_cell(points, "14:00", units="imperial") == "10"
 
 
 def test_slot_wind_cell_icon_threshold_still_checks_the_real_kph_value():
@@ -781,7 +786,7 @@ def test_slot_wind_cell_icon_threshold_still_checks_the_real_kph_value():
     points = [WeatherPoint(time="14:00", wind_speed_kph=35)]  # above the kph threshold
     cell = tui._slot_wind_cell(points, "14:00", units="imperial")
     assert "💨" in cell
-    assert "mph" in cell
+    assert "22" in cell  # 35kph -> ~22mph
 
 
 def test_slot_precipitation_cell_converts_to_inches_in_imperial():
@@ -833,9 +838,14 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
                 "Time", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events"
             ]
             open_row = table.get_row_at(0)
-            assert open_row[3] == "16°"
+            # No "°"/"km/h" suffix on Temperature/Wind -- the column header
+            # already states the unit (2026-09-13, direct follow-up: "since
+            # the units are now in the headers, we don't need the units in
+            # the rows, right?"). Precipitation keeps its own suffixes, since
+            # that cell packs two different numbers together.
+            assert open_row[3] == "16"
             assert "90%" in open_row[4]
-            assert "40km/h" in open_row[5]
+            assert "40" in open_row[5]
             assert open_row[6] == ""
             blocked_row = table.get_row_at(1)
             assert "Golf Beginner Kurs" in blocked_row[6]
@@ -1522,8 +1532,11 @@ def test_is_rain_all_day_false_with_no_weather_at_all():
 
 
 def test_temperature_cell_shows_high_low():
+    # No "°" suffix -- the column header already states the unit (2026-09-13,
+    # direct follow-up: "since the units are now in the headers, we don't
+    # need the units in the rows, right?").
     weather = [_weather("09:00", prob=5, temp=22.0), _weather("15:00", prob=10, temp=14.0)]
-    assert tui._temperature_cell(weather) == "22°/14°"
+    assert tui._temperature_cell(weather) == "22/14"
 
 
 def test_temperature_cell_blank_without_daytime_forecast():
@@ -1559,17 +1572,18 @@ def test_precipitation_cell_blank_without_daytime_forecast():
 
 
 def test_wind_cell_shows_the_peak_daytime_wind():
+    # No "km/h" suffix -- the column header already states the unit.
     weather = [_weather("09:00", wind=10), _weather("15:00", wind=40)]
     cell = tui._wind_cell(weather)
-    assert "40km/h" in cell
+    assert "40" in cell
     assert "🌧" not in cell
 
 
 def test_wind_cell_icon_only_past_the_threshold():
     calm = tui._wind_cell([_weather("09:00", wind=5)])
     windy = tui._wind_cell([_weather("09:00", wind=40)])
-    assert "💨" not in calm and "5km/h" in calm
-    assert "💨" in windy and "40km/h" in windy
+    assert "💨" not in calm and calm == "5"
+    assert "💨" in windy and "40" in windy
 
 
 def test_wind_cell_blank_without_daytime_forecast():
@@ -1581,12 +1595,12 @@ def test_temperature_cell_converts_to_fahrenheit_in_imperial():
         WeatherPoint(time="10:00", temperature_c=0),
         WeatherPoint(time="14:00", temperature_c=20),
     ]
-    assert tui._temperature_cell(weather, units="imperial") == "68°/32°"
+    assert tui._temperature_cell(weather, units="imperial") == "68/32"
 
 
 def test_wind_cell_converts_to_mph_in_imperial():
     weather = [WeatherPoint(time="14:00", wind_speed_kph=16)]  # below the icon threshold
-    assert tui._wind_cell(weather, units="imperial") == "10mph"
+    assert tui._wind_cell(weather, units="imperial") == "10"
 
 
 def test_precipitation_cell_converts_to_inches_in_imperial():
@@ -2150,9 +2164,12 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
                 "Day", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events", "Occupancy 08–20", "Pick"
             ]
             row = table.get_row_at(0)  # today, Day/Temperature/Precipitation/Wind/Events/Heat/Pick
-            assert row[1] == "20°/20°"  # real temperature, not the event
+            # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
+            # direct follow-up: "since the units are now in the headers, we
+            # don't need the units in the rows, right?").
+            assert row[1] == "20/20"  # real temperature, not the event
             assert "5%" in row[2]
-            assert "40km/h" in row[3]
+            assert "40" in row[3]
             assert row[4] == "📋 Herbstturnier"  # the event, in its own column
 
     _run(scenario())
@@ -2676,9 +2693,12 @@ def test_search_screen_runs_search_and_shows_results():
             assert row[1] == "09:00"
             assert row[2] == "1/4"
             assert row[3] == "Max Mustermann"
-            assert row[4] == "16°"
+            # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
+            # direct follow-up: "since the units are now in the headers, we
+            # don't need the units in the rows, right?").
+            assert row[4] == "16"
             assert row[5] == "10%"
-            assert row[6] == "8km/h"
+            assert row[6] == "8"
             assert "18 Loch Tee 1" in app.screen.title
 
     _run(scenario())
