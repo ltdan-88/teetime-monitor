@@ -1302,23 +1302,26 @@ class OverviewScreen(Screen[None]):
     one — finding a club you haven't saved yet still needs `s`'s full searchable
     `ClubBrowserScreen`, which stays exactly as it was; the inline selectors are an
     additional fast path for clubs you're already switching between regularly, not a
-    replacement for discovering a new one."""
+    replacement for discovering a new one.
+
+    Stacked (course under club) rather than side by side, and both widened to fit a
+    real course name without truncating (2026-09-11, direct feedback: "make course
+    dropdown in overview wider and position it under the club selection dropdown") —
+    the original single-row layout is what forced `#course-select`'s own narrower
+    fixed width in the first place."""
 
     CSS = """
     #switcher {
-        height: 3;
+        height: 6;
         padding: 0 2;
-        align: left middle;
+        align: left top;
     }
     #switcher Select {
-        margin-right: 2;
+        margin-bottom: 1;
     }
-    #club-select {
+    #club-select, #course-select {
         width: auto;
         max-width: 60;
-    }
-    #course-select {
-        width: 34;
     }
     """
 
@@ -1368,7 +1371,7 @@ class OverviewScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="switcher"):
+        with Vertical(id="switcher"):
             yield Select(self._club_select_options(), value=self.club_id, allow_blank=False, compact=True, id="club-select")
             # Just the current course at first -- the club's full list needs a live
             # fetch (fetch_course_aliases()), kicked off from on_mount() instead so

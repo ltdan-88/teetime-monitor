@@ -2807,6 +2807,17 @@ right after is what actually decides whether the remembered club/course is
 still good, not whether its local settings file happens to be readable. One
 new test, confirmed genuinely dependent by reverting; 638 tests passing.
 
+**Direct feedback (2026-09-11): "make course dropdown in overview wider and
+position it under the club selection dropdown."** `#switcher` was a
+`Horizontal` container, forcing `#course-select` into a narrow fixed
+`width: 34` just to keep both dropdowns on one row — real course names
+("18-Loch-Schleife (nur zweite 9-Loch)") didn't fit. Switched `#switcher` to
+`Vertical` (course now stacks under club) and widened both selects to the
+same `width: auto; max-width: 60` rule, no longer competing for horizontal
+space. Verified live: the course name now renders in full. 638 tests
+passing (no test asserted the old side-by-side layout, only values/selection
+behavior).
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
