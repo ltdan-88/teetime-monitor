@@ -2856,6 +2856,28 @@ stacked dropdowns on both the overview and a drilled-into day, header reading
 plain "teetime-monitor" on the overview and "teetime-monitor — 2026-09-11" on
 day-detail. 643 tests passing.
 
+**Direct feedback (2026-09-11): "can you fixate following two areas in
+detailed view? 1) area until table header 2) area from legend to bottom."**
+Real bug, reproduced live before fixing: `#table` had no height constraint,
+so a day with many slots (every 10 minutes across a whole opening window is
+80+ rows) made the table taller than the viewport, and `Screen`'s own default
+"just scroll the whole thing" fallback kicked in — dragging the switcher/
+banners/daylight/status area at the top, and the legend/footer at the
+bottom, out of view right along with it. A quick pilot-driven check made
+this precise: without a fix, `screen.virtual_size` (38) exceeded
+`screen.size` (30), and scrolling the table 50 rows down moved
+`screen.scroll_offset` to `(0, 2)` and the switcher's own region to `y=-1`
+(scrolled fully off-screen).
+
+Fixed with `height: 1fr` on `#table` — the exact same convention
+`SearchScreen`'s `#search-results` and `ClubBrowserScreen`'s `#club-results`
+already use for the identical reason. With the fix, `screen.virtual_size`
+matches `screen.size` exactly (nothing left for the whole-screen fallback to
+scroll), and scrolling 50 rows into the table moves only the table's own
+`scroll_y` — the switcher and legend regions are byte-for-byte identical
+before and after. One new test, confirmed genuinely dependent by reverting
+(fails with `38 == 30` without the fix). 644 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

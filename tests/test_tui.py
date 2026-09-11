@@ -3,6 +3,7 @@ import threading
 
 import pytest
 from textual.app import App
+from textual.geometry import Offset
 from textual.widgets import DataTable, Input, Label, OptionList, Select, Static
 
 from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
@@ -279,6 +280,50 @@ def test_initial_date_ignores_a_different_course(tmp_path, monkeypatch):
 
 
 # --- DayDetailScreen ------------------------------------------------------------------
+
+
+def test_day_detail_screen_keeps_switcher_and_legend_fixed_with_many_slots(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-11: "can you please fixate following two areas
+    # in detailed view? 1) area until table header 2) area from legend to
+    # bottom". Real bug found live: #table had no height constraint, so a day
+    # with many slots (every 10 minutes across a whole opening window is 80+
+    # rows) made the table taller than the viewport -- Screen's own default
+    # "just scroll the whole thing" fallback kicked in, dragging the switcher
+    # at the top and the legend/footer at the bottom out of view right along
+    # with it. Fixed with height: 1fr on #table (same convention
+    # SearchScreen's #search-results and ClubBrowserScreen's #club-results
+    # already use), so the table alone absorbs the overflow via its own
+    # built-in row scrolling.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    slots = [Slot(time=f"{h:02d}:{m:02d}", booked=0, capacity=4) for h in range(6, 20) for m in (0, 10, 20, 30, 40, 50)]
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=slots),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            # No screen-level overflow at all -- everything fits exactly, so
+            # there's nothing for the whole-screen fallback to scroll.
+            assert screen.virtual_size.height == screen.size.height
+            switcher_before = screen.query_one("#switcher").region
+            legend_before = screen.query_one("#legend").region
+            table = screen.query_one("#table", DataTable)
+            table.focus()
+            for _ in range(50):
+                table.action_cursor_down()
+            await pilot.pause()
+            # The table itself absorbed all that movement internally...
+            assert table.scroll_y > 0
+            # ...while the areas around it never moved at all.
+            assert screen.scroll_offset == Offset(0, 0)
+            assert screen.query_one("#switcher").region == switcher_before
+            assert screen.query_one("#legend").region == legend_before
+
+    _run(scenario())
 
 
 def test_day_detail_shows_placeholder_when_never_scraped(tmp_path, monkeypatch):
