@@ -849,6 +849,73 @@ class ConfirmBookingScreen(Screen[bool]):
         self.dismiss(True)
 
 
+class CancelBookingScreen(Screen[bool]):
+    """A small yes/no confirmation for cancelling your confirmed tee time
+    (2026-09-13, direct question: "why can you confirm tee time within the TUI,
+    but cannot cancel or modify?"). `DayDetailScreen.action_confirm()` opens this
+    instead of a fresh `ConfirmBookingScreen` when `c` is pressed on the row
+    that's already your confirmed booking — re-confirming the exact same
+    date/course/time again wouldn't do anything useful, but offering to cancel
+    it does.
+
+    Same "we only track what already happened, we never book or cancel
+    anything ourselves" boundary `ConfirmBookingScreen`'s own docstring already
+    draws — this never touches pc caddie, only teetime-monitor's own local
+    record. Writes a `time=None` row (`source="manual"`, mirroring the existing
+    "manual" `c`-confirm) — the same "confirmed not playing that day" sentinel
+    `_reconcile_cancelled_reservations()` introduced for the automatic case one
+    version ago; already fully handled everywhere a confirmed booking gets read
+    back (see that function's own docstring).
+
+    Deliberately does NOT reuse `button.cancel`'s own text for either button —
+    "Cancel" already means "back out, don't do this" everywhere else in this
+    app, which here would sit right next to a screen whose entire subject is
+    itself "cancel the booking." Using that same word for "keep the booking"
+    risks exactly the wrong click on a genuinely consequential action, so both
+    buttons spell out what they actually do instead."""
+
+    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
+
+    def __init__(self, club_id: str, course: str, date: str, time: str) -> None:
+        super().__init__()
+        self.club_id = club_id
+        self.course = course
+        self.date = date
+        self.time = time
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Vertical(id="confirm-form"):
+            yield Label(i18n.t("cancel_booking.title", date=self.date, time=self.time))
+            yield Static("", id="confirm-status")
+            with Horizontal():
+                yield Button(i18n.t("cancel_booking.confirm"), id="confirm-cancel", variant="error")
+                yield Button(i18n.t("cancel_booking.keep"), id="keep")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "keep":
+            self.dismiss(False)
+            return
+        booking = ConfirmedBooking(
+            date=self.date,
+            course=self.course,
+            time=None,
+            holes=None,
+            source="manual",
+            confirmed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        storage.save_confirmed_booking(booking, path=_db_path(self.club_id))
+        self.dismiss(True)
+
+
 # --- OverviewScreen (ROADMAP.md Phase 4) -- the multi-day home screen, added
 # 2026-09-07 once the clubhouse-overview mockup's design questions were resolved.
 # Pure helper functions first (heat-strip coloring, weather/tag text, the shared
@@ -2697,11 +2764,28 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         self.load_schedule()
 
     def action_confirm(self) -> None:
+        default_time = self._selected_slot_time()
+        existing = storage.load_confirmed_booking(self.course, self.date, path=self.db_path)
+        if existing is not None and existing.time is not None and existing.time == default_time:
+            # The highlighted row is already your confirmed tee time -- offer to
+            # cancel it instead of re-confirming the exact same date/course/time
+            # (2026-09-13, direct question: "why can you confirm tee time within
+            # the TUI, but cannot cancel or modify?"). See CancelBookingScreen's
+            # own docstring.
+            def on_cancel_result(cancelled: bool | None) -> None:
+                if cancelled:
+                    self.load_schedule()
+
+            self.app.push_screen(
+                CancelBookingScreen(self.club_id, self.course, self.date, existing.time),
+                on_cancel_result,
+            )
+            return
+
         def on_result(confirmed: bool | None) -> None:
             if confirmed:
                 self.load_schedule()
 
-        default_time = self._selected_slot_time()
         default_holes = _holes_from_course_label(self.course)
         self.app.push_screen(
             ConfirmBookingScreen(self.club_id, self.course, self.date, default_time, default_holes),

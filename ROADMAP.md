@@ -3115,6 +3115,36 @@ against a copy of this developer's own real database (a throwaway `/tmp`
 copy, not the real file) with a synthetic future booking, confirming the
 exact before/after behavior. 677 tests passing.
 
+**Direct follow-up, same day: "I don't understand why you can confirm tee
+time within the TUI, but cannot cancel or modify."** A fair question — there
+was no deep reason it couldn't exist. `c` (confirm) never actually books
+anything on pc caddie either; it only ever tells teetime-monitor's own local
+tracking "I already did this myself, please remember it" (the same-day-
+booking timing-gap fallback). Cancelling is the exact same *kind* of thing —
+"I already undid this myself, please remember that too" — so it was just as
+easy to add now that `time=None` already means "confirmed not playing" system-
+wide (the reconciliation fix directly above).
+
+New `CancelBookingScreen` — a small yes/no confirmation.
+`DayDetailScreen.action_confirm()` now checks whether the highlighted row is
+already the confirmed booking for that course/date and, if so, opens this
+instead of a fresh `ConfirmBookingScreen` (which would otherwise just
+re-confirm the exact same date/course/time, doing nothing useful). Writes the
+same `time=None` sentinel `_reconcile_cancelled_reservations()` introduced,
+`source="manual"` (a human decided this via the app, distinct from the
+automatic sync's own `"my_reservations"` reconciliation).
+
+Deliberately does NOT reuse `button.cancel`'s own "Cancel" text for either
+button on the new screen — that word already means "back out, don't do this"
+everywhere else in the app, which here would sit right next to a screen whose
+entire subject is itself "cancel the booking." Both buttons spell out what
+they actually do instead ("Yes, cancel it" / "No, keep it") rather than risk
+exactly the wrong click on a genuinely consequential action.
+
+4 new tests, confirmed genuinely dependent by reverting. Verified live: with
+no confirmed booking, `c` still opens the ordinary confirm form unchanged (no
+regression). 681 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
