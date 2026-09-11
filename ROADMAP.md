@@ -1200,6 +1200,49 @@ now reports only the genuine event in `schedule.events`, rendered as "📌
 Dienstag-Ladies" in the overview cell — the notice no longer appears at all.
 526 tests passing (was 522).
 
+**A Condition column with weather icons, 2026-09-11** ("I also would like icons
+for when it is sunny, overcast, foggy, snowing etc."): Temperature/
+Precipitation/Wind never distinguished clear from cloudy from foggy from
+snowing at all — none of those depend on the numbers those three columns
+already show. Open-Meteo's own hourly `weathercode` (the WMO weather
+interpretation scheme) was the missing piece: `weather.py`'s
+`fetch_hourly_weather()` now requests it alongside the existing four fields
+and stores it on a new `WeatherPoint.weather_code`; `storage.py`'s
+`weather_points` table gained a matching column, with the same
+`PRAGMA table_info` + `ALTER TABLE` migration already used for `scrapes`'
+`sunrise`/`sunset`/`events` so existing per-club databases pick it up without
+losing history (a row saved before this existed just reads back with
+`weather_code=None` — no icon, not a fabricated guess).
+
+New `weather_icons.py` (a small, pure module, same shape as `units.py`) maps
+each WMO code to one emoji (☀️/🌤️/⛅/☁️/🌫️/🌦️/🌧️/❄️/🌨️/⛈️) via
+`icon_for_code()`, and collapses a whole day's worth of hourly codes down to
+the single most severe one via `worst_icon()` for the overview's own day-level
+column — same "worst across the window, not an average" reasoning
+`_wind_cell()`'s own daily peak already used, so a day that's sunny all
+morning and thunderstorms in the afternoon reads as a thunderstorm day, not a
+"mostly sunny" one.
+
+A dedicated Condition column, not folded into an existing one — same
+"split rather than combine" reasoning that put Temperature/Precipitation/Wind
+in separate columns to begin with, and it carries information none of those
+three numbers can: clear vs. cloudy vs. foggy vs. snow are never otherwise
+distinguished. Added to all three tables that already show per-slot or
+day-level weather — the multi-day overview (day-level, right after Day), the
+single-day tee sheet, and ad hoc search results (both per-slot, right after
+Time) — no unit conversion involved, since a weather code means the same
+thing regardless of the metric/imperial setting.
+
+10 new/changed tests: `test_weather_icons.py` (new — `icon_for_code()`/
+`worst_icon()` on known codes, missing/unrecognized codes, severity
+ordering), `test_weather.py` (weathercode requested and parsed),
+`test_storage.py` (round-trips through save/load; the migration path for an
+existing `weather_points` table, mirroring the existing `scrapes`-table
+migration test), and `test_tui.py`'s existing column-header/row-shape
+assertions updated for the new column. Reverted and re-ran to confirm the new
+storage/icon tests genuinely depend on this change before shipping. 688 tests
+passing (was 680).
+
 ## Phase 3 — Default availability & recommendations ("pick for me")
 - New: instead of just displaying occupancy/weather/playability and leaving you to scan
   the table, score each slot against your own standing rules and highlight the best

@@ -37,8 +37,12 @@ def _hhmm(iso_timestamp: str) -> str:
 
 
 def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint]:
-    """Fetch hourly precipitation (probability + amount), wind speed, and temperature
-    for one date, one location."""
+    """Fetch hourly precipitation (probability + amount), wind speed, temperature, and
+    weather condition code for one date, one location.
+
+    `weathercode` (added 2026-09-11, direct feedback: "I also would like icons for
+    when it is sunny, overcast, foggy, snowing etc.") is Open-Meteo's own WMO code —
+    see weather_icons.py for what turns it into something to actually show."""
     response = httpx.get(
         OPEN_METEO_URL,
         params={
@@ -46,7 +50,7 @@ def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint
             "longitude": lon,
             "start_date": date,
             "end_date": date,
-            "hourly": "precipitation_probability,precipitation,wind_speed_10m,temperature_2m",
+            "hourly": "precipitation_probability,precipitation,wind_speed_10m,temperature_2m,weathercode",
             "timezone": "auto",
         },
         timeout=15,
@@ -59,6 +63,7 @@ def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint
     amounts = hourly.get("precipitation", [])
     wind_speeds = hourly.get("wind_speed_10m", [])
     temperatures = hourly.get("temperature_2m", [])
+    weather_codes = hourly.get("weathercode", [])
 
     def at(values: list, index: int):
         return values[index] if index < len(values) else None
@@ -70,6 +75,7 @@ def fetch_hourly_weather(lat: float, lon: float, date: str) -> list[WeatherPoint
             precipitation_mm=at(amounts, i),
             wind_speed_kph=at(wind_speeds, i),
             temperature_c=at(temperatures, i),
+            weather_code=at(weather_codes, i),
         )
         for i, timestamp in enumerate(times)
     ]

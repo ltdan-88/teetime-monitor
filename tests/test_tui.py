@@ -395,7 +395,7 @@ def test_day_detail_shows_placeholder_when_never_scraped(tmp_path, monkeypatch):
             table = app.screen.query_one(DataTable)
             assert table.row_count == 1
             row = table.get_row_at(0)
-            assert "no data yet" in row[1]
+            assert "no data yet" in row[2]  # Time/Condition/Occupancy/...
 
     _run(scenario())
 
@@ -422,11 +422,11 @@ def test_day_detail_shows_occupancy_and_players(tmp_path, monkeypatch):
             table = app.screen.query_one(DataTable)
             assert table.row_count == 3
             rows = [table.get_row_at(i) for i in range(3)]
-            assert rows[0][0] == "06:00" and "0/4" in rows[0][1]
-            assert rows[1][0] == "08:00" and "1/4" in rows[1][1] and rows[1][2] == "Max Mustermann"
-            # Time/Occupancy/Players/Temperature/Precipitation/Wind/Events -- the
-            # reason now lives in its own Events column (index 6), not Occupancy.
-            assert rows[2][0] == "15:30" and "—" in rows[2][1] and "Golf Beginner Kurs" in rows[2][6]
+            assert rows[0][0] == "06:00" and "0/4" in rows[0][2]
+            assert rows[1][0] == "08:00" and "1/4" in rows[1][2] and rows[1][3] == "Max Mustermann"
+            # Time/Condition/Occupancy/Players/Temperature/Precipitation/Wind/Events
+            # -- the reason lives in its own Events column (index 7), not Occupancy.
+            assert rows[2][0] == "15:30" and "—" in rows[2][2] and "Golf Beginner Kurs" in rows[2][7]
 
     _run(scenario())
 
@@ -452,7 +452,7 @@ def test_day_detail_shows_a_placeholder_for_a_block_reason_with_no_label(tmp_pat
         async with app.run_test() as pilot:
             await pilot.pause()
             row = app.screen.query_one(DataTable).get_row_at(0)
-            assert "not bookable" in row[6]  # Events column now, not Occupancy
+            assert "not bookable" in row[7]  # Events column now, not Occupancy
 
     _run(scenario())
 
@@ -487,7 +487,7 @@ def test_day_detail_dims_past_slots_on_todays_date(tmp_path, monkeypatch):
             rows = [table.get_row_at(i) for i in range(3)]
             assert rows[0][0] == "[dim]09:00[/]"
             assert rows[1][0] == "[dim]11:10[/]"
-            assert rows[1][2] == "[dim]Max Mustermann[/]"
+            assert rows[1][3] == "[dim]Max Mustermann[/]"
             assert rows[2][0] == "14:00"  # still upcoming -- not dimmed
 
     _run(scenario())
@@ -534,7 +534,7 @@ def test_day_detail_dims_a_blocked_past_slot_too(tmp_path, monkeypatch):
             await pilot.pause()
             row = app.screen.query_one(DataTable).get_row_at(0)
             assert row[0] == "[dim]15:30[/]"
-            assert "Golf Beginner Kurs" in row[6]  # Events column now, not Occupancy
+            assert "Golf Beginner Kurs" in row[7]  # Events column now, not Occupancy
 
     _run(scenario())
 
@@ -822,7 +822,9 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
                 Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs"),
             ],
             weather=[
-                WeatherPoint(time="14:00", precipitation_probability=90, wind_speed_kph=40, temperature_c=16),
+                WeatherPoint(
+                    time="14:00", precipitation_probability=90, wind_speed_kph=40, temperature_c=16, weather_code=61
+                ),
             ],
         ),
         path=scrape_once._db_path("0000001"),
@@ -835,7 +837,8 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
             table = app.screen.query_one(DataTable)
             headers = [str(col.label) for col in table.columns.values()]
             assert headers == [
-                "Time", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events"
+                "Time", "Condition", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)",
+                "Wind (km/h)", "Events",
             ]
             open_row = table.get_row_at(0)
             # No "°"/"km/h" suffix on Temperature/Wind -- the column header
@@ -843,12 +846,13 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
             # the units are now in the headers, we don't need the units in
             # the rows, right?"). Precipitation keeps its own suffixes, since
             # that cell packs two different numbers together.
-            assert open_row[3] == "16"
-            assert "90%" in open_row[4]
-            assert "40" in open_row[5]
-            assert open_row[6] == ""
+            assert open_row[1] == "🌧️"  # weather_code=61 -> rain icon
+            assert open_row[4] == "16"
+            assert "90%" in open_row[5]
+            assert "40" in open_row[6]
+            assert open_row[7] == ""
             blocked_row = table.get_row_at(1)
-            assert "Golf Beginner Kurs" in blocked_row[6]
+            assert "Golf Beginner Kurs" in blocked_row[7]
 
     _run(scenario())
 
@@ -881,15 +885,15 @@ def test_day_detail_notes_sunrise_and_sunset_on_their_nearest_rows(tmp_path, mon
             # Index matches slots' own order: 06:00, 06:30, 07:00, 19:30, 20:00.
             # Time column stays plain -- no icon.
             assert rows[2][0] == "07:00"
-            assert rows[2][6] == i18n.t("events.sunrise", time="06:50")
+            assert rows[2][7] == i18n.t("events.sunrise", time="06:50")
             # 20:00 is already past sunset, so it also carries its own separate
             # 🌙 "too late to finish" Time marker -- independent of the Events
             # column note, not combined into one cell any more.
             assert rows[4][0] == "🌙 20:00"
-            assert rows[4][6] == i18n.t("events.sunset", time="19:58")
+            assert rows[4][7] == i18n.t("events.sunset", time="19:58")
             # Nowhere else.
             for i in (0, 1, 3):
-                assert rows[i][6] == ""
+                assert rows[i][7] == ""
 
     _run(scenario())
 
@@ -919,8 +923,8 @@ def test_day_detail_marks_the_confirmed_bookings_own_row(tmp_path, monkeypatch):
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             rows = [table.get_row_at(i) for i in range(2)]
-            assert f"📌 {i18n.t('overview.booked')}" in rows[0][6]
-            assert rows[1][6] == ""
+            assert f"📌 {i18n.t('overview.booked')}" in rows[0][7]
+            assert rows[1][7] == ""
 
     _run(scenario())
 
@@ -1474,9 +1478,14 @@ def test_day_detail_escape_pops_quietly_with_no_overview_underneath():
 # --- OverviewScreen (ROADMAP.md Phase 4) -- pure helper functions first --------------
 
 
-def _weather(time, prob=10, temp=20.0, mm=None, wind=None):
+def _weather(time, prob=10, temp=20.0, mm=None, wind=None, code=None):
     return WeatherPoint(
-        time=time, precipitation_probability=prob, temperature_c=temp, precipitation_mm=mm, wind_speed_kph=wind
+        time=time,
+        precipitation_probability=prob,
+        temperature_c=temp,
+        precipitation_mm=mm,
+        wind_speed_kph=wind,
+        weather_code=code,
     )
 
 
@@ -2148,7 +2157,7 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
             date=tui._TODAY(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
-            weather=[_weather("09:00", prob=5, temp=20.0, wind=40)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
             events=["Herbstturnier"],
         ),
         path=scrape_once._db_path("0000001"),
@@ -2161,16 +2170,18 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
             table = app.screen.query_one(DataTable)
             headers = [str(col.label) for col in table.columns.values()]
             assert headers == [
-                "Day", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events", "Occupancy 08–20", "Pick"
+                "Day", "Condition", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events",
+                "Occupancy 08–20", "Pick",
             ]
-            row = table.get_row_at(0)  # today, Day/Temperature/Precipitation/Wind/Events/Heat/Pick
+            row = table.get_row_at(0)  # today, Day/Condition/Temperature/Precipitation/Wind/Events/Heat/Pick
             # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
             # direct follow-up: "since the units are now in the headers, we
             # don't need the units in the rows, right?").
-            assert row[1] == "20/20"  # real temperature, not the event
-            assert "5%" in row[2]
-            assert "40" in row[3]
-            assert row[4] == "📋 Herbstturnier"  # the event, in its own column
+            assert row[1] == "🌤️"  # weather_code=1 -> mainly clear icon
+            assert row[2] == "20/20"  # real temperature, not the event
+            assert "5%" in row[3]
+            assert "40" in row[4]
+            assert row[5] == "📋 Herbstturnier"  # the event, in its own column
 
     _run(scenario())
 
@@ -2185,8 +2196,8 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
-            # Day/Temperature/Precipitation/Wind/Events/Heat/Pick
-            assert "not open" in row[6]
+            # Day/Condition/Temperature/Precipitation/Wind/Events/Heat/Pick
+            assert "not open" in row[7]
 
     _run(scenario())
 
@@ -2667,7 +2678,11 @@ def test_search_screen_runs_search_and_shows_results():
         date="2026-09-07",  # Monday
         course="18 Loch Tee 1",
         slots=[Slot(time="09:00", booked=1, capacity=4, players=["Max Mustermann"])],
-        weather=[WeatherPoint(time="09:00", temperature_c=16, precipitation_probability=10, wind_speed_kph=8)],
+        weather=[
+            WeatherPoint(
+                time="09:00", temperature_c=16, precipitation_probability=10, wind_speed_kph=8, weather_code=95
+            )
+        ],
     )
 
     async def scenario():
@@ -2684,21 +2699,25 @@ def test_search_screen_runs_search_and_shows_results():
             # title instead, checked separately below. Occupancy/Players/
             # Temperature/Precipitation/Wind columns added the same day
             # (direct question: "why does adhoc search not show occupancy,
-            # player, or weather data?").
+            # player, or weather data?"). Condition (2026-09-11, "I also would
+            # like icons for when it is sunny, overcast, foggy, snowing etc.")
+            # added after Time, matching DayDetailScreen's own placement.
             assert [str(col.label) for col in table.columns.values()] == [
-                "Date", "Time", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Notes"
+                "Date", "Time", "Condition", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)",
+                "Wind (km/h)", "Notes",
             ]
             assert table.row_count == 1
             row = table.get_row_at(0)
             assert row[1] == "09:00"
-            assert row[2] == "1/4"
-            assert row[3] == "Max Mustermann"
+            assert row[2] == "⛈️"  # weather_code=95 -> thunderstorm icon
+            assert row[3] == "1/4"
+            assert row[4] == "Max Mustermann"
             # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
             # direct follow-up: "since the units are now in the headers, we
             # don't need the units in the rows, right?").
-            assert row[4] == "16"
-            assert row[5] == "10%"
-            assert row[6] == "8"
+            assert row[5] == "16"
+            assert row[6] == "10%"
+            assert row[7] == "8"
             assert "18 Loch Tee 1" in app.screen.title
 
     _run(scenario())
@@ -4328,10 +4347,11 @@ def test_day_detail_renders_german_table_headers_and_placeholder(tmp_path, monke
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
-                "Zeit", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)", "Wind (km/h)", "Termine"
+                "Zeit", "Wetterlage", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)",
+                "Wind (km/h)", "Termine",
             ]
             row = table.get_row_at(0)
-            assert row[1] == "noch keine Daten"
+            assert row[2] == "noch keine Daten"
 
     _run(scenario())
 
@@ -4375,7 +4395,8 @@ def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_pa
 
             table = app.screen.query_one(DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
-                "Zeit", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)", "Wind (km/h)", "Termine"
+                "Zeit", "Wetterlage", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)",
+                "Wind (km/h)", "Termine",
             ]
 
     _run(scenario())

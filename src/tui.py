@@ -139,6 +139,7 @@ from . import analytics, calendar_context, club_config, club_directory, geocode,
 from . import recommend, scrape_once, storage
 from . import i18n
 from . import units as units_module
+from . import weather_icons
 from . import theme as theme_module
 from .credentials_screen import CredentialsScreen
 from .search import SearchCriteria
@@ -359,6 +360,23 @@ def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = 
     icon = "💨 " if point.wind_speed_kph >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
     speed = units_module.display_wind_speed(point.wind_speed_kph, units)
     return f"{icon}{speed:.0f}"
+
+
+def _slot_condition_cell(weather_points: list[WeatherPoint], time: str) -> str:
+    """One row's own Condition column — that hour's own weather icon (sunny,
+    overcast, foggy, snowing, etc.), or blank with no forecast to show. Added
+    2026-09-11, direct feedback: "I also would like icons for when it is sunny,
+    overcast, foggy, snowing etc." A dedicated column rather than folding the icon
+    into an existing one — same "split rather than combine" reasoning
+    `_slot_temperature_cell()`'s own docstring documents for Temperature/
+    Precipitation/Wind, and it also carries information none of those three do at
+    all (clear vs. cloudy vs. foggy vs. snow are never otherwise distinguished).
+    No unit conversion involved — a weather code means the same thing regardless
+    of the metric/imperial setting."""
+    point = _weather_point_for_time(weather_points, time)
+    if point is None:
+        return ""
+    return weather_icons.icon_for_code(point.weather_code)
 
 
 def _slot_event_cell(slot: Slot) -> str:
@@ -1061,6 +1079,22 @@ def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UN
     return f"{icon}{speed:.0f}"
 
 
+def _condition_cell(weather: list[WeatherPoint]) -> str:
+    """The overview's own Condition column for one day — the single most severe
+    condition among the daytime (08:00-20:00) forecast (see
+    `weather_icons.worst_icon()`), the same "worst across the window, not an
+    average" reasoning `_wind_cell()`'s own daily peak already uses: a day that's
+    sunny all morning and thunderstorms in the afternoon is a thunderstorm day, not
+    a "mostly sunny" one. Blank with no daytime forecast at all. Added 2026-09-11,
+    direct feedback: "I also would like icons for when it is sunny, overcast,
+    foggy, snowing etc." — see `_slot_condition_cell()`'s own docstring for why
+    this is its own column."""
+    daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
+    if not daytime:
+        return ""
+    return weather_icons.worst_icon([w.weather_code for w in daytime])
+
+
 def _event_cell(schedule: Schedule) -> str:
     """The overview's own Events column for one day — split out of the old combined
     Weather column (2026-09-09, direct feedback: "It shouldn't mix up events with
@@ -1730,6 +1764,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         units = self._config().get("units", units_module.DEFAULT_UNITS)
         table.add_columns(
             i18n.t("table.day"),
+            i18n.t("table.condition"),
             _column_header("table.temperature", "temperature", units),
             _column_header("table.precipitation", "precipitation", units),
             _column_header("table.wind", "wind", units),
@@ -1814,6 +1849,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                     "[dim]—[/]",
                     "[dim]—[/]",
                     "[dim]—[/]",
+                    "[dim]—[/]",
                     f"[dim]{i18n.t('overview.not_open_yet')}[/]",
                 )
                 continue
@@ -1833,12 +1869,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._row_dates.append(one_date)
             if schedule is not None and schedule.slots:
                 schedules.append(schedule)
+                condition_cell = _condition_cell(schedule.weather) or "[dim]—[/]"
                 temperature_cell = _temperature_cell(schedule.weather, units) or "[dim]—[/]"
                 precipitation_cell = _precipitation_cell(schedule.weather, units) or "[dim]—[/]"
                 wind_cell = _wind_cell(schedule.weather, units) or "[dim]—[/]"
                 event_cell = _event_cell(schedule) or "[dim]—[/]"
                 heat_cell = _heat_strip_markup(schedule)
             else:
+                condition_cell = "[dim]…[/]"
                 temperature_cell = "[dim]…[/]"
                 precipitation_cell = "[dim]…[/]"
                 wind_cell = "[dim]…[/]"
@@ -1847,7 +1885,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             pick_cell = _day_pick_text(
                 schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates, self.club_id
             )
-            table.add_row(day_cell, temperature_cell, precipitation_cell, wind_cell, event_cell, heat_cell, pick_cell)
+            table.add_row(
+                day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, event_cell, heat_cell, pick_cell
+            )
 
         # Pre-highlight today, unless today's own cached schedule shows every slot
         # already passed -- see _initial_date()'s own docstring (direct feedback,
@@ -2127,6 +2167,7 @@ class SearchScreen(Screen[None]):
         table.add_columns(
             i18n.t("search.table.date"),
             i18n.t("table.time"),
+            i18n.t("table.condition"),
             i18n.t("table.occupancy"),
             i18n.t("table.players"),
             _column_header("table.temperature", "temperature", units),
@@ -2185,6 +2226,7 @@ class SearchScreen(Screen[None]):
             table.add_row(
                 f"{weekday} {match.date}",
                 match.slot.time,
+                _slot_condition_cell(weather, match.slot.time),
                 occupancy,
                 players,
                 _slot_temperature_cell(weather, match.slot.time, units),
@@ -2590,6 +2632,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         units = _resolved_config(self.club_slug, self.club_id, self.club_name).get("units", units_module.DEFAULT_UNITS)
         table.add_columns(
             i18n.t("table.time"),
+            i18n.t("table.condition"),
             i18n.t("table.occupancy"),
             i18n.t("table.players"),
             _column_header("table.temperature", "temperature", units),
@@ -2652,7 +2695,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         schedule = storage.load_latest_schedule(self.course, self.date, path=self.db_path)
         if schedule is None or not schedule.slots:
             table.add_row(
-                "—", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "", "", "", ""
+                "—", "", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "", "", "", ""
             )
             return
         # Only today's own slots can already be in the past -- direct feedback
@@ -2700,6 +2743,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 extra_events.append(i18n.t("events.sunset", time=schedule.sun_times.sunset))
             if confirmed is not None and slot.time == confirmed.time:
                 extra_events.append(f"📌 {i18n.t('overview.booked')}")
+            condition_cell = _dim_if(_slot_condition_cell(schedule.weather, slot.time), is_past)
             temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units), is_past)
             precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units), is_past)
             wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units), is_past)
@@ -2723,6 +2767,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 event_text = ", ".join([_slot_event_cell(slot), *extra_events])
                 table.add_row(
                     time_cell,
+                    condition_cell,
                     "[dim]—[/]",
                     "",
                     temperature_cell,
@@ -2738,6 +2783,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
             players = ", ".join(slot.players) if slot.players else ""
             table.add_row(
                 time_cell,
+                condition_cell,
                 occupancy,
                 _dim_if(players, is_past and bool(players)),
                 temperature_cell,

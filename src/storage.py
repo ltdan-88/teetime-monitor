@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS weather_points (
     precipitation_probability REAL,
     precipitation_mm REAL,
     wind_speed_kph REAL,
-    temperature_c REAL
+    temperature_c REAL,
+    weather_code INTEGER                   -- WMO code (Open-Meteo) -- see weather_icons.py
 );
 
 CREATE TABLE IF NOT EXISTS confirmed_bookings (
@@ -134,11 +135,16 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
     only ever attached in memory during a scrape and then silently dropped, since
     `CREATE TABLE IF NOT EXISTS` is a no-op against a table that already exists in
     an older shape; `events` followed the next day for the identical reason, see
-    `load_latest_schedule()`'s own docstring). Every real scrape ever recorded is
-    exactly the kind of history this whole module exists to keep — pc caddie hides
-    the past, so there's no re-scraping it later — so an `ALTER TABLE` here, not a
-    fresh/rebuilt database, is what keeps that history intact while still picking up
-    the new columns."""
+    `load_latest_schedule()`'s own docstring), and (2026-09-11, same reasoning) an
+    existing `weather_points` table that predates `weather_code` — added for the
+    weather-condition-icon feature (see weather_icons.py), direct feedback: "I also
+    would like icons for when it is sunny, overcast, foggy, snowing etc." Every real
+    scrape ever recorded is exactly the kind of history this whole module exists to
+    keep — pc caddie hides the past, so there's no re-scraping it later — so an
+    `ALTER TABLE` here, not a fresh/rebuilt database, is what keeps that history
+    intact while still picking up the new columns. (A row saved before this column
+    existed just reads back with `weather_code=None` — no icon shown, same
+    "no migration needed for the actual data" stance as `events` above.)"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
@@ -146,6 +152,9 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
         for column in ("sunrise", "sunset", "events"):
             if column not in existing_columns:
                 conn.execute(f"ALTER TABLE scrapes ADD COLUMN {column} TEXT")
+        existing_weather_columns = {row[1] for row in conn.execute("PRAGMA table_info(weather_points)")}
+        if "weather_code" not in existing_weather_columns:
+            conn.execute("ALTER TABLE weather_points ADD COLUMN weather_code INTEGER")
 
 
 def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
@@ -179,7 +188,7 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
         conn.executemany(
             "INSERT INTO weather_points "
             "(scrape_id, time, precipitation_probability, precipitation_mm, "
-            "wind_speed_kph, temperature_c) VALUES (?, ?, ?, ?, ?, ?)",
+            "wind_speed_kph, temperature_c, weather_code) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     scrape_id,
@@ -188,6 +197,7 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
                     point.precipitation_mm,
                     point.wind_speed_kph,
                     point.temperature_c,
+                    point.weather_code,
                 )
                 for point in schedule.weather
             ],
@@ -278,7 +288,7 @@ def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -
 
         weather_rows = conn.execute(
             "SELECT time, precipitation_probability, precipitation_mm, wind_speed_kph, "
-            "temperature_c FROM weather_points WHERE scrape_id = ? ORDER BY time",
+            "temperature_c, weather_code FROM weather_points WHERE scrape_id = ? ORDER BY time",
             (scrape_id,),
         ).fetchall()
         weather = [
@@ -288,8 +298,9 @@ def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -
                 precipitation_mm=precipitation_mm,
                 wind_speed_kph=wind_speed_kph,
                 temperature_c=temperature_c,
+                weather_code=weather_code,
             )
-            for time, precipitation_probability, precipitation_mm, wind_speed_kph, temperature_c in weather_rows
+            for time, precipitation_probability, precipitation_mm, wind_speed_kph, temperature_c, weather_code in weather_rows
         ]
 
     return Schedule(date=date, course=course, slots=slots, weather=weather, sun_times=sun_times, events=events)
