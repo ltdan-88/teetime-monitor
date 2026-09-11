@@ -2509,7 +2509,8 @@ def test_search_screen_runs_search_and_shows_results():
     schedule = Schedule(
         date="2026-09-07",  # Monday
         course="18 Loch Tee 1",
-        slots=[Slot(time="09:00", booked=0, capacity=4)],
+        slots=[Slot(time="09:00", booked=1, capacity=4, players=["Max Mustermann"])],
+        weather=[WeatherPoint(time="09:00", temperature_c=16, precipitation_probability=10, wind_speed_kph=8)],
     )
 
     async def scenario():
@@ -2523,11 +2524,21 @@ def test_search_screen_runs_search_and_shows_results():
             # No per-row Course column any more (2026-09-13, direct question:
             # "why does adhoc search need to mention course, couldn't it be
             # mentioned once in the header?") -- it's in the Header's own
-            # title instead, checked separately below.
-            assert [str(col.label) for col in table.columns.values()] == ["Date", "Time", "Notes"]
+            # title instead, checked separately below. Occupancy/Players/
+            # Temperature/Precipitation/Wind columns added the same day
+            # (direct question: "why does adhoc search not show occupancy,
+            # player, or weather data?").
+            assert [str(col.label) for col in table.columns.values()] == [
+                "Date", "Time", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Notes"
+            ]
             assert table.row_count == 1
             row = table.get_row_at(0)
             assert row[1] == "09:00"
+            assert row[2] == "1/4"
+            assert row[3] == "Max Mustermann"
+            assert row[4] == "16°"
+            assert row[5] == "10%"
+            assert row[6] == "8km/h"
             assert "18 Loch Tee 1" in app.screen.title
 
     _run(scenario())
@@ -2556,6 +2567,79 @@ def test_search_screen_uses_typed_in_criteria_not_saved_defaults():
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 1
             assert table.get_row_at(0)[1] == "09:00"
+
+    _run(scenario())
+
+
+def test_search_screen_confirm_prefills_the_highlighted_results_own_date_and_time(tmp_path, monkeypatch):
+    # Direct question, 2026-09-13: "can we confirm tee times from adhoc
+    # search?" A single search's results can span several different days, so
+    # this has to come from the highlighted row's own match, not from any one
+    # fixed date/course the way DayDetailScreen's own `c` can.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    schedules = [
+        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date="2026-09-08", course="18 Loch Tee 1", slots=[Slot(time="10:00", booked=0, capacity=4)]),
+    ]
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=schedules, club_id="0000001"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 2
+            table.move_cursor(row=1)  # the second day's own result
+            await pilot.press("c")
+            await pilot.pause()
+
+            assert isinstance(app.screen, tui.ConfirmBookingScreen)
+            assert app.screen.query_one("#time", Input).value == "10:00"
+            assert app.screen.date == "2026-09-08"
+            assert app.screen.course == "18 Loch Tee 1"
+
+    _run(scenario())
+
+
+def test_search_screen_confirm_saves_and_shows_a_status_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule], club_id="0000001"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            await pilot.click("#run")
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmBookingScreen)
+            await pilot.click("#save")
+            await pilot.pause()
+
+            assert isinstance(app.screen, tui.SearchScreen)
+            assert str(app.screen.query_one("#search-status", Static).content) == i18n.t("confirm.confirmed")
+
+    _run(scenario())
+
+    saved = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-07", path=scrape_once._db_path("0000001"))
+    assert saved is not None
+    assert saved.time == "09:00"
+
+
+def test_search_screen_confirm_does_nothing_with_no_results(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_search_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SearchScreen)  # nothing pushed
 
     _run(scenario())
 

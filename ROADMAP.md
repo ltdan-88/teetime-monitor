@@ -3039,6 +3039,41 @@ reverting (`src/units.py` moved aside, the three touched modules stashed).
 670 tests passing. Verified live: the new Units dropdown renders correctly
 under Settings → Weather, defaulting to Metric.
 
+**Last two items from the same 10-remark batch: 7) "can we confirm tee times
+from adhoc search?" and 9) "why does adhoc search not show occupancy,
+player, or weather data?"** Done together since both touch
+`SearchScreen`'s own results table.
+
+9: new Occupancy/Players/Temperature/Precipitation/Wind columns, reusing
+`DayDetailScreen`'s own `_slot_temperature_cell()`/`_slot_precipitation_cell()`/
+`_slot_wind_cell()` directly (looking up the matching `Schedule` from
+`self.schedules` by `(date, course)`) rather than a second, parallel set of
+weather formatters — the two screens can't drift on how a number renders.
+Column headers pick up the same metric/imperial setting `OverviewScreen`/
+`DayDetailScreen`'s own headers already do.
+
+7: new `c` binding + `action_confirm()`, same `ConfirmBookingScreen` as
+`DayDetailScreen`'s own `c` — but pre-filled from the *highlighted result's
+own* date/course/time (new `self._row_matches`, this screen's version of
+`DayDetailScreen._row_times`), not a single fixed date/course, since one
+search's results can genuinely span several different days.
+`ConfirmBookingScreen` itself shows no message of its own on success (its
+caller decides what to do next — `DayDetailScreen`'s own reload already
+shows it visually via the new 📌 marker), so this screen's own `on_result`
+shows a new plain "Confirmed." status message instead, since a search
+result has no per-row confirmed indicator to react instead.
+
+7 new tests, 1 existing one extended with real occupancy/players/weather
+data to actually exercise the new columns, all confirmed genuinely
+dependent by reverting. Verified live: new columns render correctly with
+their unit-aware headers, the footer picks up the new `c` binding.
+673 tests passing.
+
+This closes out all ten remarks from the 2026-09-13 batch except 4)
+(the nested/collapsed overview redesign, still queued pending a scoping
+conversation) and 5) (answered directly — see above — with a real,
+separate staleness gap found but not yet fixed).
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

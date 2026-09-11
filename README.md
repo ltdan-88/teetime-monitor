@@ -231,7 +231,11 @@ spec.
   scrape. Party size, time windows, and the before/after buffer are checked exactly
   (plain code); the weather/daylight sanity check and the same AI ranking behind the
   automatic weekly picks both still apply on top. The active course is stated once in
-  the screen's own title, not repeated on every result row
+  the screen's own title, not repeated on every result row. Results show
+  Occupancy/Players/Temperature/Precipitation/Wind alongside the date and time,
+  same as the single-day tee sheet; `c` confirms whichever result is
+  highlighted, pre-filled from its own date/course/time since a single
+  search's results can span several different days
 - A crowd heatmap — historical occupancy grouped by actual weekday (Sun-Sat), plus a
   separate "special days" comparison for tournament/public holiday/vacation days, so
   a future vacation-week Monday gets compared against other vacation days rather than
