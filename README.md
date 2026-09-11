@@ -146,13 +146,15 @@ spec.
   apart rather than crammed into one combined column, so the real numbers are always
   visible, not just an icon once rain or wind crosses a plain visual threshold (the
   icon itself still shows past that threshold, layered on top of the number). The
-  day's own sunrise/sunset mark their own nearest row directly in the Time column
-  — 🌅/🌇 — rather than a separate summary line, and each tee time whose round
-  wouldn't finish before dark gets its own 🌙 marker there too — independent of
-  whether you've set any availability rules at all. The overview's own day-level
-  "no dry picks" message only appears when weather is genuinely the reason
-  nothing's recommended — a separate "too dark to finish" shows up instead when
-  daylight is what actually excluded everything
+  day's own sunrise/sunset note their own nearest row's Events column with the
+  exact time ("Sunrise 06:52") rather than a separate summary line or an icon,
+  and each tee time whose round wouldn't finish before dark gets its own 🌙
+  marker in the Time column — independent of whether you've set any
+  availability rules at all. Column headers spell out units (°C, km/h, %/mm)
+  rather than leaving you to infer them from the numbers. The overview's own
+  day-level "no dry picks" message only appears when weather is genuinely the
+  reason nothing's recommended — a separate "too dark to finish" shows up
+  instead when daylight is what actually excluded everything
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on your own estimated pace (adjustable in
   settings, defaulting to 2 hours for 9 holes / 4 hours for 18); the single-day tee
@@ -162,9 +164,10 @@ spec.
   block-reason labels, not a separate events-calendar fetch
 - A dim legend line at the bottom of both screens spells out what each icon
   actually means (★ recommended, 🌧 rain, 💨 wind, 📋 event/closure, 📌 booked,
-  ⚠ changed since booked, plus 🌙 too late for sunset and 🌅/🌇 sunrise/sunset on
-  the single-day tee sheet) — added once there were enough of them that guessing
-  started to feel necessary
+  ⚠ changed since booked, plus 🌙 too late for sunset on the single-day tee
+  sheet) — added once there were enough of them that guessing started to feel
+  necessary. A confirmed booking marks its own exact row there too (📌), not
+  just the overview's own day-level summary
 - Public holidays and school-vacation periods factored in too, since both tend to mean
   a busier course
 - Set your standing availability once (e.g. "workdays after 17:00, weekends after

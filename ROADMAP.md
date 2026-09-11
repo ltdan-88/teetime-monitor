@@ -2914,6 +2914,84 @@ nearest a live sunrise time (06:52 → the 06:50 row), the legend now lists
 both new icons, and the gap above the table now matches the gap between the
 switcher's own two rows. 645 tests passing.
 
+**Batch of 10 remarks (2026-09-13), "easy" ones first, larger ones queued
+separately (see below).**
+
+Same-day correction to the sunrise/sunset feature just shipped above: "i
+don't like the icons for sunrise/sunset (just use the proper terms instead in
+events with exact time)." Dropped 🌅/🌇 from the Time column entirely;
+`_closest_slot_time()`'s own row-finding logic is unchanged, but now feeds a
+plain "Sunrise HH:MM"/"Sunset HH:MM" note (new `events.sunrise`/`events.sunset`
+i18n keys) into that row's Events column instead of an icon in Time. Removed
+from `DAY_DETAIL_LEGEND` accordingly.
+
+6) "why don't i see confirmed tee times in detailed view, but only in
+overview?" `OverviewScreen`'s own `_day_pick_text()` already does the
+day-level equivalent; `DayDetailScreen.load_schedule()` now looks up
+`storage.load_confirmed_booking()` once per load and marks the matching row's
+own Events column with "📌 booked" too — reusing the same, already-legend-
+documented 📌 icon `OverviewScreen` uses, not inventing a new one (learned
+from the sunrise/sunset correction above: a genuinely new icon needs
+justifying, an existing, already-meaningful one doesn't).
+
+10) "why is adhoc search not accessible from detailed view?" New `/` binding
+on `DayDetailScreen`, reusing the `OverviewScreen` it was drilled into from
+(always directly beneath it on the stack, same assumption
+`action_back_to_overview()` already makes) for its already-loaded
+`_schedules`/`_config()` — no fresh fetch needed.
+
+1) "can we integrate units into header (e.g. Celsius, km/h etc.)" +
+3) "check for easy to understand wording in header (e.g. what does heat
+08-20 mean?)" — done together since both touch the same column headers.
+Temperature/Precipitation/Wind headers now read "Temperature (°C)" /
+"Precipitation (%/mm)" / "Wind (km/h)"; the confusing English "Heat 08–20"
+(the overview's own crowd/occupancy strip, nothing to do with temperature)
+renamed to "Occupancy 08–20" — the German translation already said
+"Auslastung 08–20" ("utilization"), a genuinely clearer term the English
+side had never matched.
+
+8 new/rewritten tests, 4 pre-existing ones updated for the new header text,
+all confirmed genuinely dependent by reverting. Verified live: "Sunrise
+06:52" (exact time, plain text) on the correct row in a real schedule, `/`
+opening the same `SearchScreen` from a drilled-into day, real column headers
+showing units. 647 tests passing.
+
+**Queued, not "easy" — larger or requiring more design first:**
+- 2) Metric/imperial unit toggle in settings — real feature (conversion
+  functions, a settings field, a stored preference, touching every display
+  call site that currently assumes km/h/°C/mm). Own version once started.
+- 7) Confirm tee times from ad hoc search — needs `SearchScreen` to track
+  which result row is selected (parallel to `DayDetailScreen._row_times`) and
+  wire a `c` binding to `ConfirmBookingScreen`. Grouped with 8/9 below since
+  all three touch the same results table.
+- 8) Ad hoc search's own results table always spans exactly one course
+  (`SearchScreen.schedules` is `OverviewScreen._schedules`, itself filtered
+  to the active course) — the per-row Course column is provably redundant,
+  same "state it once, not every row" reasoning behind the header-title
+  cleanup two versions back. Move it into the screen's own title instead.
+- 9) Ad hoc search's results table only ever showed Date/Time/Course/Notes —
+  `SlotMatch.slot` already carries `booked`/`capacity`/`players`, and the
+  matching `Schedule.weather` is already in `self.schedules`; adding
+  Occupancy/Players/Temperature/Precipitation/Wind columns is mostly reusing
+  `DayDetailScreen`'s own existing cell-rendering helpers, not new logic.
+- 4) "integrate detailed view into overview as nested/collapsed" — a real
+  navigation redesign (expandable/collapsible rows inside `OverviewScreen`'s
+  own `DataTable`, which has no native support for that in Textual), not a
+  small tweak. Flagged back to the user for a scoping conversation rather
+  than guessed at.
+- 5) "how do i cancel/modify confirmed tee times?" — answered directly, not
+  fixed: no in-app cancel exists; cancelling on pc caddie's own real site is
+  the only path today. Found a real, separate gap while answering:
+  `_sync_my_reservations()` only ever *adds* confirmed-booking rows from a
+  live "My Reservations" read, never removes one that's disappeared from the
+  live list — so a real-site cancellation won't clear the local "📌 booked"
+  marker until a *new* confirmation overwrites it. `confirmed_bookings` is
+  deliberately append-only (analytics needs full history — see
+  `load_all_confirmed_bookings()`'s own docstring), so the fix isn't a plain
+  delete: it's a "cancelled" sentinel row so "latest wins" reflects the
+  cancellation without erasing history. Not implemented yet — real design
+  work, not queued as "easy."
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
