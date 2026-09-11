@@ -956,6 +956,125 @@ def test_day_detail_action_confirm_prefills_clean_time_for_a_starred_slot(tmp_pa
     _run(scenario())
 
 
+def test_day_detail_action_confirm_offers_to_cancel_the_already_confirmed_row(tmp_path, monkeypatch):
+    # Direct question, 2026-09-13: "why can you confirm tee time within the
+    # TUI, but cannot cancel or modify?" -- pressing `c` on the row that's
+    # already your confirmed booking should offer to cancel it instead of
+    # opening a fresh confirm form for the exact same date/course/time.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CancelBookingScreen)
+            assert "14:00" in str(app.screen.query_one(Label).content)
+
+    _run(scenario())
+
+
+def test_day_detail_action_confirm_opens_a_fresh_form_for_a_different_row(tmp_path, monkeypatch):
+    # A confirmed booking exists, but it's for a different time than the row
+    # currently highlighted -- still the ordinary confirm form, not the cancel
+    # screen (cancelling only ever targets the row that's actually confirmed).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="14:00", booked=0, capacity=4), Slot(time="15:00", booked=0, capacity=4)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one(DataTable).move_cursor(row=1)  # the 15:00 row
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ConfirmBookingScreen)
+            assert app.screen.query_one("#time", Input).value == "15:00"
+
+    _run(scenario())
+
+
+def test_cancel_booking_screen_keep_dismisses_without_changing_anything(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CancelBookingScreen)
+            await pilot.click("#keep")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+
+    _run(scenario())
+
+    saved = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert saved.time == "14:00"  # untouched
+
+
+def test_cancel_booking_screen_confirm_writes_the_not_playing_sentinel(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+    storage.save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CancelBookingScreen)
+            await pilot.click("#confirm-cancel")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.DayDetailScreen)
+            # The row's own 📌 marker is gone now that there's nothing confirmed.
+            assert app.screen.query_one(DataTable).get_row_at(0)[6] == ""
+
+    _run(scenario())
+
+    saved = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert saved.time is None
+    assert saved.source == "manual"  # a human decided this via the app, not the automatic sync
+
+
 def test_day_detail_shows_and_dismisses_booking_watch_banner(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_booking_change(
