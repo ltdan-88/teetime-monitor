@@ -1842,6 +1842,13 @@ class SearchScreen(Screen[None]):
     (screens pushed as part of the main flow, not a standalone-capable task screen
     like `SettingsScreen`), since this screen is reached from, and returns to,
     `OverviewScreen` the same way those are.
+
+    The results table has no per-row Course column (2026-09-13, direct question:
+    "why does adhoc search need to mention course, couldn't it be mentioned once
+    in the header?") — `self.schedules` is always `OverviewScreen._schedules`,
+    itself already filtered to one active course, so every result here shares
+    the same one; it joins the Header's own title instead of repeating on every
+    row.
     """
 
     CSS = """
@@ -1952,12 +1959,20 @@ class SearchScreen(Screen[None]):
         # Never actually set before this -- found live, dedicated bug hunt
         # (2026-09-10): the mockup's own "Search" screen shows "Search this week"
         # right in the Header, but the real screen just showed the bare app title.
-        self.title = i18n.t("search.title")
+        # The course, once known, joins it here instead of repeating on every
+        # result row (2026-09-13, direct question: "why does adhoc search need
+        # to mention course, couldn't it be mentioned once in the header?" --
+        # `self.schedules` is always OverviewScreen._schedules, itself already
+        # filtered to one active course, so a per-row Course column never
+        # actually varied within a single search anyway).
+        title = i18n.t("search.title")
+        if self.schedules:
+            title = f"{title} — {self.schedules[0].course}"
+        self.title = title
         table = self.query_one("#search-results", DataTable)
         table.add_columns(
             i18n.t("search.table.date"),
             i18n.t("table.time"),
-            i18n.t("search.table.course"),
             i18n.t("search.table.notes"),
         )
 
@@ -1996,7 +2011,7 @@ class SearchScreen(Screen[None]):
         status.update("")
         for match in matches:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(match.date).weekday()}")
-            table.add_row(f"{weekday} {match.date}", match.slot.time, match.course, ", ".join(match.reasons))
+            table.add_row(f"{weekday} {match.date}", match.slot.time, ", ".join(match.reasons))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":

@@ -2417,10 +2417,15 @@ def test_search_screen_runs_search_and_shows_results():
             await pilot.click("#run")
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
+            # No per-row Course column any more (2026-09-13, direct question:
+            # "why does adhoc search need to mention course, couldn't it be
+            # mentioned once in the header?") -- it's in the Header's own
+            # title instead, checked separately below.
+            assert [str(col.label) for col in table.columns.values()] == ["Date", "Time", "Notes"]
             assert table.row_count == 1
             row = table.get_row_at(0)
             assert row[1] == "09:00"
-            assert row[2] == "18 Loch Tee 1"
+            assert "18 Loch Tee 1" in app.screen.title
 
     _run(scenario())
 
