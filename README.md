@@ -116,18 +116,18 @@ spec.
   recommendation engine, the same pipeline behind the overview's own picks below
 - Confirmed bookings read automatically from pc caddie's own "My Reservations" page —
   teetime-monitor never books for you, but this is what actually gives the stats below
-  something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
-  for the rare same-day-booking timing gap — pre-filled from whatever row is
-  highlighted and the course you're already viewing, not re-typed by hand.
-  Actually cancelling a reservation still has to happen on pc caddie's own site
-  (teetime-monitor doesn't book or cancel anything itself), but `c` on the row
-  that's already your confirmed tee time offers to mark it cancelled locally
-  instead of opening a fresh confirm form for the same date/course/time — for
-  when you cancel on the real site and want teetime-monitor to know right away
-  rather than waiting for the next sync. A cancelled *future* booking is also
-  noticed automatically on the next sync either way; a *past* date dropping off
-  "My Reservations" is normal (that page isn't a history view) and never gets
-  mistaken for a cancellation
+  something to work with. A manual confirm keypress (`enter`, on the single-day tee
+  sheet) stays as a fallback for the rare same-day-booking timing gap — pre-filled
+  from whatever row is highlighted and the course you're already viewing, not
+  re-typed by hand. Actually cancelling a reservation still has to happen on pc
+  caddie's own site (teetime-monitor doesn't book or cancel anything itself), but
+  `enter` on the row that's already your confirmed tee time offers to mark it
+  cancelled locally instead of opening a fresh confirm form for the same
+  date/course/time — one key either way, for when you cancel on the real site and
+  want teetime-monitor to know right away rather than waiting for the next sync.
+  A cancelled *future* booking is also noticed automatically on the next sync
+  either way; a *past* date dropping off "My Reservations" is normal (that page
+  isn't a history view) and never gets mistaken for a cancellation
 - Two labelled dropdowns near the top — club and course, stacked one under the
   other — switch between clubs/courses you already have saved without leaving the
   screen at all (added 2026-09-09, direct feedback: "would it be possible to

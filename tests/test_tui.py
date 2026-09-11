@@ -948,8 +948,11 @@ def test_day_detail_action_confirm_prefills_clean_time_for_a_starred_slot(tmp_pa
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.screen.query_one(DataTable).get_row_at(0)[0] == "★ 14:00"  # sanity check
-            await pilot.press("c")
+            table = app.screen.query_one(DataTable)
+            assert table.get_row_at(0)[0] == "★ 14:00"  # sanity check
+            table.focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert app.screen.query_one("#time", Input).value == "14:00"
 
@@ -958,7 +961,7 @@ def test_day_detail_action_confirm_prefills_clean_time_for_a_starred_slot(tmp_pa
 
 def test_day_detail_action_confirm_offers_to_cancel_the_already_confirmed_row(tmp_path, monkeypatch):
     # Direct question, 2026-09-13: "why can you confirm tee time within the
-    # TUI, but cannot cancel or modify?" -- pressing `c` on the row that's
+    # TUI, but cannot cancel or modify?" -- pressing enter on the row that's
     # already your confirmed booking should offer to cancel it instead of
     # opening a fresh confirm form for the exact same date/course/time.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
@@ -975,7 +978,9 @@ def test_day_detail_action_confirm_offers_to_cancel_the_already_confirmed_row(tm
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.CancelBookingScreen)
             assert "14:00" in str(app.screen.query_one(Label).content)
@@ -1005,8 +1010,11 @@ def test_day_detail_action_confirm_opens_a_fresh_form_for_a_different_row(tmp_pa
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.screen.query_one(DataTable).move_cursor(row=1)  # the 15:00 row
-            await pilot.press("c")
+            table = app.screen.query_one(DataTable)
+            table.move_cursor(row=1)  # the 15:00 row
+            table.focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.ConfirmBookingScreen)
             assert app.screen.query_one("#time", Input).value == "15:00"
@@ -1029,7 +1037,9 @@ def test_cancel_booking_screen_keep_dismisses_without_changing_anything(tmp_path
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.CancelBookingScreen)
             await pilot.click("#keep")
@@ -1059,7 +1069,9 @@ def test_cancel_booking_screen_confirm_writes_the_not_playing_sentinel(tmp_path,
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.CancelBookingScreen)
             await pilot.click("#confirm-cancel")
@@ -1217,7 +1229,9 @@ def test_day_detail_confirm_booking_persists_and_reloads(tmp_path, monkeypatch):
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
 
             app.screen.query_one("#time", Input).value = "14:00"
@@ -1363,8 +1377,11 @@ def test_day_detail_action_confirm_prefills_time_from_the_selected_row(tmp_path,
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.screen.query_one(DataTable).move_cursor(row=1)  # the "14:00" row
-            await pilot.press("c")
+            table = app.screen.query_one(DataTable)
+            table.move_cursor(row=1)  # the "14:00" row
+            table.focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert app.screen.query_one("#time", Input).value == "14:00"
             # "18 Loch Tee 1" -> 18 holes, derived from the course itself.
@@ -1380,7 +1397,9 @@ def test_day_detail_action_confirm_leaves_time_blank_with_no_data_scraped_yet(tm
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()  # only the "no data yet" placeholder row exists
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert app.screen.query_one("#time", Input).value == ""
 
@@ -1394,7 +1413,9 @@ def test_day_detail_action_confirm_derives_holes_from_a_nine_hole_course(tmp_pat
         app = _HostApp(_day_detail(course="9 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("c")
+            app.screen.query_one(DataTable).focus()
+            await pilot.pause()
+            await pilot.press("enter")
             await pilot.pause()
             assert app.screen.query_one("#holes", Input).value == "9"
 
@@ -4354,7 +4375,7 @@ def test_day_detail_footer_renders_translated_hints_in_english(tmp_path, monkeyp
             footer = app.screen.query_one(tui.TranslatedFooter)
             text = footer.render()
             assert "Refresh" in text
-            assert "Confirm tee time" in text
+            assert "Confirm/cancel tee time" in text
             assert "Settings" in text
             assert "Quit" in text
 
@@ -4391,7 +4412,7 @@ def test_day_detail_footer_renders_translated_hints_in_german(tmp_path, monkeypa
             footer = app.screen.query_one(tui.TranslatedFooter)
             text = footer.render()
             assert "Aktualisieren" in text
-            assert "Tee-Zeit bestätigen" in text
+            assert "Tee-Zeit bestätigen/stornieren" in text
             assert "Beenden" in text
 
     _run(scenario())
