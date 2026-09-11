@@ -3145,6 +3145,32 @@ exactly the wrong click on a genuinely consequential action.
 no confirmed booking, `c` still opens the ordinary confirm form unchanged (no
 regression). 681 tests passing.
 
+**Same-day follow-up: "Can we change the key from c to enter? And also
+mention it somehow that it is both for confirming and cancelling
+reservations?"** Moved `DayDetailScreen`'s confirm/cancel action from a `c`
+`BINDINGS` entry to `enter` — but `enter` isn't wired the same way `c` was:
+a `DataTable`'s own key handling intercepts "enter" before it ever reaches a
+Screen-level `BINDINGS` action (the exact same reason `OverviewScreen`'s own
+"enter drills into a day" isn't a `BINDINGS` entry either — see that screen's
+own docstring). Dispatch now goes through a new
+`on_data_table_row_selected()` handler calling `action_confirm()`, mirroring
+`OverviewScreen`'s identical pattern. Only `DayDetailScreen` changed —
+`SearchScreen`'s own `c` (confirm-only there, no cancel branch) is
+unaffected.
+
+New `binding.confirm_or_cancel` i18n key ("Confirm/cancel tee time") for
+`DayDetailScreen`'s own footer hint specifically — deliberately not a change
+to the shared `binding.confirm` key, which `SearchScreen`'s footer still uses
+and where the text would otherwise misleadingly promise a cancel option that
+screen doesn't have.
+
+10 existing tests updated (every `press("c")` for `DayDetailScreen` action_confirm now
+focuses the table and presses `enter` instead, matching how `RowSelected` actually
+fires), all still passing; confirmed the whole change is genuinely load-bearing by
+reverting and watching all 9 fail for the expected reason. Verified live: the
+footer now reads "enter Tee-Zeit bestätigen/stornieren", and `enter` on a row
+opens the confirm form exactly as `c` used to. 681 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

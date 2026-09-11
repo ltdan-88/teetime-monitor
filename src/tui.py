@@ -2492,7 +2492,6 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
-        ("c", "confirm", "Confirm tee time"),
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
         ("/", "search", "Search"),
@@ -2504,9 +2503,19 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         ("q", "quit", "Quit"),
     ]
 
+    # `enter`, not a `BINDINGS` entry here -- same reason OverviewScreen's own
+    # "enter" (drilling into a day) isn't one either (see that screen's own
+    # docstring): a DataTable's own key handling intercepts "enter" before it
+    # would ever reach a Screen-level BINDINGS action, firing `RowSelected`
+    # instead -- see on_data_table_row_selected() below, the actual dispatch
+    # for this. Moved here from `c` (2026-09-13, direct feedback: "Can we
+    # change the key from c to enter?"), right after confirming/cancelling
+    # became the same key's two possible outcomes (see action_confirm()'s own
+    # docstring) -- one key that already means "act on the highlighted row"
+    # fits better than a separate letter to remember.
     _FOOTER_BINDINGS = [
         ("r", "binding.refresh"),
-        ("c", "binding.confirm"),
+        ("enter", "binding.confirm_or_cancel"),
         ("n", "binding.next_day"),
         ("p", "binding.prev_day"),
         ("/", "binding.search"),
@@ -2578,6 +2587,14 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         pairs = _legend_pairs(DAY_DETAIL_LEGEND)
         wrapped = _wrap_legend(pairs, width if width is not None else self.size.width)
         self.query_one("#legend", Static).update(f"[dim]{wrapped}[/]")
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        # `enter`'s actual dispatch (2026-09-13, moved here from a `c` BINDINGS
+        # entry) -- same reason OverviewScreen's own identical handler exists
+        # (see that screen's docstring): a DataTable's own key handling
+        # intercepts "enter" before it would ever reach a Screen-level
+        # `BINDINGS` action.
+        self.action_confirm()
 
     def _reload(self) -> None:
         """The `_ClubCourseSwitcher` mixin's own hook -- what "reload after a
@@ -2764,6 +2781,12 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         self.load_schedule()
 
     def action_confirm(self) -> None:
+        """`enter` on the highlighted row -- confirms it as your tee time, or
+        offers to cancel it if it's already your confirmed one (the same key
+        either way, 2026-09-13: "Can we change the key from c to enter? And
+        also mention it somehow that it is both for confirming and cancelling
+        reservations?" -- see `_FOOTER_BINDINGS`' own `binding.confirm_or_cancel`
+        for how the footer now says so)."""
         default_time = self._selected_slot_time()
         existing = storage.load_confirmed_booking(self.course, self.date, path=self.db_path)
         if existing is not None and existing.time is not None and existing.time == default_time:
