@@ -326,6 +326,38 @@ def test_day_detail_screen_keeps_switcher_and_legend_fixed_with_many_slots(tmp_p
     _run(scenario())
 
 
+def test_day_detail_screen_hides_empty_banner_and_status_lines(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-13: "check for spacing consistency" -- a plain
+    # Static still reserves its own blank line even with nothing to show,
+    # which is what made the gap above the table look inconsistent (bigger
+    # once an empty #banners/#status -- and, before this same round of
+    # feedback, the now-removed #daylight line -- stacked on top of each
+    # other than the single blank line between the switcher's own two rows).
+    # #banners/#status are now _AutoHideStatic, collapsing out of layout
+    # entirely while blank.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            banners = screen.query_one("#banners")
+            status = screen.query_one("#status")
+            assert banners.styles.display == "none"
+            assert status.styles.display == "none"
+
+            status.update("Refreshed.")
+            await pilot.pause()
+            assert status.styles.display == "block"
+
+            status.update("")
+            await pilot.pause()
+            assert status.styles.display == "none"
+
+    _run(scenario())
+
+
 def test_day_detail_shows_placeholder_when_never_scraped(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
@@ -751,14 +783,18 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
     _run(scenario())
 
 
-def test_day_detail_shows_sunrise_and_sunset(tmp_path, monkeypatch):
+def test_day_detail_marks_the_rows_nearest_sunrise_and_sunset(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-13: "make sunrise and sunset to corresponding
+    # rows" -- replacing the old standalone #daylight summary line (see
+    # test_day_detail_shows_sunrise_and_sunset in this file's own history) with
+    # a 🌅/🌇 marker on whichever row is actually nearest each time.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_schedule(
         Schedule(
             date="2026-09-06",
             course="18 Loch Tee 1",
-            slots=[Slot(time="14:00", booked=0, capacity=4)],
-            sun_times=SunTimes(sunrise="06:42", sunset="19:58"),
+            slots=[Slot(time=t, booked=0, capacity=4) for t in ("06:00", "06:30", "07:00", "19:30", "20:00")],
+            sun_times=SunTimes(sunrise="06:50", sunset="19:58"),  # closest to 07:00 and 20:00 respectively
         ),
         path=scrape_once._db_path("0000001"),
     )
@@ -767,16 +803,24 @@ def test_day_detail_shows_sunrise_and_sunset(tmp_path, monkeypatch):
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            daylight = str(app.screen.query_one("#daylight", Static).content)
-            assert "06:42" in daylight
-            assert "19:58" in daylight
+            table = app.screen.query_one(DataTable)
+            rows = [table.get_row_at(i)[0] for i in range(table.row_count)]
+            # Index matches slots' own order: 06:00, 06:30, 07:00, 19:30, 20:00.
+            assert "🌅" in rows[2] and "07:00" in rows[2]
+            # 20:00 is already past sunset, so it also carries its own separate
+            # 🌙 "too late to finish" marker -- both can coexist (see the class
+            # docstring: they answer different questions).
+            assert "🌇" in rows[4] and "20:00" in rows[4]
+            # Nowhere else.
+            for i in (0, 1, 3):
+                assert "🌅" not in rows[i] and "🌇" not in rows[i]
 
     _run(scenario())
 
 
-def test_day_detail_daylight_line_blank_without_sun_times(tmp_path, monkeypatch):
-    # An unconfigured `location` (or nothing scraped yet) -- blank, not a
-    # fabricated or stale sunrise/sunset.
+def test_day_detail_has_no_sunrise_sunset_markers_without_sun_times(tmp_path, monkeypatch):
+    # An unconfigured `location` (or nothing scraped yet) -- no markers at all,
+    # not a fabricated or stale sunrise/sunset guess.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_schedule(
         Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
@@ -787,7 +831,8 @@ def test_day_detail_daylight_line_blank_without_sun_times(tmp_path, monkeypatch)
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert str(app.screen.query_one("#daylight", Static).content) == ""
+            row = app.screen.query_one(DataTable).get_row_at(0)
+            assert row[0] == "14:00"
 
     _run(scenario())
 
@@ -1518,7 +1563,10 @@ def test_day_detail_marks_a_too_late_slot_with_a_moon(tmp_path, monkeypatch):
         Schedule(
             date="2026-09-06",
             course="18 Loch Tee 1",
-            slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="17:00", booked=0, capacity=4)],
+            # 06:00/19:00 slots exactly match sun_times below, so they (not
+            # 09:00/17:00) are the ones that pick up the 🌅/🌇 markers --
+            # keeps this test's own 09:00/17:00 rows about 🌙 alone.
+            slots=[Slot(time=t, booked=0, capacity=4) for t in ("06:00", "09:00", "17:00", "19:00")],
             sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
         ),
         path=scrape_once._db_path("0000001"),
@@ -1529,9 +1577,9 @@ def test_day_detail_marks_a_too_late_slot_with_a_moon(tmp_path, monkeypatch):
         async with app.run_test() as pilot:
             await pilot.pause()
             table = app.screen.query_one(DataTable)
-            rows = [table.get_row_at(i) for i in range(2)]
-            assert rows[0][0] == "09:00"  # comfortably before sunset -- no marker
-            assert rows[1][0] == "🌙 17:00"  # wouldn't finish before dark
+            rows = [table.get_row_at(i) for i in range(4)]
+            assert rows[1][0] == "09:00"  # comfortably before sunset -- no marker
+            assert rows[2][0] == "🌙 17:00"  # wouldn't finish before dark
 
     _run(scenario())
 
@@ -1545,7 +1593,14 @@ def test_day_detail_star_and_moon_are_mutually_exclusive(tmp_path, monkeypatch):
         Schedule(
             date="2026-09-06",
             course="18 Loch Tee 1",
-            slots=[Slot(time="17:00", booked=0, capacity=4)],  # within _RECOMMEND_CONFIG's window
+            # 06:00/19:00 slots exactly match sun_times below, so 17:00 (the
+            # slot actually under test here) doesn't also pick up a 🌅/🌇
+            # marker -- this test is about ★/🌙 alone.
+            slots=[
+                Slot(time="06:00", booked=0, capacity=4),
+                Slot(time="17:00", booked=0, capacity=4),  # within _RECOMMEND_CONFIG's window
+                Slot(time="19:00", booked=0, capacity=4),
+            ],
             sun_times=SunTimes(sunrise="06:00", sunset="19:00"),  # but too late to finish before dark
         ),
         path=scrape_once._db_path("0000001"),
@@ -1555,7 +1610,7 @@ def test_day_detail_star_and_moon_are_mutually_exclusive(tmp_path, monkeypatch):
         app = _HostApp(_day_detail())
         async with app.run_test() as pilot:
             await pilot.pause()
-            row = app.screen.query_one(DataTable).get_row_at(0)
+            row = app.screen.query_one(DataTable).get_row_at(1)
             assert row[0] == "🌙 17:00"
             assert "★" not in row[0]
 

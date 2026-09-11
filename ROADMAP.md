@@ -2878,6 +2878,42 @@ scroll), and scrolling 50 rows into the table moves only the table's own
 before and after. One new test, confirmed genuinely dependent by reverting
 (fails with `38 == 30` without the fix). 644 tests passing.
 
+**Two remarks, same day (2026-09-13): "1) make sunrise and sunset to
+corresponding rows 2) check for spacing consistency."**
+
+1: `DayDetailScreen` used to show a standalone `#daylight` summary line ("☀
+Sunrise 06:58 · Sunset 19:41") above the table, one line away from the rows it
+actually described. Removed that line entirely; new `_closest_slot_time()`
+finds whichever real slot is numerically nearest sunrise/sunset and marks
+that row's own Time cell with 🌅/🌇 directly, the same convention the
+existing ★/🌙 markers already use — can combine with either (they answer a
+different question: roughly when the sun does something, not whether a round
+starts in time to finish before dark), so a slot right at sunset can show
+both `🌙 🌇`.
+
+2: real, findable root cause — `#banners`/`#status` are plain `Static`
+widgets, and a `Static` reserves its own line of height even with nothing to
+show. With the (now-removed) `#daylight` line and these two all stacked
+above the table, an ordinary "nothing to report" moment showed a 2-3 line gap
+before the table, next to just the single blank line the switcher's own two
+dropdown rows leave between each other — genuinely inconsistent spacing, not
+just a look-and-feel nitpick. New `_AutoHideStatic` (a `Static` subclass
+overriding `update()` to also toggle `display: none`/`block` based on
+whether the new content is empty) fixes this at the source rather than
+touching every individual call site that writes to these two widgets across
+`OverviewScreen`, `DayDetailScreen`, `_ClubCourseSwitcher`, and `TeetimeApp`
+itself — a find-and-replace across that many places would only need to miss
+one to silently reintroduce the same inconsistency.
+
+6 new/rewritten tests (sunrise/sunset row-marking, no markers without
+`sun_times`, the auto-hide toggle itself, plus 4 existing tests updated once
+extra filler slots were needed so a test's own single slot didn't
+accidentally also become "nearest" to sunrise/sunset) — confirmed genuinely
+dependent by reverting. Verified live: 🌅 landed on the exact real row
+nearest a live sunrise time (06:52 → the 06:50 row), the legend now lists
+both new icons, and the gap above the table now matches the gap between the
+switcher's own two rows. 645 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
