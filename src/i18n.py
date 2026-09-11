@@ -38,6 +38,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "picker.club_title": "Which club?",
         "picker.course_title": "Which course?",
+        "switcher.club_label": "Club:",
+        "switcher.course_label": "Course:",
         "app.no_clubs": "No clubs saved yet — copy clubs/club.example.yaml first.",
         "app.no_club_id": "clubs/{slug}.yaml has no club_id set.",
         "app.course_fetch_failed": "Couldn't load this club's course list: {error}",
@@ -214,6 +216,8 @@ _STRINGS: dict[str, dict[str, str]] = {
     "de": {
         "picker.club_title": "Welcher Club?",
         "picker.course_title": "Welcher Platz?",
+        "switcher.club_label": "Club:",
+        "switcher.course_label": "Platz:",
         "app.no_clubs": "Noch kein Club gespeichert — zuerst clubs/club.example.yaml kopieren.",
         "app.no_club_id": "clubs/{slug}.yaml hat keine club_id.",
         "app.course_fetch_failed": "Kursliste des Clubs konnte nicht geladen werden: {error}",

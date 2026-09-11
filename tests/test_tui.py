@@ -3,7 +3,7 @@ import threading
 
 import pytest
 from textual.app import App
-from textual.widgets import DataTable, Input, OptionList, Select, Static
+from textual.widgets import DataTable, Input, Label, OptionList, Select, Static
 
 from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
 from src.club_config import list_clubs as _real_list_clubs
@@ -4002,7 +4002,13 @@ def test_overview_screen_switches_course_inline_without_leaving_the_screen(tmp_p
             await pilot.pause()
             assert app.screen is screen  # stayed on the same screen -- no navigation
             assert screen.course == "9 Loch Tee 1"
-            assert "9 Loch Tee 1" in screen.title
+            # OverviewScreen doesn't set its own title at all any more
+            # (2026-09-11, direct feedback: "remove the club/course names since
+            # they will be redundant" -- the labelled #switcher dropdowns
+            # already show both) -- Header falls back to the App's own plain
+            # TITLE instead, so there's genuinely nothing screen-specific left
+            # to assert here.
+            assert screen.title is None
 
     _run(scenario())
 
@@ -4059,7 +4065,9 @@ def test_overview_screen_switches_club_inline_and_keeps_periodic_scrape_in_sync(
             assert screen.club_slug == "second-club"
             assert screen.course == "9 Loch Tee 1"  # configs["second-club"]'s default_course
             assert screen.query_one("#course-select", Select).value == "9 Loch Tee 1"
-            assert "Musterclub" in screen.title  # _set_title() actually took effect
+            # No title assertion here any more -- see the analogous course-switch
+            # test's own comment: OverviewScreen doesn't set a title at all now.
+            assert screen.title is None
 
             # The App's own active-club bookkeeping followed the switch too -- the
             # exact state _periodic_scrape() reads on its next tick.
@@ -4103,6 +4111,120 @@ def test_overview_screen_switching_club_inline_saves_the_last_active_club(tmp_pa
 
     _run(scenario())
     assert saved == [("0500000", "second-club", "9 Loch Tee 1")]
+
+
+def test_overview_screen_switcher_rows_are_labelled(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-11: "I want labels to the left of club and course
+    # selector drop downs."
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            labels = {str(label.content) for label in app.screen.query(Label)}
+            assert i18n.t("switcher.club_label") in labels
+            assert i18n.t("switcher.course_label") in labels
+
+    _run(scenario())
+
+
+def test_day_detail_screen_has_a_labelled_club_course_switcher(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-11: "I want the club and course selector drop
+    # downs also implemented in the detailed view."
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert screen.query_one("#club-select", Select).value == "0000001"
+            assert screen.query_one("#course-select", Select).value == "18 Loch Tee 1"
+            labels = {str(label.content) for label in screen.query(Label)}
+            assert i18n.t("switcher.club_label") in labels
+            assert i18n.t("switcher.course_label") in labels
+
+    _run(scenario())
+
+
+def test_day_detail_screen_switches_course_inline_keeping_the_same_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(date="2026-09-06", course="9 Loch Tee 1", slots=[Slot(time="08:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen.query_one("#course-select", Select).value = "9 Loch Tee 1"
+            await pilot.pause()
+
+            assert app.screen is screen  # reloaded in place -- no navigation
+            assert screen.course == "9 Loch Tee 1"
+            assert screen.date == "2026-09-06"  # unchanged by a course switch
+            table = screen.query_one(DataTable)
+            assert table.get_row_at(0)[0] == "08:00"  # the new course's own schedule
+
+    _run(scenario())
+
+
+def test_day_detail_screen_switches_club_inline_keeping_the_same_date(tmp_path, monkeypatch):
+    # A real TeetimeApp, not a bare _HostApp -- _switch_club() also touches App-level
+    # bookkeeping (app._periodic_scrape()) that only a real app has, same reasoning
+    # as OverviewScreen's own analogous inline-club-switch test above.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["musterhausen", "second-club"])
+    configs = {
+        "musterhausen": {"club_id": "0000001"},
+        "second-club": {"club_id": "0500000", "name": "Musterclub", "default_course": "9 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(
+        tui,
+        "fetch_course_aliases",
+        lambda club_id: {"9 Loch Tee 1": "COU1"} if club_id == "0500000" else {"18 Loch Tee 1": "COUB"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot, club_id="0000001")
+            screen = app.screen
+            today = tui._TODAY()
+            screen.query_one("#club-select", Select).value = "0500000"
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.screen is screen  # reloaded in place -- no navigation
+            assert screen.club_id == "0500000"
+            assert screen.club_slug == "second-club"
+            assert screen.course == "9 Loch Tee 1"  # configs["second-club"]'s default_course
+            assert screen.date == today  # unchanged by a club switch
+
+    _run(scenario())
+
+
+def test_day_detail_screen_title_shows_app_name_and_date_not_club_or_course(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-11: "I want the header to include the name of the
+    # TUI 'teetime-monitor' and remove the club/course names since they will be
+    # redundant." The date stays (see _set_title()'s own docstring) -- nothing
+    # else on this screen shows which day it is.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_day_detail(club_slug="musterhausen", course="18 Loch Tee 1", date="2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.screen.title == f"{tui.TeetimeApp.TITLE} — 2026-09-06"
+            assert "musterhausen" not in app.screen.title
+            assert "18 Loch Tee 1" not in app.screen.title
+
+    _run(scenario())
 
 
 # HeatmapScreen (ROADMAP.md Phase 5) -- added 2026-09-08, direct request: "Can we
