@@ -358,6 +358,33 @@ def test_day_detail_screen_hides_empty_banner_and_status_lines(tmp_path, monkeyp
     _run(scenario())
 
 
+def test_day_detail_screen_search_opens_with_the_overviews_own_schedules(tmp_path, monkeypatch):
+    # Direct question, 2026-09-13: "why is adhoc search not accessible from
+    # detailed view?" -- '/' now opens the same SearchScreen as the overview's
+    # own, reusing that screen's already-loaded data rather than fetching
+    # anything fresh.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": "COUB"})
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_day_detail(app, pilot, club_id="0000001")
+            overview = app.screen_stack[-2]
+            day_detail = app.screen
+            day_detail.action_search()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SearchScreen)
+            assert app.screen.schedules is overview._schedules
+            assert app.screen.club_id == "0000001"
+
+    _run(scenario())
+
+
 def test_day_detail_shows_placeholder_when_never_scraped(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
@@ -771,7 +798,9 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             headers = [str(col.label) for col in table.columns.values()]
-            assert headers == ["Time", "Occupancy", "Players", "Temperature", "Precipitation", "Wind", "Events"]
+            assert headers == [
+                "Time", "Occupancy", "Players", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events"
+            ]
             open_row = table.get_row_at(0)
             assert open_row[3] == "16°"
             assert "90%" in open_row[4]
@@ -783,11 +812,14 @@ def test_day_detail_table_shows_temperature_precipitation_wind_and_events_column
     _run(scenario())
 
 
-def test_day_detail_marks_the_rows_nearest_sunrise_and_sunset(tmp_path, monkeypatch):
+def test_day_detail_notes_sunrise_and_sunset_on_their_nearest_rows(tmp_path, monkeypatch):
     # Direct feedback, 2026-09-13: "make sunrise and sunset to corresponding
     # rows" -- replacing the old standalone #daylight summary line (see
-    # test_day_detail_shows_sunrise_and_sunset in this file's own history) with
-    # a 🌅/🌇 marker on whichever row is actually nearest each time.
+    # test_day_detail_shows_sunrise_and_sunset in this file's own history).
+    # Plain wording plus the exact time in the Events column, not an icon in
+    # Time (2026-09-13, same-day follow-up on this very feature: "i don't like
+    # the icons for sunrise/sunset (just use the proper terms instead in
+    # events with exact time)").
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     storage.save_schedule(
         Schedule(
@@ -804,16 +836,50 @@ def test_day_detail_marks_the_rows_nearest_sunrise_and_sunset(tmp_path, monkeypa
         async with app.run_test() as pilot:
             await pilot.pause()
             table = app.screen.query_one(DataTable)
-            rows = [table.get_row_at(i)[0] for i in range(table.row_count)]
+            rows = [table.get_row_at(i) for i in range(table.row_count)]
             # Index matches slots' own order: 06:00, 06:30, 07:00, 19:30, 20:00.
-            assert "🌅" in rows[2] and "07:00" in rows[2]
+            # Time column stays plain -- no icon.
+            assert rows[2][0] == "07:00"
+            assert rows[2][6] == i18n.t("events.sunrise", time="06:50")
             # 20:00 is already past sunset, so it also carries its own separate
-            # 🌙 "too late to finish" marker -- both can coexist (see the class
-            # docstring: they answer different questions).
-            assert "🌇" in rows[4] and "20:00" in rows[4]
+            # 🌙 "too late to finish" Time marker -- independent of the Events
+            # column note, not combined into one cell any more.
+            assert rows[4][0] == "🌙 20:00"
+            assert rows[4][6] == i18n.t("events.sunset", time="19:58")
             # Nowhere else.
             for i in (0, 1, 3):
-                assert "🌅" not in rows[i] and "🌇" not in rows[i]
+                assert rows[i][6] == ""
+
+    _run(scenario())
+
+
+def test_day_detail_marks_the_confirmed_bookings_own_row(tmp_path, monkeypatch):
+    # Direct question, 2026-09-13: "why don't i see confirmed tee times in
+    # detailed view, but only in overview?" -- _day_pick_text() already does
+    # the day-level equivalent for OverviewScreen's own Pick column; nothing
+    # mirrored it at the per-slot level here until now.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    storage.save_schedule(
+        Schedule(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="09:10", booked=0, capacity=4)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="09:00", holes=18, source="manual"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_day_detail())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            rows = [table.get_row_at(i) for i in range(2)]
+            assert f"📌 {i18n.t('overview.booked')}" in rows[0][6]
+            assert rows[1][6] == ""
 
     _run(scenario())
 
@@ -1880,7 +1946,9 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             headers = [str(col.label) for col in table.columns.values()]
-            assert headers == ["Day", "Temperature", "Precipitation", "Wind", "Events", "Heat 08–20", "Pick"]
+            assert headers == [
+                "Day", "Temperature (°C)", "Precipitation (%/mm)", "Wind (km/h)", "Events", "Occupancy 08–20", "Pick"
+            ]
             row = table.get_row_at(0)  # today, Day/Temperature/Precipitation/Wind/Events/Heat/Pick
             assert row[1] == "20°/20°"  # real temperature, not the event
             assert "5%" in row[2]
@@ -3908,7 +3976,7 @@ def test_day_detail_renders_german_table_headers_and_placeholder(tmp_path, monke
             await pilot.pause()
             table = app.screen.query_one(DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
-                "Zeit", "Belegung", "Spieler", "Temperatur", "Niederschlag", "Wind", "Termine"
+                "Zeit", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)", "Wind (km/h)", "Termine"
             ]
             row = table.get_row_at(0)
             assert row[1] == "noch keine Daten"
@@ -3955,7 +4023,7 @@ def test_app_switch_language_command_rebuilds_day_detail_screen_in_german(tmp_pa
 
             table = app.screen.query_one(DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
-                "Zeit", "Belegung", "Spieler", "Temperatur", "Niederschlag", "Wind", "Termine"
+                "Zeit", "Belegung", "Spieler", "Temperatur (°C)", "Niederschlag (%/mm)", "Wind (km/h)", "Termine"
             ]
 
     _run(scenario())

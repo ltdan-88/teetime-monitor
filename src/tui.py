@@ -1115,8 +1115,8 @@ def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> 
 
 def _closest_slot_time(times: list[str], target: str) -> str | None:
     """Whichever "HH:MM" in `times` is numerically nearest `target` -- used by
-    `DayDetailScreen.load_schedule()` to attach a 🌅/🌇 marker to the row nearest
-    sunrise/sunset (2026-09-13, direct feedback: "make sunrise and sunset to
+    `DayDetailScreen.load_schedule()` to note sunrise/sunset on the row nearest
+    each one (2026-09-13, direct feedback: "make sunrise and sunset to
     corresponding rows" — replacing the old standalone `#daylight` summary line,
     which duplicated the same information one line up instead of showing it where
     it's actually relevant). `None` for an empty `times` (no slots at all, or no
@@ -1239,11 +1239,10 @@ OVERVIEW_LEGEND = [
 DAY_DETAIL_LEGEND = [
     ("★", "legend.recommended"),
     ("🌙", "legend.too_late"),
-    ("🌅", "legend.sunrise"),
-    ("🌇", "legend.sunset"),
     ("🌧", "legend.rain"),
     ("💨", "legend.wind"),
     ("📋", "legend.event"),
+    ("📌", "overview.booked"),
     ("⚠", "legend.changed"),
 ]
 
@@ -2254,20 +2253,25 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
 
     Sunrise/sunset (`Schedule.sun_times`, persisted since 2026-09-08 — see
     `storage.init_db()`'s own docstring for the real gap that closed) mark their own
-    nearest row's Time cell directly — 🌅/🌇 (2026-09-13, direct feedback: "make
-    sunrise and sunset to corresponding rows," replacing a standalone `#daylight`
-    summary line that used to sit above the table and just repeated the same two
-    times one line away from where they actually apply; see `_closest_slot_time()`'s
-    own docstring). Each row's own Time cell also carries a 🌙 marker (2026-09-09,
-    direct request: "immediately see in the detailed view, which of the timeslots
-    are already too late until sunset") once `_too_late_for_daylight()` says a
-    round starting there wouldn't finish before dark — independent of whether
-    `availability` rules are configured at all, since this is a physics fact about
-    the slot, not a preference judgment; mutually exclusive with the ★
-    recommended-slot marker by construction, since a daylight-failing candidate is
-    never ★-recommended in the first place. 🌅/🌇 can combine with either, since
-    they answer a different question (roughly when the sun does something, not
-    whether a round fits before dark).
+    nearest row's Events column with a plain "Sunrise HH:MM"/"Sunset HH:MM" note
+    (2026-09-13, direct feedback: "make sunrise and sunset to corresponding rows,"
+    replacing a standalone `#daylight` summary line that used to sit above the
+    table and just repeated the same two times one line away from where they
+    actually apply; see `_closest_slot_time()`'s own docstring) — plain wording
+    with the exact time, not an icon, per the very next remark on the same feature:
+    "i don't like the icons for sunrise/sunset (just use the proper terms instead
+    in events with exact time)." A confirmed booking marks its own row's Events
+    column too, with "📌 booked" (2026-09-13, direct question: "why don't i see
+    confirmed tee times in detailed view, but only in overview?" — `_day_pick_text()`
+    already does the day-level equivalent for `OverviewScreen`). Each row's own Time
+    cell separately carries a 🌙 marker (2026-09-09, direct request: "immediately
+    see in the detailed view, which of the timeslots are already too late until
+    sunset") once `_too_late_for_daylight()` says a round starting there wouldn't
+    finish before dark — independent of whether `availability` rules are
+    configured at all, since this is a physics fact about the slot, not a
+    preference judgment; mutually exclusive with the ★ recommended-slot marker by
+    construction, since a daylight-failing candidate is never ★-recommended in the
+    first place.
 
     A dim `#legend` line below the table (`DAY_DETAIL_LEGEND`, added alongside
     `OverviewScreen`'s own the same day — see that screen's docstring for the direct
@@ -2307,6 +2311,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         ("c", "confirm", "Confirm tee time"),
         ("n", "next_day", "Next day"),
         ("p", "prev_day", "Previous day"),
+        ("/", "search", "Search"),
         ("s", "switch", "Switch club/course"),
         ("e", "edit_settings", "Settings"),
         ("x", "dismiss_banners", "Dismiss banners"),
@@ -2320,6 +2325,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         ("c", "binding.confirm"),
         ("n", "binding.next_day"),
         ("p", "binding.prev_day"),
+        ("/", "binding.search"),
         ("s", "binding.switch"),
         ("e", "binding.settings"),
         ("x", "binding.dismiss_banners"),
@@ -2430,12 +2436,22 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         now = _NOW_HHMM() if self.date == _TODAY() else None
         recommended_times = self._recommended_times(schedule)
         config = _resolved_config(self.club_slug, self.club_id, self.club_name)
-        # Whichever row is nearest sunrise/sunset gets its own 🌅/🌇 marker below --
-        # None (no marker anywhere) when sun_times isn't known yet, same graceful
-        # "unknown, not assumed" stance _too_late_for_daylight() already takes.
+        # Whichever row is nearest sunrise/sunset carries its own note in the Events
+        # column below (plain wording plus the exact time, not an icon -- 2026-09-13
+        # follow-up on the very feature that first added this: "i don't like the
+        # icons for sunrise/sunset (just use the proper terms instead in events with
+        # exact time)"). None (no note anywhere) when sun_times isn't known yet, same
+        # graceful "unknown, not assumed" stance _too_late_for_daylight() already
+        # takes.
         slot_times = [slot.time for slot in schedule.slots]
         sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
         sunset_row = _closest_slot_time(slot_times, schedule.sun_times.sunset) if schedule.sun_times else None
+        # This club's own confirmed booking for today, if any -- marked directly on
+        # its own row's Events column (2026-09-13, direct question: "why don't i see
+        # confirmed tee times in detailed view, but only in overview?"). The overview
+        # already shows this in its own day-level Pick column (`_day_pick_text()`);
+        # nothing here mirrored it at the per-slot level until now.
+        confirmed = storage.load_confirmed_booking(self.course, self.date, path=self.db_path)
         for slot in schedule.slots:
             self._row_times.append(slot.time)
             is_past = now is not None and slot.time < now
@@ -2444,13 +2460,16 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 markers.append("★")
             elif not is_past and _too_late_for_daylight(slot.time, schedule, config):
                 markers.append("🌙")
-            if slot.time == sunrise_row:
-                markers.append("🌅")
-            if slot.time == sunset_row:
-                markers.append("🌇")
             time_cell = _dim_if(slot.time, is_past)
             if markers:
                 time_cell = f"{' '.join(markers)} {time_cell}"
+            extra_events = []
+            if slot.time == sunrise_row:
+                extra_events.append(i18n.t("events.sunrise", time=schedule.sun_times.sunrise))
+            if slot.time == sunset_row:
+                extra_events.append(i18n.t("events.sunset", time=schedule.sun_times.sunset))
+            if confirmed is not None and slot.time == confirmed.time:
+                extra_events.append(f"📌 {i18n.t('overview.booked')}")
             temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time), is_past)
             precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time), is_past)
             wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time), is_past)
@@ -2471,6 +2490,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 # a separate events column") -- Occupancy shows a plain dash for a
                 # blocked row instead, same as the overview's own "nothing here, see
                 # elsewhere" convention.
+                event_text = ", ".join([_slot_event_cell(slot), *extra_events])
                 table.add_row(
                     time_cell,
                     "[dim]—[/]",
@@ -2478,7 +2498,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                     temperature_cell,
                     precipitation_cell,
                     wind_cell,
-                    f"[dim]{_slot_event_cell(slot)}[/]",
+                    f"[dim]{event_text}[/]",
                 )
                 continue
             style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(
@@ -2493,7 +2513,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
                 temperature_cell,
                 precipitation_cell,
                 wind_cell,
-                "",
+                ", ".join(extra_events),
             )
 
     def _recommended_times(self, schedule: Schedule) -> set[str]:
@@ -2598,6 +2618,21 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
         storage.acknowledge_booking_changes([change["id"] for change in changes], path=self.db_path)
         self.refresh_banners()
+
+    def action_search(self) -> None:
+        """Opens the same ad hoc search `/` already opens from `OverviewScreen`
+        (2026-09-13, direct question: "why is adhoc search not accessible from
+        detailed view?"). Reuses the `OverviewScreen` this day was drilled into
+        from -- always directly beneath this one on the stack, same assumption
+        `action_back_to_overview()` already makes -- for its already-loaded
+        `_schedules`/`_config()`, exactly the same data `/` already searches
+        there, rather than fetching anything fresh."""
+        if len(self.app.screen_stack) < 2:
+            return  # reached some other way (a test, a future entry point) -- nothing to search
+        overview = self.app.screen_stack[-2]
+        if not isinstance(overview, OverviewScreen):
+            return
+        self.app.push_screen(SearchScreen(overview._schedules, overview._config(), self.club_id))
 
     def action_quit(self) -> None:
         self.app.exit()
