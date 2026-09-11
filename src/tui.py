@@ -2211,9 +2211,27 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     actually shared. Switching either one reloads this exact same date for the
     new club/course rather than bouncing back to the overview; `s` still opens the
     full club browser for finding a club you haven't saved yet, same relationship
-    to the dropdowns as on the overview."""
+    to the dropdowns as on the overview.
 
-    CSS = _SWITCHER_CSS
+    `#table` is given `height: 1fr` (2026-09-11, direct feedback: "fixate...
+    1) area until table header 2) area from legend to bottom") -- without a
+    constrained height, a day with many slots (every 10 minutes across a whole
+    opening window is 80+ rows) makes the table taller than the viewport, and
+    `Screen`'s own default "just scroll the whole thing" fallback kicks in --
+    dragging the switcher/banners/daylight/status area at the top, and the
+    legend/footer at the bottom, out of view along with it. `1fr` instead makes
+    the table claim exactly whatever space is left over once everything else's
+    own natural height is accounted for, so the screen itself never needs to
+    scroll — only the table's own rows do, via `DataTable`'s existing built-in
+    scrolling, same convention `SearchScreen`'s `#search-results` and
+    `ClubBrowserScreen`'s `#club-results` already use for the identical
+    reason."""
+
+    CSS = _SWITCHER_CSS + """
+    #table {
+        height: 1fr;
+    }
+    """
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
