@@ -2719,7 +2719,21 @@ class TeetimeApp(App[None]):
         club_id = last_active["club_id"]
         slug = last_active.get("slug")
         course = last_active["course"]
-        config = club_config.load_club_config(slug) if slug else {}
+        # A missing file here is a real, reachable case, not just theoretical --
+        # found live 2026-09-11: the remembered slug in ~/.config/teetime-monitor/config
+        # survives across whatever directory teetime-monitor happens to be launched
+        # from (see user_config.py), but clubs/*.yaml itself is deliberately
+        # cwd-relative (see this module's own docstring, "reads its own state... from
+        # whatever directory you run it in"), so a remembered club whose file lives in
+        # a different launch directory's clubs/ folder reads as plain "missing" here.
+        # Degrades to an empty config rather than aborting the resume entirely --
+        # same fallback `_resolved_config()` already uses for a load_club_config()
+        # miss -- since the live fetch_course_aliases() check just below is what
+        # actually decides whether this remembered club/course is still good.
+        try:
+            config = club_config.load_club_config(slug) if slug else {}
+        except FileNotFoundError:
+            config = {}
         try:
             courses = list(fetch_course_aliases(club_id))
         except Exception:  # noqa: BLE001 — any live-fetch failure just means "ask instead"
