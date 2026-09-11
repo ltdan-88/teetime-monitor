@@ -470,6 +470,95 @@ def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monk
     assert saved == booking
 
 
+# --- Cancellation reconciliation -- direct question, 2026-09-13: "how do i
+# cancel/modify confirmed tee times?" A previously-known *future* my_reservations
+# booking that's disappeared from the live list has been cancelled on pc caddie's
+# own real site directly; _sync_my_reservations() used to only ever add rows, so
+# this never actually got noticed locally. -----------------------------------------
+
+
+def test_sync_my_reservations_marks_a_disappeared_future_booking_as_not_playing(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    future = (scrape_once.date_cls.today() + timedelta(days=5)).isoformat()
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date=future, course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"),
+        path=db_path,
+    )
+    # The live list no longer has it -- cancelled on the real site.
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [])
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", future, path=db_path)
+    assert saved.time is None  # "confirmed not playing" -- the existing sentinel
+    assert saved.source == "my_reservations"
+
+
+def test_sync_my_reservations_does_not_cancel_a_past_booking_that_naturally_dropped_off(tmp_path, monkeypatch):
+    # "My Reservations" isn't a history view -- it drops a booking once its own
+    # date has passed, regardless of whether it was played or cancelled. Must
+    # never be mistaken for a cancellation, or every played round would get
+    # flagged "cancelled" the moment its own date passed.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    past = (scrape_once.date_cls.today() - timedelta(days=5)).isoformat()
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date=past, course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"),
+        path=db_path,
+    )
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [])
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", past, path=db_path)
+    assert saved.time == "14:00"  # untouched
+
+
+def test_sync_my_reservations_does_not_cancel_a_manual_confirmation(tmp_path, monkeypatch):
+    # "My Reservations" was never going to confirm or deny a manual (`c` in the
+    # TUI) record in the first place -- see ConfirmedBooking's own docstring on
+    # why that fallback exists at all.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    future = (scrape_once.date_cls.today() + timedelta(days=5)).isoformat()
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date=future, course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
+        path=db_path,
+    )
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [])
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", future, path=db_path)
+    assert saved.time == "14:00"  # untouched
+
+
+def test_sync_my_reservations_reinstates_a_booking_that_reappears_live(tmp_path, monkeypatch):
+    # Cancel, then rebook the exact same course/date -- the fresh live row
+    # should win again ("latest wins"), undoing the earlier cancellation.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    future = (scrape_once.date_cls.today() + timedelta(days=5)).isoformat()
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date=future, course="18 Loch Tee 1", time=None, source="my_reservations", confirmed_at="t1"),
+        path=db_path,
+    )
+    rebooked = ConfirmedBooking(
+        date=future, course="18 Loch Tee 1", time="15:00", source="my_reservations", confirmed_at="t2"
+    )
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [rebooked])
+
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", future, path=db_path)
+    assert saved.time == "15:00"
+
+
 def test_scrape_due_for_club_uses_the_clubs_own_booking_window(tmp_path, monkeypatch):
     # The club's real bookable dates win over the configured overview_days -- a fixed 5
     # was both asking some clubs for dates their site rejects and ignoring most of the

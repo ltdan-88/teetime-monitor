@@ -118,7 +118,12 @@ spec.
   teetime-monitor never books for you, but this is what actually gives the stats below
   something to work with. A manual confirm keypress (`c` in the TUI) stays as a fallback
   for the rare same-day-booking timing gap — pre-filled from whatever row is
-  highlighted and the course you're already viewing, not re-typed by hand
+  highlighted and the course you're already viewing, not re-typed by hand.
+  Cancelling or changing a booking still has to happen on pc caddie's own site
+  (teetime-monitor doesn't book or cancel anything itself) — a cancelled *future*
+  booking is noticed on the next sync and clears the local "booked" marker; a
+  *past* date dropping off "My Reservations" is normal (that page isn't a
+  history view) and never gets mistaken for a cancellation
 - Two labelled dropdowns near the top — club and course, stacked one under the
   other — switch between clubs/courses you already have saved without leaving the
   screen at all (added 2026-09-09, direct feedback: "would it be possible to
