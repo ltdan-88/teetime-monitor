@@ -2962,13 +2962,17 @@ showing units. 647 tests passing.
   call site that currently assumes km/h/°C/mm). Own version once started.
 - 7) Confirm tee times from ad hoc search — needs `SearchScreen` to track
   which result row is selected (parallel to `DayDetailScreen._row_times`) and
-  wire a `c` binding to `ConfirmBookingScreen`. Grouped with 8/9 below since
-  all three touch the same results table.
-- 8) Ad hoc search's own results table always spans exactly one course
-  (`SearchScreen.schedules` is `OverviewScreen._schedules`, itself filtered
-  to the active course) — the per-row Course column is provably redundant,
-  same "state it once, not every row" reasoning behind the header-title
-  cleanup two versions back. Move it into the screen's own title instead.
+  wire a `c` binding to `ConfirmBookingScreen`. Grouped with 9 below since
+  both touch the same results table.
+- ~~8) Ad hoc search's own results table always spans exactly one course~~ —
+  **resolved the same day, turned out to be genuinely easy on its own**:
+  `SearchScreen.schedules` is always `OverviewScreen._schedules`, itself
+  already filtered to the active course, so the per-row Course column never
+  actually varied within a single search. Removed the column entirely; the
+  course now joins the screen's own title instead ("Search this week — 18
+  Loch Tee 1"), same "state it once, not every row" reasoning behind the
+  header-title cleanup two versions back. 1 test updated, confirmed
+  genuinely dependent by reverting. Verified live. 647 tests passing.
 - 9) Ad hoc search's results table only ever showed Date/Time/Course/Notes —
   `SlotMatch.slot` already carries `booked`/`capacity`/`players`, and the
   matching `Schedule.weather` is already in `self.schedules`; adding

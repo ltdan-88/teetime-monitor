@@ -222,13 +222,14 @@ spec.
   per day across the whole loaded window (not just whichever day happened to have the
   most open slots), shown only once you've actually set availability rules. `enter`
   drills into that day's own single-day detail table; `escape` there pops back
-- Search for the one-off exceptions (`/` from the overview): a small form, pre-filled
-  from your saved availability so you're tweaking one case rather than typing
-  everything from scratch — e.g. "just this once, 3 players, weekdays only, after
-  15:00" — searched across every day already loaded, no fresh scrape. Party size,
-  time windows, and the before/after buffer are checked exactly (plain code); the
-  weather/daylight sanity check and the same AI ranking behind the automatic weekly
-  picks both still apply on top
+- Search for the one-off exceptions (`/`, from either the overview or a drilled-into
+  day): a small form, pre-filled from your saved availability so you're tweaking one
+  case rather than typing everything from scratch — e.g. "just this once, 3 players,
+  weekdays only, after 15:00" — searched across every day already loaded, no fresh
+  scrape. Party size, time windows, and the before/after buffer are checked exactly
+  (plain code); the weather/daylight sanity check and the same AI ranking behind the
+  automatic weekly picks both still apply on top. The active course is stated once in
+  the screen's own title, not repeated on every result row
 - A crowd heatmap — historical occupancy grouped by actual weekday (Sun-Sat), plus a
   separate "special days" comparison for tournament/public holiday/vacation days, so
   a future vacation-week Monday gets compared against other vacation days rather than
