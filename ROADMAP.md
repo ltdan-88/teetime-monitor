@@ -3074,6 +3074,47 @@ This closes out all ten remarks from the 2026-09-13 batch except 4)
 conversation) and 5) (answered directly — see above — with a real,
 separate staleness gap found but not yet fixed).
 
+**5), actually fixed now: "how do i cancel/modify confirmed tee times?"**
+The user picked this up first out of the two remaining items. The gap found
+while answering the question two versions ago: `_sync_my_reservations()`
+only ever *added* confirmed-booking rows from a live "My Reservations" read,
+never removed one that had disappeared from the live list — so cancelling on
+pc caddie's own real site never actually cleared teetime-monitor's own
+"still booked" state locally.
+
+New `_reconcile_cancelled_reservations()`, called right after
+`_sync_my_reservations()` saves whatever the live list currently shows.
+Deliberately narrow:
+
+- Only checks *future* (today or later) dates. A *past* date disappearing
+  from "My Reservations" is completely normal — that page isn't a history
+  view, it naturally drops a booking once its date has passed — and must
+  never be mistaken for a cancellation, or every single played round would
+  get flagged "cancelled" the moment its own date passed.
+- Only ever reconciles `source="my_reservations"` rows. A `source="manual"`
+  confirmation (the TUI's own `c`, the same-day-booking timing-gap fallback)
+  is never auto-cancelled by this comparison, since "My Reservations" was
+  never going to confirm or deny it in the first place.
+- Writes a `time=None` sentinel row rather than deleting anything —
+  `confirmed_bookings` is deliberately append-only (analytics needs the
+  full history — `load_all_confirmed_bookings()`'s own docstring), and
+  `time=None` already means "confirmed not playing that day" *everywhere*
+  this gets read back: `ConfirmedBooking.time`'s own docstring already
+  documented this exact sentinel, `booking_watch.check_for_changes()` and
+  every confirmed-booking display in `tui.py` already treat a falsy `.time`
+  as "nothing to show" here — a real, if quietly unused, design that was
+  already fully correct downstream, just never actually written by anything
+  until now. "Latest wins" (`load_confirmed_booking()`) means the new row
+  simply supersedes the stale one going forward.
+- Cancel-then-rebook the same course/date "just works" without any special
+  handling: a fresh live row for that course/date becomes the new latest
+  automatically, undoing the earlier cancellation sentinel.
+
+5 new tests, confirmed genuinely dependent by reverting. Also checked live
+against a copy of this developer's own real database (a throwaway `/tmp`
+copy, not the real file) with a synthetic future booking, confirming the
+exact before/after behavior. 677 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

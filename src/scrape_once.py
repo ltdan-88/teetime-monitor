@@ -61,6 +61,7 @@ from pathlib import Path
 
 from . import booking_watch, club_config, global_preferences, storage
 from . import weather as weather_module
+from .models import ConfirmedBooking
 from .search import resolve_buffer_minutes
 from .scraper import (
     LoginError,
@@ -184,19 +185,82 @@ def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None
     """Best-effort: log in and save any confirmed bookings pc caddie shows for this
     account. Every failure mode here is deliberately swallowed, not propagated — see
     the module docstring's "Login" note for the full list of why. This is the
-    login-dependent counterpart to the always-runs schedule scrape above."""
+    login-dependent counterpart to the always-runs schedule scrape above.
+
+    Also reconciles cancellations (2026-09-13, see `_reconcile_cancelled_
+    reservations()`'s own docstring) — this used to only ever *add* rows here,
+    so cancelling a booking on pc caddie's own real site never actually cleared
+    teetime-monitor's own "still booked" state."""
     if not slug:
         return  # can't resolve credentials (keyed by slug) without knowing it
     username, password = club_config.resolve_credentials(slug)
     if not username or not password:
         return  # PCC_USER/PCC_PASS not configured yet for this club
     try:
-        for booking in scrape_my_reservations(club_id, username, password):
-            storage.save_confirmed_booking(booking, path=db_path)
+        live_bookings = scrape_my_reservations(club_id, username, password)
     except LoginError as exc:
         print(f"[scrape_once] login failed for {club_id}: {exc}")
+        return
     except NotImplementedError:
-        pass  # a real booking exists but scraper.py can't parse its row markup yet
+        return  # a real booking exists but scraper.py can't parse its row markup yet
+    for booking in live_bookings:
+        storage.save_confirmed_booking(booking, path=db_path)
+    _reconcile_cancelled_reservations(live_bookings, db_path)
+
+
+def _reconcile_cancelled_reservations(live_bookings: list[ConfirmedBooking], db_path: Path) -> None:
+    """A previously-known *future* booking that's silently disappeared from pc
+    caddie's own live "My Reservations" list has been cancelled there directly —
+    found live, 2026-09-13, answering a direct question: "how do i cancel/modify
+    confirmed tee times?" `_sync_my_reservations()` above only ever *added* rows,
+    so cancelling on the real site never actually cleared teetime-monitor's own
+    "still booked" state; the stale confirmation just sat there, unacknowledged,
+    until (if ever) a brand new confirmation for that same course/date overwrote
+    it.
+
+    Deliberately only checks *future* (today or later) dates — a *past* date
+    disappearing from "My Reservations" is completely normal (that page isn't a
+    history view; it naturally drops a booking once its date has passed) and
+    must never be mistaken for a cancellation, or every single played round
+    would get flagged "cancelled" the moment its own date passed.
+
+    Only ever reconciles `source="my_reservations"` rows — a `source="manual"`
+    confirmation (the TUI's own `c`, the same-day-booking timing-gap fallback
+    this whole mechanism exists alongside — see `ConfirmedBooking`'s own
+    docstring) is deliberately never auto-cancelled by this live comparison,
+    since "My Reservations" was never going to confirm or deny it in the first
+    place.
+
+    Writes a `time=None` sentinel row rather than deleting anything —
+    `confirmed_bookings` is deliberately append-only (`load_all_confirmed_
+    bookings()`'s own docstring: analytics needs the full history), and
+    `time=None` already means "confirmed not playing that day" everywhere this
+    gets read back (`ConfirmedBooking.time`'s own docstring; `booking_watch.
+    check_for_changes()` and every confirmed-booking display in `tui.py` already
+    treat a falsy `.time` as "nothing to show" here) — reusing an existing,
+    already-correct sentinel rather than inventing a new one, and "latest wins"
+    (`load_confirmed_booking()`) means this new row simply supersedes the stale
+    one going forward without erasing it."""
+    today = date_cls.today().isoformat()
+    live_keys = {(booking.course, booking.date) for booking in live_bookings}
+    for known in storage.load_all_confirmed_bookings(path=db_path):
+        if known.source != "my_reservations" or known.time is None:
+            continue  # a manual record, or already reconciled/genuinely "not playing"
+        if known.date < today:
+            continue
+        if (known.course, known.date) in live_keys:
+            continue
+        storage.save_confirmed_booking(
+            ConfirmedBooking(
+                date=known.date,
+                course=known.course,
+                time=None,
+                holes=None,
+                source="my_reservations",
+                confirmed_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            path=db_path,
+        )
 
 
 def _club_config_and_slug_for_id(club_id: str) -> tuple[dict, str | None]:
