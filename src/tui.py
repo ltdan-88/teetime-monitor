@@ -1113,6 +1113,24 @@ def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> 
     return not playability.is_playable(slot_time, schedule.sun_times.sunset, duration, buffer_minutes)
 
 
+def _closest_slot_time(times: list[str], target: str) -> str | None:
+    """Whichever "HH:MM" in `times` is numerically nearest `target` -- used by
+    `DayDetailScreen.load_schedule()` to attach a 🌅/🌇 marker to the row nearest
+    sunrise/sunset (2026-09-13, direct feedback: "make sunrise and sunset to
+    corresponding rows" — replacing the old standalone `#daylight` summary line,
+    which duplicated the same information one line up instead of showing it where
+    it's actually relevant). `None` for an empty `times` (no slots at all, or no
+    `sun_times` — see the one call site). Ties break toward the earlier time,
+    since `times` is already in chronological order and `min()` keeps the
+    first-seen minimum on a tie -- an arbitrary but stable choice, not something
+    this app's own 10-minute slot grid should ever actually need to break in
+    practice."""
+    if not times:
+        return None
+    target_dt = datetime.strptime(target, "%H:%M")
+    return min(times, key=lambda t: abs((datetime.strptime(t, "%H:%M") - target_dt).total_seconds()))
+
+
 def _day_pick_text(
     schedule: Schedule | None,
     config: dict,
@@ -1221,6 +1239,8 @@ OVERVIEW_LEGEND = [
 DAY_DETAIL_LEGEND = [
     ("★", "legend.recommended"),
     ("🌙", "legend.too_late"),
+    ("🌅", "legend.sunrise"),
+    ("🌇", "legend.sunset"),
     ("🌧", "legend.rain"),
     ("💨", "legend.wind"),
     ("📋", "legend.event"),
@@ -1229,6 +1249,39 @@ DAY_DETAIL_LEGEND = [
 
 
 OVERVIEW_MAX_PICKS_SHOWN = 5
+
+
+class _AutoHideStatic(Static):
+    """A `Static` that collapses out of layout entirely (`display: none`)
+    whenever its own content is empty, instead of always reserving its own
+    blank line -- used for `#banners`/`#status` on `OverviewScreen` and
+    `DayDetailScreen`, both blank most of the time.
+
+    Found live, 2026-09-13, "check for spacing consistency": a plain `Static`
+    still occupies its own line even with nothing to show, so the visible gap
+    before/after it silently changes size depending on whether there happens
+    to be a banner or status message at that exact moment -- exactly what made
+    the day-detail screen's own top area look inconsistent (compare the single
+    blank line between the switcher's two dropdown rows against the two- or
+    three-line gap that used to sit above the table once an empty `#banners`/
+    `#status`/the now-removed `#daylight` line were stacked on top of each
+    other).
+
+    Overriding `update()` here, rather than hunting down and touching every
+    individual call site that writes to `#banners`/`#status` across
+    `OverviewScreen`, `DayDetailScreen`, `_ClubCourseSwitcher`, and `TeetimeApp`
+    itself, means the fix applies uniformly and automatically wherever these
+    widgets are updated -- a find-and-replace across that many call sites would
+    only need to miss one to silently reintroduce the exact inconsistency this
+    exists to fix. `_SWITCHER_CSS` (shared by both screens already) starts both
+    ids hidden via a plain `display: none`, matching the empty text both are
+    constructed with in `compose()` -- the first real `update()` call is what
+    ever makes either one visible."""
+
+    def update(self, renderable: object = "") -> None:
+        super().update(renderable)
+        self.styles.display = "block" if str(renderable) else "none"
+
 
 # Shared by both OverviewScreen and DayDetailScreen's own #switcher (2026-09-11,
 # "I want the club and course selector drop downs also implemented in the
@@ -1252,6 +1305,16 @@ _SWITCHER_CSS = """
 #club-select, #course-select {
     width: auto;
     max-width: 60;
+}
+"""
+
+# Also shared by both screens (2026-09-13, "check for spacing consistency") --
+# #banners/#status start hidden, matching the empty text both are constructed
+# with in compose(); see _AutoHideStatic's own docstring for why this lives in
+# CSS rather than a per-widget default and why update() is what flips it back.
+_AUTO_HIDE_CSS = """
+#banners, #status {
+    display: none;
 }
 """
 
@@ -1489,7 +1552,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     also implemented in the detailed view") — see `_ClubCourseSwitcher` for what's
     actually shared between the two."""
 
-    CSS = _SWITCHER_CSS
+    CSS = _SWITCHER_CSS + _AUTO_HIDE_CSS
 
     BINDINGS = [
         ("/", "search", "Search"),
@@ -1526,7 +1589,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield from self._compose_switcher()
-        yield Static("", id="status")
+        yield _AutoHideStatic("", id="status")
         yield DataTable(id="overview-table")
         yield Static("", id="picks")
         yield Static("", id="legend")
@@ -2189,16 +2252,22 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     Occupancy-column overload the same day, direct feedback: "I would prefer if
     detailed view had a separate events column."
 
-    A `#daylight` line above the table shows the day's own sunrise/sunset, sourced
-    from `Schedule.sun_times` (persisted since 2026-09-08 — see `storage.init_db()`'s
-    own docstring for the real gap that closed). Each row's own Time cell also
-    carries a 🌙 marker (2026-09-09, direct request: "immediately see in the
-    detailed view, which of the timeslots are already too late until sunset") once
-    `_too_late_for_daylight()` says a round starting there wouldn't finish before
-    dark — independent of whether `availability` rules are configured at all, since
-    this is a physics fact about the slot, not a preference judgment; mutually
-    exclusive with the ★ recommended-slot marker by construction, since a
-    daylight-failing candidate is never ★-recommended in the first place.
+    Sunrise/sunset (`Schedule.sun_times`, persisted since 2026-09-08 — see
+    `storage.init_db()`'s own docstring for the real gap that closed) mark their own
+    nearest row's Time cell directly — 🌅/🌇 (2026-09-13, direct feedback: "make
+    sunrise and sunset to corresponding rows," replacing a standalone `#daylight`
+    summary line that used to sit above the table and just repeated the same two
+    times one line away from where they actually apply; see `_closest_slot_time()`'s
+    own docstring). Each row's own Time cell also carries a 🌙 marker (2026-09-09,
+    direct request: "immediately see in the detailed view, which of the timeslots
+    are already too late until sunset") once `_too_late_for_daylight()` says a
+    round starting there wouldn't finish before dark — independent of whether
+    `availability` rules are configured at all, since this is a physics fact about
+    the slot, not a preference judgment; mutually exclusive with the ★
+    recommended-slot marker by construction, since a daylight-failing candidate is
+    never ★-recommended in the first place. 🌅/🌇 can combine with either, since
+    they answer a different question (roughly when the sun does something, not
+    whether a round fits before dark).
 
     A dim `#legend` line below the table (`DAY_DETAIL_LEGEND`, added alongside
     `OverviewScreen`'s own the same day — see that screen's docstring for the direct
@@ -2227,7 +2296,7 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     `ClubBrowserScreen`'s `#club-results` already use for the identical
     reason."""
 
-    CSS = _SWITCHER_CSS + """
+    CSS = _SWITCHER_CSS + _AUTO_HIDE_CSS + """
     #table {
         height: 1fr;
     }
@@ -2283,9 +2352,8 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield from self._compose_switcher()
-        yield Static("", id="banners")
-        yield Static("", id="daylight")
-        yield Static("", id="status")
+        yield _AutoHideStatic("", id="banners")
+        yield _AutoHideStatic("", id="status")
         yield DataTable(id="table")
         yield Static("", id="legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
@@ -2347,19 +2415,6 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         table.clear()
         self._row_times = []
         schedule = storage.load_latest_schedule(self.course, self.date, path=self.db_path)
-        daylight = self.query_one("#daylight", Static)
-        if schedule is not None and schedule.sun_times is not None:
-            daylight.update(
-                i18n.t(
-                    "daylight.summary",
-                    sunrise=schedule.sun_times.sunrise,
-                    sunset=schedule.sun_times.sunset,
-                )
-            )
-        else:
-            # No forecast fetched yet (an unconfigured `location`, or nothing
-            # scraped yet) -- blank, not a fabricated or stale time.
-            daylight.update("")
         if schedule is None or not schedule.slots:
             table.add_row(
                 "—", i18n.t("table.no_data"), i18n.t("table.press_refresh"), "", "", "", ""
@@ -2375,14 +2430,27 @@ class DayDetailScreen(_ClubCourseSwitcher, Screen[None]):
         now = _NOW_HHMM() if self.date == _TODAY() else None
         recommended_times = self._recommended_times(schedule)
         config = _resolved_config(self.club_slug, self.club_id, self.club_name)
+        # Whichever row is nearest sunrise/sunset gets its own 🌅/🌇 marker below --
+        # None (no marker anywhere) when sun_times isn't known yet, same graceful
+        # "unknown, not assumed" stance _too_late_for_daylight() already takes.
+        slot_times = [slot.time for slot in schedule.slots]
+        sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
+        sunset_row = _closest_slot_time(slot_times, schedule.sun_times.sunset) if schedule.sun_times else None
         for slot in schedule.slots:
             self._row_times.append(slot.time)
             is_past = now is not None and slot.time < now
-            time_cell = _dim_if(slot.time, is_past)
+            markers = []
             if slot.time in recommended_times and not is_past:
-                time_cell = f"★ {time_cell}"
+                markers.append("★")
             elif not is_past and _too_late_for_daylight(slot.time, schedule, config):
-                time_cell = f"🌙 {time_cell}"
+                markers.append("🌙")
+            if slot.time == sunrise_row:
+                markers.append("🌅")
+            if slot.time == sunset_row:
+                markers.append("🌇")
+            time_cell = _dim_if(slot.time, is_past)
+            if markers:
+                time_cell = f"{' '.join(markers)} {time_cell}"
             temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time), is_past)
             precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time), is_past)
             wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time), is_past)
