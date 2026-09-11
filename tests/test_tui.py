@@ -760,6 +760,37 @@ def test_slot_wind_cell_blank_without_a_forecast():
     assert tui._slot_wind_cell([], "14:00") == ""
 
 
+# --- units="imperial" -- direct feedback, 2026-09-13: "Can we adjust format
+# (metric/imperial) in settings?" ----------------------------------------------
+
+
+def test_slot_temperature_cell_converts_to_fahrenheit_in_imperial():
+    points = [WeatherPoint(time="14:00", temperature_c=0)]
+    assert tui._slot_temperature_cell(points, "14:00", units="imperial") == "32°"
+
+
+def test_slot_wind_cell_converts_to_mph_in_imperial():
+    points = [WeatherPoint(time="14:00", wind_speed_kph=16)]  # below the icon threshold
+    assert tui._slot_wind_cell(points, "14:00", units="imperial") == "10mph"
+
+
+def test_slot_wind_cell_icon_threshold_still_checks_the_real_kph_value():
+    # The icon threshold is an internal "worth noticing" cutoff in km/h, not
+    # something a user sets in either unit -- converting the *display* number
+    # must not also shift which slots get the icon.
+    points = [WeatherPoint(time="14:00", wind_speed_kph=35)]  # above the kph threshold
+    cell = tui._slot_wind_cell(points, "14:00", units="imperial")
+    assert "💨" in cell
+    assert "mph" in cell
+
+
+def test_slot_precipitation_cell_converts_to_inches_in_imperial():
+    points = [WeatherPoint(time="14:00", precipitation_probability=70, precipitation_mm=25.4)]
+    cell = tui._slot_precipitation_cell(points, "14:00", units="imperial")
+    assert "70%" in cell
+    assert "1.00in" in cell
+
+
 def test_slot_event_cell_shows_the_block_reason():
     slot = Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")
     assert tui._slot_event_cell(slot) == "📋 Golf Beginner Kurs"
@@ -1403,6 +1434,35 @@ def test_wind_cell_icon_only_past_the_threshold():
 
 def test_wind_cell_blank_without_daytime_forecast():
     assert tui._wind_cell([]) == ""
+
+
+def test_temperature_cell_converts_to_fahrenheit_in_imperial():
+    weather = [
+        WeatherPoint(time="10:00", temperature_c=0),
+        WeatherPoint(time="14:00", temperature_c=20),
+    ]
+    assert tui._temperature_cell(weather, units="imperial") == "68°/32°"
+
+
+def test_wind_cell_converts_to_mph_in_imperial():
+    weather = [WeatherPoint(time="14:00", wind_speed_kph=16)]  # below the icon threshold
+    assert tui._wind_cell(weather, units="imperial") == "10mph"
+
+
+def test_precipitation_cell_converts_to_inches_in_imperial():
+    weather = [WeatherPoint(time="14:00", precipitation_probability=10, precipitation_mm=25.4)]
+    cell = tui._precipitation_cell(weather, units="imperial")
+    assert "1.00in" in cell
+
+
+def test_column_header_metric_default():
+    assert tui._column_header("table.temperature", "temperature", "metric") == "Temperature (°C)"
+
+
+def test_column_header_imperial():
+    assert tui._column_header("table.temperature", "temperature", "imperial") == "Temperature (°F)"
+    assert tui._column_header("table.wind", "wind", "imperial") == "Wind (mph)"
+    assert tui._column_header("table.precipitation", "precipitation", "imperial") == "Precipitation (%/in)"
 
 
 def test_event_cell_shows_the_event_even_on_a_day_with_weather():
@@ -2242,6 +2302,49 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
 
     saved = tui.global_preferences.load_preferences(preferences_file)
     assert saved["availability"]["min_open_spots"] == 3
+
+
+def test_edit_settings_units_change_rebuilds_the_overviews_own_column_headers(tmp_path, monkeypatch):
+    # Direct feedback, 2026-09-13: "Can we adjust format (metric/imperial) in
+    # settings?" A units change needs a full screen rebuild, not just a row
+    # reload -- a table's own column headers are only ever set once in
+    # on_mount(), so a plain load_overview() would leave a stale "(°C)" header
+    # next to freshly converted °F numbers.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    preferences_file = tmp_path / "preferences.yaml"
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", preferences_file)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "18 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            table = app.screen.query_one(DataTable)
+            headers_before = [str(col.label) for col in table.columns.values()]
+            assert "Temperature (°C)" in headers_before
+
+            await pilot.press("e")
+            await pilot.pause()
+            app.screen.query_one("#field-units").value = "imperial"
+            await pilot.click("#save")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert isinstance(app.screen, tui.OverviewScreen)
+            headers_after = [str(col.label) for col in app.screen.query_one(DataTable).columns.values()]
+            assert "Temperature (°F)" in headers_after
+
+    _run(scenario())
+
+    saved = tui.global_preferences.load_preferences(preferences_file)
+    assert saved["units"] == "imperial"
 
 
 def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkeypatch):

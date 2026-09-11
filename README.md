@@ -150,11 +150,12 @@ spec.
   exact time ("Sunrise 06:52") rather than a separate summary line or an icon,
   and each tee time whose round wouldn't finish before dark gets its own 🌙
   marker in the Time column — independent of whether you've set any
-  availability rules at all. Column headers spell out units (°C, km/h, %/mm)
-  rather than leaving you to infer them from the numbers. The overview's own
-  day-level "no dry picks" message only appears when weather is genuinely the
-  reason nothing's recommended — a separate "too dark to finish" shows up
-  instead when daylight is what actually excluded everything
+  availability rules at all. Column headers spell out units (°C/km/h/mm by
+  default, switchable to °F/mph/in in Settings — see below) rather than
+  leaving you to infer them from the numbers. The overview's own day-level
+  "no dry picks" message only appears when weather is genuinely the reason
+  nothing's recommended — a separate "too dark to finish" shows up instead
+  when daylight is what actually excluded everything
 - Sunrise/sunset-aware playability highlighting — flags tee times too late to finish a
   9- or 18-hole round before dark, based on your own estimated pace (adjustable in
   settings, defaulting to 2 hours for 9 holes / 4 hours for 18); the single-day tee
@@ -184,8 +185,9 @@ spec.
   `python -m src.settings_screen`. Fields are grouped into collapsible sections
   (Availability / Weather / Priorities / AI ranking / Timing & scraping); ones with
   only a handful of sensible values (party size, the daylight buffer, round
-  duration, both scrape intervals, and the buffer to nearby flights in 10-minute
-  steps) are dropdowns rather than free text, so they can't hold a typo; the
+  duration, both scrape intervals, the buffer to nearby flights in 10-minute
+  steps, and Units — metric °C/km/h/mm or imperial °F/mph/in, defaulting to
+  metric) are dropdowns rather than free text, so they can't hold a typo; the
   weekday/weekend time windows are hour and minute dropdowns rather than typing
   "17:00" by hand, with the hour list itself trimmed to 05:00-21:00 — no golf club
   is open at 2am; Save/Cancel sit right-aligned like an ordinary dialog's buttons,
@@ -378,6 +380,7 @@ teetime-monitor/
 │   ├── weather.py          # Open-Meteo rain + wind + sunrise/sunset client (implemented)
 │   ├── booking_watch.py    # did a confirmed booking's situation change since you booked it? (implemented)
 │   ├── playability.py      # is a tee time playable before sunset? (implemented)
+│   ├── units.py            # metric/imperial display conversion (implemented)
 │   ├── calendar_context.py # public holidays + vacation ranges -> day-type tag (implemented)
 │   ├── ai_assist.py        # Claude API: booking-label classification, ranking, history summarization (implemented)
 │   ├── models.py           # Slot / Schedule / WeatherPoint / SunTimes / ConfirmedBooking / SlotMatch / ...
@@ -411,7 +414,8 @@ teetime-monitor/
     ├── test_i18n.py
     ├── test_user_config.py
     ├── test_tui.py
-    └── test_playability.py
+    ├── test_playability.py
+    └── test_units.py
 ```
 
 ## Notes
