@@ -149,15 +149,18 @@ spec.
   for the round itself gets worse, a plain banner shows up next time you open the app —
   no push notifications, just visible when you check
 - Weather (via [Open-Meteo](https://open-meteo.com/), no API key needed) as its own
-  Temperature / Precipitation / Wind columns, both on the multi-day overview
-  (that day's own high/low, average rain chance, and peak wind) and right on the
-  single-day tee sheet (that exact hour's own reading, one row per tee time) — split
-  apart rather than crammed into one combined column, so the real numbers are always
-  visible, not just an icon once rain or wind crosses a plain visual threshold (the
-  icon itself still shows past that threshold, layered on top of the number). The
-  day's own sunrise/sunset note their own nearest row's Events column with the
-  exact time ("Sunrise 06:52") rather than a separate summary line or an icon,
-  and each tee time whose round wouldn't finish before dark gets its own 🌙
+  Condition / Temperature / Precipitation / Wind columns, both on the multi-day overview
+  (that day's own worst-case icon, high/low, average rain chance, and peak wind) and
+  right on the single-day tee sheet (that exact hour's own reading, one row per tee
+  time) — split apart rather than crammed into one combined column, so the real
+  numbers are always visible, not just an icon once rain or wind crosses a plain
+  visual threshold (the icon itself still shows past that threshold, layered on top of
+  the number). Condition (added 2026-09-11) is a plain sunny/cloudy/foggy/rain/snow/
+  storm icon straight from Open-Meteo's own weather code — the overview shows the
+  single most severe condition across the day, the tee sheet and search results show
+  each hour's own. The day's own sunrise/sunset note their own nearest row's Events
+  column with the exact time ("Sunrise 06:52") rather than a separate summary line or
+  an icon, and each tee time whose round wouldn't finish before dark gets its own 🌙
   marker in the Time column — independent of whether you've set any
   availability rules at all. Column headers spell out units (°C/km/h/mm by
   default, switchable to °F/mph/in in Settings — see below), so Temperature
@@ -223,7 +226,7 @@ spec.
   (not a fixed count: a club's real window ranges 1-31 days, checked live each
   refresh; today's own row drops off the list entirely after 9pm, 2026-09-11 —
   nothing left worth looking at for it by then), showing real
-  weather split into its own Temperature/Precipitation/Wind
+  weather split into its own Condition/Temperature/Precipitation/Wind
   columns, that day's own event/closure note (📌) in a separate Events column —
   split apart 2026-09-09 so a tournament or maintenance closure never crowds out the
   actual forecast — a six-block "heat strip" for how full 08:00-20:00 is, and that
@@ -243,8 +246,8 @@ spec.
   (plain code); the weather/daylight sanity check and the same AI ranking behind the
   automatic weekly picks both still apply on top. The active course is stated once in
   the screen's own title, not repeated on every result row. Results show
-  Occupancy/Players/Temperature/Precipitation/Wind alongside the date and time,
-  same as the single-day tee sheet; `c` confirms whichever result is
+  Condition/Occupancy/Players/Temperature/Precipitation/Wind alongside the date and
+  time, same as the single-day tee sheet; `c` confirms whichever result is
   highlighted, pre-filled from its own date/course/time since a single
   search's results can span several different days
 - A crowd heatmap — historical occupancy grouped by actual weekday (Sun-Sat), plus a

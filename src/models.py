@@ -29,6 +29,9 @@ class WeatherPoint:
     precipitation_mm: float | None = None
     wind_speed_kph: float | None = None
     temperature_c: float | None = None
+    weather_code: int | None = None  # WMO code (Open-Meteo's own scheme) -- direct
+    # feedback, 2026-09-11: "I also would like icons for when it is sunny, overcast,
+    # foggy, snowing etc." -- see weather_icons.py, the only thing that interprets this.
 
 
 @dataclass

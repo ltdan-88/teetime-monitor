@@ -60,6 +60,7 @@ def test_fetch_hourly_weather_parses_open_meteo_response(monkeypatch):
             "precipitation": [0.0, 2.5],
             "wind_speed_10m": [12.0, 25.0],
             "temperature_2m": [22.0, 20.0],
+            "weathercode": [1, 61],
         }
     }
     monkeypatch.setattr(weather_module.httpx, "get", lambda url, params, timeout: _FakeResponse(payload))
@@ -67,8 +68,8 @@ def test_fetch_hourly_weather_parses_open_meteo_response(monkeypatch):
     points = fetch_hourly_weather(47.0, 11.0, "2026-09-06")
 
     assert points == [
-        WeatherPoint(time="14:00", precipitation_probability=10, precipitation_mm=0.0, wind_speed_kph=12.0, temperature_c=22.0),
-        WeatherPoint(time="15:00", precipitation_probability=80, precipitation_mm=2.5, wind_speed_kph=25.0, temperature_c=20.0),
+        WeatherPoint(time="14:00", precipitation_probability=10, precipitation_mm=0.0, wind_speed_kph=12.0, temperature_c=22.0, weather_code=1),
+        WeatherPoint(time="15:00", precipitation_probability=80, precipitation_mm=2.5, wind_speed_kph=25.0, temperature_c=20.0, weather_code=61),
     ]
 
 
@@ -88,6 +89,7 @@ def test_fetch_hourly_weather_passes_coordinates_and_date_as_params(monkeypatch)
     assert captured["start_date"] == "2026-09-06"
     assert captured["end_date"] == "2026-09-06"
     assert captured["timezone"] == "auto"
+    assert "weathercode" in captured["hourly"]
 
 
 def test_fetch_hourly_weather_handles_missing_fields_as_none(monkeypatch):
@@ -99,7 +101,14 @@ def test_fetch_hourly_weather_handles_missing_fields_as_none(monkeypatch):
     points = fetch_hourly_weather(47.0, 11.0, "2026-09-06")
 
     assert points == [
-        WeatherPoint(time="14:00", precipitation_probability=None, precipitation_mm=None, wind_speed_kph=None, temperature_c=None)
+        WeatherPoint(
+            time="14:00",
+            precipitation_probability=None,
+            precipitation_mm=None,
+            wind_speed_kph=None,
+            temperature_c=None,
+            weather_code=None,
+        )
     ]
 
 

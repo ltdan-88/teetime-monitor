@@ -131,6 +131,7 @@ def test_save_and_load_schedule_round_trips_players_and_weather(tmp_path):
                 precipitation_mm=0.0,
                 wind_speed_kph=12.5,
                 temperature_c=18.5,
+                weather_code=61,
             )
         ],
     )
@@ -143,6 +144,7 @@ def test_save_and_load_schedule_round_trips_players_and_weather(tmp_path):
     assert loaded.weather[0].precipitation_probability == 10.0
     assert loaded.weather[0].wind_speed_kph == 12.5
     assert loaded.weather[0].temperature_c == 18.5
+    assert loaded.weather[0].weather_code == 61
 
 
 # --- sun_times persistence (2026-09-08, direct feedback: "don't forget about the
@@ -215,6 +217,71 @@ def test_init_db_migrates_a_scrapes_table_from_before_sun_times_existed(tmp_path
     save_schedule(schedule, path=db)
     loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
     assert loaded.sun_times == SunTimes(sunrise="06:42", sunset="19:58")
+
+
+# --- weather_code persistence (2026-09-11, direct feedback: "I also would like
+# icons for when it is sunny, overcast, foggy, snowing etc.") ---------------------
+
+
+def test_load_latest_schedule_weather_code_is_none_for_a_row_saved_before_the_column_existed(tmp_path):
+    db = tmp_path / "old.db"
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[],
+        weather=[WeatherPoint(time="08:00", temperature_c=18.5)],
+    )
+    save_schedule(schedule, path=db)
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE weather_points SET weather_code = NULL")
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+
+    assert loaded.weather[0].weather_code is None
+
+
+def test_init_db_migrates_a_weather_points_table_from_before_weather_code_existed(tmp_path):
+    # Real, non-hypothetical case, same as the scrapes-table migration above: this
+    # developer's own existing data/*.db files predate weather_code. CREATE TABLE IF
+    # NOT EXISTS is a no-op against an already-existing table, so init_db() has to
+    # actively add the missing column.
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE scrapes (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "course TEXT NOT NULL, date TEXT NOT NULL, scraped_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE weather_points (scrape_id INTEGER NOT NULL, time TEXT NOT NULL, "
+            "precipitation_probability REAL, precipitation_mm REAL, wind_speed_kph REAL, temperature_c REAL)"
+        )
+        cursor = conn.execute(
+            "INSERT INTO scrapes (course, date, scraped_at) VALUES (?, ?, ?)",
+            ("18 Loch Tee 1", "2026-09-01", "2026-09-01T10:00:00+00:00"),
+        )
+        conn.execute(
+            "INSERT INTO weather_points (scrape_id, time, temperature_c) VALUES (?, ?, ?)",
+            (cursor.lastrowid, "08:00", 18.5),
+        )
+
+    init_db(db)
+
+    # The pre-existing row survived the migration untouched (just gained a NULL
+    # weather_code, not lost or duplicated).
+    with sqlite3.connect(db) as conn:
+        rows = conn.execute("SELECT time, temperature_c, weather_code FROM weather_points").fetchall()
+    assert rows == [("08:00", 18.5, None)]
+
+    # And a schedule saved after the migration round-trips weather_code normally.
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[],
+        weather=[WeatherPoint(time="08:00", temperature_c=18.5, weather_code=0)],
+    )
+    save_schedule(schedule, path=db)
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=db)
+    assert loaded.weather[0].weather_code == 0
 
 
 def test_save_schedule_never_overwrites_previous_scrape(tmp_path):
