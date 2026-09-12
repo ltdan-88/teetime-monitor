@@ -3,6 +3,7 @@ import threading
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.command import CommandPalette
 from textual.geometry import Offset
 from textual.widgets import DataTable, Input, Label, OptionList, Select, Static
 
@@ -196,6 +197,14 @@ class _HostApp(App):
 
     def _capture_result(self, result):
         self.result = result
+
+    def _reopen_actions_menu(self) -> None:
+        # Mirrors TeetimeApp._reopen_actions_menu() -- OverviewScreen.action_search()/
+        # action_heatmap() call this on self.app regardless of which App is actually
+        # running them (see that method's own docstring); both call_after_refresh()
+        # and action_command_palette() are plain base-App behavior, not
+        # TeetimeApp-specific, so this is a real equivalent, not just a stub.
+        self.call_after_refresh(self.action_command_palette)
 
 
 def _run(coro):
@@ -1363,6 +1372,116 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
     _run(scenario())
 
 
+def test_overview_screen_events_column_uses_full_width_when_the_terminal_is_wide_enough(tmp_path, monkeypatch):
+    # Direct follow-up 2026-09-16 on the original "Events and picks can for
+    # sure wrap up" fix: "can you make events/picks columns only wrap up,
+    # when window is too narrow?" -- capping unconditionally, even on a wide
+    # desktop terminal with plenty of room to show it on one line, was
+    # itself the complaint this responds to.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+            events=["Vierer-Clubmeisterschaften"],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(300, 30)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
+            natural_width = tui._cell_visible_width("📋 Vierer-Clubmeisterschaften")
+            assert events_column.width == natural_width
+            assert events_column.width > tui._WRAP_CAP_WIDTH
+
+    _run(scenario())
+
+
+def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_narrow(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+            events=["Vierer-Clubmeisterschaften"],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(60, 24)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
+            assert events_column.width == tui._WRAP_CAP_WIDTH
+
+    _run(scenario())
+
+
+def test_switcher_status_readout_stays_inline_when_there_is_room(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1", club_name="Short Club"))
+        async with app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert "stacked" not in app.screen.query_one("#club-row").classes
+
+    _run(scenario())
+
+
+def test_switcher_status_readout_drops_to_its_own_line_when_the_window_is_narrow(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-16: "can you make status area wrap up when
+    # window is too narrow?" -- it used to just get squeezed into whatever
+    # was left of a fixed `1fr` next to the club dropdown, which on a narrow
+    # terminal (or here, a long club name) meant real clipping, not a wrap.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(
+            tui.OverviewScreen("0000001", None, "18 Loch Tee 1", club_name="A Very Long Golf Club Name e.V.")
+        )
+        async with app.run_test(size=(50, 24)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert "stacked" in app.screen.query_one("#club-row").classes
+
+    _run(scenario())
+
+
+def test_switcher_status_readout_reflows_on_resize(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(
+            tui.OverviewScreen("0000001", None, "18 Loch Tee 1", club_name="A Very Long Golf Club Name e.V.")
+        )
+        async with app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert "stacked" not in app.screen.query_one("#club-row").classes
+            await pilot.resize_terminal(50, 24)
+            await pilot.pause()
+            assert "stacked" in app.screen.query_one("#club-row").classes
+
+    _run(scenario())
+
+
 def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [tui._TODAY()])  # only today
@@ -1761,6 +1880,14 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             await pilot.press("escape")
             await pilot.pause()
 
+            # Reopens the Actions menu it was opened from, not the overview
+            # directly (2026-09-16, "can you make ESC return to actions screen
+            # when accessing entries from actions screen?") -- a second escape
+            # is what actually gets back to the overview now.
+            assert isinstance(app.screen, CommandPalette)
+            await pilot.press("escape")
+            await pilot.pause()
+
             # Back on the overview, reloaded -- a saved availability change can
             # immediately affect its per-day pick column and "This week's picks".
             assert isinstance(app.screen, tui.OverviewScreen)
@@ -1801,6 +1928,11 @@ def test_edit_settings_units_change_rebuilds_the_overviews_own_column_headers(tm
             app.screen.query_one("#field-units").value = "imperial"
             await pilot.click("#save")
             await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+
+            # Reopens the Actions menu first -- see the other e->settings test above.
+            assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
 
@@ -1846,6 +1978,11 @@ def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkey
             await pilot.click("#save")
             await pilot.pause()
             await pilot.press("escape")  # not "q" -- see the other e->settings test above
+            await pilot.pause()
+
+            # Reopens the Actions menu first -- see the other e->settings test above.
+            assert isinstance(app.screen, CommandPalette)
+            await pilot.press("escape")
             await pilot.pause()
 
             # Still unsaved -- editing global settings never favorites anything.
@@ -1934,6 +2071,30 @@ def test_overview_screen_action_search_opens_search_screen(tmp_path, monkeypatch
             app.screen.action_search()
             await pilot.pause()
             assert isinstance(app.screen, tui.SearchScreen)
+
+    _run(scenario())
+
+
+def test_overview_screen_search_escape_reopens_the_actions_menu_then_the_overview(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-16: "can you make ESC return to actions screen
+    # when accessing entries from actions screen?" -- see the matching
+    # HeatmapScreen test for the same behavior.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_search()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.SearchScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
 
     _run(scenario())
 
@@ -3277,6 +3438,40 @@ def test_switch_action_honors_default_course_skipping_the_course_picker(tmp_path
     _run(scenario())
 
 
+def test_switch_action_cancel_reopens_the_actions_menu_then_the_overview(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-16: "can you make ESC return to actions screen
+    # when accessing entries from actions screen?" -- backing out of the club
+    # browser without picking anything (as opposed to the test above, which
+    # picks a club) reopens the Actions menu instead of landing straight back
+    # on the overview.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            app.screen.action_switch()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            app.screen.dismiss(None)  # backed out, no club chosen
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.course == "9 Loch Tee 1"  # unchanged -- nothing was switched
+
+    _run(scenario())
+
+
 def test_switch_action_never_shows_the_course_picker_even_when_genuinely_ambiguous(tmp_path, monkeypatch):
     # Direct follow-up, 2026-09-16: "if a course picker is not necessary, then
     # remove it from the 'find a club' screen. Course picker is anyway
@@ -3844,7 +4039,11 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
     _run(scenario())
 
 
-def test_heatmap_screen_escape_pops_back_to_overview(tmp_path, monkeypatch):
+def test_heatmap_screen_escape_reopens_the_actions_menu_then_the_overview(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-16: "can you make ESC return to actions screen
+    # when accessing entries from actions screen?" -- HeatmapScreen is only
+    # ever reached via that menu now (no more direct `h` key), so backing
+    # out lands there first, not straight back on the overview.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
 
@@ -3855,6 +4054,9 @@ def test_heatmap_screen_escape_pops_back_to_overview(tmp_path, monkeypatch):
             app.screen.action_heatmap()
             await pilot.pause()
             assert isinstance(app.screen, tui.HeatmapScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
             assert isinstance(app.screen, tui.OverviewScreen)
@@ -3966,6 +4168,92 @@ def test_get_system_commands_on_overview_includes_every_screen_action(tmp_path, 
             assert i18n.t("binding.switch") in titles
             assert i18n.t("binding.search") in titles
             assert i18n.t("binding.heatmap") in titles
+
+    _run(scenario())
+
+
+def test_get_system_commands_places_this_apps_own_actions_before_textuals_base_commands(tmp_path, monkeypatch):
+    # Direct feedback 2026-09-16: "can you make logical arrangement of
+    # entries in actions screen?" -- this app's own screen actions (most
+    # likely what `t` was actually pressed for) come first, Language next,
+    # Textual's own generic commands after that, Quit last.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            titles = [command.title for command in app.get_system_commands(app.screen)]
+            own_actions = [i18n.t("binding.switch"), i18n.t("binding.search"), i18n.t("binding.heatmap")]
+            for title in own_actions:
+                assert titles.index(title) < titles.index(i18n.t("binding.theme"))
+            assert titles.index(i18n.t("binding.theme")) < titles.index(i18n.t("binding.quit"))
+            # Quit is always last -- an app-wide convention, not conditional
+            # on which base commands (Minimize/Maximize) happen to apply.
+            assert titles[-1] == i18n.t("binding.quit")
+
+    _run(scenario())
+
+
+def test_get_system_commands_translates_textuals_own_base_commands(tmp_path, monkeypatch):
+    # Direct same-day follow-up: "can you please translate everything in
+    # actions screen?" -- Theme/Keys/Screenshot/Quit used to pass straight
+    # through in whatever language Textual itself ships them in (English),
+    # a gap the module docstring used to explicitly disclose and leave alone.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    i18n.set_language("de")
+    try:
+        async def scenario():
+            app = tui.TeetimeApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                titles = [command.title for command in app.get_system_commands(app.screen)]
+                assert "Design" in titles  # Theme
+                assert "Beenden" in titles  # Quit
+                assert "Theme" not in titles
+                assert "Quit" not in titles
+
+        _run(scenario())
+    finally:
+        i18n.set_language("en")
+
+
+def test_ordered_system_commands_provider_discover_preserves_yield_order(tmp_path, monkeypatch):
+    # SystemCommandsProvider's own default discover() re-sorts alphabetically
+    # by title regardless of get_system_commands()'s own yield order --
+    # confirmed straight from its source. _OrderedSystemCommandsProvider is
+    # what actually makes the "logical arrangement" fix above visible in the
+    # empty-search palette view (the one Textual shows before you type
+    # anything) -- this opens the real palette and reads its own live
+    # provider's discover() output directly, rather than asserting on
+    # get_system_commands() a second time.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            expected_titles = [command.title for command in app.get_system_commands(app.screen)]
+            await pilot.press("t")
+            await pilot.pause()
+            palette = app.screen
+            assert isinstance(palette, CommandPalette)
+            provider = palette._providers[0]  # the one and only provider: our own
+            hits = [hit async for hit in provider.discover()]
+            assert [hit.display for hit in hits] == expected_titles
 
     _run(scenario())
 

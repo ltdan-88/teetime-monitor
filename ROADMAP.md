@@ -3700,6 +3700,123 @@ asserts the opposite — neither appears any more — plus that `"Actions"` does
 661 tests passing (same count — no coverage lost, since the underlying
 `action_*` methods and everything they open are still exercised the same way,
 just invoked directly instead of through a key that no longer exists).
+
+## Six direct notes on the Actions menu and layout (2026-09-16)
+
+Same-day follow-up, six items at once: **"1) can you make status area wrap
+up when window is too narrow? 2) can you make events/picks columns only
+wrap up, when window is too narrow? 3) can you please translate everything
+in actions screen? 4) can you make logical arrangement of entries in
+actions screen? 5) can you make ESC return to actions screen when accessing
+entries from actions screen? 6) is favorites (f key) still needed in club
+picker?"**
+
+1. **Status wrap.** The refresh-status readout (`_RefreshStatus`, beside the
+   Club dropdown) used to sit in a fixed `1fr` share of a single
+   `Horizontal` row — on a narrow terminal, or next to a long club name, it
+   just got squeezed down to nothing rather than actually wrapping (`Horizontal`
+   doesn't reflow children the way CSS flex-wrap would). `#club-row` now
+   toggles its own `layout` between horizontal and vertical
+   (`_ClubCourseSwitcher._apply_switcher_layout()`, called from `on_mount()`,
+   `on_resize()`, and after a club switch) based on whether the label+
+   dropdown's own *computed* width (from `self.club_name`'s string length,
+   not a live widget read — see point 2 below for why) leaves the status
+   readout enough room; below that, the status readout drops to its own line
+   underneath instead. A second, independently-found issue on the way:
+   `#club-row-fields`'s own `width: auto` didn't actually shrink-wrap to its
+   label+dropdown content the way a plain `Label`/`Static` does — confirmed
+   empirically it just filled the whole row regardless, squeezing
+   `_RefreshStatus`'s own `1fr` down to nothing even when *not* stacked, on
+   a terminal with plenty of real room. Fixed by setting that width
+   explicitly from the same computed value, rather than trusting `auto`.
+2. **Events/Pick: only wrap when narrow.** The 2026-09-15 fix for these
+   columns ("Events and picks can for sure wrap up") capped them at
+   `_WRAP_CAP_WIDTH` unconditionally, at every screen width — including ones
+   plenty wide enough to show the full content on one line, which is what
+   prompted the very next day's "why is the event column so wide?" complaint
+   answered by *not stretching* it (dropping the old leftover-width
+   behavior), not by leaving it perpetually capped either. `_render_table()`
+   now only caps Events/Pick once the table's own natural (uncapped) total
+   width — `_table_overhead()` reserves `DataTable`'s own per-column gutter,
+   the same empirically-confirmed `1 + (n-1)*2` formula the original
+   leftover-stretch version used — wouldn't actually fit the available width;
+   otherwise both get their own full natural content width, same as every
+   other column. `on_resize()` threads the new size through
+   `_rerender_preserving_cursor()` so this re-evaluates live as the window
+   changes, not just at open.
+3. **Translate the Actions menu, fully.** Textual's own built-in system
+   commands (Theme/Quit/Keys/Minimize-or-Maximize/Screenshot) used to pass
+   straight through in whatever language Textual itself ships them in —
+   English — a gap the module docstring used to explicitly disclose and
+   leave alone, since the original footer/banner report was specifically
+   about those, not the command palette's own built-ins. Now that several of
+   this app's own actions live *only* behind this same menu, leaving a third
+   of its entries untranslated stood out much more. `_BASE_COMMAND_TRANSLATIONS`
+   maps each base command's fixed English (title, help) pair to a translated
+   i18n key pair; `TeetimeApp.get_system_commands()` rewrites each one it
+   recognizes (passing anything it doesn't — future Textual base commands —
+   through untouched, rather than silently dropping it).
+4. **Logical arrangement.** Reordering `get_system_commands()`'s own `yield`
+   sequence alone turned out not to do anything: `SystemCommandsProvider`
+   (Textual's default palette data source) re-sorts every command
+   alphabetically by title whenever the search box is empty, confirmed
+   straight from its own source (`sorted(..., key=lambda command: command[0])`)
+   — the empty-search view was A-Z regardless of yield order. New
+   `_OrderedSystemCommandsProvider` overrides just `discover()` to preserve
+   yield order instead; `TeetimeApp.COMMANDS` swaps it in. With that actually
+   controlling the view, `_BASE_COMMAND_TRANSLATIONS` also carries a sort key
+   per entry: this app's own screen actions first (Find a club/Search/
+   Heatmap/Settings — most likely what `t` was actually pressed for),
+   Language next, then Theme/Keys/Minimize-or-Maximize/Screenshot, Quit last
+   (a common app convention, not specific to this one).
+5. **ESC returns to the Actions menu.** Settings, Search, Heatmap, and Find a
+   club (`ClubBrowserScreen`, reached via the switch flow) are now the
+   *only* way to reach any of those four (see the entry above) — backing all
+   the way out of one used to always land bare on `OverviewScreen`, skipping
+   straight past the very menu that opened it. New
+   `TeetimeApp._reopen_actions_menu()` (deferred via `call_after_refresh()`
+   so it doesn't race whichever screen-pop is still settling) now reopens
+   the palette instead; a second `escape` from there reaches `OverviewScreen`
+   itself, same as it always did. Wired into all four: `action_search()`/
+   `action_heatmap()` via `push_screen()`'s own result callback,
+   `_do_edit_settings()` directly (`SettingsScreen` only ever closes via
+   escape/Cancel — Save persists in place without closing the screen — so
+   this never interrupts a "just saved, show me the result" moment),
+   `_do_switch_club_or_course()` directly when the club browser dismisses
+   with `None` (picking a club instead is a completed action with a real
+   result to look at, not a "never mind," so that path is unaffected). One
+   incidental bug found and fixed along the way: `HeatmapScreen.action_back()`
+   called `self.app.pop_screen()` directly instead of `self.dismiss()` — the
+   only screen in this app that did — which meant `push_screen()`'s own
+   result callback never fired at all for it (confirmed straight from
+   Textual's source: `Screen.dismiss()` invokes the callback itself before
+   popping; `pop_screen()` called directly just discards it unfired).
+6. **Are favorites (`f`) still needed in the club picker?** Yes, unrelated
+   to anything else above — favoriting a club (`f` on `ClubBrowserScreen`)
+   is the *only* way a club ever appears in the inline club dropdown at the
+   top of `OverviewScreen` (`_club_select_options()` lists exactly
+   `_favorite_clubs()`, plus whichever club is currently active if it isn't
+   one) or in `ClubBrowserScreen`'s own empty-search view. Removing it would
+   remove the only way to build that fast-switch list at all — searching the
+   full directory via Find a club still works either way, but would become
+   the *only* way to reach any club, unfavorited or not, defeating the whole
+   point of the inline dropdowns (2026-09-09: "integrate club and course
+   selectors into the overview screen... this would make navigation much
+   quicker"). No change made.
+
+Nine new tests: `_render_table()`'s width-aware cap (wide terminal shows the
+full event name on one line; narrow caps and wraps it, same as before this
+fix), `_apply_switcher_layout()` (inline when there's room, stacked when
+there isn't, re-evaluates on live resize), the Actions-menu translation and
+"own actions before Textual's base commands, Quit last" ordering (both
+against `get_system_commands()` directly and against
+`_OrderedSystemCommandsProvider.discover()`'s own live output, since that's
+what the empty-search view actually renders), and the escape-reopens-the-
+Actions-menu behavior for Search, Heatmap, and the club-browser switch flow
+(Settings' own three pre-existing e→settings tests updated in place instead,
+same behavior). 671 tests passing.
+
+## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
 - **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a
