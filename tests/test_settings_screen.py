@@ -14,16 +14,6 @@ from src.settings_screen import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _english_ui(monkeypatch, tmp_path):
-    # Same reasoning as tui.py's identical fixture -- i18n's current language is
-    # module-level global state that would otherwise leak between tests.
-    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
-    i18n.set_language("en")
-    yield
-    i18n._current_language = None
-
-
 def _id(*path):
     return "field-" + "-".join(path)
 
@@ -178,11 +168,8 @@ def test_widget_values_to_config_keeps_partial_time_window():
 def test_widget_values_to_config_raises_on_invalid_number():
     values = config_to_widget_values({})
     values[_id("availability", "min_open_spots")] = "not a number"
-    try:
+    with pytest.raises(ValueError):
         widget_values_to_config({}, values)
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
 
 
 # --- SettingsScreen (real Textual app, run headlessly via Textual's test harness) --

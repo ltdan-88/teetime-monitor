@@ -20,6 +20,17 @@ itself (see that screen's own `refresh_banners()`/`action_refresh()`). See
 ROADMAP.md for the full history of what that screen used to do and why each piece
 moved where it did.
 
+`DayDetailScreen` is still named throughout the docstrings below, always as
+provenance — "ported from", "originally", "the since-retired day-detail screen" —
+never as something you can go and read. A 2026-09-16 audit found ~68 references to
+it across the codebase, a third of them written in the present tense and actively
+misleading (pointing at `DayDetailScreen.action_confirm()` for behavior that now
+lives in `OverviewScreen._confirm_or_cancel_slot()`, claiming `e`/`s` key bindings
+that no longer exist, describing a switcher "shared by both screens"). Those were
+corrected; what remains is deliberate design record, kept because *why* a thing
+ended up shaped the way it is remains useful long after the screen that shaped it
+is gone.
+
 Startup flow:
 0. `CredentialsScreen`, only if no login is configured at all yet (2026-09-10, direct
    request: "I want the login screen to appear first, whenever you don't have a
@@ -133,8 +144,8 @@ picker or return to the schedule?"
 
 import importlib.metadata
 import sys
+from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
-from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 from rich.cells import cell_len
@@ -148,31 +159,39 @@ from textual.system_commands import SystemCommandsProvider
 from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
-from . import analytics, calendar_context, club_config, club_directory, geocode, global_preferences, playability
-from . import recommend, scrape_once, storage
-from . import i18n
-from . import units as units_module
-from . import weather_icons
+from . import (
+    analytics,
+    calendar_context,
+    club_config,
+    club_directory,
+    geocode,
+    global_preferences,
+    i18n,
+    playability,
+    recommend,
+    scrape_once,
+    storage,
+    weather_icons,
+)
 from . import theme as theme_module
+from . import units as units_module
 from .credentials_screen import CredentialsScreen
-from .search import SearchCriteria
-from .search import resolve_buffer_minutes
-from .search import search as search_slots
 from .models import ConfirmedBooking, DateRange, Schedule, Slot, SlotMatch, TimeWindow, WeatherPoint
-from .scrape_once import _attach_weather, _db_path
+from .scrape_once import _db_path
+from .scraper import (
+    NoTeeSheetError,
+    _holes_from_course_label,
+    fetch_available_dates,
+    fetch_course_aliases,
+)
+from .search import SearchCriteria, resolve_buffer_minutes
+from .search import search as search_slots
 from .settings_screen import (
     BUFFER_CHOICES,
     HOUR_CHOICES,
     MIN_OPEN_SPOTS_CHOICES,
     MINUTE_CHOICES,
     SettingsScreen,
-)
-from .scraper import (
-    NoTeeSheetError,
-    _holes_from_course_label,
-    fetch_available_dates,
-    fetch_course_aliases,
-    scrape_schedule,
 )
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
@@ -265,7 +284,9 @@ def _dim_if(text: str, condition: bool) -> str:
     return f"[dim]{text}[/]" if condition else text
 
 
-# Per-tee-time weather column on DayDetailScreen (added 2026-09-08, direct
+# Per-tee-time weather cells -- the expanded slot rows on OverviewScreen and
+# SearchScreen's results (added 2026-09-08 for the since-retired day-detail
+# table, direct
 # feedback: "Yes per tee time indicator" — this was actually part of the original
 # Phase 2 plan, "shown per slot in the day-detail table," but only the invisible
 # half (conditions_during_round(), used to filter recommendations) ever got built;
@@ -507,7 +528,7 @@ class ClubBrowserScreen(Screen[str | None]):
 
     # Ordered enter (the primary action) first, this screen's own actions next, then
     # escape/quit last -- matching every other screen's convention (see
-    # OverviewScreen/DayDetailScreen) rather than putting "Back" ahead of actions
+    # OverviewScreen) rather than putting "Back" ahead of actions
     # that are used far more often. Direct feedback (2026-09-08): "please check
     # whether the order of menu elements or keybinds displayed at the bottom of the
     # window is logical" -- escape used to sit right after enter, ahead of Favorite
@@ -822,7 +843,7 @@ class ConfirmBookingScreen(Screen[bool]):
     `default_time`/`default_holes` (added 2026-09-07, direct feedback: "I already
     selected a specific time, and the TUI should know on which course I'm currently
     focused" — why was this ever re-typed by hand?) pre-fill both fields as real
-    values, not just placeholder hints: `DayDetailScreen.action_confirm()` reads the
+    values, not just placeholder hints: `OverviewScreen._confirm_or_cancel_slot()` reads the
     currently highlighted row's own time off the table, and holes come from the
     course itself (`_holes_from_course_label()` — the same derivation
     scraper.py's own reservation parsing already uses, since a course category like
@@ -901,7 +922,7 @@ class ConfirmBookingScreen(Screen[bool]):
             time=time,
             holes=holes,
             source="manual",
-            confirmed_at=datetime.now(timezone.utc).isoformat(),
+            confirmed_at=datetime.now(UTC).isoformat(),
         )
         storage.save_confirmed_booking(booking, path=_db_path(self.club_id))
         self.dismiss(True)
@@ -910,7 +931,7 @@ class ConfirmBookingScreen(Screen[bool]):
 class CancelBookingScreen(Screen[bool]):
     """A small yes/no confirmation for cancelling your confirmed tee time
     (2026-09-13, direct question: "why can you confirm tee time within the TUI,
-    but cannot cancel or modify?"). `DayDetailScreen.action_confirm()` opens this
+    but cannot cancel or modify?"). `OverviewScreen._confirm_or_cancel_slot()` opens this
     instead of a fresh `ConfirmBookingScreen` when `c` is pressed on the row
     that's already your confirmed booking — re-confirming the exact same
     date/course/time again wouldn't do anything useful, but offering to cancel
@@ -968,7 +989,7 @@ class CancelBookingScreen(Screen[bool]):
             time=None,
             holes=None,
             source="manual",
-            confirmed_at=datetime.now(timezone.utc).isoformat(),
+            confirmed_at=datetime.now(UTC).isoformat(),
         )
         storage.save_confirmed_booking(booking, path=_db_path(self.club_id))
         self.dismiss(True)
@@ -1251,7 +1272,7 @@ def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> d
 def _availability_pipeline(schedule: Schedule, config: dict, club_id: str) -> tuple[list, list]:
     """(deterministic candidates, still-playable matches) for one schedule against
     your global `availability` rules (see `_resolved_config()`) — factored out so both
-    the per-day pick column below and `DayDetailScreen`'s own ★ marker derive from one
+    the per-day pick column below and the expanded slot rows' own ★ marker derive from one
     place. `([], [])` with no `availability` configured at all — nothing to check
     against, not an error.
 
@@ -1302,7 +1323,7 @@ def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> 
 
 def _closest_slot_time(times: list[str], target: str) -> str | None:
     """Whichever "HH:MM" in `times` is numerically nearest `target` -- used by
-    `DayDetailScreen.load_schedule()` to note sunrise/sunset on the row nearest
+    `_compute_slot_rows()` to note sunrise/sunset on the row nearest
     each one (2026-09-13, direct feedback: "make sunrise and sunset to
     corresponding rows" — replacing the old standalone `#daylight` summary line,
     which duplicated the same information one line up instead of showing it where
@@ -1331,7 +1352,7 @@ def _recommended_times_for(schedule: Schedule, config: dict, club_id: str) -> se
 
 class SlotRowCells(NamedTuple):
     """One tee-time slot's row, already rendered into display-ready cells — the
-    output of `_compute_slot_rows()` below. `DayDetailScreen`'s own eight columns
+    output of `_compute_slot_rows()` below. The eight columns
     (Time/Condition/Occupancy/Players/Temperature/Precipitation/Wind/Events) map
     onto these fields directly; `OverviewScreen`'s expanded child rows re-map the
     same fields onto its own differently-ordered columns instead — see
@@ -1361,8 +1382,7 @@ def _compute_slot_rows(
     2026-09-14 so `OverviewScreen`'s expand-in-place rows (ROADMAP.md's queued
     "nested/collapsed overview" item) can build the identical cells without
     duplicating the ★/🌙 markers, sunrise/sunset notes, and past-slot dimming
-    logic a second time. `DayDetailScreen.load_schedule()` now calls this too —
-    behavior-preserving, not a change to what either screen shows."""
+    logic a second time."""
     now = _NOW_HHMM() if date == _TODAY() else None
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
@@ -1435,8 +1455,8 @@ def _day_pick_text(
 
     1. A confirmed booking for that date beats everything — it's not a suggestion,
        it's what's actually happening. "⚠" alongside it means `booking_watch.py`
-       found an unacknowledged change since it was booked (see DayDetailScreen's own
-       banners for the detail).
+       found an unacknowledged change since it was booked (see `refresh_banners()`
+       for the banner that spells out what actually changed).
     2. Otherwise, if availability rules are configured and this day has a schedule to
        check: a recommended "★ HH:MM" (the best still-playable match — AI-ranked once
        `ai_assist.enabled`, otherwise the earliest, see `_availability_pipeline()`'s
@@ -1661,8 +1681,8 @@ OVERVIEW_LEGEND_CATEGORIES = [
 class _AutoHideStatic(Static):
     """A `Static` that collapses out of layout entirely (`display: none`)
     whenever its own content is empty, instead of always reserving its own
-    blank line -- used for `#banners`/`#status` on `OverviewScreen` and
-    `DayDetailScreen`, both blank most of the time.
+    blank line -- used for `#banners`/`#status` on `OverviewScreen`, both blank
+    most of the time.
 
     Found live, 2026-09-13, "check for spacing consistency": a plain `Static`
     still occupies its own line even with nothing to show, so the visible gap
@@ -1676,7 +1696,7 @@ class _AutoHideStatic(Static):
 
     Overriding `update()` here, rather than hunting down and touching every
     individual call site that writes to `#banners`/`#status` across
-    `OverviewScreen`, `DayDetailScreen`, `_ClubCourseSwitcher`, and `TeetimeApp`
+    `OverviewScreen`, `_ClubCourseSwitcher`, and `TeetimeApp`
     itself, means the fix applies uniformly and automatically wherever these
     widgets are updated -- a find-and-replace across that many call sites would
     only need to miss one to silently reintroduce the exact inconsistency this
@@ -1692,14 +1712,14 @@ class _AutoHideStatic(Static):
 
 def _render_banner_lines(changes: list[dict], include_date: bool) -> str:
     """One "⚠ ..." line per unacknowledged `booking_watch.py` change --
-    shared by `DayDetailScreen.refresh_banners()` and (added 2026-09-15,
+    written for the since-retired `DayDetailScreen` and reused by (2026-09-15,
     "why don't we integrate those missing features into the overview
     screen") `OverviewScreen.refresh_banners()`, rather than two copies of
     the same rendering logic. `render_booking_change()` re-renders kind+params
     in the current language; falls back to the stored (English) message for a
     row saved before that existed, or an unrecognized kind, rather than
     showing nothing. `include_date` prefixes each line with its own weekday +
-    short date — `DayDetailScreen` never needs this (you're already looking
+    short date — the old single-day screen never needed this (you were already looking
     at that one specific day), but `OverviewScreen` spans several, so a bare
     message alone wouldn't say which day it's about."""
     lines = []
@@ -1742,9 +1762,9 @@ class _RefreshStatus(Static):
     dropdown is no place for arbitrary-length error text, only this one
     short, predictable readout.
 
-    Shared by `OverviewScreen` and `DayDetailScreen` via `_compose_switcher()`
-    below, same as everything else in `_ClubCourseSwitcher` — one widget, not
-    two independently-maintained copies."""
+    Used by `OverviewScreen` via `_compose_switcher()` below, same as everything
+    else in `_ClubCourseSwitcher` — factored out when a second screen briefly
+    shared it, and kept that way since."""
 
     DEFAULT_CSS = """
     _RefreshStatus {
@@ -1786,7 +1806,7 @@ class _RefreshStatus(Static):
         if self._spinner_timer is not None:
             self._spinner_timer.stop()
             self._spinner_timer = None
-        self._last_refreshed_at = datetime.now(timezone.utc)
+        self._last_refreshed_at = datetime.now(UTC)
         self._render_idle()
 
     def on_mount(self) -> None:
@@ -1800,11 +1820,11 @@ class _RefreshStatus(Static):
         if self._last_refreshed_at is None:
             self.update("")
             return
-        elapsed = (datetime.now(timezone.utc) - self._last_refreshed_at).total_seconds()
+        elapsed = (datetime.now(UTC) - self._last_refreshed_at).total_seconds()
         self.update(_format_ago(elapsed))
 
 
-# Shared by both OverviewScreen and DayDetailScreen's own #switcher (2026-09-11,
+# Originally shared by two screens' own #switcher (2026-09-11,
 # "I want the club and course selector drop downs also implemented in the
 # detailed view") -- one constant rather than two copies drifting apart, same
 # reasoning as factoring _ClubCourseSwitcher out below in the first place.
@@ -1863,10 +1883,11 @@ _AUTO_HIDE_CSS = """
 
 
 class _ClubCourseSwitcher:
-    """Shared inline club/course dropdown behavior for `OverviewScreen` and
-    `DayDetailScreen` (2026-09-11, direct feedback: "I want the club and course
-    selector drop downs also implemented in the detailed view") -- factored out
-    here rather than copy-pasted a second time, since the switching logic below
+    """Inline club/course dropdown behavior for `OverviewScreen`. Factored out into
+    a mixin in the first place because a second screen (the since-retired day-detail
+    view) briefly needed it too -- 2026-09-11, direct feedback: "I want the club and
+    course selector drop downs also implemented in the detailed view" -- rather than
+    copy-pasted a second time, since the switching logic below
     carries real, hard-won behavior (see `_refresh_course_options()`'s own
     docstring for the `Select.Changed` transient-value bug this shape avoids)
     that a second, independently-maintained copy would risk quietly drifting out
@@ -2099,7 +2120,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     twice for two different things.
 
     Data comes from whatever's already been scraped (`storage.load_latest_schedule()`
-    per day), same as `DayDetailScreen` — opening this screen never blocks on a live
+    per day) — opening this screen never blocks on a live
     fetch; `TeetimeApp._periodic_scrape()` (on open, and on a timer) is what keeps it
     current, exactly as it already did for the single-day view.
 
@@ -2175,10 +2196,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     wider and position it under the club selection dropdown," then "I want labels
     to the left of club and course selector drop downs") — the original
     single-row layout is what forced `#course-select`'s own narrower fixed width
-    in the first place. `DayDetailScreen` now has the identical switcher too
-    (same feedback, part three: "I want the club and course selector drop downs
-    also implemented in the detailed view") — see `_ClubCourseSwitcher` for what's
-    actually shared between the two.
+    in the first place. The since-retired day-detail screen briefly carried the
+    identical switcher too (same feedback, part three: "I want the club and course
+    selector drop downs also implemented in the detailed view") — which is why the
+    behavior still lives in the shared `_ClubCourseSwitcher` mixin.
 
     `#overview-table { height: 1fr }` (2026-09-14, direct feedback once expand-
     in-place rows could actually make the table tall: "fixate everything from
@@ -2223,7 +2244,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # be instant" rule every other screen in this app already follows.
         self._schedules: list[Schedule] = []
         # None for a club being visited without saving it (see ClubBrowserScreen) —
-        # an ordinary state, same as DayDetailScreen's own club_slug.
+        # an ordinary state.
         self.club_slug = club_slug
         self.club_name = club_name
         self.course = course
@@ -2347,7 +2368,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     def action_refresh(self) -> None:
         """`r` -- the same manual "scrape this right now, don't wait for the
-        interval" override `DayDetailScreen.action_refresh()` already gives
+        interval" override the since-retired day-detail screen's own `r` gave
         for one day, for the whole loaded window instead. Delegates to the
         App (`TeetimeApp.action_force_refresh()`) since the actual scrape
         runs via `_periodic_scrape(force=True)`'s own threaded worker — same
@@ -2401,8 +2422,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         A day whose own schedule has real slots gets an expand/collapse caret
         (▶/▼) prepended to its own first cell; picking it in
         `on_data_table_row_selected()` toggles `self._expanded_dates` and
-        inserts that day's own per-slot rows (via `_compute_slot_rows()` — the
-        same rendering `DayDetailScreen` uses) directly beneath it, indented.
+        inserts that day's own per-slot rows (via `_compute_slot_rows()`)
+        directly beneath it, indented.
         That first column reads as "Date/Time" (2026-09-15, direct feedback:
         "the 'day' column should preferably say 'time/date'", corrected the
         same day to "Date/Time" — the right order once it's a date first,
@@ -2592,7 +2613,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 column_widths[index] = min(column_widths[index], _WRAP_CAP_WIDTH)
 
         table.clear(columns=True)
-        for header, width in zip(headers, column_widths):
+        # strict=True: column_widths is built from headers and must stay the same
+        # length -- a mismatch should be loud, not a silently dropped column.
+        for header, width in zip(headers, column_widths, strict=True):
             table.add_column(header, width=width)
         for row in pending_rows:
             # height=None -- auto-detect the wrapped height instead of a
@@ -2688,8 +2711,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     def _confirm_or_cancel_slot(self, date: str, slot_time: str, row: int) -> None:
         """`enter` on an expanded slot row -- the exact same confirm-or-cancel
-        choice `DayDetailScreen.action_confirm()` makes for its own highlighted
-        row (see that method's own docstring), just resolving `date`/`slot_time`
+        choice the since-retired day-detail screen made for its own highlighted
+        row, just resolving `date`/`slot_time`
         from this row's own `_row_index` entry instead of the single day it's
         scoped to."""
         existing = storage.load_confirmed_booking(self.course, date, path=self.db_path)
@@ -2731,7 +2754,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         )
 
     def action_switch(self) -> None:
-        # Same delegation as DayDetailScreen.action_switch() — push_screen_wait()
+        # Delegated rather than handled here — push_screen_wait()
         # needs to run on the App, see TeetimeApp.action_switch_club_or_course().
         self.app.action_switch_club_or_course()
 
@@ -2814,15 +2837,14 @@ class SearchScreen(Screen[None]):
     question: "why does adhoc search not show occupancy, player, or weather
     data?") — a `SlotMatch.slot` already carries `booked`/`capacity`/`players`,
     and the matching `Schedule.weather` is already in `self.schedules`; reuses
-    `DayDetailScreen`'s own `_slot_temperature_cell()`/`_slot_precipitation_cell()`/
+    the module-level `_slot_temperature_cell()`/`_slot_precipitation_cell()`/
     `_slot_wind_cell()` directly rather than a second, parallel set of weather
     formatters, so the two screens can't drift on how a number gets displayed.
 
     `c` confirms the highlighted result (2026-09-13, direct question: "can we
-    confirm tee times from adhoc search?") — same `ConfirmBookingScreen` as
-    `DayDetailScreen`'s own `c`, pre-filled from the highlighted row's own
-    date/course/time (`self._row_matches`, the search equivalent of that
-    screen's `_row_times`) rather than whatever date/course happened to be
+    confirm tee times from adhoc search?") — the same `ConfirmBookingScreen`
+    `OverviewScreen` opens, pre-filled from the highlighted row's own
+    date/course/time (`self._row_matches`) rather than whatever date/course happened to be
     active when this screen was opened, since a single search's results can
     span several different days.
     """
@@ -2879,8 +2901,8 @@ class SearchScreen(Screen[None]):
         self.club_id = club_id
         # This result's own SlotMatch, in table row order -- lets `c` confirm the
         # highlighted row's exact date/course/time without re-deriving it from
-        # display text, same reasoning DayDetailScreen's own `_row_times` already
-        # follows for the identical purpose.
+        # display text, same reasoning the since-retired day-detail screen's own
+        # `_row_times` followed for the identical purpose.
         self._row_matches: list[SlotMatch] = []
 
     def compose(self) -> ComposeResult:
@@ -2958,8 +2980,8 @@ class SearchScreen(Screen[None]):
         table.add_column(i18n.t("table.occupancy"))
         # Capped and left to wrap (`height=None` in _run_search()'s own
         # add_row()) rather than sized to full natural content -- same
-        # reasoning and same shared cap as OverviewScreen's Events/Pick and
-        # DayDetailScreen's Players/Events (direct feedback 2026-09-15,
+        # reasoning and same shared cap as OverviewScreen's Events/Pick
+        # (direct feedback 2026-09-15,
         # fitting the whole app on an iPad portrait terminal, ~50 columns).
         table.add_column(i18n.t("table.players"), width=_WRAP_CAP_WIDTH)
         table.add_column(_column_header("table.temperature", "temperature", units))
@@ -3002,8 +3024,8 @@ class SearchScreen(Screen[None]):
             return
         status.update("")
         units = self.config.get("units", units_module.DEFAULT_UNITS)
-        # Same (date, course) -> Schedule lookup DayDetailScreen's own
-        # load_schedule() already does implicitly via storage -- here it's an
+        # Same (date, course) -> Schedule lookup the since-retired day-detail
+        # screen did implicitly via storage -- here it's an
         # in-memory match against self.schedules instead, since this screen never
         # re-fetches anything.
         schedule_by_key = {(schedule.date, schedule.course): schedule for schedule in self.schedules}
@@ -3777,9 +3799,9 @@ class TeetimeApp(App[None]):
         """Re-open the club/course pickers on demand — direct feedback 2026-09-07:
         "how can i switch to a different course from the time schedule menu? It is
         somehow not possible to return to the previous menus like choosing the
-        course or login." Bound to `s` on `DayDetailScreen` (see that class's own
+        course or login." Reached from `OverviewScreen`'s Actions menu via its own
         `action_switch()`, which delegates here since the actual work needs
-        `push_screen_wait()`, which lives on the App).
+        `push_screen_wait()`, which lives on the App.
 
         Runs the real work in its own worker (`run_worker(..., exclusive=True)`,
         same as `_start()`) rather than directly here — `push_screen_wait()` requires
@@ -3825,9 +3847,9 @@ class TeetimeApp(App[None]):
 
     def action_edit_settings(self) -> None:
         """Open `SettingsScreen` — direct feedback 2026-09-08: "i don't even know
-        where to configure from the UI." Bound to `e` on both `OverviewScreen` and
-        `DayDetailScreen` (see their own `action_edit_settings()`, which delegate here
-        since `push_screen_wait()` lives on the App). Same worker requirement/
+        where to configure from the UI." Reached from `OverviewScreen`'s Actions menu
+        via its own `action_edit_settings()`, which delegates here since
+        `push_screen_wait()` lives on the App. Same worker requirement/
         reasoning as `action_switch_club_or_course()` above.
 
         No club to resolve or favorite first any more (2026-09-08, same-day follow-up:
@@ -3938,7 +3960,7 @@ class TeetimeApp(App[None]):
 
     def action_force_refresh(self) -> None:
         """`r` on `OverviewScreen` -- the same manual override
-        `DayDetailScreen.action_refresh()` already gives for one day, ported to
+        the since-retired day-detail screen's own `r` gave for one day, ported to
         the whole loaded window (2026-09-15, direct follow-up: "why don't we
         integrate those missing features into the overview screen"). Just
         `_periodic_scrape(force=True)` -- a no-op if a pass is already running,

@@ -60,7 +60,7 @@ mode (`SettingsApp.on_mount()`'s own dismiss-callback already exits the app the
 moment the screen closes either way, so nothing about standalone behavior actually
 changes here). Now: `escape` dismisses just this screen (what `q` used to do),
 `q` calls `self.app.exit()` directly, matching `ClubBrowserScreen`/`CoursePickerScreen`/
-`SearchScreen`/`HeatmapScreen`/`DayDetailScreen`'s own convention exactly. The
+`SearchScreen`/`HeatmapScreen`'s own convention exactly. The
 button that dismisses the screen is relabeled "Cancel" (not "Quit") to match what
 it's always actually done, now that "Quit" unambiguously means the `q` key's new
 meaning instead. The exact same fix, for the exact same reason, was also applied to
@@ -83,7 +83,8 @@ already just reads whatever `config["round_duration_minutes"]` it's handed, and
 way every other global setting's already does.
 
 `SettingsScreen` is a plain `Screen[dict | None]`, not a standalone `App` — pushed
-from `tui.py` (bound to `e` on both `OverviewScreen` and `DayDetailScreen`, added
+from `tui.py` (reached from `OverviewScreen`'s Actions menu — `t` — since 2026-09-16;
+originally its own `e` key binding, added
 2026-09-08 once a real user asked "i don't even know where to configure from the UI":
 until then this really was only reachable as its own separate command, a genuine gap
 this whole module's own docstring used to describe as deliberate rather than naming as
@@ -165,9 +166,10 @@ small widget.
 """
 
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -709,7 +711,7 @@ class SettingsScreen(Screen[dict | None]):
 
     # escape = back (dismiss just this screen), q = quit the whole app -- matching
     # every other pushed screen's convention (ClubBrowserScreen, CoursePickerScreen,
-    # SearchScreen, HeatmapScreen, DayDetailScreen). Direct feedback, 2026-09-09:
+    # SearchScreen, HeatmapScreen). Direct feedback, 2026-09-09:
     # "exiting the settings you need to hit q, while returning to the overview is
     # ESC and exiting the TUI is again q. Please make key binds consistent" -- this
     # screen used to be the one outlier, with no escape binding at all and q meaning
@@ -896,7 +898,7 @@ class SettingsApp(App[None]):
     `python -m src.settings_screen`. No club argument any more (2026-09-08, once
     these settings became global) — there's only ever the one shared settings set to
     open. Not used when the screen is pushed from tui.py directly (`e` on
-    OverviewScreen/DayDetailScreen) — that app supplies its own theme/language setup
+    OverviewScreen's Actions menu) — that app supplies its own theme/language setup
     and push_screen_wait() call directly."""
 
     TITLE = "teetime-monitor"

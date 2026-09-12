@@ -1,19 +1,9 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from src import booking_watch, scrape_once
 from src.models import ConfirmedBooking, Schedule, Slot
-
-
-@pytest.fixture(autouse=True)
-def _no_real_global_preferences_file(monkeypatch, tmp_path):
-    """`run()`/`scrape_due_for_club()` both merge in `global_preferences.py`'s shared
-    settings unconditionally now (2026-09-08, once availability/preferences stopped
-    being per-club) — defaulting to the real `~/.config/teetime-monitor/preferences.yaml`
-    if nothing overrides it. Redirected to a throwaway path for every test here, same
-    reasoning/pattern as test_tui.py's identical fixture."""
-    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
 
 
 @pytest.fixture(autouse=True)
@@ -237,7 +227,7 @@ def test_should_scrape_true_when_never_scraped(tmp_path, monkeypatch):
 
 def test_should_scrape_false_within_normal_interval(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    recent = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    recent = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
     monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
     monkeypatch.setattr(scrape_once.storage, "load_confirmed_booking", lambda course, date, path: None)
 
@@ -247,7 +237,7 @@ def test_should_scrape_false_within_normal_interval(tmp_path, monkeypatch):
 
 def test_should_scrape_true_once_normal_interval_elapsed(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    old = (datetime.now(timezone.utc) - timedelta(minutes=400)).isoformat()
+    old = (datetime.now(UTC) - timedelta(minutes=400)).isoformat()
     monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: old)
     monkeypatch.setattr(scrape_once.storage, "load_confirmed_booking", lambda course, date, path: None)
 
@@ -259,7 +249,7 @@ def test_should_scrape_uses_shorter_interval_once_booked(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     # 90 minutes ago -- past the 60-min "booked" interval, but well within the 360-min
     # normal one, so this only returns True because a confirmed booking exists.
-    recent = (datetime.now(timezone.utc) - timedelta(minutes=90)).isoformat()
+    recent = (datetime.now(UTC) - timedelta(minutes=90)).isoformat()
     monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
     monkeypatch.setattr(
         scrape_once.storage,
@@ -277,7 +267,7 @@ def test_should_scrape_ignores_a_confirmed_not_playing_booking(tmp_path, monkeyp
     # A ConfirmedBooking with time=None means "confirmed not playing that day" -- not a
     # real booking to protect, so the normal (longer) interval should still apply.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    recent = (datetime.now(timezone.utc) - timedelta(minutes=90)).isoformat()
+    recent = (datetime.now(UTC) - timedelta(minutes=90)).isoformat()
     monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: recent)
     monkeypatch.setattr(
         scrape_once.storage,
@@ -319,8 +309,8 @@ def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_pat
 def test_scrape_due_for_club_force_bypasses_should_scrape(tmp_path, monkeypatch):
     # 2026-09-15, OverviewScreen's own manual 'r' override -- "why don't we
     # integrate those missing features into the overview screen" once
-    # DayDetailScreen's own 'r' was found to unconditionally re-scrape its one
-    # day. _should_scrape() itself is never even called here (asserting the
+    # the since-retired DayDetailScreen's own 'r' was found to unconditionally
+    # re-scrape its one day. _should_scrape() itself is never even called here (asserting the
     # bypass, not just a return value it could coincidentally already give).
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)

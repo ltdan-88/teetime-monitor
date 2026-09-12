@@ -55,14 +55,13 @@ accumulating whether or not the TUI is ever opened on a given day, closing out t
 scoped.
 """
 
+from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import booking_watch, club_config, global_preferences, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking
-from .search import resolve_buffer_minutes
 from .scraper import (
     LoginError,
     fetch_available_dates,
@@ -70,6 +69,7 @@ from .scraper import (
     scrape_my_reservations,
     scrape_schedule,
 )
+from .search import resolve_buffer_minutes
 
 DATA_DIR = Path("data")
 
@@ -257,7 +257,7 @@ def _reconcile_cancelled_reservations(live_bookings: list[ConfirmedBooking], db_
                 time=None,
                 holes=None,
                 source="my_reservations",
-                confirmed_at=datetime.now(timezone.utc).isoformat(),
+                confirmed_at=datetime.now(UTC).isoformat(),
             ),
             path=db_path,
         )
@@ -296,7 +296,7 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
         DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED if is_booked else DEFAULT_SCRAPE_INTERVAL_MINUTES,
     )
 
-    elapsed_minutes = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60
+    elapsed_minutes = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds() / 60
     return elapsed_minutes >= interval_minutes
 
 
@@ -313,12 +313,12 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
 
     `force=True` (added 2026-09-15, `OverviewScreen`'s own manual `r` override —
     "why don't we integrate those missing features into the overview screen"
-    once `DayDetailScreen`'s own `r` was found to unconditionally re-scrape its
-    one day, no throttle at all) skips the `_should_scrape()` check entirely,
-    scraping every course/date in the window regardless of how recently it was
-    last fetched — the same "you explicitly asked, so do it now" contract
-    `DayDetailScreen.action_refresh()` already gives for a single day, just
-    for the whole loaded window at once.
+    once the since-retired `DayDetailScreen`'s own `r` was found to
+    unconditionally re-scrape its one day, no throttle at all) skips the
+    `_should_scrape()` check entirely, scraping every course/date in the window
+    regardless of how recently it was last fetched — the same "you explicitly
+    asked, so do it now" contract that screen's own refresh gave for a single
+    day, just for the whole loaded window at once.
 
     Merges your global `availability`/`preferences`/scrape-interval settings on top of
     `config` right away (2026-09-08 — no longer per-club, see `global_preferences.py`)

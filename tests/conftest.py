@@ -24,7 +24,7 @@ fixture and wins, so those keep testing exactly what they always did.
 
 import pytest
 
-from src import tui
+from src import geocode, global_preferences, i18n, tui
 
 # Well before TODAY_HIDDEN_AFTER_HHMM ("21:00") and before any realistic tee
 # time -- see this module's own docstring for why both matter.
@@ -34,3 +34,53 @@ FROZEN_NOW_HHMM = "08:00"
 @pytest.fixture(autouse=True)
 def _frozen_clock(monkeypatch):
     monkeypatch.setattr(tui, "_NOW_HHMM", lambda: FROZEN_NOW_HHMM)
+
+
+@pytest.fixture(autouse=True)
+def _english_ui(monkeypatch, tmp_path):
+    """Every test reads English UI text unless it switches language itself.
+
+    i18n's "current language" is deliberate module-level global state (see
+    i18n.py's own docstring), so without this a test that switches to German
+    leaks that choice into every test after it in the same pytest process, and a
+    fresh test resolves its language from whatever locale the machine happens to
+    have — which is how a suite passes on one developer's laptop and fails on
+    another's.
+
+    Consolidated here 2026-09-16 (audit follow-up) from three byte-identical
+    copies in test_tui.py / test_settings_screen.py / test_credentials_screen.py,
+    each carrying a comment pointing at one of the others as its source.
+    """
+    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
+    i18n.set_language("en")
+    yield
+    i18n._current_language = None
+
+
+@pytest.fixture(autouse=True)
+def _no_real_global_preferences_file(monkeypatch, tmp_path):
+    """`global_preferences.py` defaults to the real
+    `~/.config/teetime-monitor/preferences.yaml` whenever nothing overrides it,
+    and both the overview (on load) and the settings screen (on save) go through
+    it. Caught live before the original per-file version of this fixture existed:
+    a test that opened settings, edited a field and clicked save wrote for real
+    into this developer's own home directory.
+
+    Applied to every test rather than the two files that used to declare it
+    separately -- there is no test anywhere that *wants* the real file, and the
+    ones exercising a real preferences file pass an explicit path.
+    """
+    monkeypatch.setattr(global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_geocoding_by_default(monkeypatch):
+    """`club_config.add_favorite()` calls `geocode.find_club_location()` on every
+    save, which without this makes a real network request to the live Nominatim
+    service. Defaults to "nothing found" (`None`); a test exercising the
+    location-found path overrides it locally.
+
+    Same consolidation as above -- test_club_config.py and test_tui.py each had
+    their own copy, both patching the same `src.geocode` module object.
+    """
+    monkeypatch.setattr(geocode, "find_club_location", lambda name: None)

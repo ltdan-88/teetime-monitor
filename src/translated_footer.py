@@ -23,7 +23,7 @@ class TranslatedFooter(Static):
     TranslatedFooter {
         dock: bottom;
         /* Was a fixed height: 1 -- fine at a normal terminal width, but a screen
-           with several key hints (DayDetailScreen has ten) produces one long joined
+           with several key hints (ClubBrowserScreen has six) produces one long joined
            string that a single fixed row can only clip, not wrap, once the window
            narrows below that string's length. Direct feedback (2026-09-08): "the
            bottom menu bar ... doesn't scale well when you resize the window (i.e.

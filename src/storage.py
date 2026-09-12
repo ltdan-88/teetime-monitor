@@ -51,7 +51,7 @@ scrape_once.py is wired up.
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
@@ -161,7 +161,7 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
     """Log one scrape's slots (and weather/sun times/events, if present) as a new
     batch — never overwrite, history matters. Returns the new scrape's row id."""
     init_db(path)
-    scraped_at = datetime.now(timezone.utc).isoformat()
+    scraped_at = datetime.now(UTC).isoformat()
     sunrise = schedule.sun_times.sunrise if schedule.sun_times is not None else None
     sunset = schedule.sun_times.sunset if schedule.sun_times is not None else None
     with sqlite3.connect(path) as conn:
@@ -380,7 +380,7 @@ def save_booking_change(
     import booking_watch.py just for a dataclass shape. `params` is JSON-encoded —
     `{}` if not given, so old-style callers that only pass `message` still work."""
     init_db(path)
-    detected_at = datetime.now(timezone.utc).isoformat()
+    detected_at = datetime.now(UTC).isoformat()
     with sqlite3.connect(path) as conn:
         conn.execute(
             "INSERT INTO booking_changes (course, date, time, kind, message, params, detected_at) "
