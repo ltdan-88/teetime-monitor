@@ -85,3 +85,21 @@ def worst_icon(codes: list[int | None]) -> str:
         return ""
     worst = min(known, key=_SEVERITY_ORDER.index)
     return _ICONS[worst]
+
+
+def ordered_icons() -> list[str]:
+    """Every distinct icon this module can return, calm-first — the reverse of
+    `_SEVERITY_ORDER`'s own worst-first order, with each icon appearing once
+    even though several WMO codes share one (e.g. every drizzle severity is
+    the same 🌦️). Added 2026-09-15 for `tui.py`'s own `CONDITION_LEGEND`, so
+    that legend's ordering is derived from this module's own severity
+    judgment rather than a second, hand-typed list that could silently drift
+    out of sync with it (direct question: "how are the weather icons
+    arranged/ordered?" — turned out to be an arbitrary, separately-maintained
+    guess before this)."""
+    seen: list[str] = []
+    for code in reversed(_SEVERITY_ORDER):
+        icon = _ICONS[code]
+        if icon not in seen:
+            seen.append(icon)
+    return seen

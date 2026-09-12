@@ -316,6 +316,31 @@ def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_pat
     assert result == [fake_change] * (len(_FAKE_COURSES) * len(_FAKE_DATES))
 
 
+def test_scrape_due_for_club_force_bypasses_should_scrape(tmp_path, monkeypatch):
+    # 2026-09-15, OverviewScreen's own manual 'r' override -- "why don't we
+    # integrate those missing features into the overview screen" once
+    # DayDetailScreen's own 'r' was found to unconditionally re-scrape its one
+    # day. _should_scrape() itself is never even called here (asserting the
+    # bypass, not just a return value it could coincidentally already give).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
+
+    def fail_should_scrape(club_id, course, date, config):
+        raise AssertionError("_should_scrape() must not be called when force=True")
+
+    monkeypatch.setattr(scrape_once, "_should_scrape", fail_should_scrape)
+    fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
+    fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug: [fake_change])
+
+    result = scrape_once.scrape_due_for_club(
+        "musterhausen", {"club_id": "0000001", "overview_days": 1}, force=True
+    )
+
+    assert result == [fake_change] * (len(_FAKE_COURSES) * len(_FAKE_DATES))
+
+
 def test_scrape_due_for_club_skips_club_and_returns_empty_when_course_fetch_fails(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 

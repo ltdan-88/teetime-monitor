@@ -3113,9 +3113,10 @@ their unit-aware headers, the footer picks up the new `c` binding.
 673 tests passing.
 
 This closes out all ten remarks from the 2026-09-13 batch except 4)
-(the nested/collapsed overview redesign, still queued pending a scoping
-conversation) and 5) (answered directly — see above — with a real,
-separate staleness gap found but not yet fixed).
+(~~the nested/collapsed overview redesign, still queued pending a scoping
+conversation~~ — scoped and built 2026-09-14, see below) and 5) (answered
+directly — see above — with a real, separate staleness gap found but not yet
+fixed).
 
 **5), actually fixed now: "how do i cancel/modify confirmed tee times?"**
 The user picked this up first out of the two remaining items. The gap found
@@ -3230,7 +3231,475 @@ as an unused function nobody would notice going stale.
 14 tests updated for the new bare-number format, confirmed genuinely
 dependent by reverting. Verified live on both screens. 680 tests passing.
 
-## Considered and dropped
+**4), finally scoped and built (2026-09-14): "integrate detailed view into
+overview as nested/collapsed."** Genuinely queued rather than guessed at
+since first raised (see the batch above) — `DataTable` has no native
+expandable-row support, so which of three real interaction models
+("expand-in-place rows" inserting slot rows directly into the same table,
+a permanently visible split pane, or rewriting the whole screen as a
+scrollable accordion of per-day panels) this actually meant had to be
+picked before writing anything. Presented as three concrete mockups; "expand-
+in-place rows" was the direct pick — the smallest change of the three (still
+one table, one screen) and the closest match to "nested/collapsed" as asked.
+
+`enter` on a day-summary row (real slots, not the "not open yet"/"no data
+yet" placeholders) now toggles a ▶/▼ caret and inserts that day's own slot
+rows directly beneath it, indented, instead of always pushing a fresh
+`DayDetailScreen`. `enter` on one of those expanded slot rows confirms or
+cancels that exact tee time — the same choice `DayDetailScreen.action_confirm()`
+already made for its own highlighted row, reached here through the overview
+instead. New `d` binding keeps the full `DayDetailScreen` reachable for the
+couple of things expansion doesn't cover (a `booking_watch.py` banner's own
+`x` dismiss, a manual per-day `r` refresh) — deliberately not retired, since
+losing banner-dismiss entirely would've been a real regression for a
+feature this redesign was never asked to touch.
+
+Column reuse, not a redesign of the columns themselves: `OverviewScreen`'s
+eight columns (Day/Condition/Temperature/Precipitation/Wind/Events/Heat/Pick)
+don't get their own second header for child rows — `DataTable` only has one
+header for the whole table — so an expanded slot row re-purposes the day
+row's own Heat (how full 08:00-20:00 is, in aggregate) as that one slot's
+own Occupancy, and Pick (today's recommended/confirmed slot) as that slot's
+own Players. Both are already "how full / who's here" columns at the day
+level, so the slot-level meaning underneath reads as a zoom-in on the same
+idea rather than a mismatched relabeling.
+
+The actual per-slot rendering (★/🌙 markers, sunrise/sunset notes, past-slot
+dimming, the block-reason/occupied-slot split) was never duplicated: factored
+`DayDetailScreen.load_schedule()`'s own per-slot loop out into a module-level
+`_compute_slot_rows()` (returning a `SlotRowCells` per slot) once
+`OverviewScreen`'s expanded rows needed the exact same cells —
+`DayDetailScreen` itself now just calls this too, behavior-preserving, not a
+visible change to that screen. `_recommended_times_for()` (the module-level
+half of `_availability_pipeline()`'s ★ computation) was pulled out the same
+way, for the same reason.
+
+A genuine, easy-to-miss cursor-jump bug caught while building this, not just
+a test artifact: reusing `load_overview()` itself to redraw after a toggle
+would have recomputed `_initial_date()`'s own cursor placement on every
+keypress, yanking the cursor back to "today" the moment you tried to expand
+any other day. Split into `_render_table()` (the actual clear-and-rebuild,
+now shared) called from two places — `load_overview()` (the fresh-open path,
+which still wants `_initial_date()`'s placement) and a new
+`_rerender_preserving_cursor(row)` (used after a toggle/confirm/cancel,
+which explicitly keeps the cursor on the row just acted on instead).
+
+A second real bug caught the same way — live, not by the test suite, which had
+been green the whole time: pressing enter on a day row with *no* caret at all
+(no cached schedule yet, so nothing visibly invited a press) still silently
+added that date to `_expanded_dates` — invisible in the moment (nothing to
+render either way), but a real scrape landing for that date later would then
+render it pre-expanded, something never actually asked for. Caught by manually
+driving a seeded `OverviewScreen` end to end (`table.move_cursor()` to a
+schedule-less row, `enter`, checked `_expanded_dates` directly) rather than
+by any assertion already in place — a reminder that "all tests pass" and
+"the feature works" aren't the same claim for a brand new interaction no
+existing test could have covered yet. Fixed with a one-line guard in
+`on_data_table_row_selected()`: only toggle when `date` is actually one of
+`self._schedules`'s own dates (exactly the set `_render_table()` judged
+expandable), mirroring the caret the user really saw.
+
+8 new tests (`test_tui.py`) — three directly exercising expand/collapse,
+confirm-from-an-expanded-row, and the no-caret-no-op guard above (confirmed
+genuinely dependent by reverting the guard and watching it fail for the
+expected reason), the rest updating existing tests that relied on `enter`
+drilling straight into `DayDetailScreen` (chiefly the shared
+`_reach_day_detail()` test helper, now pressing `d`) to the new behavior.
+690 tests passing (was 681 — one pre-existing failure, `test_overview_
+screen_shows_picks_once_availability_is_configured`, unrelated to this
+change and already failing on `main` before it — this developer machine's
+own saved global preferences leak into that particular test's `_resolved_config()`
+call rather than being isolated like the rest of the suite; a real gap, but
+not one this change touched or introduced).
+
+**Same-day follow-up, direct feedback on the expand-in-place feature just
+shipped: "1) i notice a bit of lag when uncollapsing the menus. 2) can you
+fixate everything from the recommendation area to the bottom? and also make
+better use of the width of the window? 3) check whether the recommendation
+area and recommendation column are redundant."** Three real, separate fixes.
+
+**1) The lag.** `_rerender_preserving_cursor()` (every toggle/confirm/cancel)
+called `_display_dates()`, which calls `scraper.fetch_available_dates()` — a
+real synchronous HTTP GET against the club's own site, up to a 15s timeout,
+just to redraw a table whose booking window can't possibly have changed
+between one keypress and the next. New `self._cached_dates`/
+`self._cached_open_dates`, set once by `load_overview()`'s own fresh open/
+switch/periodic-refresh path and reused by every subsequent toggle — no
+network call left on the interaction path at all.
+
+**2) Layout.** The exact same bug class `DayDetailScreen`'s own `#table`
+already got fixed once, in v0.9.1 ("fix day-detail scrolling the whole
+screen instead of just the table") — just never applied to `OverviewScreen`,
+since its table was a fixed 5 rows until expansion existed to make it grow.
+`#overview-table { height: 1fr }` gives it exactly the leftover space after
+its fixed-height siblings, so expanding a day now grows the table's own
+internal scrollbar instead of pushing the legend/footer off down the
+document.
+
+**3) Redundancy, confirmed and resolved.** Checked against two real clubs'
+live data: the "This week's picks" section (below the table) only ever
+listed the exact same ★ HH:MM the Pick column already showed for that same
+day — and it was the *narrower* of the two, since it silently dropped
+confirmed bookings and unplayable days that the column always covers. A
+strict, smaller subset, never the other way around. Dropped the section
+entirely; `_day_pick_text()`'s own ★ cell now folds in AI-ranked `reasons`
+text directly (`playable[0].reasons`, empty until `ai_assist.enabled` is
+ever turned on) — the one genuine thing the removed section could show that
+the column couldn't, now with nowhere else for it to live. `recommend.
+weekly_picks()`/`diversify_by_day()` themselves were deliberately left in
+place in `recommend.py` (still independently tested in `test_recommend.py`)
+rather than deleted along with their one caller — real, tested recommendation
+logic, not view-specific formatting, and plausibly useful again for some
+future non-TUI consumer (a digest, a CLI summary) even with this screen no
+longer using it.
+
+**2) continued, same feedback: "make better use of the width of the
+window."** A real, separate gap confirmed live: `DataTable` auto-sizes every
+column to its own widest cell and stops there — it has no built-in "stretch
+a column to fill the rest of the container." A 200-column terminal was
+leaving over 100 columns of blank space to the table's own right, since
+Temperature/Wind/Heat/etc. are all short, bounded content and nothing ever
+claimed the remainder. Events (event/tournament names, sunrise/sunset notes)
+is the one column with genuinely open-ended content, so it's the one that
+now gets whatever's left over.
+
+Getting there took two real dead ends, each caught live before landing on
+the actual fix — worth recording since both looked numerically plausible
+right up until the real rendered screen said otherwise:
+
+- First attempt read `DataTable`'s own `Column.width`/`Column.content_width`
+  right after populating rows, to measure "natural" widths before deciding
+  how much to hand to Events. Produced a wildly wrong stretch on the very
+  first live check (Day crammed down to 3 columns, Events blown out past the
+  screen's own right edge) — confirmed both fields are computed lazily by
+  the table's *own* next render pass, not synchronously by
+  `add_row()`/`add_column()`; reading either immediately afterward returns
+  stale, header-only values. Even wrapping the read in `call_after_refresh()`
+  (Textual's own "run this after the screen has actually redrawn" hook)
+  didn't fully fix it, since the fix's own two-pass reset-then-remeasure
+  needed a *second* deferred tick that wasn't there — genuinely fragile
+  machinery for what turned out to be an avoidable dependency in the first
+  place.
+- Replaced entirely: `_render_table()` now computes every column's width
+  itself, directly from the same cell strings it's about to display —
+  `_cell_visible_width()` (`Text.from_markup(cell).cell_len`, strips this
+  app's own `[dim]`/`[yellow]` markup and counts wide characters like emoji
+  correctly) over every header and every buffered row, before any of it
+  ever reaches the table. Rows are now built into a `pending_rows` list
+  first rather than added immediately, specifically so all of them are known
+  before column widths are decided. No dependency on `DataTable`'s own
+  lazy internals at all, and no `call_after_refresh()` needed either --
+  `table.size.width` (the box `DataTable` was already laid out into by its
+  CSS, independent of its own content) is available synchronously, the same
+  way `_render_legend()` already trusted `self.size.width` at mount time.
+
+  Second dead end, caught the same way: even with self-computed widths that
+  summed *exactly* to `table.size.width`, the last column still clipped
+  mid-word on a real live check (a 27-character message rendered as 12
+  characters, cut clean at the terminal's own right edge). `DataTable`
+  renders a 1-cell leading gutter plus 2 cells of its own default
+  `cell_padding` between every adjacent pair of columns — none of which
+  shows up in any column's own declared `width`, so the naive
+  `table.size.width - sum(column_widths)` overshot leftover by exactly that
+  much every time. Measured empirically against two differently-sized
+  tables (8 columns: 15 cells of overhead; 3 columns: 5) to confirm the
+  actual formula (`1 + (columns - 1) * 2`) rather than guess at it, then
+  reserved it explicitly before deciding how much Events actually gets.
+
+No new tests for the width computation itself (a `DataTable`'s own real
+character-cell layout isn't something the existing headless-pilot test
+harness renders and inspects — every existing width-adjacent test still
+passes, confirming this doesn't change what any column shows, only how
+wide it renders). Verified entirely live instead, the same way the two
+dead ends above were caught: real club data (Golfclub Hetzenhof e.V.,
+5 days, one genuinely long "zu dunkel zum Fertigspielen" cell and one
+tournament name), a real 200-column tmux pane, and `rich.cells.cell_len`
+run against the actual captured pane text to confirm every row's true
+rendered width lands at or under 200 with nothing clipped — not just
+eyeballing the terminal output, which had itself been misleading once
+already earlier in this same investigation (a screenshot inspected by eye
+looked overflowed when the underlying cell-accurate measurement said
+otherwise, and looked fine by eye once, later, when it genuinely wasn't).
+
+3 tests removed (`test_overview_screen_hides_picks_section_without_
+availability_configured`, `test_overview_screen_shows_picks_once_
+availability_is_configured` — the one pre-existing failure noted above,
+gone now along with the section it tested — and `test_overview_screen_
+picks_spread_across_days_not_just_the_first_one`, its underlying
+`diversify_by_day()` behavior already covered directly in
+`test_recommend.py`), one redirected to check the Pick column instead of
+the removed `#picks` widget, one renamed and corrected (`test_overview_
+screen_footer_says_enter_opens_a_day` had kept passing after the
+"nested/collapsed overview" redesign for the wrong reason entirely — its
+"Open" assertion matched the new, unrelated `d` binding's own footer text,
+not the `enter` hint it was meant to check), one new unit test for reasons
+folding into the Pick column. 689 tests passing.
+
+**Fitting the whole app on an iPad portrait terminal (~50 columns), same day,
+direct request** — a real chain of follow-ups, each closing one gap the last
+surfaced:
+
+- Column headers wrap their own unit onto a second line (`_column_header()`
+  now returns `"Temperature\n(°C)"` rather than `"Temperature (°C)"`) —
+  `header_height=2` on every table. `_cell_visible_width()` (the same
+  self-computed-width system from the "make better use of the width" work
+  above) learned to measure a multi-line string by its own widest *line*, not
+  the sum of both, or every such column would've come out wider than needed.
+- Events/Pick (and, on the tables that still had their own `DayDetailScreen`
+  equivalents at the time, Players/Notes) capped at a shared
+  `_WRAP_CAP_WIDTH` and left to wrap (`height=None` on every `add_row()`)
+  instead of sized to their own full open-ended content.
+- Real measurement, not a guess: even with all of the above, Day+Condition+
+  Temp+Precip+Wind+Occupancy alone still needed ~58 columns (43 of real
+  content + ~15 of `DataTable`'s own inter-column overhead) against the
+  50-column budget — before Events or Pick got any width at all. Header
+  *words* themselves (not just units) had to shrink too: "Temperature"→"Temp",
+  "Precipitation"→"Precip"/"Niederschlag"→"Regen", "Condition"→"Cond"/
+  "Wetterlage"→"Wetter", "Occupancy"→"Occ"/"Belegung"→"Bel.",
+  "Pick"→(unchanged)/"Empfehlung"→"Empf." — full names live in the legend/
+  column-header tooltip context instead. The Day column itself dropped its
+  year (`one_date[5:]`, "09-12" not "2026-09-12" — the full ISO date is still
+  in the full day view's own title for whoever needs it) and replaced its
+  "(today)"/"(heute)" suffix with a single "•" marker (new `legend.today`
+  entry) — its single biggest remaining contributor.
+- Real screenshots, not just tmux text capture, once eyeballing the terminal
+  output itself proved unreliable (a capture that looked overflowed by eye
+  turned out to measure fine with `rich.cells.cell_len`, and vice versa):
+  `App.save_screenshot()` (SVG) + `rsvg-convert` to PNG, sent directly to the
+  user at each step rather than described in prose.
+
+**Column order + a real redundancy check, same day, direct follow-up on the
+screenshots above**: "1) the header should say 'Date/Time' 2) I would swap
+arrangement of events and occupancy 3) why is the event column so wide?" —
+`table.day`'s header changed from "Day" to "Date/Time" (it always meant both,
+once expand-in-place rows put a slot *time* under the same column a
+day-summary row shows a *date* in — the header just never caught up until
+now). Occupancy moved to sit right after Wind, before Events, so the four
+weather-ish columns read as one contiguous group. And the "why so wide"
+question surfaced a real design contradiction: an earlier pass (the "make
+better use of the width" work above) had Events absorb any leftover width on
+a wide screen, which directly fought the brand new "cap it and let it wrap"
+philosophy from the iPad work — dropped the leftover-stretch entirely; Events
+now stays at its capped width consistently regardless of screen size, and
+unclaimed space just stays unused rather than landing in the wrong place.
+
+**The refresh status, same day, direct follow-up**: "I see a nice space to
+the right of both dropdown menus. Can we use that for the 'refreshing'
+notification, and maybe combine that with a status bar, timer or wheel (give
+me some recommendations)?" — presented three options (animated spinner +
+"updated Xm ago" freshness readout / plain inline text / a countdown to the
+next auto-refresh); the spinner+freshness combination was picked. New
+`_RefreshStatus` widget (a `Static` living beside the Club dropdown row, via
+`_compose_switcher()` so both screens that still existed at the time shared
+it): an animated braille spinner + "Refreshing…" while `TeetimeApp.
+_periodic_scrape()` is actually running, replaced by "Updated Xm ago" once it
+lands — and that idle text keeps re-rendering itself every 30s on its own
+timer, so it never goes stale-looking during a long session the way a
+one-shot "Refreshed." message would. `#status` itself is untouched, still
+used for actual error text (a fetch failure, "no tee sheet found") that
+doesn't fit this widget's own narrow space. Direct follow-up the same
+message: "Can you align status to the right?" — `width: 1fr` +
+`content-align: right middle` on the widget itself.
+
+**Legend cleanup, same day, direct follow-up**: "I noticed that rain icon is
+shown twice in the legend" — real duplicate, not a false alarm: the Condition
+column's own 🌧️ (current weather, added for the Condition-column legend just
+added the same day) and the Precipitation/Wind columns' own plain 🌧/💨
+threshold markers (`_SLOT_RAIN_ICON_THRESHOLD_PERCENT`/`_SLOT_WIND_ICON_
+THRESHOLD_KPH` — "worth noticing at a glance," a fixed visual cutoff,
+independent of the user's own configurable `avoid_rain`/`avoid_wind`
+preference) both used the identical `"legend.rain"`/`"legend.wind"` text,
+reading as one accidentally-repeated line despite being genuinely different
+glyphs for genuinely different things. Renamed the threshold markers'
+own keys to `legend.rain_threshold`/`legend.wind_threshold` ("rain
+likely"/"windy"), leaving plain "rain"/"wind" solely to the condition icons.
+
+## DayDetailScreen retired (2026-09-15)
+
+Direct follow-up once the overview's own banners + force-refresh (below) shipped:
+**"why don't we integrate those missing features into the overview screen. Would
+make this open full day view screen redundant, right?"** — a fair question, and
+the answer was yes. `DayDetailScreen` (implemented 2026-09-06, ROADMAP.md Phase 1's
+original v1 scope) was the very first real screen this app ever had; by 2026-09-14
+"expand-in-place" rows had already put its core job — viewing and confirming/
+cancelling a day's own slots — directly into `OverviewScreen`. Its only two
+genuinely unique things left were `x` (dismiss a `booking_watch.py` banner) and `r`
+(force a re-scrape right now, bypassing the interval) — both ported onto
+`OverviewScreen` itself first, closing the gap, before the screen came out:
+
+- **Banners**: `refresh_banners()`/`action_dismiss_banners()` ported directly
+  (`storage.load_unacknowledged_booking_changes()` already returns every
+  change across the *whole* club, never scoped to one date — `DayDetailScreen`
+  just happened to already be viewing one date, so its own banner text never
+  needed to say which day a change was about). `OverviewScreen` spans several
+  days, so its own version does: new shared `_render_banner_lines(changes,
+  include_date)` (factored out of the two near-identical copies this would've
+  otherwise been), `include_date=True` prefixing each line with its own
+  weekday + short date ("Sun 09-13: ...").
+- **Force refresh**: new `force: bool = False` parameter on
+  `scrape_once.scrape_due_for_club()`, skipping `_should_scrape()`'s own
+  throttle entirely when set. `OverviewScreen.action_refresh()` (`r`) delegates
+  to a new `TeetimeApp.action_force_refresh()` → `_periodic_scrape(force=True)`
+  — the exact same "you explicitly asked, so do it now" contract
+  `DayDetailScreen.action_refresh()` used to give for one day, for the whole
+  loaded window at once, still running in the same background thread so the UI
+  stays responsive.
+
+With both of those covered, the class itself (~415 lines) came out entirely —
+along with its own `d` binding/`action_open_day()`, `DAY_DETAIL_LEGEND` (merged
+into `OVERVIEW_LEGEND`, which picked up the 🌙 marker it was missing —
+`_compute_slot_rows()`, shared by both screens' own row rendering, could always
+mark an expanded slot row with it, but only the now-retired screen's own legend
+ever explained it), and every `isinstance(screen, DayDetailScreen)` branch across
+`TeetimeApp` (`get_system_commands()`, `_rebuild_current_screen()`,
+`_periodic_scrape()`/`_finish_periodic_scrape()`, `_pick_course()`).
+
+**Test suite, the real cost of this kind of removal**: ~58 tests referenced
+`DayDetailScreen` directly and broke. Rather than deleting all of them outright
+(which would have silently dropped real coverage — star/moon markers, past-slot
+dimming, sunrise/sunset notes, block-reason placeholders, confirm/cancel
+semantics, holes-from-course-label — none of that logic went away, it's still
+`_compute_slot_rows()`/`OverviewScreen`'s own confirm/cancel path, just no longer
+reachable through a screen that no longer exists), each one was individually
+triaged:
+- ~20 rewritten as **direct, screen-independent unit tests against
+  `_compute_slot_rows()` itself** (new section, `test_compute_slot_rows_*`) —
+  arguably better test design than before, not just a mechanical port: no
+  `Screen`/`App` needed at all to exercise this pure function.
+- ~6 rewritten against `OverviewScreen`'s own expand-then-confirm/cancel flow
+  (already-established pattern from the "nested/collapsed overview" work):
+  offering to cancel an already-confirmed slot, both `CancelBookingScreen`
+  outcomes, deriving holes from a nine-hole course.
+- ~6 fixed in place — tests that only used `_reach_day_detail()` as a
+  convenient way to reach *some* real screen mid-flow (switch-club tests,
+  the language-rebuild test) now use `_reach_overview()` directly; the
+  now-redundant `_reach_day_detail()` helper and unused `_day_detail()`
+  factory were removed once nothing called them any more.
+- The remaining ~26 (footer/switcher/title/banner-i18n/column-layout tests
+  specific to `DayDetailScreen`'s own now-gone UI chrome) were deleted
+  outright — their coverage was either screen-specific plumbing with nothing
+  left to protect, or already independently covered elsewhere (`search.py`/
+  `recommend.py`'s own unit tests for "fully booked excluded"/"bad weather
+  excluded"; `i18n.py`'s own `render_booking_change()` tests for banner
+  translation; `OverviewScreen`'s own switcher/footer/language tests for the
+  shared `_ClubCourseSwitcher`/`TranslatedFooter` components).
+
+665 tests passing (net: roughly the same total as before the removal, despite
+~415 lines of screen code coming out — confirms the triage actually preserved
+behavior coverage rather than just making the number go back up).
+
+**"Find a club", same day, direct follow-up**: "switch club/course: understood,
+can we choose a more explicit name for the label? A first time user wouldn't
+understand the difference with the visible drop downs." `binding.switch`'s own
+text changed from "Switch club/course" to "Find a club" — the real
+differentiator from the always-visible inline dropdowns (which only ever list
+clubs already favorited) is that `s` searches pc caddie's *entire* directory,
+already a settled, correctly-scoped behavior since 2026-09-11 (only asks for a
+course when a club genuinely has more than one and no default is set) — the
+label just never said so.
+
+**Weather icon order + legend categories, same day, direct question**: "how are
+the weather icons arranged/ordered? Would it make sense to separate legend into
+categories?" The honest answer to the first half: arbitrarily — `CONDITION_LEGEND`
+had been hand-typed in a plausible-looking but never-actually-derived order. New
+`weather_icons.ordered_icons()` (the exact reverse of that module's own
+`_SEVERITY_ORDER`, already the real source of truth `worst_icon()` uses) makes
+`CONDITION_LEGEND`'s order provably match the same severity judgment the rest of
+the app already relies on, rather than a second hand-maintained list that could
+silently drift from it — confirmed against `worst_icon()`'s own existing test
+("snow beats rain"): rain now correctly sorts calmer than snow, not the reverse a
+naive guess had it in before. `OVERVIEW_LEGEND` split into three labeled
+categories for rendering (`OVERVIEW_LEGEND_CATEGORIES`: Markers/Weather/Notices)
+— `_render_legend()` now renders one bold heading per group; `OVERVIEW_LEGEND`
+itself stays a flat concatenation of the three, so existing membership checks and
+the general-purpose `_legend_pairs()`/`_wrap_legend()` machinery don't need to
+know it's actually three groups.
+
+667 tests passing.
+
+**Three direct follow-ups on the screenshots above, same day:**
+
+1. **"markers: just 'expand'"** — `legend.expand`'s own text shortened from
+   "expand a day for its own tee times" to just "expand".
+
+2. **"why are snow showers and thunderstorm a separate row in the
+   screenshot?"** — a real rendering bug, not a display quirk: `_render_legend()`
+   put each category's bold heading on the *same* line as the first chunk of its
+   own wrapped pairs, but `_wrap_legend()` packed that chunk against the *full*
+   available width with no idea a heading would also share the line — the
+   combined line then ran wider than the `#legend` widget's own real width, so
+   Rich's own rendering silently wrapped it a *second* time at an arbitrary
+   point, splitting a pair (❄️ from its own "snow" label) across two visual
+   lines despite `_wrap_legend()`'s entire job being to never let that happen
+   (see that function's own docstring). Fixed by putting each heading on its
+   own line, with that category's wrapped pairs below it — `_wrap_legend()`
+   always gets the real full width for the pairs alone now, so nothing it packs
+   can overflow the widget a second time.
+
+3. **"if a course picker is not necessary, then remove it from the 'find a
+   club' screen. Course picker is anyway implemented in overview screen"** —
+   the one case `_do_switch_club_or_course()` still asked for a course (a club
+   with several real courses and no saved default) came out too. New
+   `allow_picker` parameter on `_pick_course()` (threaded through `_open_club()`
+   as `allow_course_picker`, default `True`): when `False`, falls straight
+   through to the club's own first course instead of ever pushing
+   `CoursePickerScreen` — the exact same fallback the inline club-select
+   dropdown's own `_switch_club()` already used, just now also applied to the
+   `s`/"Find a club" flow specifically. The *initial* launch flow (`_start()`)
+   keeps the default `True` and still shows the picker for a genuinely
+   ambiguous club — a first-time pick is a different moment than a
+   mid-session switch, and wasn't part of this request.
+
+   Three tests updated for the new behavior (one renamed to assert the picker
+   never shows even when genuinely ambiguous, one fixed to expect landing
+   straight on the overview with the club's own first course, one deleted
+   outright — "cancelling the course picker during a switch" has no scenario
+   left to test now that the picker never appears in that flow at all;
+   `CoursePickerScreen`'s own escape/cancel behavior stays independently
+   tested, and the *initial*-launch path that can still reach it is untouched
+   and still covered). 661 tests passing.
+
+## Settings/Search/Switch/Heatmap lost their own keys (2026-09-16)
+
+Direct follow-up on the command-palette work two days earlier: **"I thought
+settings and commands were now integrated into one menu. Why do we still have
+a key bind for commands?"** They were — `get_system_commands()` added
+Settings/Switch/Search/Heatmap as entries inside the `t` palette on
+2026-09-15 — but "integrated" turned out to be the wrong word for what
+actually shipped: each of those four kept its own dedicated key (`e`/`s`/`/`/
+`h`) *as well as* its new palette entry, so the app grew a second way to
+reach the exact same four actions instead of gaining one real menu. Asked
+directly which way to resolve that: **"Remove redundant keys, and rename
+commands into actions."**
+
+- `OverviewScreen.BINDINGS`/`_FOOTER_BINDINGS` no longer bind `/`, `h`, `s`,
+  or `e` at all — `action_search()`/`action_heatmap()`/`action_switch()`/
+  `action_edit_settings()` themselves are unchanged, only their direct key
+  entries came out. `t` (`action_command_palette()`) is now the sole way to
+  reach any of the four; `get_system_commands()` still calls the exact same
+  `action_*` methods it always did.
+- `r` (Refresh) and `x` (Dismiss banners) deliberately kept their own direct
+  keys — both get reached for often enough, and right when something just
+  changed on screen, that routing them through a searchable menu would slow
+  down the moment they're actually needed. This wasn't "collapse everything
+  into `t`", just "stop giving four actions two doors each."
+- `binding.commands`: "Commands" → **"Actions"** (`"Befehle"` →
+  `"Aktionen"` in German) — the second half of the same request. "Commands"
+  read as Textual's own generic command-palette label; once Settings/Search/
+  Find a club/Heatmap became the *only* way in, "Actions" names what's
+  actually behind the key more directly.
+
+Nine tests updated: three `e`→Settings and one `/`→Search test now call
+`action_edit_settings()`/`action_search()` directly instead of pressing the
+now-removed key (same screen state reached either way — the key press was
+never the thing under test, reaching `SettingsScreen`/`SearchScreen` was);
+three `s`→switch tests and two `h`→Heatmap tests likewise now call
+`action_switch()`/`action_heatmap()` directly. The one footer-text test that
+asserted `"Settings"`/`"Search"` appeared in `OverviewScreen`'s own footer now
+asserts the opposite — neither appears any more — plus that `"Actions"` does.
+661 tests passing (same count — no coverage lost, since the underlying
+`action_*` methods and everything they open are still exercised the same way,
+just invoked directly instead of through a key that no longer exists).
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
 - **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a
