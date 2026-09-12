@@ -3816,6 +3816,65 @@ Actions-menu behavior for Search, Heatmap, and the club-browser switch flow
 (Settings' own three pre-existing e→settings tests updated in place instead,
 same behavior). 671 tests passing.
 
+## The actual 2D colored heatmap grid (2026-09-16)
+
+Direct follow-up once the readiness view's own scope came up in conversation:
+**"Can we implement the actual 2d colored grid from the mockup?"** No mockup
+*file* exists anywhere in this repo to check pixel-for-pixel — the original
+design was agreed in an earlier conversation and only survives as prose in
+`HeatmapScreen`'s own docstring and this file (see the 2026-09-09 "Reworked to
+match the original signed-off mockup" entry above, which itself once caught a
+real memory-vs-mockup mismatch this way). Asked directly rather than guessing
+whether that prose description was trustworthy enough to build from without the
+file: **"Design fresh from the ROADMAP description."**
+
+`HeatmapScreen` now renders the actual grid directly below each of its two
+existing readiness tables — hour-of-day as rows, weekday (or special day type)
+as columns, matching the mockup's own described axis choice ("real days of the
+week, each its own column"). Three new module-level functions do the work:
+
+- `_heatmap_grid_hours(group)` — the sorted union of every hour actually
+  present anywhere across one `crowd_heatmap()` group, *not* a fixed 08-20
+  assumption (unlike the Overview's own heat strip) — a club's real operating
+  hours aren't known ahead of time, only from what's actually been scraped.
+- `_heatmap_grid_cell(bucket)` — one cell, in one of three states: a full-color
+  block once that hour/key combination has hit `MIN_SAMPLES_FOR_PREDICTION`
+  (the exact same readiness floor the tables above already use), the identical
+  block *dimmed* while still under that floor, or a plain dim dash with zero
+  samples. The dimmed state directly implements a suggestion `crowd_heatmap()`'s
+  own docstring had already made in passing months earlier ("dim or hatch a
+  cell backed by only one or two samples, rather than showing it with the same
+  visual confidence as a cell backed by dozens") — first actually acted on here.
+- `_heatmap_grid_rows(hours, keys, group)` — assembles the two into one row
+  tuple per hour.
+
+One real, independently-found gap fixed along the way: the green/yellow/
+bold-red heat-block coloring has been in the app since Phase 2 (the Overview's
+own heat strip), reused as-is for the readiness view's tables, and never once
+had a legend anywhere explaining what the colors meant — confirmed by grepping
+for it. The grid is where that finally mattered enough to fix: new
+`_heatmap_legend_markup()`/`#grid-legend` explains all four cell states
+(quiet/fills up/full/too-few-samples/no-data) once, shared by both grids.
+
+The old one-line-per-weekday text preview (`_heatmap_preview_lines()`/
+`_heatmap_preview_markup()`, "Monday: 09 ■ 18 ■") is gone — fully superseded by
+the real grid, which shows strictly more (thin/collecting cells too, not just
+ready ones; blank cells for genuinely never-scraped hours, not silent
+omission) in the same space. Kept both, it would have been the exact
+"two ways to show the same thing" this app has already retired once before
+(`DayDetailScreen`).
+
+13 tests changed: 3 old preview-markup tests replaced with direct tests of the
+new `_heatmap_grid_hours()`/`_heatmap_grid_cell()`/`_heatmap_grid_rows()`
+helpers (union-of-hours, all three cell states, the full row-assembly shape),
+and the one screen-level test that used to check `#preview`'s text content now
+checks the same fact against the real `#weekday-grid` table instead (Monday's
+own column a full-color cell, every other weekday's column a blank dash).
+670 tests passing (4 pre-existing, unrelated real-wall-clock-dependent
+Overview tests deselected — confirmed failing identically on `main` before
+this change too, purely because it's currently past the app's own 21:00
+"hide today's row" cutoff; not a regression, not touched here).
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

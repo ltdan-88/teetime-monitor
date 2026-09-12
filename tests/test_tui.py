@@ -3936,56 +3936,40 @@ def test_heatmap_cell_style_thresholds():
     assert tui._heatmap_cell_style(0.49) == "open"
 
 
-def _empty_readiness():
-    return {
-        "by_weekday": {wd: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for wd in tui.calendar_context.WEEKDAYS},
-        "special_days": {dt: {"hours_seen": 0, "hours_ready": 0, "total_samples": 0} for dt in tui.calendar_context.SPECIAL_DAY_TYPES},
+def test_heatmap_grid_hours_is_the_sorted_union_across_every_key():
+    group = {"Monday": {"09": {}, "18": {}}, "Tuesday": {"08": {}}}
+    assert tui._heatmap_grid_hours(group) == ["08", "09", "18"]
+
+
+def test_heatmap_grid_hours_empty_group_has_no_hours():
+    assert tui._heatmap_grid_hours({}) == []
+
+
+def test_heatmap_grid_cell_no_data_at_all():
+    assert tui._heatmap_grid_cell(None) == "[dim]—[/]"
+
+
+def test_heatmap_grid_cell_thin_sample_is_dimmed_but_still_colored():
+    # 2 samples -- below MIN_SAMPLES_FOR_PREDICTION (3), so a real signal
+    # (open here, average 0.3) but not confident enough to show at full
+    # brightness -- see _heatmap_grid_cell()'s own docstring.
+    assert tui._heatmap_grid_cell({"average": 0.3, "samples": 2}) == "[dim green]■[/]"
+
+
+def test_heatmap_grid_cell_ready_sample_is_full_color():
+    assert tui._heatmap_grid_cell({"average": 1.0, "samples": 3}) == "[bold red]■[/]"
+
+
+def test_heatmap_grid_rows_builds_one_row_per_hour_one_column_per_key():
+    group = {
+        "Sunday": {"09": {"average": 0.3, "samples": 3}},
+        "Monday": {"09": {"average": 1.0, "samples": 1}, "18": {"average": 0.6, "samples": 5}},
     }
-
-
-def test_heatmap_preview_markup_no_preview_when_nothing_ready():
-    heatmap = {"by_weekday": {"Monday": {"09": {"average": 0.2, "samples": 1}}}, "special_days": {}}
-    readiness = _empty_readiness()
-    readiness["by_weekday"]["Monday"] = {"hours_seen": 1, "hours_ready": 0, "total_samples": 1}
-    assert tui._heatmap_preview_markup(heatmap, readiness) == i18n.t("heatmap.no_preview")
-
-
-def test_heatmap_preview_markup_shows_only_ready_hours_sorted():
-    heatmap = {
-        "by_weekday": {
-            "Monday": {
-                "18": {"average": 1.0, "samples": 3},  # ready, full
-                "09": {"average": 0.3, "samples": 3},  # ready, open
-                "16": {"average": 0.2, "samples": 1},  # seen but not ready -- excluded
-            }
-        },
-        "special_days": {},
-    }
-    readiness = _empty_readiness()
-    readiness["by_weekday"]["Monday"] = {"hours_seen": 3, "hours_ready": 2, "total_samples": 7}
-
-    markup = tui._heatmap_preview_markup(heatmap, readiness)
-
-    label = i18n.t("heatmap.weekday.monday")
-    assert markup == f"{label}: 09 [green]■[/] 18 [bold red]■[/]"
-
-
-def test_heatmap_preview_markup_shows_weekdays_then_special_days():
-    heatmap = {
-        "by_weekday": {"Monday": {"09": {"average": 0.3, "samples": 3}}},
-        "special_days": {"tournament": {"10": {"average": 0.9, "samples": 3}}},
-    }
-    readiness = _empty_readiness()
-    readiness["by_weekday"]["Monday"] = {"hours_seen": 1, "hours_ready": 1, "total_samples": 3}
-    readiness["special_days"]["tournament"] = {"hours_seen": 1, "hours_ready": 1, "total_samples": 3}
-
-    markup = tui._heatmap_preview_markup(heatmap, readiness)
-
-    monday_label = i18n.t("heatmap.weekday.monday")
-    tournament_label = i18n.t("heatmap.day_type.tournament")
-    lines = markup.split("\n")
-    assert lines[0].startswith(f"{monday_label}:")
-    assert lines[1].startswith(f"{tournament_label}:")
+    rows = tui._heatmap_grid_rows(["09", "18"], ["Sunday", "Monday"], group)
+    assert rows == [
+        ("09", "[green]■[/]", "[dim bold red]■[/]"),  # Sunday 09 ready; Monday 09 thin (1 sample)
+        ("18", "[dim]—[/]", "[yellow]■[/]"),  # Sunday never scraped at 18; Monday 18 ready
+    ]
 
 
 def _heatmap_screen(club_id="0000001", course="18 Loch Tee 1", config=None):
@@ -4033,8 +4017,18 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
             assert str(monday_row[1]) == "1"  # hours_seen
             assert str(monday_row[2]) == "1"  # hours_ready
             assert str(monday_row[3]) == "3"  # total_samples
-            preview = app.screen.query_one("#preview", Static)
-            assert "09" in str(preview.content)
+
+            # The grid mirrors the same fact: one row (09:00, the only hour ever
+            # scraped), Monday's own column a full-color cell (3 samples, occupancy
+            # 2/4 -- "mid"), every other weekday's column a blank "no data" dash.
+            weekday_grid = app.screen.query_one("#weekday-grid")
+            assert weekday_grid.row_count == 1
+            row = weekday_grid.get_row_at(0)
+            assert str(row[0]) == "09"
+            monday_column = tui.calendar_context.WEEKDAYS.index("Monday") + 1  # +1: column 0 is "Hour"
+            assert str(row[monday_column]) == "[yellow]■[/]"
+            other_columns = [i for i in range(1, len(row)) if i != monday_column]
+            assert all(str(row[i]) == "[dim]—[/]" for i in other_columns)
 
     _run(scenario())
 

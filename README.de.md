@@ -119,11 +119,13 @@ Abschnitte gruppiert statt von Hand editierter YAML.
 Historische Auslastung nach tatsächlichem Wochentag gruppiert, plus ein separater
 Vergleich für Turnier-/Feiertags-/Ferientage, damit ein zukünftiger
 Ferienwochen-Montag mit anderen Ferientagen verglichen wird, nicht mit gewöhnlichen
-Montagen. Zeigt derzeit den Datenstand (wie viele Stunden Verlauf jeder Wochentag/
-Tagtyp schon hat) statt des farbigen Rasters selbst — jeder reale Club hier steht
-noch am Anfang dieses Verlaufs.
+Montagen. Über dem eigentlichen farbigen Raster steht eine Datenstand-Tabelle (wie
+viele Stunden Verlauf jeder Wochentag/Tagtyp schon hat) — im Raster selbst Stunde
+für Stunde als Zeile, Wochentag oder Tagtyp als Spalte: ein voll eingefärbtes Feld,
+sobald eine Stunde genug Messwerte hat, dasselbe Feld gedimmt, solange noch zu
+wenige vorliegen, leer, wo noch gar nichts erfasst wurde.
 
-<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap im Datenstand-Modus, nach Wochentag und nach besonderem Tagtyp"></p>
+<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: Datenstand-Tabellen plus das farbige Auslastungsraster, nach Wochentag und nach besonderem Tagtyp"></p>
 
 ### Ein Menü führt alles zusammen
 
