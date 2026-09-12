@@ -300,7 +300,7 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
     return elapsed_minutes >= interval_minutes
 
 
-def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingChange]:
+def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[booking_watch.BookingChange]:
     """Scrape every course x day in `slug`'s `overview_days` window that's actually
     due per `_should_scrape()`, skipping the rest. Extracted 2026-09-07 from `main()`'s
     own per-club loop so `tui.py` can call this directly too — both once on open and
@@ -310,6 +310,15 @@ def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingCh
     One course/date's own failure is caught and skipped, not fatal, same stance as
     `main()`'s own: it must not stop the rest of this club's window, let alone (from
     `main()`) every other saved club.
+
+    `force=True` (added 2026-09-15, `OverviewScreen`'s own manual `r` override —
+    "why don't we integrate those missing features into the overview screen"
+    once `DayDetailScreen`'s own `r` was found to unconditionally re-scrape its
+    one day, no throttle at all) skips the `_should_scrape()` check entirely,
+    scraping every course/date in the window regardless of how recently it was
+    last fetched — the same "you explicitly asked, so do it now" contract
+    `DayDetailScreen.action_refresh()` already gives for a single day, just
+    for the whole loaded window at once.
 
     Merges your global `availability`/`preferences`/scrape-interval settings on top of
     `config` right away (2026-09-08 — no longer per-club, see `global_preferences.py`)
@@ -358,7 +367,7 @@ def scrape_due_for_club(slug: str, config: dict) -> list[booking_watch.BookingCh
     changes: list[booking_watch.BookingChange] = []
     for target_date in target_dates:
         for course in courses:
-            if not _should_scrape(club_id, course, target_date, config):
+            if not force and not _should_scrape(club_id, course, target_date, config):
                 continue
             try:
                 changes.extend(run(club_id, course, target_date, config, slug))
