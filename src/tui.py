@@ -85,13 +85,16 @@ bindings themselves are unaffected, only what's displayed at the bottom of the s
 storage.py's `booking_changes` table for the structured (kind + params) redesign that
 replaced storing pre-rendered English prose.
 
-One remaining, disclosed gap: Textual's own built-in command-palette entries (the
-default "Theme"/"Quit"/"Keys"/"Screenshot"/"Maximize" system commands, from
-`App.get_system_commands()`'s own base implementation) stay in whatever language
-Textual itself ships them in — English. Overriding those specifically would mean
-re-implementing that base method's own logic to swap in translated strings, not
-covered here since the user's own report was specifically about the footer and the
-banner text, not the command palette's built-in entries.
+Textual's own built-in command-palette entries (the default "Theme"/"Quit"/"Keys"/
+"Screenshot"/"Maximize" system commands, from `App.get_system_commands()`'s own
+base implementation) used to stay in whatever language Textual itself ships them
+in — English — left alone since the original footer/banner report wasn't about
+them specifically. Closed 2026-09-16, direct follow-up once the Actions menu (`t`)
+became the only way to reach several of this app's own actions too: "can you
+please translate everything in actions screen?" `TeetimeApp.get_system_commands()`
+now maps each one to a translated title/description via
+`_BASE_COMMAND_TRANSLATIONS` — see that dict's own docstring, including the
+"logical arrangement" grouping added the same day.
 
 Auto-refresh (added 2026-09-07, direct feedback: "can we make autorefresh for the
 maximum timeframe, whenever you run the TUI and at the defined time intervals? I
@@ -138,8 +141,10 @@ from rich.cells import cell_len
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult, SystemCommand
+from textual.command import DiscoveryHit
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
+from textual.system_commands import SystemCommandsProvider
 from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
 
@@ -1480,13 +1485,24 @@ def _day_pick_text(
     return f"[dim italic]{i18n.t(message_key)}[/]"
 
 
-# Shared cap for every genuinely open-ended text column across all three
-# results tables (OverviewScreen's Events/Pick, DayDetailScreen's Players/
-# Events, SearchScreen's Players/Notes) -- direct feedback 2026-09-15, fitting
-# the whole app on an iPad portrait terminal (~50 columns): "Events and picks
-# can for sure wrap up." One shared constant rather than a per-column value
-# so all these columns read consistently at a glance, regardless of screen.
+# Shared cap for every genuinely open-ended text column across both results
+# tables (OverviewScreen's Events/Pick, SearchScreen's Players/Notes) --
+# direct feedback 2026-09-15, fitting the whole app on an iPad portrait
+# terminal (~50 columns): "Events and picks can for sure wrap up." One shared
+# constant rather than a per-column value so all these columns read
+# consistently at a glance, regardless of screen.
 _WRAP_CAP_WIDTH = 18
+
+
+def _table_overhead(num_columns: int) -> int:
+    """How many extra columns of width `DataTable` itself consumes for
+    per-column gutter/padding, on top of every column's own declared
+    `width=` -- confirmed empirically (two differently-sized tables: 8
+    columns needed 15 reserved, 3 columns needed 5), not documented anywhere
+    in Textual itself. `_render_table()` uses this to decide whether Events/
+    Pick's own natural width will actually fit a given screen width before
+    falling back to `_WRAP_CAP_WIDTH`."""
+    return 1 + (num_columns - 1) * 2
 
 
 def _cell_visible_width(markup_text: str) -> int:
@@ -1811,6 +1827,28 @@ _SWITCHER_CSS = """
     width: auto;
     max-width: 60;
 }
+#club-row-fields {
+    width: auto;
+    height: 1;
+}
+/* _apply_switcher_layout()'s own "stacked" class -- the club label/dropdown
+   (#club-row-fields) and the refresh-status readout share `#club-row` (a
+   Horizontal) whenever there's room; toggling its own `layout` to vertical
+   is what actually drops the status readout onto its own line below instead
+   of squeezing it into whatever's left of a fixed `1fr`. #club-row-fields
+   deliberately keeps its own plain `width: auto` even here (not stretched to
+   100%) -- purely cosmetic (a left-aligned label+dropdown reads fine above a
+   right-aligned status line), *not* load-bearing for the decision itself any
+   more, since _apply_switcher_layout() computes that from `self.club_name`
+   directly rather than this widget's own rendered size (see that method's
+   own docstring for why). */
+#club-row.stacked {
+    layout: vertical;
+    height: auto;
+}
+#club-row.stacked _RefreshStatus {
+    width: 100%;
+}
 """
 
 # Also shared by both screens (2026-09-13, "check for spacing consistency") --
@@ -1868,12 +1906,18 @@ class _ClubCourseSwitcher:
 
     def _compose_switcher(self) -> ComposeResult:
         with Vertical(id="switcher"):
-            with Horizontal(classes="switcher-row"):
-                yield Label(i18n.t("switcher.club_label"), classes="switcher-label")
-                yield Select(
-                    self._club_select_options(), value=self.club_id, allow_blank=False,
-                    compact=True, id="club-select",
-                )
+            # club-row-fields nests the label+dropdown separately from
+            # _RefreshStatus so _apply_switcher_layout() can toggle *this*
+            # row's own layout (horizontal/vertical) without needing to move
+            # any widget between containers -- see that method's own
+            # docstring and `#club-row.stacked`'s CSS above.
+            with Horizontal(classes="switcher-row", id="club-row"):
+                with Horizontal(id="club-row-fields"):
+                    yield Label(i18n.t("switcher.club_label"), classes="switcher-label")
+                    yield Select(
+                        self._club_select_options(), value=self.club_id, allow_blank=False,
+                        compact=True, id="club-select",
+                    )
                 yield _RefreshStatus()
             with Horizontal(classes="switcher-row"):
                 yield Label(i18n.t("switcher.course_label"), classes="switcher-label")
@@ -1885,6 +1929,54 @@ class _ClubCourseSwitcher:
                     [(self.course, self.course)], value=self.course, allow_blank=False,
                     compact=True, id="course-select",
                 )
+
+    # How much room the refresh-status readout itself needs to read
+    # comfortably ("Updated 59m ago" plus a little slack) -- below this,
+    # _apply_switcher_layout() drops it onto its own line instead.
+    _STATUS_MIN_WIDTH = 18
+    # .switcher-label's own fixed CSS width (10) plus its padding-right (2).
+    _SWITCHER_LABEL_WIDTH = 12
+    # #club-select's own CSS cap (`max-width: 60`), plus a little slack for
+    # Select's own chrome (the dropdown arrow and its surrounding padding) --
+    # not pinned down to an exact measured value (see this method's own
+    # docstring for why live-measuring the widget itself was dropped).
+    _SELECT_CHROME_WIDTH = 4
+    _SELECT_MAX_WIDTH = 60
+
+    def _apply_switcher_layout(self, width: int | None = None) -> None:
+        """Moves the refresh-status readout onto its own line once the club
+        label+dropdown don't leave it enough room to read comfortably on the
+        same line -- direct feedback 2026-09-16: "can you make status area
+        wrap up when window is too narrow?" Previously it just got squeezed
+        into whatever was left of a fixed `1fr` next to `#club-select`, which
+        on a narrow terminal (or a long club name) meant real clipping, not a
+        wrap -- `Horizontal` containers in Textual don't reflow their own
+        children onto a new line by themselves the way CSS flex-wrap would.
+
+        Computes the label+dropdown's own width straight from `self.club_name`
+        (the same "measure the string, not the rendered widget" approach
+        `_render_table()`'s own docstring already documents at length for the
+        exact same reason) rather than querying `#club-select`'s live
+        `.size.width` -- confirmed empirically that reads back `max-width`
+        (60) even for a short club name immediately after mount/resize,
+        Select's own real auto-content-width apparently no more
+        synchronously available than `DataTable.Column`'s was.
+
+        Also *sets* `#club-row-fields`'s own width to that same computed
+        value, not just `#club-row`'s "stacked" class -- confirmed
+        empirically that `width: auto` on a `Horizontal` (unlike a plain
+        `Label`/`Static`) doesn't shrink-wrap to its children's real content
+        at all, it fills the *entire* row regardless, which in the
+        not-stacked case squeezed `_RefreshStatus`'s own `1fr` down to
+        nothing beside it even with plenty of real room -- an explicit width
+        here is what actually leaves `_RefreshStatus` its fair share."""
+        w = width if width is not None else self.size.width
+        club_label_text = self.club_name or self.club_slug or self.club_id
+        select_width = min(_cell_visible_width(club_label_text) + self._SELECT_CHROME_WIDTH, self._SELECT_MAX_WIDTH)
+        fields_width = self._SWITCHER_LABEL_WIDTH + select_width
+        stacked = (w - fields_width) < self._STATUS_MIN_WIDTH
+        self.query_one("#club-row").set_class(stacked, "stacked")
+        self.query_one("#club-row-fields").styles.width = fields_width
 
     async def _refresh_course_options(self) -> None:
         """Fills the course selector in with the active club's *real* course list,
@@ -1955,6 +2047,10 @@ class _ClubCourseSwitcher:
         course_select.set_options((c, c) for c in courses)
         course_select.value = course
         self._reload()
+        # A switch to a club whose name is a very different length can flip
+        # whether the refresh-status readout still fits beside it.
+        # self.club_name is already updated above by the time this runs.
+        self._apply_switcher_layout()
 
         app = self.app
         app._club_slug = slug
@@ -2191,16 +2287,24 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # the real cell content load_overview() is about to compute).
         self.load_overview()
         self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
+        # Computed straight from self.club_name/self.size, both already known
+        # here -- no deferral needed (see _apply_switcher_layout()'s own
+        # docstring for why it doesn't measure any live-rendered widget).
+        self._apply_switcher_layout()
 
     def on_resize(self, event: events.Resize) -> None:
         # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
         # identical on_resize() -- see that screen's docstring), so this has to
         # live directly on the Screen. Re-wraps the legend for the new width;
         # _rerender_preserving_cursor() re-declares the table's columns too
-        # (recomputing how much of the *new* width Events should absorb),
-        # reusing the already-cached dates/schedules rather than a fresh fetch.
+        # (only actually capping Events/Pick once the *new* width doesn't fit
+        # their natural content -- see that method's own docstring);
+        # _apply_switcher_layout() decides whether the refresh-status readout
+        # still fits beside the club dropdown at the new width. All three
+        # reuse whatever's already cached/mounted rather than a fresh fetch.
         self._render_legend(event.size.width)
-        self._rerender_preserving_cursor(self.query_one(DataTable).cursor_row)
+        self._rerender_preserving_cursor(self.query_one(DataTable).cursor_row, event.size.width)
+        self._apply_switcher_layout(event.size.width)
 
     def _render_legend(self, width: int | None = None) -> None:
         """A bold category heading, on its own line, then that category's own
@@ -2283,7 +2387,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             return dates, set(dates)
         return (dates, open_dates) if open_dates else (dates, set(dates))
 
-    def _render_table(self, config: dict, dates: list[str], open_dates: set[str]) -> list[Schedule]:
+    def _render_table(
+        self, config: dict, dates: list[str], open_dates: set[str], width: int | None = None
+    ) -> list[Schedule]:
         """Clear and rebuild `#overview-table` for `dates`/`open_dates`, populating
         `self._row_dates`/`self._row_index` and returning the schedules with real
         slots encountered along the way. Factored out of `load_overview()`
@@ -2333,19 +2439,23 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ourselves, straight from the cell strings we already hold before they
         ever reach the table, sidesteps that entirely.
 
-        Events/Pick are capped at `_WRAP_CAP_WIDTH` and left to wrap
-        (`height=None` below) rather than sized to their own full natural
-        content, since both can carry genuinely open-ended text (event/
-        tournament names, unplayable-reason sentences, AI reasons). An
-        earlier version of this also handed any *leftover* width beyond that
-        to Events, to avoid unused blank space on a wide desktop terminal --
-        dropped 2026-09-15, direct follow-up once it was actually seen live:
-        "why is the event column so wide?" A capped, consistently-wrapping
-        column reads as a deliberate, compact design at any screen width;
-        stretching it back out on a wide screen contradicted that and just
-        looked like unclaimed space landed in the wrong place. Any leftover
-        now simply stays unused, same as it already did for every other
-        short, bounded column."""
+        Events/Pick get their own full natural content width, same as every
+        other column, *unless* that would overflow `width` (defaults to
+        `self.size.width`, but `on_resize()` passes the new size explicitly
+        rather than trusting a stale `self.size` mid-resize) -- only then are
+        they capped at `_WRAP_CAP_WIDTH` and left to wrap (`height=None`
+        below), since both can carry genuinely open-ended text (event/
+        tournament names, unplayable-reason sentences, AI reasons) that would
+        otherwise force a wide single-line column no matter how long one
+        day's content happens to be. Two direct follow-ups got here in turn:
+        an earlier version handed any *leftover* width beyond the cap to
+        Events unconditionally, to avoid unused blank space on a wide desktop
+        terminal -- dropped 2026-09-15 once seen live ("why is the event
+        column so wide?"); the fix for that then capped both columns
+        unconditionally at *every* width, including ones plenty wide enough
+        to show the full content on one line -- narrowed to just the narrow
+        case 2026-09-16 ("can you make events/picks columns only wrap up,
+        when window is too narrow?")."""
         units = config.get("units", units_module.DEFAULT_UNITS)
         table = self.query_one(DataTable)
         self._row_dates = []
@@ -2460,21 +2570,26 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         column_widths = [_cell_visible_width(header) for header in headers]
         for row in pending_rows:
             for index, cell in enumerate(row):
-                width = _cell_visible_width(cell)
-                # Events/Pick content is genuinely open-ended (event/
-                # tournament names, unplayable-reason sentences, AI reasons)
-                # -- capped here so it wraps onto more lines (`height=None`
-                # below) instead of demanding a wide single-line column no
-                # matter how long the day's own content happens to be (direct
-                # feedback 2026-09-15, fitting the whole app on an iPad
-                # portrait terminal, ~50 columns: "Events and picks can for
-                # sure wrap up"). Consistently capped regardless of screen
-                # width now -- see this method's own docstring for why an
-                # earlier version's leftover-stretch onto Events specifically
-                # was dropped.
-                if index in (self._EVENTS_COLUMN_INDEX, self._PICK_COLUMN_INDEX):
-                    width = min(width, _WRAP_CAP_WIDTH)
-                column_widths[index] = max(column_widths[index], width)
+                column_widths[index] = max(column_widths[index], _cell_visible_width(cell))
+
+        # Events/Pick content is genuinely open-ended (event/tournament names,
+        # unplayable-reason sentences, AI reasons) -- only capped (wrapping
+        # onto more lines via `height=None` below) once the table's own
+        # *natural*, uncapped width wouldn't actually fit. Direct follow-up
+        # 2026-09-16 on the original "wrap up" fix: "can you make events/
+        # picks columns only wrap up, when window is too narrow?" -- the
+        # original fix (2026-09-15, "Events and picks can for sure wrap up")
+        # capped both unconditionally, at any width, which then itself drew a
+        # complaint once seen on a wide desktop terminal ("why is the event
+        # column so wide?" -- answered by *not* stretching it, not by capping
+        # it either). Reserves `_TABLE_OVERHEAD` columns of `DataTable`'s own
+        # per-column gutter/padding, empirically confirmed elsewhere in this
+        # file not to be reflected in any column's own declared width.
+        natural_total = sum(column_widths) + _table_overhead(len(headers))
+        available = width if width is not None else self.size.width
+        if natural_total > available:
+            for index in (self._EVENTS_COLUMN_INDEX, self._PICK_COLUMN_INDEX):
+                column_widths[index] = min(column_widths[index], _WRAP_CAP_WIDTH)
 
         table.clear(columns=True)
         for header, width in zip(headers, column_widths):
@@ -2510,7 +2625,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         self._schedules = schedules
 
-    def _rerender_preserving_cursor(self, row: int) -> None:
+    def _rerender_preserving_cursor(self, row: int, width: int | None = None) -> None:
         """Rebuild the table exactly as `load_overview()` does, but keep the
         cursor on physical row `row` (clamped to whatever the new row count
         allows) instead of recomputing `_initial_date()`'s own placement --
@@ -2523,9 +2638,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         calling `_display_dates()` again -- see `self._cached_dates`'s own
         docstring for the real lag this avoids; the booking window can't have
         changed between the keypress that triggered this and now, so there's
-        nothing to gain from re-fetching it."""
+        nothing to gain from re-fetching it.
+
+        `width` passes `on_resize()`'s own new size through to `_render_table()`
+        (which otherwise falls back to `self.size.width` -- stale mid-resize
+        by the time that read happens, same reasoning `_render_legend()`
+        already documents for its own `width` parameter)."""
         config = self._config()
-        schedules = self._render_table(config, self._cached_dates, self._cached_open_dates)
+        schedules = self._render_table(config, self._cached_dates, self._cached_open_dates, width)
         self._schedules = schedules
         table = self.query_one(DataTable)
         if table.row_count:
@@ -2594,10 +2714,21 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         )
 
     def action_search(self) -> None:
-        self.app.push_screen(SearchScreen(self._schedules, self._config(), self.club_id))
+        # Callback (not push_screen_wait()) since this itself isn't a worker
+        # context -- see action_switch()'s own comment on that requirement.
+        # Reopens the Actions menu once SearchScreen backs out, since it's
+        # only ever reached via that menu now -- see
+        # TeetimeApp._reopen_actions_menu()'s own docstring.
+        self.app.push_screen(
+            SearchScreen(self._schedules, self._config(), self.club_id),
+            lambda _result: self.app._reopen_actions_menu(),
+        )
 
     def action_heatmap(self) -> None:
-        self.app.push_screen(HeatmapScreen(self.club_id, self.course, self._config()))
+        self.app.push_screen(
+            HeatmapScreen(self.club_id, self.course, self._config()),
+            lambda _result: self.app._reopen_actions_menu(),
+        )
 
     def action_switch(self) -> None:
         # Same delegation as DayDetailScreen.action_switch() — push_screen_wait()
@@ -3055,11 +3186,11 @@ class HeatmapScreen(Screen[None]):
     nothing to show yet."""
 
     BINDINGS = [
-        ("escape", "back", "Overview"),
+        ("escape", "back", "Back"),
         ("q", "quit", "Quit"),
     ]
     _FOOTER_BINDINGS = [
-        ("escape", "binding.overview"),
+        ("escape", "binding.cancel"),
         ("q", "binding.quit"),
     ]
 
@@ -3142,16 +3273,85 @@ class HeatmapScreen(Screen[None]):
         self.query_one("#preview", Static).update(_heatmap_preview_markup(heatmap, readiness))
 
     def action_back(self) -> None:
-        self.app.pop_screen()
+        # self.dismiss(), not self.app.pop_screen() directly (the only screen
+        # in this app that used to take that shortcut) -- push_screen()'s own
+        # result callback only fires via dismiss(); pop_screen() called
+        # straight from here discards it unfired (confirmed straight from
+        # Textual's own source: Screen.dismiss() invokes the callback itself
+        # before calling pop_screen(), which on its own just drops it). Direct
+        # feedback needed this fixed 2026-09-16 once action_heatmap() started
+        # relying on that callback to reopen the Actions menu on the way out.
+        self.dismiss()
 
     def action_quit(self) -> None:
         self.app.exit()
+
+
+class _OrderedSystemCommandsProvider(SystemCommandsProvider):
+    """`Provider.discover()`'s own default (Textual's `SystemCommandsProvider`,
+    the base class here) re-sorts every command *alphabetically by title*
+    whenever the palette's search box is empty -- confirmed straight from its
+    own source (`sorted(..., key=lambda command: command[0])`), which is also
+    why re-ordering `get_system_commands()`'s own `yield` sequence alone
+    never actually changed what a first-time `t` press showed: direct
+    feedback 2026-09-16, "can you make logical arrangement of entries in
+    actions screen?" -- the empty-search view was always A-Z regardless.
+    Overriding just `discover()` to preserve `get_system_commands()`'s own
+    yield order instead is the only way to actually control that; `search()`
+    (typing a query) is untouched, since Textual's own fuzzy-match ranking
+    there already orders by match quality, not alphabetically, and reordering
+    an active search's own results was never the ask."""
+
+    async def discover(self):
+        for name, help_text, callback, discover in self.app.get_system_commands(self.screen):
+            if discover:
+                yield DiscoveryHit(name, callback, help=help_text)
+
+
+# Maps each of Textual's own built-in system commands -- fixed English
+# (title, help) pairs hardcoded in `App.get_system_commands()`'s own base
+# implementation -- to this app's translated equivalent, plus the fixed sort
+# key `TeetimeApp.get_system_commands()` uses to place it within the
+# "logical" grouping direct feedback 2026-09-16 asked for: this app's own
+# screen actions first (yielded ahead of this dict entirely -- most likely
+# what `t` was actually pressed for), Language next (how the UI itself
+# reads), then these -- Theme/Keys/Minimize-or-Maximize/Screenshot, Quit
+# last, a common app convention rather than one specific to this app.
+# Translating these closes a gap the module docstring used to call out as
+# deliberately left alone ("Textual's own built-in command-palette entries
+# ... stay in whatever language Textual itself ships them in") -- direct
+# same-day follow-up: "can you please translate everything in actions
+# screen?"
+_BASE_COMMAND_TRANSLATIONS: dict[tuple[str, str], tuple[int, str, str]] = {
+    ("Theme", "Change the current theme"): (10, "binding.theme", "command.theme_description"),
+    ("Keys", "Show help for the focused widget and a summary of available keys"): (
+        11,
+        "binding.keys",
+        "command.show_help_description",
+    ),
+    ("Keys", "Hide the keys and widget help panel"): (11, "binding.keys", "command.hide_help_description"),
+    ("Minimize", "Minimize the widget and restore to normal size"): (
+        12,
+        "binding.minimize",
+        "command.minimize_description",
+    ),
+    ("Maximize", "Maximize the focused widget"): (12, "binding.maximize", "command.maximize_description"),
+    ("Screenshot", "Save an SVG 'screenshot' of the current screen"): (
+        13,
+        "binding.screenshot",
+        "command.screenshot_description",
+    ),
+    ("Quit", "Quit the application as soon as possible"): (99, "binding.quit", "command.quit_description"),
+}
 
 
 class TeetimeApp(App[None]):
     """Club/course selection, then the day-detail screen. See module docstring."""
 
     TITLE = "teetime-monitor"
+    # Swaps in _OrderedSystemCommandsProvider above instead of Textual's own
+    # default SystemCommandsProvider -- see that class's own docstring for why.
+    COMMANDS = {_OrderedSystemCommandsProvider}
 
     def __init__(self) -> None:
         super().__init__()
@@ -3202,19 +3402,20 @@ class TeetimeApp(App[None]):
         `e` at all; this (renamed Actions — see `binding.commands`) is now
         the *only* way to reach any of the four. Each entry still just calls
         the exact same `action_*` method its key binding used to call
-        directly."""
-        yield from super().get_system_commands(screen)
-        current = i18n.get_language()
-        other = i18n.other_language(current)
-        yield SystemCommand(
-            i18n.t("command.language_title", other=i18n.LANGUAGE_LABELS[other]),
-            i18n.t("command.language_description", current=i18n.LANGUAGE_LABELS[current]),
-            self.action_switch_language,
-        )
+        directly.
+
+        Yields this app's own screen actions first, Language next, then
+        Textual's own base commands (translated + regrouped via
+        `_BASE_COMMAND_TRANSLATIONS` — see that dict's own docstring for the
+        full ordering rationale and the "translate everything" follow-up this
+        closes) — same-day direct follow-up: "can you make logical
+        arrangement of entries in actions screen?" Yield order alone doesn't
+        actually control the empty-search palette view though —
+        `SystemCommandsProvider.discover()` (Textual's default) re-sorts
+        every command alphabetically by title regardless of yield order,
+        confirmed straight from its own source; `TeetimeApp.COMMANDS` swaps
+        in `_OrderedSystemCommandsProvider` instead, which doesn't."""
         if isinstance(screen, OverviewScreen):
-            yield SystemCommand(
-                i18n.t("binding.settings"), i18n.t("command.settings_description"), screen.action_edit_settings
-            )
             yield SystemCommand(
                 i18n.t("binding.switch"), i18n.t("command.switch_description"), screen.action_switch
             )
@@ -3224,12 +3425,60 @@ class TeetimeApp(App[None]):
             yield SystemCommand(
                 i18n.t("binding.heatmap"), i18n.t("command.heatmap_description"), screen.action_heatmap
             )
+            yield SystemCommand(
+                i18n.t("binding.settings"), i18n.t("command.settings_description"), screen.action_edit_settings
+            )
+
+        current = i18n.get_language()
+        other = i18n.other_language(current)
+        yield SystemCommand(
+            i18n.t("command.language_title", other=i18n.LANGUAGE_LABELS[other]),
+            i18n.t("command.language_description", current=i18n.LANGUAGE_LABELS[current]),
+            self.action_switch_language,
+        )
+
+        base_commands: list[tuple[int, SystemCommand]] = []
+        for command in super().get_system_commands(screen):
+            mapped = _BASE_COMMAND_TRANSLATIONS.get((command.title, command.help))
+            if mapped is None:
+                # A future Textual base command this app doesn't know to
+                # translate/reorder yet -- passed through untouched rather
+                # than silently dropped.
+                yield command
+                continue
+            order, title_key, help_key = mapped
+            base_commands.append((
+                order,
+                SystemCommand(i18n.t(title_key), i18n.t(help_key), command.callback, command.discover),
+            ))
+        for _, command in sorted(base_commands, key=lambda pair: pair[0]):
+            yield command
 
     def action_switch_language(self) -> None:
         new_lang = i18n.other_language(i18n.get_language())
         i18n.set_language(new_lang)
         i18n.save_language(new_lang)
         self._rebuild_current_screen()
+
+    def _reopen_actions_menu(self) -> None:
+        """Reopens the Actions menu (`t`) once a screen it opened (Settings,
+        Search, Heatmap, or Find a club's `ClubBrowserScreen`) backs out --
+        direct feedback 2026-09-16: "can you make ESC return to actions
+        screen when accessing entries from actions screen?" Those four are
+        the *only* way any of them are reached at all now (their own direct
+        keys came out the same day, see `get_system_commands()`'s own
+        docstring), so backing all the way out used to always land bare on
+        `OverviewScreen`, skipping straight past the very menu that opened
+        them — one extra `escape` now gets from there back to `OverviewScreen`
+        itself, same as it always did.
+
+        Deferred via `call_after_refresh()`, not called directly, since each
+        caller's own screen-pop (`dismiss()`, or `_rebuild_current_screen()`'s
+        own pop+push pair for Settings specifically) hasn't necessarily
+        finished landing back on `OverviewScreen` yet at the exact moment its
+        own callback/continuation runs — opening the palette only once that
+        settles avoids racing it."""
+        self.call_after_refresh(self.action_command_palette)
 
     def _rebuild_current_screen(self) -> None:
         """Replace the current screen with a fresh instance of itself so every label,
@@ -3505,9 +3754,17 @@ class TeetimeApp(App[None]):
         docstring), the exact same fallback the inline club-select dropdown's own
         `_switch_club()` already used. Backing out of the club browser itself still
         leaves the current schedule exactly as it was; nothing is popped or
-        replaced until a club is actually settled."""
+        replaced until a club is actually settled. Backing out (escape/`q`)
+        reopens the Actions menu rather than dropping straight back to
+        `OverviewScreen` -- direct feedback 2026-09-16: "can you make ESC
+        return to actions screen when accessing entries from actions
+        screen?" (see `_reopen_actions_menu()`'s own docstring). Picking a
+        club instead is a completed action with a real result to look at, not
+        a "never mind" -- that path is unaffected, landing straight on the
+        freshly switched `OverviewScreen` same as always."""
         club_id = await self.push_screen_wait(ClubBrowserScreen(allow_cancel=True))
         if club_id is None:
+            self._reopen_actions_menu()
             return
         await self._open_club(club_id, always_ask_course=False, allow_course_picker=False)
         self._periodic_scrape()
@@ -3538,6 +3795,12 @@ class TeetimeApp(App[None]):
         # reload would leave a stale "(°C)" header showing next to freshly
         # converted °F numbers.
         self._rebuild_current_screen()
+        # SettingsScreen only ever closes via escape/Cancel (Save persists in
+        # place without closing the screen -- see its own on_button_pressed())
+        # so this always means "done here," never "just saved, show me the
+        # result immediately" -- reopening the Actions menu doesn't interrupt
+        # anything. See _reopen_actions_menu()'s own docstring.
+        self._reopen_actions_menu()
 
     def _periodic_scrape(self, force: bool = False) -> None:
         """Best-effort background scrape of this club's whole overview window — direct
