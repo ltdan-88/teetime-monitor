@@ -3113,60 +3113,83 @@ def _heatmap_cell_style(average: float) -> str:
     return "open"
 
 
-def _heatmap_preview_lines(keys: list[str], label_of, group: dict, readiness_group: dict) -> list[str]:
-    """One line per key (a weekday or a special day type) with at least one ready
-    hour: its label, then a colored block per ready hour
-    (samples >= analytics.MIN_SAMPLES_FOR_PREDICTION), sorted by hour -- an hour
-    that's merely *seen* but not yet ready is left out entirely rather than shown
-    with a misleadingly thin sample. Shared helper so _heatmap_preview_markup() can
-    run the same logic over both the by_weekday and special_days groups."""
-    lines = []
-    for key in keys:
-        if readiness_group[key]["hours_ready"] == 0:
-            continue
-        hours = group.get(key, {})
-        ready_hours = sorted(
-            hour for hour, bucket in hours.items() if bucket["samples"] >= analytics.MIN_SAMPLES_FOR_PREDICTION
-        )
-        blocks = " ".join(
-            f"{hour} [{_HEAT_BLOCK_STYLES[_heatmap_cell_style(hours[hour]['average'])]}]■[/]"
-            for hour in ready_hours
-        )
-        lines.append(f"{label_of(key)}: {blocks}")
-    return lines
+def _heatmap_grid_hours(group: dict[str, dict[str, dict]]) -> list[str]:
+    """Sorted union of every hour key actually present anywhere across one
+    crowd_heatmap() group (e.g. all 7 weekdays' own buckets) -- the row set for
+    the grid below. Deliberately not a fixed 08-20 assumption (unlike the
+    Overview's own heat strip) -- a club's real operating hours aren't known
+    ahead of time, only from what's actually been scraped (see
+    _crowd_buckets()'s own docstring)."""
+    hours: set[str] = set()
+    for hours_for_key in group.values():
+        hours.update(hours_for_key.keys())
+    return sorted(hours)
 
 
-def _heatmap_preview_markup(heatmap: dict, readiness: dict) -> str:
-    """Weekdays first (in calendar_context.WEEKDAYS order), then special day types --
-    i18n.t("heatmap.no_preview") once nothing anywhere is ready yet, the ordinary
-    state for a brand-new install, not an error to work around."""
-    lines = _heatmap_preview_lines(
-        calendar_context.WEEKDAYS,
-        lambda weekday: i18n.t(f"heatmap.weekday.{weekday.lower()}"),
-        heatmap.get("by_weekday", {}),
-        readiness["by_weekday"],
+def _heatmap_grid_cell(bucket: dict | None) -> str:
+    """One grid cell -- a colored block once an hour/key combination has hit
+    `analytics.MIN_SAMPLES_FOR_PREDICTION`, the same block *dimmed* while still
+    under that floor (a real signal, just not confident yet -- `crowd_heatmap()`'s
+    own docstring explicitly suggests dimming a thin sample rather than hiding it
+    or showing it with the same visual confidence as a well-sampled one), or a
+    plain dim dash with no sample at all."""
+    if bucket is None:
+        return "[dim]—[/]"
+    color = _HEAT_BLOCK_STYLES[_heatmap_cell_style(bucket["average"])]
+    if bucket["samples"] < analytics.MIN_SAMPLES_FOR_PREDICTION:
+        return f"[dim {color}]■[/]"
+    return f"[{color}]■[/]"
+
+
+def _heatmap_grid_rows(hours: list[str], keys: list[str], group: dict) -> list[tuple[str, ...]]:
+    """One row per hour, one column per key (a weekday or a special day type) --
+    the actual 2D grid `HeatmapScreen`'s own docstring describes (weekdays as
+    columns, hour-of-day as rows, matching the original mockup this app was
+    designed against -- see `analytics.crowd_heatmap()`'s own docstring for the
+    2026-09-09 rework that made the underlying data match it). Every (hour, key)
+    combination gets a cell via `_heatmap_grid_cell()` even with zero samples --
+    a blank cell is itself information (this weekday/hour has never been
+    scraped), not something to omit."""
+    return [
+        (hour, *(_heatmap_grid_cell(group.get(key, {}).get(hour)) for key in keys))
+        for hour in hours
+    ]
+
+
+def _heatmap_legend_markup() -> str:
+    """The four cell states a grid row can show, explained once at the bottom of
+    `HeatmapScreen` -- reuses the exact same green/mid/full/dim visual language
+    `_heat_strip_markup()` already uses for the Overview's own heat strip, which
+    itself has never had a legend line anywhere in the app (found auditing for
+    this feature) -- worth fixing here since the grid is where that color
+    language actually needs explaining to be useful, not just recognizable."""
+    return (
+        f"[bold]{i18n.t('heatmap.legend.title')}[/]\n"
+        f"[green]■[/] {i18n.t('heatmap.legend.open')}  "
+        f"[yellow]■[/] {i18n.t('heatmap.legend.mid')}  "
+        f"[bold red]■[/] {i18n.t('heatmap.legend.full')}  "
+        f"[dim]■[/] {i18n.t('heatmap.legend.thin')}  "
+        f"[dim]—[/] {i18n.t('heatmap.legend.no_data')}"
     )
-    lines += _heatmap_preview_lines(
-        calendar_context.SPECIAL_DAY_TYPES,
-        lambda day_type: i18n.t(f"heatmap.day_type.{day_type}"),
-        heatmap.get("special_days", {}),
-        readiness["special_days"],
-    )
-    return "\n".join(lines) if lines else i18n.t("heatmap.no_preview")
 
 
 class HeatmapScreen(Screen[None]):
-    """Phase 5's crowd heatmap — currently a data-readiness view, not the colored grid
-    a "heatmap" name might suggest, per direct request (2026-09-08): "Can we still
-    start building the UI for the heat map? We need a menu to track how much data has
-    been collected, and how much is still needed to be functional." Building the full
-    grid first would have meant showing an almost-empty one — every real club here is
-    at most a couple of days into accumulating history — so this screen leads with the
-    actually-useful question right now: how close each weekday/day type is to usable.
+    """Phase 5's crowd heatmap — a data-readiness view (how close each weekday/day
+    type is to usable) plus, below it, the actual 2D colored grid the original
+    signed-off mockup called for (added 2026-09-16, direct request: "Can we
+    implement the actual 2d colored grid from the mockup?"). Readiness led on its
+    own for over a week first (2026-09-08, direct request: "Can we still start
+    building the UI for the heat map? We need a menu to track how much data has
+    been collected, and how much is still needed to be functional") — the grid
+    would have shipped almost entirely empty back then, every real club here was
+    at most a couple of days into accumulating history. No mockup *file* exists in
+    this repo to check pixel-for-pixel (only ROADMAP.md's own prose description of
+    it survives, from the conversation it was originally agreed in) — built from
+    that description rather than delaying on a file that doesn't exist to find.
 
-    Two tables, mirroring `analytics.crowd_heatmap()`'s own split (reworked
-    2026-09-09 to match the original signed-off mockup — see that function's
-    docstring for the mismatch this fixes): "By weekday" (one row per
+    Two readiness tables, mirroring `analytics.crowd_heatmap()`'s own split
+    (reworked 2026-09-09 to match the original signed-off mockup — see that
+    function's docstring for the mismatch this fixes): "By weekday" (one row per
     `calendar_context.WEEKDAYS`, Sun-Sat) and "Special days" (one row per
     `calendar_context.SPECIAL_DAY_TYPES`: tournament/public_holiday/vacation,
     compared only against other days of their own kind). Every row is always shown
@@ -3178,12 +3201,20 @@ class HeatmapScreen(Screen[None]):
     already uses to trust a bucket, not a second, separately-tuned threshold invented
     just for this display.
 
-    Below both tables: a compact colored preview (reusing the overview's own
-    heat-strip green/yellow/bold-red thresholds — see `_HEAT_BLOCK_STYLES`) for any
-    weekday or special day type that already has at least one ready hour. Empty on
-    every real club here today (see above), but the rendering path itself is real and
-    tested against synthetic data, not a placeholder left for later — it simply has
-    nothing to show yet."""
+    Directly below each readiness table: that same group's own grid — hour-of-day
+    as rows, weekday (or special day type) as columns, matching the mockup's own
+    axis choice ("real days of the week, each its own column"). Each cell is a
+    colored block (`_heatmap_grid_cell()`): full color once that hour/key
+    combination has hit the same readiness floor, the same block *dimmed* while
+    still under it (a real signal, just not confident yet — see that function's
+    own docstring), or a plain dim dash with no sample at all. Unlike the readiness
+    tables' fixed row sets, the grid's own rows are whatever hours have actually
+    been scraped (`_heatmap_grid_hours()`) — a club's real operating hours aren't
+    assumed ahead of time. A `#grid-legend` line at the bottom explains all four
+    cell states once, for both grids — the first legend anywhere in this app for
+    the green/yellow/bold-red heat-strip language at all; the Overview's own heat
+    strip (`_heat_strip_markup()`) has used the identical three colors since Phase
+    2 with nothing ever explaining them."""
 
     BINDINGS = [
         ("escape", "back", "Back"),
@@ -3204,11 +3235,12 @@ class HeatmapScreen(Screen[None]):
         yield Header()
         yield Static("", id="weekday-title")
         yield DataTable(id="weekday-table")
+        yield DataTable(id="weekday-grid")
         yield Static("", id="special-title")
         yield DataTable(id="special-table")
+        yield DataTable(id="special-grid")
         yield Static("", id="threshold-note")
-        yield Static("", id="preview-title")
-        yield Static("", id="preview")
+        yield Static("", id="grid-legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
@@ -3223,6 +3255,11 @@ class HeatmapScreen(Screen[None]):
             i18n.t("heatmap.column.samples"),
             i18n.t("heatmap.column.status"),
         )
+        weekday_grid = self.query_one("#weekday-grid", DataTable)
+        weekday_grid.add_columns(
+            i18n.t("heatmap.column.hour"),
+            *(i18n.t(f"heatmap.weekday_short.{weekday.lower()}") for weekday in calendar_context.WEEKDAYS),
+        )
 
         self.query_one("#special-title", Static).update(i18n.t("heatmap.section.special_days"))
         special_table = self.query_one("#special-table", DataTable)
@@ -3233,10 +3270,16 @@ class HeatmapScreen(Screen[None]):
             i18n.t("heatmap.column.samples"),
             i18n.t("heatmap.column.status"),
         )
+        special_grid = self.query_one("#special-grid", DataTable)
+        special_grid.add_columns(
+            i18n.t("heatmap.column.hour"),
+            *(i18n.t(f"heatmap.day_type.{day_type}") for day_type in calendar_context.SPECIAL_DAY_TYPES),
+        )
 
         self.query_one("#threshold-note", Static).update(
             i18n.t("heatmap.threshold_note", min=analytics.MIN_SAMPLES_FOR_PREDICTION)
         )
+        self.query_one("#grid-legend", Static).update(_heatmap_legend_markup())
         self.load_readiness()
 
     def load_readiness(self) -> None:
@@ -3269,8 +3312,19 @@ class HeatmapScreen(Screen[None]):
                 _readiness_status_text(stats),
             )
 
-        self.query_one("#preview-title", Static).update(i18n.t("heatmap.preview_title"))
-        self.query_one("#preview", Static).update(_heatmap_preview_markup(heatmap, readiness))
+        weekday_group = heatmap.get("by_weekday", {})
+        weekday_grid = self.query_one("#weekday-grid", DataTable)
+        weekday_grid.clear()
+        for row in _heatmap_grid_rows(_heatmap_grid_hours(weekday_group), calendar_context.WEEKDAYS, weekday_group):
+            weekday_grid.add_row(*row)
+
+        special_group = heatmap.get("special_days", {})
+        special_grid = self.query_one("#special-grid", DataTable)
+        special_grid.clear()
+        for row in _heatmap_grid_rows(
+            _heatmap_grid_hours(special_group), calendar_context.SPECIAL_DAY_TYPES, special_group
+        ):
+            special_grid.add_row(*row)
 
     def action_back(self) -> None:
         # self.dismiss(), not self.app.pop_screen() directly (the only screen

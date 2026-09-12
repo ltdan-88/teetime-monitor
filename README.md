@@ -112,12 +112,13 @@ hand-edited YAML.
 
 Historical occupancy grouped by actual weekday, plus a separate comparison for
 tournament/public-holiday/vacation days, so a future vacation-week Monday gets
-compared against other vacation days, not typical Mondays. Currently shows
-readiness (how many hours of history each weekday/day-type has) rather than the
-colored grid itself — every real club here is still early into building that
-history.
+compared against other vacation days, not typical Mondays. A readiness table
+(how many hours of history each weekday/day-type has) sits above the actual
+colored grid — hour-of-day as rows, weekday or day type as columns, a full-color
+block once an hour has enough samples to trust, the same block dimmed while it's
+still thin, blank where nothing's been scraped yet.
 
-<p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap's readiness view, by weekday and by special day type"></p>
+<p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap: readiness tables plus the colored occupancy grid, by weekday and by special day type"></p>
 
 ### One menu ties it together
 
