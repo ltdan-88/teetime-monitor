@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from src import i18n
@@ -144,11 +146,18 @@ def test_render_booking_change_party_grew_plural_english():
 
 
 def test_render_booking_change_party_grew_german_uses_correct_plural_form():
+    # The point is German subject-verb agreement (ist/sind), which is exactly why
+    # party_grew has two separate keys rather than one templated string. Wording
+    # rephrased 2026-09-16 (audit: the banners were the app's only formal "Sie"
+    # strings, everything else already addressed the user as "du") -- the
+    # agreement this guards is unchanged, so only the surrounding words moved.
     i18n.set_language("de")
     singular = i18n.render_booking_change("party_grew", {"count": 1, "time": "14:00"})
     plural = i18n.render_booking_change("party_grew", {"count": 2, "time": "14:00"})
-    assert "weiterer Spieler ist" in singular
-    assert "weitere Spieler sind" in plural
+    assert "ist 1 Spieler" in singular
+    assert "sind 2 Spieler" in plural
+    # ...and neither form slipped back into the formal register.
+    assert "Ihrer" not in singular and "Ihrer" not in plural
 
 
 def test_render_booking_change_buffer_shrunk():
@@ -178,3 +187,25 @@ def test_render_booking_change_weather_worsened_german_reasons():
 
 def test_render_booking_change_returns_none_for_unknown_kind():
     assert i18n.render_booking_change("something_new", {}) is None
+
+
+def test_german_ui_never_mixes_formal_sie_with_informal_du():
+    """Found in the 2026-09-16 full-project audit: the five booking-watch banners
+    addressed the user formally ("...ist Ihrer Tee-Zeit beigetreten, seit Sie
+    gebucht haben") while every club-picker hint in the same app already used "du"
+    ("Deine Favoriten", "Dein Login ist gespeichert"). A German speaker notices
+    that instantly; it reads as two different products stitched together. The app
+    is now consistently informal, and this guards that -- a single formal pronoun
+    slipping back into any German string fails here rather than shipping.
+
+    Matches whole words only: "Sie" as a pronoun, not the "sie"/"Sie" inside
+    ordinary words, and not the capitalised-at-sentence-start false positives an
+    unanchored substring search would produce.
+    """
+    formal = re.compile(r"\b(Sie|Ihre[rnms]?|Ihnen)\b")
+    offenders = {
+        key: value
+        for key, value in i18n._STRINGS["de"].items()
+        if isinstance(value, str) and formal.search(value)
+    }
+    assert offenders == {}, f"formal 'Sie/Ihr' found in German UI strings: {offenders}"
