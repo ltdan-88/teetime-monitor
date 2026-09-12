@@ -1,7 +1,6 @@
 import importlib
 
 import dotenv
-import pytest
 
 from src import club_config as club_config_module
 from src.club_config import (
@@ -11,17 +10,6 @@ from src.club_config import (
     resolve_credentials,
     save_club_config,
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_real_geocoding_by_default(monkeypatch):
-    """`add_favorite()` (via `new_club_stub_with_location()`, added 2026-09-08) calls
-    `geocode.find_club_location()` on every save -- every test here that calls
-    `add_favorite()` with a real name would otherwise make a real network request to
-    the live Nominatim service, same test-isolation gap already caught and fixed in
-    test_club_picker.py. Defaults to "nothing found" (`None`) -- a test exercising
-    the "location found" path overrides this locally."""
-    monkeypatch.setattr(club_config_module.geocode, "find_club_location", lambda name: None)
 
 
 def test_list_clubs_excludes_example_template(tmp_path):

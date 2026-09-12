@@ -44,7 +44,7 @@ credentials never becomes a dead end:
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import club_config
@@ -162,7 +162,7 @@ def save_directory(entries: list[tuple[str, str]], path: Path | None = None) -> 
     cache = _cache_path(path)
     cache.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": datetime.now(UTC).isoformat(),
         "clubs": [list(entry) for entry in entries],
     }
     with cache.open("w") as f:

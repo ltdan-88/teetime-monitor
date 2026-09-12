@@ -11,16 +11,6 @@ from src.scraper import LoginError
 
 
 @pytest.fixture(autouse=True)
-def _english_ui(monkeypatch, tmp_path):
-    # Same reasoning as every other screen's identical fixture -- i18n's current
-    # language is module-level global state that would otherwise leak between tests.
-    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
-    i18n.set_language("en")
-    yield
-    i18n._current_language = None
-
-
-@pytest.fixture(autouse=True)
 def _restore_pcc_env():
     # CredentialsScreen writes directly to os.environ on save (see its own docstring
     # for why) -- bypassing monkeypatch's undo tracking, since that only covers
@@ -42,7 +32,7 @@ def _restore_pcc_env():
 
 # CredentialsScreen is a Screen, not a standalone App -- test it pushed into a
 # throwaway App, same shape club_picker.py actually uses it in.
-from textual.app import App, ComposeResult  # noqa: E402
+from textual.app import App  # noqa: E402
 
 
 class _HostApp(App[None]):

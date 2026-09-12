@@ -3957,25 +3957,70 @@ faults were identifiable:
 The German README was rewritten as German rather than translated from the new
 English — its own tagline, its own phrasing, *du* throughout to match the app.
 
-### Noted, not fixed (deliberate)
-- **~68 stale `DayDetailScreen` references** across 7 files. Most are legitimately
-  historical ("ported from DayDetailScreen 2026-09-15") and worth keeping as design
-  record; a blanket find-and-replace would destroy that. Worth a dedicated pass to
-  separate "this is where this came from" from "this describes something that still
-  exists" — too large and too easy to get wrong as a side-effect of this one.
-- **No linter configured** (no ruff/black). Would be a large, noisy first diff
-  across 10k lines for a solo project that currently reads consistently.
-- **Fixture duplication across test files** — several `_no_real_*` autouse fixtures
-  are defined per-file. Now that `conftest.py` exists they have somewhere to move,
-  but consolidating them is its own refactor with its own regression risk.
+### Reviewed, no change needed
 - **`except Exception` in 15 places** — reviewed each; all are deliberate
   graceful-degradation paths around live fetches (geocoding, holidays, course
-  lists) with documented reasoning. No bare `except:` anywhere. Left alone.
+  lists) with documented reasoning. No bare `except:` anywhere.
 - **Secrets hygiene: clean.** `.env`, `clubs/*.yaml` and `data/` are all gitignored,
   and `git ls-files` confirms nothing sensitive is tracked — only the intended
   `clubs/club.example.yaml` template.
 
 675 tests passing.
+
+## Audit follow-up: the three deferred findings (2026-09-16)
+
+The audit above deferred three items as "too large / too risky as a side-effect".
+Direct follow-up: **"Can you fix all findings?"** All three done.
+
+### 7. ~68 stale `DayDetailScreen` references — **fixed**
+The reason this was deferred is the reason it needed care: a blanket
+find-and-replace would have destroyed genuine design record. Each reference was
+classified instead:
+- **Present tense, describes current behaviour → corrected.** These were actively
+  misleading: `ConfirmBookingScreen`'s docstring pointed at
+  `DayDetailScreen.action_confirm()` for pre-fill behaviour that now lives in
+  `OverviewScreen._confirm_or_cancel_slot()`; `settings_screen.py` claimed it was
+  "bound to `e` on both `OverviewScreen` and `DayDetailScreen`" (both halves false
+  — `e` stopped being a binding in v0.16.0); `_ClubCourseSwitcher` claimed to be
+  "shared by" two screens; `_compute_slot_rows()` said the retired screen "now
+  calls this too". 39 such references rewritten across 6 files.
+- **Past tense, explains provenance → kept.** "Ported from", "originally",
+  "used to do inline", "was retired" — these explain *why* code is shaped the way
+  it is, which stays useful long after the screen is gone. 24 remain, and the
+  module docstring now says explicitly that every remaining mention is historical,
+  so nobody goes looking for a class that isn't there.
+
+### 8. No linter — **fixed**
+Deferred on the assumption it meant "a large, noisy first diff across 10k lines".
+Measuring first showed otherwise: configured with `line-length = 125` (just above
+this codebase's own p99.5 of 116, so the long hand-wrapped design-record docstrings
+aren't reflowed) and a rule set chosen for real bugs over style (`F`, `B`, `UP`,
+`C4`, `I`, `E`), ruff found **29 issues, not thousands**. No formatter is enabled —
+`ruff format` *would* rewrite those docstrings, which is the noisy diff actually
+worth avoiding.
+
+Of the 29, several were real rather than cosmetic:
+- **Two genuinely unused imports in `tui.py`** (`scrape_once._attach_weather`,
+  `scraper.scrape_schedule`) — dead references surviving the DayDetailScreen removal.
+- **`zip(headers, column_widths)` without `strict=`** in `_render_table()` — a
+  length mismatch would silently drop a column off the right edge of the table
+  rather than failing. Now `strict=True`.
+- **Six `assert False` in tests** — silently removed under `python -O`, i.e. those
+  tests would have passed unconditionally. Converted to `pytest.raises`, and
+  mutation-tested (made `login()` stop raising; the converted test failed as it
+  should).
+`ruff check` now runs in CI alongside pytest.
+
+### 9. Test-fixture duplication — **fixed**
+`_english_ui` existed in three byte-identical copies, each with a comment pointing
+at one of the others as its source; `_no_real_global_preferences_file` and
+`_no_real_geocoding_by_default` in two each. All patch the same underlying module
+objects, so they hoisted cleanly into `tests/conftest.py` (which only exists at all
+because of finding #1 above). Verified load-bearing rather than assumed: disabling
+the consolidated `_english_ui` and forcing `TEETIME_MONITOR_LANG=de` fails 26 tests,
+so it is genuinely doing the isolation work the three copies used to do separately.
+
+675 tests passing, `ruff check` clean.
 
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough

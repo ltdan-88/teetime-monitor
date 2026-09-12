@@ -2,7 +2,6 @@ import json
 
 from src import club_directory
 
-
 # --- looks_like_club_id: the path that needs no cache and no login -------------------
 
 

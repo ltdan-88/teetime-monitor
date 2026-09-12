@@ -4,7 +4,6 @@ import threading
 import pytest
 from textual.app import App, ComposeResult
 from textual.command import CommandPalette
-from textual.geometry import Offset
 from textual.widgets import DataTable, Input, Label, OptionList, Select, Static
 
 from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
@@ -12,20 +11,6 @@ from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
 from src.models import ConfirmedBooking, DateRange, Schedule, Slot, SunTimes, WeatherPoint
-
-
-@pytest.fixture(autouse=True)
-def _english_ui(monkeypatch, tmp_path):
-    """Every test here reads English UI text unless it explicitly switches language
-    itself — i18n's "current language" is deliberate module-level global state (see
-    i18n.py's docstring), so without this a test that switches to German would leak
-    that choice into every test that runs afterward in the same pytest process, and a
-    fresh test would otherwise resolve its language from this machine's real locale
-    env vars / real ~/.config/teetime-monitor/config, not a hermetic default."""
-    monkeypatch.setattr(i18n, "CONFIG_FILE", tmp_path / "not-used-unless-a-test-wants-it")
-    i18n.set_language("en")
-    yield
-    i18n._current_language = None
 
 
 @pytest.fixture(autouse=True)
@@ -41,17 +26,6 @@ def _no_background_scraping(monkeypatch):
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: [])
 
 
-@pytest.fixture(autouse=True)
-def _no_real_global_preferences_file(monkeypatch, tmp_path):
-    """`global_preferences.py` (added 2026-09-08, once availability/preferences
-    became shared across every club rather than per-club) is read by
-    `OverviewScreen`/`DayDetailScreen` on every load, and written by `SettingsScreen`
-    on save — both default to the real `~/.config/teetime-monitor/preferences.yaml`
-    when nothing overrides them. Caught live: a test that pressed `e`, edited a field,
-    and clicked save wrote for real to this developer's own home directory before
-    this fixture existed. Redirects the default to a throwaway path for every test
-    here; a test exercising the real file explicitly overrides this locally."""
-    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
 
 
 @pytest.fixture(autouse=True)
@@ -169,17 +143,6 @@ def _fake_available_dates_by_default(monkeypatch):
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
 
 
-@pytest.fixture(autouse=True)
-def _no_real_geocoding_by_default(monkeypatch):
-    """`club_config.add_favorite()` (via `new_club_stub_with_location()`, added
-    2026-09-08) calls `geocode.find_club_location()` on every save -- most tests in
-    this file mock `add_favorite()`/`club_config` itself entirely and never reach
-    real code here, but a test that deliberately exercises the real favoriting path
-    (e.g. to confirm `_favorites()` supplies the right name to it) would otherwise
-    risk a real network request to the live Nominatim service, same test-isolation
-    gap already caught and fixed in test_club_picker.py/test_club_config.py.
-    Defaults to "nothing found" (`None`)."""
-    monkeypatch.setattr(tui.club_config.geocode, "find_club_location", lambda name: None)
 
 
 class _HostApp(App):
@@ -274,7 +237,7 @@ def test_initial_date_ignores_a_different_course(tmp_path, monkeypatch):
 
 # --- Per-slot rendering helpers -- shared by both OverviewScreen's own expanded
 # rows and (until it was retired 2026-09-15, see _compute_slot_rows() tests further
-# down) DayDetailScreen ------------------------------------------------------------
+# down) the since-retired DayDetailScreen ------------------------------------------
 
 
 def test_weather_point_for_time_finds_the_covering_hourly_point():
@@ -1580,7 +1543,7 @@ def test_overview_screen_enter_on_a_day_row_with_no_schedule_does_not_expand(tmp
 
 def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, monkeypatch):
     """`enter` on one of a day's own expanded slot rows confirms that exact tee
-    time -- the same choice `DayDetailScreen.action_confirm()` makes for its own
+    time -- the same choice the since-retired day-detail screen made for its own
     highlighted row, reached here through the overview instead."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
@@ -2037,7 +2000,7 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
 
 def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp_path, monkeypatch):
     # club_slug=None (a club reached by id, never favorited) must not try to load a
-    # config file that doesn't exist -- same handling as DayDetailScreen's own.
+    # config file that doesn't exist.
     # Checks the Pick column directly (2026-09-14: the separate "This week's
     # picks" section this used to check via #picks was removed as a redundant
     # duplicate of this same column -- see _day_pick_text()'s own docstring).
@@ -2185,7 +2148,7 @@ def test_search_screen_runs_search_and_shows_results():
             # (direct question: "why does adhoc search not show occupancy,
             # player, or weather data?"). Condition (2026-09-11, "I also would
             # like icons for when it is sunny, overcast, foggy, snowing etc.")
-            # added after Time, matching DayDetailScreen's own placement.
+            # added after Time, matching the since-retired day-detail screen's placement.
             assert [str(col.label) for col in table.columns.values()] == [
                 "Date", "Time", "Cond", "Occ", "Players", "Temp\n(°C)", "Precip\n(%/mm)",
                 "Wind\n(km/h)", "Notes",
@@ -2238,7 +2201,7 @@ def test_search_screen_confirm_prefills_the_highlighted_results_own_date_and_tim
     # Direct question, 2026-09-13: "can we confirm tee times from adhoc
     # search?" A single search's results can span several different days, so
     # this has to come from the highlighted row's own match, not from any one
-    # fixed date/course the way DayDetailScreen's own `c` can.
+    # fixed date/course the way a single-day screen's own `c` could.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     schedules = [
         Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
@@ -4275,7 +4238,7 @@ def test_overview_legend_does_not_reuse_the_rain_label():
 
 
 def test_overview_screen_shows_and_dismisses_banner_with_a_date_prefix(tmp_path, monkeypatch):
-    # Unlike DayDetailScreen's own identical banner (which never needs to say
+    # Unlike the since-retired day-detail screen's identical banner (which never needed to say
     # which day, since you're already looking at that one date),
     # OverviewScreen spans several days, so its own banner prefixes each line
     # with its own weekday + short date.
@@ -4297,7 +4260,7 @@ def test_overview_screen_shows_and_dismisses_banner_with_a_date_prefix(tmp_path,
             banner = app.screen.query_one("#banners", Static)
             text = str(banner.content)
             assert "1 more player" in text
-            assert "09-13" in text  # the date prefix DayDetailScreen's own banner omits
+            assert "09-13" in text  # the date prefix a single-day screen's banner didn't need
 
             await pilot.press("x")
             await pilot.pause()

@@ -1,3 +1,4 @@
+import pytest
 from bs4 import BeautifulSoup
 
 from src import scraper as scraper_module
@@ -420,11 +421,8 @@ def test_login_raises_when_response_still_shows_the_login_form(monkeypatch):
     fake_client = _FakeClient(post_response_text='<input type="password" name="rq[password]">')
     monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
 
-    try:
+    with pytest.raises(LoginError):
         login("0000001", "user@example.com", "wrong-password")
-        assert False, "expected LoginError"
-    except LoginError:
-        pass
 
     assert fake_client.closed  # doesn't leak a client for a session that never authenticated
 
@@ -450,11 +448,8 @@ def test_scrape_my_reservations_raises_for_unrecognized_markup(monkeypatch):
     )
     monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
 
-    try:
+    with pytest.raises(NotImplementedError):
         scrape_my_reservations("0000001", "user@example.com", "hunter2")
-        assert False, "expected NotImplementedError"
-    except NotImplementedError:
-        pass
 
     assert fake_client.closed  # cleaned up even though parsing raised
 
@@ -496,11 +491,8 @@ def test_parse_my_reservations_html_empty_state_german():
 
 
 def test_parse_my_reservations_html_raises_for_unrecognized_markup():
-    try:
+    with pytest.raises(NotImplementedError):
         _parse_my_reservations_html("<html><table><tr><td>14:00</td></tr></table></html>")
-        assert False, "expected NotImplementedError"
-    except NotImplementedError:
-        pass
 
 
 def test_parse_my_reservations_html_parses_a_real_booking_english():
@@ -559,11 +551,8 @@ def test_parse_club_directory_html_skips_the_blank_placeholder_option():
 
 
 def test_parse_club_directory_html_raises_for_unrecognized_markup():
-    try:
+    with pytest.raises(NotImplementedError):
         _parse_club_directory_html("<html><body>no select here</body></html>")
-        assert False, "expected NotImplementedError"
-    except NotImplementedError:
-        pass
 
 
 def test_fetch_club_directory_returns_parsed_entries(monkeypatch):
@@ -646,11 +635,8 @@ def test_fetch_course_aliases_raises_no_tee_sheet_error_when_the_club_has_none(m
         scraper_module.httpx, "get",
         lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML),
     )
-    try:
+    with pytest.raises(scraper_module.NoTeeSheetError):
         fetch_course_aliases("0499001")
-        assert False, "expected NoTeeSheetError"
-    except scraper_module.NoTeeSheetError:
-        pass
 
 
 def test_parse_available_dates_html_reads_the_clubs_own_booking_window():

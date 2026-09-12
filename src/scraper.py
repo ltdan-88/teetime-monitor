@@ -38,7 +38,7 @@ tested code, verified against the live site:
   (not `None` — the row still isn't real occupancy, and every other consumer here
   already tests it correctly either by `is None` or by truthiness), but a caller
   rendering it as-is for display needs its own fallback text — see `tui.py`'s
-  `DayDetailScreen.load_schedule()` for the one place that needed one.
+  `_event_cell()` for the one place that needs one.
 - Free/empty player positions aren't individually rendered — pc caddie merges them into
   one trailing `<td colspan="N">` containing an *empty* `.tt-show-name` span. Iterating
   `.tt-show-name` spans and skipping any with blank text correctly gets just the real
@@ -118,7 +118,7 @@ modes that actually showed up, not a proof that none remain.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -477,7 +477,7 @@ def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
                 time=time,
                 holes=_holes_from_course_label(course),
                 source="my_reservations",
-                confirmed_at=datetime.now(timezone.utc).isoformat(),
+                confirmed_at=datetime.now(UTC).isoformat(),
             )
         )
     return bookings

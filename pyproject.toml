@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.19.0"
+version = "0.20.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -38,3 +39,28 @@ include = ["src*"]
 # error at all. Found live: installed v0.7.0 via the real Homebrew formula and
 # confirmed the file was actually missing from site-packages before adding this.
 src = ["club_directory_seed.json"]
+
+# Added 2026-09-16 (audit follow-up). Deliberately configured to match the code
+# that already exists rather than to impose a new style on 10k lines: line-length
+# 125 is just above this codebase's own p99.5 (116), so it catches genuinely
+# runaway lines without reflowing the long, deliberately-prose docstrings this
+# project uses as its design record. No formatter is enabled -- `ruff format`
+# would rewrite those docstrings' hand-wrapped paragraphs, which is exactly the
+# noisy diff the audit flagged as not worth it.
+[tool.ruff]
+line-length = 125
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes -- unused imports/variables, undefined names
+    "I",    # import sorting
+    "B",    # bugbear -- real bug patterns, not style
+    "UP",   # pyupgrade
+    "C4",   # comprehension simplifications
+]
+ignore = [
+    "E501",  # line length is enforced by line-length above, not per-line noqa
+    "B008",  # function call in default arg -- used deliberately for Path defaults
+]
