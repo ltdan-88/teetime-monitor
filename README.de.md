@@ -1,9 +1,10 @@
 <h1 align="center">teetime-monitor</h1>
 
 <p align="center">
-  <strong>Die Zeitbuchung deines Clubs ist öffentlich einsehbar. Sie immer wieder von Hand zu prüfen, ist es nicht.</strong><br>
-  Eine schnelle Terminal-Ansicht der Tee-Zeiten eines pc-caddie-Clubs — mit Wetter, Auslastungsverlauf
-  und deinen eigenen Buchungsregeln, im Hintergrund automatisch aktualisiert.
+  <strong>Eine Tee-Zeit zu buchen dauert eine Minute. Die richtige zu finden die ganze Woche.</strong><br>
+  Die Startliste deines Golfclubs im Terminal — hält sich selbst aktuell, rechnet Wetter,
+  Tageslicht und deine eigenen Vorgaben gleich mit ein und markiert die Zeit, die sich
+  lohnt, bevor du überhaupt suchst.
 </p>
 
 <p align="center">
@@ -15,21 +16,35 @@
 
 <p align="center"><a href="README.md">🇬🇧 English</a> · 🇩🇪 <strong>Deutsch</strong></p>
 
-<p align="center"><img src="assets/de/overview.png" alt="Die mehrtägige Übersicht: Wetter, Auslastung, Termine und eine Empfehlung, mit einem Buchungs-Hinweis oben"></p>
+<p align="center"><img src="assets/de/overview.png" alt="Die Wochenübersicht: eine Zeile pro buchbarem Tag, mit Wetter, Auslastung, Terminen und einer Empfehlung"></p>
 
-## Warum es das gibt
+## Worum es geht
 
-Die eigene Web-Ansicht von pc caddie funktioniert grundsätzlich — das Problem ist,
-sie ständig zu prüfen. Eine Zeit neben deiner bestehenden Buchung wird frei, die
-Vorhersage für deine Runde verschlechtert sich, oder drei Wochen im Voraus öffnet
-sich plötzlich etwas — nichts davon fällt auf, außer man schaut zufällig noch einmal
-im Browser nach.
+Golfclubs im deutschsprachigen Raum veröffentlichen ihre Startlisten — wer auf
+welcher Zeit steht, welche Zeiten noch frei sind — über die Buchungsplattform
+**pc caddie**. Diese Listen sind öffentlich, zum Lesen braucht es keinen Login.
 
-`teetime-monitor` spiegelt die Tee-Zeiten deines Clubs in eine Terminal-Tabelle, die
-sich im Hintergrund selbst aktualisiert, ergänzt Wetter-, Tageslicht- und
-Auslastungskontext, den die Seite selbst nicht zeigt, und meldet sich, wenn sich an
-einer bereits getätigten Buchung etwas ändert — ohne offenen Browser-Tab, ohne eine
-Seite, an deren Neuladen man denken muss.
+`teetime-monitor` liest genau diese Liste und bringt sie ins Terminal. Im Hintergrund
+ruft er sie regelmäßig neu ab, ergänzt, was auf der Clubseite selbst fehlt — die
+Vorhersage für die einzelne Startzeit, ob die Runde vor Einbruch der Dunkelheit noch
+fertig wird, wie voll dieser Wochentag erfahrungsgemäß ist — und hebt die Zeiten
+hervor, die zu den Vorgaben passen, die du einmal hinterlegt hast.
+
+**Gebucht wird nichts.** Das Buchen bleibt auf der pc-caddie-Seite. Hier geht es um
+den Schritt davor: die passende Zeit überhaupt zu finden — und mitzubekommen, wenn
+sich an ihr etwas ändert.
+
+## Wie man damit arbeitet
+
+1. **Starten.** Du landest auf den nächsten buchbaren Tagen, einer pro Zeile.
+2. **Spalte „Empf." lesen.** Jeder Tag sagt bereits, was Sache ist: eine empfohlene
+   Zeit mit ★, deine bestätigte Buchung, oder warum dort nichts infrage kommt
+   („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit").
+3. **Enter auf einem Tag** klappt dessen Startzeiten direkt auf; Enter auf einer Zeit
+   markiert sie als deine, sobald du sie auf pc caddie gebucht hast.
+4. **Laufen lassen.** Der Rest passiert im Hintergrund. Kommt jemand in deinen Flight,
+   füllt sich die Zeit direkt daneben, oder dreht die Vorhersage für deine Runde,
+   wartet beim nächsten Start ein Hinweis auf dich.
 
 ## Schnellstart
 
@@ -38,177 +53,133 @@ brew install ltdan-88/teetime-monitor/teetime-monitor
 teetime-monitor
 ```
 
-Das war's — startet auf der Club-Suche (oder direkt beim zuletzt geöffneten
-Club/Platz, sobald einmal einer gewählt wurde). Club-ID eintippen, den Buchungslink
-einfügen, oder suchen, sobald das Verzeichnis einmal geladen ist — schon ist man auf
-der Zeitbuchung.
+Club-ID eintippen (oder den pc-caddie-Buchungslink einfügen) — fertig, die Startliste
+steht da. Vorher ist nichts einzurichten, und ein Konto braucht es auch nicht: die
+Startliste ist öffentlich.
 
-**Voraussetzungen:** macOS oder Linux · [Homebrew](https://brew.sh/) · ein einmaliger
-Playwright-Chromium-Download (nur für den Login bei pc caddie nötig — die
-öffentliche Zeitbuchung selbst braucht ihn nie). Ein pc-caddie-Login ist optional:
-nur zum Herunterladen des durchsuchbaren Club-Verzeichnisses und zum automatischen
-Auslesen eigener bestätigter Reservierungen — eine eingetippte Club-ID, Favoriten
-und die Zeitbuchung selbst funktionieren auch ohne. Optional: ein
-[Anthropic](https://www.anthropic.com/)-API-Key, nur falls KI-bewertete Empfehlungen
-eingeschaltet werden (standardmäßig aus).
+<details>
+<summary><strong>Was optional dazukommt — und wofür</strong></summary>
 
-## Was man bekommt
+Alles oben funktioniert ohne jede dieser Zutaten. Jede bringt nur etwas dazu:
 
-### Die mehrtägige Übersicht
+| Zusatz | Bringt |
+|---|---|
+| pc-caddie-Login (`l` in der Club-Suche) | Clubs nach Namen durchsuchen, und eigene Buchungen automatisch übernehmen statt sie selbst zu markieren |
+| Chromium für Playwright (einmalig, Befehl steht in `brew info`) | Wird *nur* für diesen Login gebraucht — zum Lesen der Startliste läuft nie ein Browser |
+| [Anthropic](https://www.anthropic.com/)-API-Key | KI-bewertete Empfehlungen (standardmäßig aus, kostenpflichtig pro Empfehlung) |
 
-Der Startbildschirm, sobald ein Club gewählt ist: eine Zeile pro Tag, für den
-gerade tatsächlich gebucht werden kann — echtes Wetter, ein sechsteiliger
-Auslastungsbalken für 08:00–20:00 Uhr, Termine/Sperrungen dieses Tages, und eine
-**Empfehlung** — eine bestätigte Buchung, die empfohlene Zeit, oder wieso keine
-infrage kommt.
+**Voraussetzungen:** macOS oder Linux und [Homebrew](https://brew.sh/).
 
-**Enter** klappt einen Tag direkt an Ort und Stelle auf, in seine eigenen
-Zeitfenster-Zeilen; **Enter** erneut auf einer Zeit bestätigt sie — oder bietet,
-falls es bereits die eigene bestätigte Buchung ist, an, sie stattdessen lokal als
-storniert zu markieren.
+</details>
 
-<p align="center"><img src="assets/de/expanded.png" alt="Ein direkt aufgeklappter Tag mit seinen eigenen Zeitfenster-Zeilen, jede mit eigener Auslastung"></p>
+## Was drin steckt
 
-### Wetter & Spielbarkeit
+### Eine Zeile pro Tag, schon ausgewertet
 
-[Open-Meteo](https://open-meteo.com/), kein API-Key nötig, aufgeteilt in eigene
-Spalten für Wetter / Temperatur / Regen / Wind — echte Zahlen immer sichtbar, nicht
-erst ab einem Schwellenwert hinter einem Icon versteckt. Ein 🌙 markiert jede
-Tee-Zeit, die vor Einbruch der Dunkelheit nicht mehr fertiggespielt würde, basierend
-auf dem eigenen geschätzten Tempo für eine 9- oder 18-Loch-Runde.
+Wetter in eigenen Spalten (Bewölkung, Temperatur, Regen, Wind — über
+[Open-Meteo](https://open-meteo.com/), ohne API-Key), ein sechsteiliger Balken für die
+Auslastung zwischen 08:00 und 20:00 Uhr, die Termine und Sperrungen des Tages, und die
+**Empfehlung**: das Fazit für diesen Tag.
 
-### Behält bereits getätigte Buchungen im Blick
+**Enter** klappt einen Tag an Ort und Stelle auf, statt die Wochenansicht zu verlassen.
 
-Bestätigte Reservierungen werden automatisch von pc caddies eigener Seite "Meine
-Reservierungen" ausgelesen — teetime-monitor bucht oder storniert selbst nie etwas
-auf der echten Seite. Ändert sich etwas — jemand kommt zur Flight dazu, eine
-Nachbarzeit füllt sich und verkleinert den eigenen Puffer, die Vorhersage für den
-Tag verschlechtert sich — erscheint beim nächsten Start ein Hinweis (siehe den ganz
-oben im Übersichts-Screenshot). **x** blendet ihn aus.
+<p align="center"><img src="assets/de/expanded.png" alt="Ein aufgeklappter Tag mit allen einzelnen Startzeiten und deren Auslastung"></p>
 
-### Suche für Ausnahmefälle
+### Vorgaben, die du einmal festlegst
 
-Die gespeicherte Verfügbarkeit deckt den üblichen Fall ab; **Suchen** (aus Aktionen)
-ist für die Ausnahme — "nur heute, 3 Spieler, ab 15:00 Uhr" — vorausgefüllt aus den
-eigenen gespeicherten Vorgaben, sodass nur eine Sache angepasst wird, nicht alles
-neu eingetippt werden muss. Geprüft gegen jeden bereits geladenen Tag, ohne neuen
-Abruf, mit demselben Wetter-/Tageslicht-Check und optionaler KI-Bewertung wie die
-automatischen Empfehlungen.
+Gruppengröße, die Zeitfenster, die unter der Woche bzw. am Wochenende passen, wie viel
+Abstand du zur Gruppe davor und dahinter haben willst. Zeiten, auf die alles zutrifft,
+bekommen automatisch ein ★ — für den Normalfall musst du nie suchen. Das gilt global,
+nicht pro Club: wann du kannst, hängt schließlich nicht davon ab, welchen Platz du
+gerade anschaust.
 
-<p align="center"><img src="assets/de/search.png" alt="Der Suchbildschirm, vorausgefüllt aus der gespeicherten Verfügbarkeit, mit fünf passenden Samstags-Tee-Zeiten"></p>
+Ein 🌙 markiert jede Startzeit, deren Runde vor Sonnenuntergang nicht mehr fertig wird —
+gerechnet mit deinem eigenen Tempo für 9 oder 18 Loch.
 
-### Eigene Regeln, automatisch angewendet
+<p align="center"><img src="assets/de/settings.png" alt="Die Einstellungen, nach Verfügbarkeit und Wetter gruppiert"></p>
 
-Die eigene Standard-Verfügbarkeit einmal festlegen — Gruppengröße,
-Wochentags-/Wochenend-Zeitfenster, Puffer zu Nachbarflights — und passende Zeiten
-bekommen in der Übersicht automatisch einen ★, ohne jedes Mal neu suchen zu müssen.
-Global, nicht pro Club: die eigene Verfügbarkeit und Wetterpräferenz ändern sich
-schließlich nicht je nach geprüftem Platz.
+### Suche für die Ausnahmen
 
-**KI-bewertete Empfehlungen** (Einstellungen → KI-Bewertung) lassen Claude die beste
-aus einer bereits gefilterten Vorauswahl wählen, statt einfach die früheste
-passende Zeit. Standardmäßig aus — es ist ein echter, kostenpflichtiger API-Aufruf
-pro Empfehlung, keine kostenlose Zusatzfunktion. Einstellungen deckt außerdem das
-eigene geschätzte Tempo für 9/18 Loch und das Scrape-Intervall ab, in aufklappbare
-Abschnitte gruppiert statt von Hand editierter YAML.
+Wenn die üblichen Vorgaben mal nicht gelten — „heute ausnahmsweise zu dritt, ab 15:00
+Uhr" — durchsuchst du die bereits geladenen Tage. Die Maske ist aus deinen Vorgaben
+vorbelegt, du änderst also ein Feld statt alles neu einzutippen.
 
-<p align="center"><img src="assets/de/settings.png" alt="Der Einstellungsbildschirm: Verfügbarkeit und Wetter, mit bereits ausgefüllten echten Werten"></p>
+<p align="center"><img src="assets/de/search.png" alt="Die Suchmaske mit Treffern, vorbelegt aus den gespeicherten Vorgaben"></p>
 
-### Eine Auslastungs-Heatmap
+### Deine Buchung bleibt im Blick
 
-Historische Auslastung nach tatsächlichem Wochentag gruppiert, plus ein separater
-Vergleich für Turnier-/Feiertags-/Ferientage, damit ein zukünftiger
-Ferienwochen-Montag mit anderen Ferientagen verglichen wird, nicht mit gewöhnlichen
-Montagen. Über dem eigentlichen farbigen Raster steht eine Datenstand-Tabelle (wie
-viele Stunden Verlauf jeder Wochentag/Tagtyp schon hat) — im Raster selbst Stunde
-für Stunde als Zeile, Wochentag oder Tagtyp als Spalte: ein voll eingefärbtes Feld,
-sobald eine Stunde genug Messwerte hat, dasselbe Feld gedimmt, solange noch zu
-wenige vorliegen, leer, wo noch gar nichts erfasst wurde.
+Sobald eine Zeit als deine markiert ist, wird sie weiter beobachtet: Spieler, die in
+deinen Flight dazukommen, die Nachbarzeit, die sich füllt und deinen Abstand auffrisst,
+die Vorhersage für genau diese Runde, die sich verschlechtert. Jede dieser Änderungen
+wartet beim nächsten Start als Hinweis auf dich; **x** blendet sie aus.
 
-<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: Datenstand-Tabellen plus das farbige Auslastungsraster, nach Wochentag und nach besonderem Tagtyp"></p>
+### Eine Auslastungs-Heatmap, sobald Verlauf da ist
 
-### Ein Menü führt alles zusammen
+Jeder Abruf wird gespeichert, über Wochen entsteht daraus ein Muster: welche Stunden an
+welchem Wochentag tatsächlich voll werden. Turnier-, Feiertags- und Ferientage zählen
+dabei getrennt, damit ein Montag in den Ferien mit anderen Ferientagen verglichen wird
+und nicht mit gewöhnlichen Montagen.
 
-**t** (oder **ctrl+p**) öffnet **Aktionen**: **Club suchen** (das gesamte
-pc-caddie-Verzeichnis durchsuchen, oder direkt zu einer Club-ID springen),
-**Suchen**, **Auslastung** und **Einstellungen** — dazu Design, Sprache und
-Textuals eigene Werkzeuge, alle vollständig übersetzt und mit den eigenen Aktionen
-dieser App zuerst angeordnet.
+Das Raster stellt Stunden gegen Wochentage: voll eingefärbt, sobald genug Messwerte für
+eine Aussage da sind, gedimmt, solange es noch zu wenige sind, leer, wo noch nichts
+erfasst wurde. Die Tabellen darüber zeigen, wie weit jeder Wochentag schon ist.
 
-<p align="center"><img src="assets/de/actions.png" alt="Das geöffnete Aktionen-Menü: Club suchen, Suchen, Auslastung und Einstellungen, vollständig übersetzt"></p>
+<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: Datenstand-Tabellen über dem farbigen Raster aus Stunden und Wochentagen"></p>
 
-Zwei Dropdown-Menüs direkt über der Tabelle wechseln zwischen bereits favorisierten
-Clubs/Plätzen, ganz ohne ein Menü zu öffnen — Aktionen ist für einen noch nicht
-gespeicherten Club, oder für alles, was keine eigene Taste hat.
+### Ein Menü, zwei Sprachen, zehn Designs
 
-### Zweisprachig, mit Themes
+**t** öffnet die **Aktionen** — Club suchen, Suchen, Auslastung, Einstellungen, Sprache,
+Design. Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
+und aller Hinweise) und bringt dieselben zehn Farbdesigns mit wie
+[`brew-launcher`](https://github.com/ltdan-88/brew-launcher).
 
-Jeder Bildschirm — Tabellenüberschriften, Fußzeilen-Tastenhinweise, Hinweise, das
-Aktionen-Menü selbst — funktioniert auf Englisch oder Deutsch, jederzeit über
-Aktionen umschaltbar. Startet auf Deutsch, wenn die Systemsprache danach aussieht.
-Zehn Farbthemes (dieselbe Palette, die auch
-[`brew-launcher`](https://github.com/ltdan-88/brew-launcher) verwendet), genauso
-umschaltbar.
+<p align="center"><img src="assets/de/actions.png" alt="Das Aktionen-Menü: Club suchen, Suchen, Auslastung, Einstellungen"></p>
 
-## Referenz
+## Tasten
 
-| Taste | Aktion | Wo |
+Fast alles steckt hinter **t**. Diese Tasten lohnt es sich zu kennen:
+
+| Taste | Wirkung | Wo |
 |---|---|---|
-| **Enter** | Tag direkt aufklappen / markierte Tee-Zeit bestätigen oder stornieren | Übersicht |
-| **r** | Das gesamte geladene Fenster sofort aktualisieren, unabhängig vom üblichen Intervall | Übersicht |
-| **x** | Buchungs-Hinweise ausblenden | Übersicht |
-| **t** / **ctrl+p** | **Aktionen** öffnen — Club suchen, Suchen, Auslastung, Einstellungen, Sprache, Design und Textuals eigene Werkzeuge | Übersicht |
+| **Enter** | Tag aufklappen · Tee-Zeit als gebucht oder storniert markieren | Übersicht |
+| **r** | Das gesamte geladene Fenster sofort neu abrufen | Übersicht |
+| **x** | Hinweise ausblenden | Übersicht |
+| **t** / **Strg+P** | Aktionen — alles Weitere | Übersicht |
+| **Esc** | Zurück (zu den Aktionen, wenn du von dort kamst) | überall |
 | **q** | Beenden | überall |
-| **Esc** | Zurück — kehrt zu Aktionen zurück, falls der aktuelle Bildschirm von dort geöffnet wurde, sonst zur Übersicht | jeder Bildschirm aus Aktionen |
-| **f** | Favorit für den markierten Club umschalten | Club-Suche |
-| **r** | Das zwischengespeicherte Club-Verzeichnis aktualisieren | Club-Suche |
-| **l** | Eigenen pc-caddie-Login einrichten oder bearbeiten | Club-Suche |
-| **c** | Markiertes Suchergebnis bestätigen | Suche |
+| **f** · **r** · **l** | Club favorisieren · Verzeichnis aktualisieren · Login einrichten | Club-Suche |
 
-`teetime-monitor --version` (oder `-v`) gibt die installierte Version aus und
-beendet sich — sie steht außerdem die ganze Laufzeit über im Kopfbereich der App.
+`teetime-monitor --version` gibt die Version aus; sie steht außerdem durchgehend im Kopf
+der Anwendung.
 
 ## Konfiguration
 
-Nichts davon ist Pflicht — `brew install` + `teetime-monitor` funktioniert ohne
-jede Einrichtung. Für geplantes Hintergrund-Scraping, club-eigene Angaben und wo
-alles gespeichert wird: hier aufklappen.
+Nichts davon ist nötig — der Schnellstart oben kommt ohne Einrichtung aus.
 
 <details>
-<summary><strong>Konfigurationsdetails anzeigen</strong></summary>
+<summary><strong>Dateien, geplanter Abruf, Start aus dem Quellcode</strong></summary>
 
-Wie bei `terraform`/`docker-compose` liest die App ihren eigenen Zustand aus dem
-Verzeichnis, in dem sie gestartet wird — eines wählen und immer von dort aus
-starten.
+Wie `terraform`/`docker-compose` liest die Anwendung ihren Zustand aus dem Verzeichnis,
+in dem du sie startest — eines aussuchen und immer von dort starten.
 
 ```
+data/<club_id>.db                             # Abruf-Verlauf, bestätigte Buchungen (SQLite)
 .env                                          # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY -- in .gitignore
-clubs/<eigene-club-id>.yaml                   # pro Club: location, overview_days, default_course, identity
-~/.config/teetime-monitor/preferences.yaml    # Verfügbarkeit/Wetter-Regeln, KI-Bewertung, Rundentempo, Scrape-Intervall -- global
-~/.config/teetime-monitor/config              # THEME=, LANG= -- ebenfalls global
+clubs/<club-id>.yaml                          # pro Club: Koordinaten, overview_days, Standardplatz
+~/.config/teetime-monitor/preferences.yaml    # Verfügbarkeit, Wetter, KI, Tempo, Intervall -- global
+~/.config/teetime-monitor/config              # THEME=, LANG= -- global
 ```
 
-`python -m src.credentials_screen` setzt `PCC_USER`/`PCC_PASS` aus der Oberfläche
-heraus (legt `.env` aus `.env.example` an, falls noch keine existiert —
-`ANTHROPIC_API_KEY` danach von Hand ergänzen). `r`/`l` in der laufenden App öffnen
-denselben Bildschirm direkt dort, wo er gebraucht wird. Ein pc-caddie-Login deckt
-jeden Club unter demselben Konto ab — die seltenere clubweise Ausnahme
-(`PCC_USER__<club-id>`) ist in `.env.example` dokumentiert.
+Verfügbarkeit und Vorgaben bearbeitest du über **Aktionen → Einstellungen**, nicht von
+Hand. `f` auf einem Club legt dessen YAML an; `clubs/club.example.yaml` ist die
+kommentierte Vorlage (Wetter-Koordinaten, Länderkürzel für Feiertage, Ferienzeiträume).
 
-`f` in der App schreibt eine minimale `clubs/<id>.yaml`; `clubs/club.example.yaml`
-darüberkopieren für die vollständig kommentierte Version (Wetter-Koordinaten,
-Feiertags-Ländercode, von Hand eingetragene Ferienzeiträume). Standard-Verfügbarkeit,
-KI-Bewertung und Scrape-Intervall werden über **Aktionen → Einstellungen**
-bearbeitet (oder eigenständig via `python -m src.settings_screen`) — eine
-gemeinsame Datei, da sich keines davon tatsächlich je nach Club unterscheidet.
+### Damit der Verlauf lückenlos bleibt
 
-### Verlauf auch dann weiterführen, wenn niemand hinschaut
-
-Die laufende App scraped automatisch — einmal beim Öffnen, und danach regelmäßig,
-solange sie läuft — aber pc caddie verbirgt vergangene Zeitbuchungen vollständig,
-sodass jeder Tag, an dem niemand die App öffnet, sonst eine dauerhafte Lücke
-hinterlässt. Um auch unbeaufsichtigt zu scrapen (macOS, via `launchd`, alle 15
-Minuten geprüft, pro Club selbst gedrosselt nach dessen eigenem Intervall):
+Solange die Anwendung läuft, ruft sie selbst ab — pc caddie löscht vergangene
+Startlisten allerdings, jeder Tag ohne Abruf ist also eine dauerhafte Lücke in der
+Heatmap. Für den Abruf im Hintergrund (macOS, alle 15 Minuten, pro Club selbst
+gedrosselt):
 
 ```bash
 cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
@@ -233,10 +204,10 @@ EOF
 launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 ```
 
-Kontrolle über `cat ~/Library/Logs/teetime-monitor.log` (leer bedeutet keine
-Fehler); später entfernen mit `launchctl unload ...` plus Löschen der plist-Datei.
+Leeres Log heißt: keine Fehler. Entfernen mit `launchctl unload …` und dem Löschen der
+plist-Datei.
 
-### Stattdessen aus dem Quellcode
+### Aus dem Quellcode
 
 ```bash
 pip install -e .
@@ -248,86 +219,64 @@ python -m src.tui
 ## Projektstruktur
 
 <details>
-<summary><strong>Modul-Übersicht anzeigen</strong></summary>
+<summary><strong>Aufbau der Module</strong></summary>
 
 ```
-teetime-monitor/
-├── README.md / README.de.md
-├── ROADMAP.md                    # vollständige, phasenweise Entstehungsgeschichte
-├── pyproject.toml
-├── .env.example
-├── clubs/
-│   └── club.example.yaml         # Vorlage -- pro echtem Club kopieren (echte sind in .gitignore)
-├── docs/
-│   ├── spec-v1.md                # ursprüngliche Spezifikation (historisch)
-│   └── pccaddie-markup-notes.md  # Beispiel-HTML der echten Seite
-├── src/
-│   ├── tui.py                    # die App selbst -- Club-Suche, Übersicht, Suche, Heatmap, Einstellungen
-│   ├── scraper.py                # direkter Abruf, Login, Parsing der Zeitbuchung
-│   ├── scrape_once.py            # geplantes Scraping, Intervall pro Club, Abgleich mit "Meine Reservierungen"
-│   ├── storage.py                # SQLite-Persistenz
-│   ├── search.py / recommend.py  # harte Filter, danach Wetter/Tageslicht + KI-Bewertung
-│   ├── ai_assist.py              # die drei Claude-API-Aufrufe (Klassifikation, Bewertung, Zusammenfassung)
-│   ├── weather.py                # Open-Meteo-Client
-│   ├── booking_watch.py          # hat sich an einer bestätigten Buchung etwas geändert?
-│   ├── playability.py            # ist eine Tee-Zeit vor Sonnenuntergang noch spielbar?
-│   ├── analytics.py              # Auslastungs-Heatmap + Datenstand
-│   ├── calendar_context.py       # Feiertage + Ferienzeiträume -> Tagtyp
-│   ├── settings_screen.py        # gemeinsamer Einstellungsbildschirm (aus der App oder eigenständig)
-│   ├── credentials_screen.py     # gemeinsamer Login-Bildschirm (aus der App oder eigenständig)
-│   ├── club_config.py            # Favoriten: clubs/*.yaml laden/speichern
-│   ├── club_directory.py         # zwischengespeichertes pc-caddie-Verzeichnis + ID-Erkennung
-│   ├── geocode.py                # Best-Effort-Standortsuche für einen neuen Club
-│   ├── global_preferences.py     # gemeinsame Datei für Verfügbarkeit/KI/Tempo/Intervall
-│   ├── theme.py / i18n.py        # 10 Farbthemes; englische/deutsche UI-Texte
-│   ├── user_config.py            # gemeinsame THEME=/LANG=-Konfigurationsdatei
-│   ├── units.py                  # Umrechnung metrisch/imperial
-│   ├── env_file.py                # .env an Ort und Stelle lesen/schreiben
-│   ├── translated_footer.py      # gemeinsames zweisprachiges Fußzeilen-Widget
-│   └── models.py                 # Slot / Schedule / WeatherPoint / ConfirmedBooking / ...
-└── tests/                        # eine Datei pro obigem Modul, plus test_tui.py
+src/
+├── tui.py                    # die Anwendung -- Club-Suche, Übersicht, Suche, Heatmap
+├── scraper.py                # Abruf, Login, Auswertung der Startliste
+├── scrape_once.py            # geplanter Abruf + Abgleich mit „Meine Reservierungen"
+├── storage.py                # SQLite-Persistenz
+├── search.py / recommend.py  # harte Filter, dann Wetter/Tageslicht + KI-Bewertung
+├── ai_assist.py              # die drei Claude-Aufrufe (einordnen, bewerten, zusammenfassen)
+├── weather.py                # Open-Meteo-Client
+├── booking_watch.py          # hat sich an einer bestätigten Buchung etwas geändert?
+├── playability.py            # wird diese Runde vor Sonnenuntergang fertig?
+├── analytics.py              # Auslastungs-Heatmap + Datenstand
+├── calendar_context.py       # Feiertage + Ferien -> Tagtyp
+├── settings_screen.py        # Einstellungen (in der App oder eigenständig)
+├── credentials_screen.py     # Login (in der App oder eigenständig)
+├── club_config.py            # Favoriten
+├── club_directory.py         # Club-Verzeichnis im Cache + ID-Erkennung
+├── geocode.py                # Standortsuche für einen neuen Club
+├── global_preferences.py     # die gemeinsame Vorgaben-Datei
+├── theme.py / i18n.py        # Designs; deutsche/englische Oberflächentexte
+├── units.py                  # metrisch/imperial
+└── models.py                 # Slot / Schedule / WeatherPoint / ConfirmedBooking
 ```
+
+`ROADMAP.md` enthält die vollständige Entstehungsgeschichte, inklusive der Gründe, warum
+einiges so gebaut wurde, wie es gebaut ist.
 
 </details>
 
-## Problembehebung
+## Wenn etwas klemmt
 
-**„No tee sheet found" für einen Club, den es wirklich gibt.** Manche Clubs
-veröffentlichen einfach keine über pc caddie — sowohl `scrape_once` als auch die
-Übersicht melden das sauber, statt einen Fehler zu werfen. Die Club-ID gegen den
-eigenen Buchungslink prüfen.
+**„No tee sheet found" bei einem Club, den es wirklich gibt.** Manche Clubs
+veröffentlichen über pc caddie schlicht keine Startliste — das wird sauber gemeldet und
+nicht als Fehler. Club-ID am besten mit dem eigenen Buchungslink abgleichen.
 
-**Wetter sieht falsch aus, oder fehlt.** Die Koordinaten des Clubs stammen aus
-einer Best-Effort-Nominatim-Suche nach dem Clubnamen, nach dem ersten Abruf
-zwischengespeichert — nicht immer exakt der Clubhaus-Pin. `location:` in
-`clubs/<id>.yaml` von Hand für eine exakte Korrektur bearbeiten.
+**Das Wetter stimmt nicht.** Die Koordinaten stammen aus einer Namenssuche bei
+OpenStreetMap und werden nach dem ersten Treffer zwischengespeichert — nah dran, aber
+nicht zwingend das Clubhaus selbst. Exakt wird es über `location:` in
+`clubs/<id>.yaml`.
 
-**KI-bewertete Empfehlungen tun nichts.** Sie sind standardmäßig aus
-(Einstellungen → KI-Bewertung) und brauchen so oder so `ANTHROPIC_API_KEY` in
-`.env` — ohne Key schlägt das Einschalten bei der nächsten Empfehlung einfach
-stillschweigend fehl.
+**Eine Buchung taucht nicht auf.** Bestätigte Buchungen kommen bei jedem geplanten
+Abruf aus „Meine Reservierungen", nicht in Echtzeit — **r** erzwingt es sofort. Eine
+Stornierung auf der echten Seite wird genauso erkannt.
 
-**Eine bestätigte Buchung taucht nicht auf.** Sie wird bei jedem geplanten Scrape
-von pc caddies eigener Seite "Meine Reservierungen" gelesen, nicht in Echtzeit —
-**r** (Aktualisieren) in der Übersicht erzwingt es sofort. Eine Stornierung auf der
-echten Seite wird beim nächsten Abgleich genauso automatisch erkannt.
+**Die KI-Bewertung tut nichts.** Sie ist standardmäßig aus (Einstellungen →
+KI-Bewertung) und braucht ohnehin `ANTHROPIC_API_KEY` in der `.env`.
 
-**Beim ersten Öffnen eines Clubs passiert nichts — hängt es?** Sowohl das
-Club-Verzeichnis als auch die Zeitbuchung selbst brauchen beim ersten Mal einen
-Live-Abruf; eine langsame Verbindung oder ein träger pc-caddie-Server können diesen
-ersten Ladevorgang ein paar Sekunden dauern lassen. „Refreshing…" oben rechts zeigt,
-dass tatsächlich etwas passiert.
+**In der Heatmap steht überall „Noch keine Daten".** Auf einer frischen Installation
+normal — sie braucht ein paar Wochen Abrufe. Die Tabellen zeigen, wie weit es ist.
 
-## Zugangsdaten & Daten
+## Zugangsdaten
 
-`.env` steht in `.gitignore` — `PCC_USER`/`PCC_PASS`/`ANTHROPIC_API_KEY` werden
-nirgends fest einprogrammiert oder irgendwohin gesendet außer an pc caddies eigenes
-Login-Formular bzw. Anthropics API. Ein pc-caddie-Login deckt jeden unter demselben
-Konto gespeicherten Club ab. Club-eigene Dateien unter `clubs/` stehen ebenfalls in
-`.gitignore`, bis auf die versionierte Vorlage `club.example.yaml` — nur `location`,
-`overview_days`, `default_course` und `identity` liegen dort überhaupt; alles
-andere (Verfügbarkeit, KI-Bewertung, Scrape-Intervall, Design, Sprache) ist
-gemeinsam und global, siehe [Konfiguration](#konfiguration) oben.
+Die `.env` steht in `.gitignore`, und die Zugangsdaten gehen ausschließlich an das
+Login-Formular von pc caddie. Ein Login deckt alle Clubs desselben Kontos ab. Die
+club-eigenen Dateien unter `clubs/` sind ebenfalls ausgenommen, bis auf die versionierte
+Vorlage.
 
 ## Lizenz
 

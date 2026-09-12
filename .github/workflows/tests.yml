@@ -1,0 +1,68 @@
+name: tests
+
+# Added 2026-09-16 during a full-project audit. Until then this repo had no CI at
+# all, which is exactly how the test suite came to be *time-of-day dependent*
+# without anyone noticing: it passed whenever it happened to be run before 21:00
+# local and failed after (see tests/conftest.py for the root cause). A scheduled
+# run at a deliberately awkward hour is part of the point, not an afterthought.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 22:30 UTC -- deliberately inside the window that used to break the suite,
+    # so a re-introduced wall-clock dependency shows up on its own rather than
+    # waiting for someone to run the tests late in the evening.
+    - cron: "30 22 * * *"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q
+
+  # The suite must not depend on the machine's wall clock or calendar date.
+  # Kiritimati (UTC+14) and Midway (UTC-11) are 25 hours apart, so on any given
+  # run they disagree about both the local hour *and* the current date -- which
+  # is what catches a re-introduced dependency on `_TODAY()`/`_NOW_HHMM()`.
+  #
+  # These offsets don't guarantee landing past the app's own 21:00 cutoff on
+  # every run (that depends on when CI fires); the daily 22:30 UTC schedule
+  # above is what reliably covers that specific evening window.
+  timezones:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ["UTC", "Pacific/Kiritimati", "Pacific/Midway"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests under TZ=${{ matrix.tz }}
+        env:
+          TZ: ${{ matrix.tz }}
+        run: pytest -q

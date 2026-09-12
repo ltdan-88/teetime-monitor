@@ -3875,6 +3875,108 @@ Overview tests deselected — confirmed failing identically on `main` before
 this change too, purely because it's currently past the app's own 21:00
 "hide today's row" cutoff; not a regression, not touched here).
 
+## Full-project audit (2026-09-16)
+
+Direct request: **"Please run a full audit of this project."** Findings, worst
+first. Everything marked **fixed** was fixed in this same pass.
+
+### 1. The test suite was time-of-day dependent — **fixed**
+Run before 21:00 local: 674 green. Run after: 4 red, every time. Not a flake in
+the random sense — a hard wall-clock dependency. `OverviewScreen._render_table()`
+drops today's row once `_NOW_HHMM() > TODAY_HIDDEN_AFTER_HHMM` ("21:00"), which is
+a wanted feature (2026-09-11), but ~34 tests build fixtures around `_TODAY()` and
+assert on row counts and column widths that silently change once that passes.
+Caught only because this audit happened to run at 22:27. Fixed with a new
+`tests/conftest.py` freezing `_NOW_HHMM` to 08:00 for every test — one autouse
+fixture instead of patching 34 tests. The tests that genuinely care about a later
+hour (22:00/23:59, the "today disappears after 9pm" cases) still override it
+themselves and still pass, so the feature stays covered. Verified by re-running
+the whole suite at 22:27 (green) and under three timezones 25 hours apart (green).
+
+### 2. No CI at all — **fixed**
+No `.github/` anywhere, which is precisely why #1 survived unnoticed for as long
+as it did: the suite was only ever run by hand, usually during the day. Added
+`.github/workflows/tests.yml` — pytest on push/PR, plus a timezone matrix
+(Kiritimati UTC+14 / Midway UTC-11, which disagree on both hour and date) and a
+daily 22:30 UTC run deliberately inside the window that used to break things.
+
+### 3. German UI mixed formal and informal address — **fixed**
+All five `booking_watch` banners addressed the user as *Sie* ("...ist Ihrer
+Tee-Zeit beigetreten, seit Sie gebucht haben") while every club-picker hint in the
+same app already used *du* ("Deine Favoriten", "Dein Login ist gespeichert"). A
+German speaker notices immediately; it reads as two products stitched together.
+Standardised on *du* (informal — matches the picker hints that were already there,
+and the README). New `test_german_ui_never_mixes_formal_sie_with_informal_du`
+scans every German string and fails on any formal pronoun, so it can't drift back;
+mutation-tested by injecting a formal pronoun and confirming it fails.
+
+### 4. Non-native German strings — **fixed**
+Beyond the register, several strings were literal translations rather than German:
+- `legend.too_late` "zu spät für Sonnenuntergang" — reads as *late to* the sunset,
+  as if it were an appointment. Now "Runde endet nach Sonnenuntergang".
+- `overview.no_dry_picks` "keine trockenen Termine" — *Termine* means appointments,
+  not tee times. Now "keine trockene Tee-Zeit".
+- `overview.no_playable_picks` "nichts Spielbares" — a nominalisation no one says.
+  Now "keine spielbare Tee-Zeit".
+- `command.search_description` "Ad-hoc-Suche **über** die ... Tage" — wrong
+  preposition. Now "Einmalige Suche **in** den bereits geladenen Tagen".
+- `command.heatmap_description` "Datenbereitschaft für die Auslastungsvorhersage" —
+  bureaucratic compound. Now "Wie viel Auslastungsverlauf bisher zusammengekommen ist".
+- `heatmap.column.hours_seen` "Std. m. Daten" — unreadable. Now "Std. mit Daten".
+- `settings.field.week*_{after,before}` "Wochentags-Fenster" — calque of "window".
+  Now "Unter der Woche" / "Am Wochenende".
+All six German screenshots regenerated, since the rendered strings changed.
+
+### 5. Nine dead i18n keys — **fixed**
+`binding.open_day`, `command.open_day_description`, `binding.next_day`,
+`binding.prev_day`, `overview.picks_title`, `binding.confirm_or_cancel`,
+`binding.language`, `heatmap.preview_title`, `heatmap.no_preview` — all left behind
+by `DayDetailScreen`'s retirement, the picks-list removal, and this week's heatmap
+grid work. Removed from both language blocks. Note the EN/DE parity test did *not*
+catch these: it only checks that both sides have the same keys, not that anything
+uses them.
+
+### 6. README narrative didn't land — **fixed**
+Direct feedback alongside the audit: *"the readme quality is insufficient (I don't
+understand the narrative it is trying to communicate)."* Correct, and the specific
+faults were identifiable:
+- **The tagline was broken.** "Your club's tee sheet is public. Checking it by
+  hand, over and over, isn't." — *isn't* has no valid referent (isn't public?).
+  It imitated brew-launcher's two-beat structure without the parallelism that
+  makes that structure work. Replaced with "Booking a tee time takes a minute.
+  Finding the right one takes all week." — parallel, true, and it states what the
+  tool is actually for.
+- **It never said what the thing is** to someone who doesn't already know pc caddie
+  or what a tee sheet is. New "What this is" section says it plainly, including the
+  boundary that matters most: *it never books anything.*
+- **No sense of the actual loop.** New "How you'd actually use it" — four steps,
+  open → read the Pick → enter to expand/mark → let it watch.
+- **Caveats front-loaded.** The requirements paragraph opened with Playwright,
+  optional logins and API keys before the reader had seen any value; now a table
+  inside a collapsed block, framed as what each extra *unlocks*.
+The German README was rewritten as German rather than translated from the new
+English — its own tagline, its own phrasing, *du* throughout to match the app.
+
+### Noted, not fixed (deliberate)
+- **~68 stale `DayDetailScreen` references** across 7 files. Most are legitimately
+  historical ("ported from DayDetailScreen 2026-09-15") and worth keeping as design
+  record; a blanket find-and-replace would destroy that. Worth a dedicated pass to
+  separate "this is where this came from" from "this describes something that still
+  exists" — too large and too easy to get wrong as a side-effect of this one.
+- **No linter configured** (no ruff/black). Would be a large, noisy first diff
+  across 10k lines for a solo project that currently reads consistently.
+- **Fixture duplication across test files** — several `_no_real_*` autouse fixtures
+  are defined per-file. Now that `conftest.py` exists they have somewhere to move,
+  but consolidating them is its own refactor with its own regression risk.
+- **`except Exception` in 15 places** — reviewed each; all are deliberate
+  graceful-degradation paths around live fetches (geocoding, holidays, course
+  lists) with documented reasoning. No bare `except:` anywhere. Left alone.
+- **Secrets hygiene: clean.** `.env`, `clubs/*.yaml` and `data/` are all gitignored,
+  and `git ls-files` confirms nothing sensitive is tracked — only the intended
+  `clubs/club.example.yaml` template.
+
+675 tests passing.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
