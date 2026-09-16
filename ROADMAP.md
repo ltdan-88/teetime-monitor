@@ -4133,6 +4133,30 @@ developer's own real credentials still log in successfully against both real
 clubs, both before and after the fix — the crash was in the failure path
 itself, not evidence the credentials in use were wrong.
 
+## Login reachable from the Actions menu (2026-09-16)
+
+Direct request: "Can you please make login screen accessible from actions
+menu?" `CredentialsScreen` had been reachable exactly one way since the
+"integrate commands and settings into one menu" work earlier the same day
+(see the "settings and commands... integrated into one menu" entry above) —
+Actions → Find a club → `l`, two menu levels deep and easy to miss for
+revisiting credentials already set (e.g. after a password change on pc
+caddie's own site).
+
+`OverviewScreen.action_edit_credentials()` pushes the exact same
+`CredentialsScreen` `ClubBrowserScreen`'s `l` key already reaches, using this
+screen's own already-known `club_id` directly for `verify_against_club_id`
+(no need for `ClubBrowserScreen`'s own typed-or-favorite fallback,
+`_any_favorite_club_id()`, since the club being viewed is unambiguous here).
+New `get_system_commands()` entry, "Login" (`binding.login`, already
+translated — reused as-is), positioned after Settings among this app's own
+screen actions, before Language. New `command.login_description` i18n key,
+both languages.
+
+2 new/updated tests in `test_tui.py`: the Login entry appears in
+`get_system_commands()`'s output, and `action_edit_credentials()` actually
+pushes `CredentialsScreen`. 685 tests passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

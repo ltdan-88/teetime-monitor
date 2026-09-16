@@ -2764,6 +2764,20 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # TeetimeApp.action_edit_settings()'s own docstring.
         self.app.action_edit_settings()
 
+    def action_edit_credentials(self) -> None:
+        # Same screen ClubBrowserScreen's own `l` key already pushes, now also
+        # reachable straight from the Actions menu — direct request 2026-09-16
+        # ("Can you please make login screen accessible from actions menu?"),
+        # since until now CredentialsScreen was only reachable two levels deep
+        # (Actions → Find a club → `l`), not obvious for revisiting credentials
+        # you've already set up (e.g. after a password change). `verify_against_club_id`
+        # uses this screen's own club_id directly — already known, no need for
+        # ClubBrowserScreen's own typed-or-favorite fallback (_any_favorite_club_id()).
+        self.app.push_screen(
+            CredentialsScreen(verify_against_club_id=self.club_id),
+            lambda _saved: self.app._reopen_actions_menu(),
+        )
+
     def action_command_palette(self) -> None:
         self.app.action_command_palette()
 
@@ -3480,6 +3494,14 @@ class TeetimeApp(App[None]):
         the exact same `action_*` method its key binding used to call
         directly.
 
+        Login (added 2026-09-16, direct request: "Can you please make login
+        screen accessible from actions menu?") pushes the same
+        `CredentialsScreen` `ClubBrowserScreen`'s own `l` key already reaches —
+        until now that was the only way in, two menu levels deep (Actions ->
+        Find a club -> `l`) and easy to miss for revisiting credentials
+        already set (e.g. after a password change on pc caddie's own site).
+        See `action_edit_credentials()`'s own docstring.
+
         Yields this app's own screen actions first, Language next, then
         Textual's own base commands (translated + regrouped via
         `_BASE_COMMAND_TRANSLATIONS` — see that dict's own docstring for the
@@ -3503,6 +3525,9 @@ class TeetimeApp(App[None]):
             )
             yield SystemCommand(
                 i18n.t("binding.settings"), i18n.t("command.settings_description"), screen.action_edit_settings
+            )
+            yield SystemCommand(
+                i18n.t("binding.login"), i18n.t("command.login_description"), screen.action_edit_credentials
             )
 
         current = i18n.get_language()
