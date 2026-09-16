@@ -1222,28 +1222,31 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
     return {**club_settings, **global_preferences.load_preferences()}
 
 
-def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
+def _compute_crowd_estimates(
+    schedules: list[Schedule], config: dict, club_id: str
+) -> dict[tuple[str, str, str], float]:
     """{(date, course, time): predicted occupancy 0-1} for every slot across
-    `schedules` — entirely skipped (empty dict, no analytics/DB work at all) unless
-    `ai_assist.avoid_predicted_crowd` is actually on, since nothing downstream does
-    anything with it otherwise. Added 2026-09-10, direct follow-up to finding
-    `avoid_predicted_crowd` had zero real effect despite reaching Claude's own
-    prompt verbatim: "make avoid crowds a child of AI option" — moving where it
-    lives in Settings only fixes the framing, not the underlying gap, so this is
-    the actual data behind it.
+    `schedules` — the actual `analytics.crowd_heatmap()`/`predict_crowding()` work,
+    factored out of `_crowd_estimates()` 2026-09-16 (direct follow-up: "Would it
+    make sense to integrate heatmap data into the timeslots in overview screen?")
+    so `OverviewScreen`'s own per-slot marker (`_slot_crowd_marker()`) can use this
+    unconditionally — `_crowd_estimates()` below still exists solely for the AI-
+    ranking use, gated behind `ai_assist.avoid_predicted_crowd` (see its own
+    docstring for why that gate has to stay there); *visibility* of a slot's usual
+    crowd level was never actually the same question as "should this bias the AI's
+    picks," and conflating them would have made the marker only ever show up for
+    the minority of users who also have AI ranking's crowd-avoidance switched on.
 
     One `analytics.crowd_heatmap()` per distinct course across `schedules` (a real,
     if modest, SQLite scan — cheap enough at this app's actual scale not to bother
-    caching across calls; every caller here only reaches this at all once
-    `ai_assist.enabled` is already on too, meaning a per-day paid API call is
-    already happening regardless). `calendar_context.classify_day()` picks the same
+    caching across calls). `calendar_context.classify_day()` picks the same
     weekday-or-special-type key `HeatmapScreen`'s own table uses — see that
     screen's docstring, and `analytics.crowd_heatmap()`'s, for why day-of-week
     (not a coarse workday/weekend split) is what the underlying data is actually
-    keyed by."""
-    ai_config = config.get("ai_assist", {})
-    if not ai_config.get("avoid_predicted_crowd", False):
-        return {}
+    keyed by. `_holidays_for_club()`'s own cache (see that function's docstring)
+    is what actually makes calling this unconditionally, on every render, cheap —
+    without it this would mean one live Nager.Date fetch per expanded day, every
+    time the table redraws (load, refresh, expand/collapse, resize)."""
     holidays = _holidays_for_club(config)
     vacation_ranges = _vacation_ranges_for_club(config)
     heatmaps: dict[str, dict] = {}
@@ -1267,6 +1270,25 @@ def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> d
             if estimate is not None:
                 estimates[(schedule.date, schedule.course, slot.time)] = estimate
     return estimates
+
+
+def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
+    """{(date, course, time): predicted occupancy 0-1}, for biasing AI ranking only
+    — entirely skipped (empty dict, no analytics/DB work at all) unless
+    `ai_assist.avoid_predicted_crowd` is actually on, since nothing downstream does
+    anything with it otherwise. Added 2026-09-10, direct follow-up to finding
+    `avoid_predicted_crowd` had zero real effect despite reaching Claude's own
+    prompt verbatim: "make avoid crowds a child of AI option" — moving where it
+    lives in Settings only fixes the framing, not the underlying gap, so this is
+    the actual data behind it.
+
+    For the Overview's own visible per-slot marker, call
+    `_compute_crowd_estimates()` directly instead — see that function's own
+    docstring for why this gate doesn't apply there."""
+    ai_config = config.get("ai_assist", {})
+    if not ai_config.get("avoid_predicted_crowd", False):
+        return {}
+    return _compute_crowd_estimates(schedules, config, club_id)
 
 
 def _availability_pipeline(schedule: Schedule, config: dict, club_id: str) -> tuple[list, list]:
@@ -1339,6 +1361,35 @@ def _closest_slot_time(times: list[str], target: str) -> str | None:
     return min(times, key=lambda t: abs((datetime.strptime(t, "%H:%M") - target_dt).total_seconds()))
 
 
+def _slot_crowd_marker(
+    date: str, course: str, time: str, crowd_estimates: dict[tuple[str, str, str], float] | None
+) -> str:
+    """A small colored block appended to a slot's own occupancy cell, showing how
+    full this hour *usually* runs historically — a supplement to, not a
+    replacement for, the real booked/capacity count already right next to it.
+    Added 2026-09-16, direct request right after the Heatmap grid/stats split:
+    "Would it make sense to integrate heatmap data into the timeslots in overview
+    screen?" Reuses the exact green/yellow/red language `_heatmap_grid_cell()`
+    already established on the Heatmap screens (`_heatmap_cell_style()`/
+    `_HEAT_BLOCK_STYLES`), so a user who has already seen that grid recognizes
+    this at a glance rather than learning a second color scheme.
+
+    Empty string — not a dim placeholder — with no confident estimate yet (too
+    few samples, or no history at all for this hour/day-type combination):
+    unlike the Heatmap grid (where every cell has to exist to keep the grid's own
+    shape), this slot row already shows a real occupancy number right beside it,
+    so there's nothing useful to add instead of a blank string; a dim dash here
+    would just be one more low-signal character next to the number that actually
+    matters."""
+    if not crowd_estimates:
+        return ""
+    estimate = crowd_estimates.get((date, course, time))
+    if estimate is None:
+        return ""
+    color = _HEAT_BLOCK_STYLES[_heatmap_cell_style(estimate)]
+    return f"[{color}]■[/]"
+
+
 def _recommended_times_for(schedule: Schedule, config: dict, club_id: str) -> set[str]:
     """Thin wrapper around `_availability_pipeline()` returning just the still-
     playable slot times — factored out 2026-09-14 (ROADMAP.md's queued "nested/
@@ -1376,13 +1427,20 @@ def _compute_slot_rows(
     date: str,
     recommended_times: set[str],
     confirmed: ConfirmedBooking | None,
+    crowd_estimates: dict[tuple[str, str, str], float] | None = None,
 ) -> list[SlotRowCells]:
     """One `SlotRowCells` per slot in `schedule`, in order — the exact per-slot
     rendering `DayDetailScreen.load_schedule()` used to do inline, factored out
     2026-09-14 so `OverviewScreen`'s expand-in-place rows (ROADMAP.md's queued
     "nested/collapsed overview" item) can build the identical cells without
     duplicating the ★/🌙 markers, sunrise/sunset notes, and past-slot dimming
-    logic a second time."""
+    logic a second time.
+
+    `crowd_estimates` (added 2026-09-16, see `_slot_crowd_marker()`'s own
+    docstring) is optional, defaulting to `None` — every existing direct caller
+    (this function's own tests included) that doesn't pass it keeps behaving
+    exactly as before, same convention as `club_id`/`club_name` on
+    `_resolved_config()`."""
     now = _NOW_HHMM() if date == _TODAY() else None
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
@@ -1427,6 +1485,10 @@ def _compute_slot_rows(
             continue
         style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(slot.booked, slot.capacity)
         occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
+        if not is_past:
+            crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
+            if crowd_marker:
+                occupancy += f" {crowd_marker}"
         players = ", ".join(slot.players) if slot.players else ""
         rows.append(
             SlotRowCells(
@@ -1665,6 +1727,15 @@ _MARKER_LEGEND = [
     ("📋", "legend.event"),
     ("📌", "overview.booked"),
     ("⚠", "legend.changed"),
+    # Plain, uncolored "■" here rather than one colored swatch per state
+    # (green/yellow/red, as `_slot_crowd_marker()` actually renders) --
+    # `_wrap_legend()` measures width with `rich.cells.cell_len`, which reads
+    # literal characters, not Rich markup; embedding `[green]■[/]` etc. here
+    # would count those bracket characters as real visible width and throw
+    # off its wrap calculation. Same three colors as HeatmapScreen's own
+    # grid, already explained there -- a user who's seen that legend once
+    # recognizes this without it being spelled out a second time here too.
+    ("■", "legend.usual_crowd"),
 ]
 _NOTICE_LEGEND = [
     ("🌧", "legend.rain_threshold"),
@@ -2565,7 +2636,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if can_expand and one_date in self._expanded_dates:
                 recommended_times = _recommended_times_for(schedule, config, self.club_id)
                 confirmed = confirmed_by_date.get(one_date)
-                for slot_row in _compute_slot_rows(schedule, config, units, one_date, recommended_times, confirmed):
+                crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
+                for slot_row in _compute_slot_rows(
+                    schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates
+                ):
                     self._row_index.append((one_date, slot_row.time))
                     pending_rows.append((
                         f"  {slot_row.time_cell}",
@@ -3102,20 +3176,43 @@ class SearchScreen(Screen[None]):
 # screen needed it. ------------------------------------------------------------------
 
 
+# {(country_code, year): holidays} -- a plain process-lifetime cache, not
+# calendar_context.fetch_public_holidays() re-fetching every call. Added
+# 2026-09-16 alongside _compute_crowd_estimates() (see that function's own
+# docstring): once the Overview's own per-slot crowd marker meant every table
+# render calls _holidays_for_club() once per expanded day -- not just the rare
+# ai_assist.avoid_predicted_crowd path this used to be gated behind -- an
+# uncached version would mean one live Nager.Date fetch per expanded day on
+# every load/refresh/expand/collapse/resize. A year's public holidays for a
+# given country don't change mid-session, so caching them is exact, not an
+# approximation. Only successful fetches are cached (see _holidays_for_club()
+# below) -- a transient network failure stays retryable on the next call
+# rather than becoming a sticky "no holidays" for the rest of the session.
+_HOLIDAY_CACHE: dict[tuple[str, int], list[str]] = {}
+
+
 def _holidays_for_club(config: dict) -> list[str]:
     """This year's public holidays for a club's configured `calendar.country_code`,
-    via the free Nager.Date API (calendar_context.fetch_public_holidays()). Empty
-    list — not an error — with no country_code configured, or if the fetch fails;
-    day-type classification still works with just tournament/weekend/workday in that
-    case, the same graceful-degradation every other optional-config feature here
-    already follows (e.g. `_location_for_club()`'s own None-on-failure)."""
+    via the free Nager.Date API (calendar_context.fetch_public_holidays()), cached
+    in `_HOLIDAY_CACHE` for the rest of this process's lifetime once fetched
+    successfully (see that cache's own docstring). Empty list — not an error —
+    with no country_code configured, or if the fetch fails; day-type
+    classification still works with just tournament/weekend/workday in that case,
+    the same graceful-degradation every other optional-config feature here already
+    follows (e.g. `_location_for_club()`'s own None-on-failure)."""
     country_code = config.get("calendar", {}).get("country_code")
     if not country_code:
         return []
+    cache_key = (country_code, date_cls.fromisoformat(_TODAY()).year)
+    cached = _HOLIDAY_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     try:
-        return calendar_context.fetch_public_holidays(country_code, date_cls.fromisoformat(_TODAY()).year)
+        holidays = calendar_context.fetch_public_holidays(*cache_key)
     except Exception:
         return []
+    _HOLIDAY_CACHE[cache_key] = holidays
+    return holidays
 
 
 def _vacation_ranges_for_club(config: dict) -> list[DateRange]:

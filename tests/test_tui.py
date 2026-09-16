@@ -464,6 +464,36 @@ def test_compute_slot_rows_dims_a_blocked_past_slot_too(monkeypatch):
     assert "Golf Beginner Kurs" in rows[0].events_cell
 
 
+def test_compute_slot_rows_appends_the_crowd_marker_to_occupancy(monkeypatch):
+    # Direct request 2026-09-16: "Would it make sense to integrate heatmap data
+    # into the timeslots in overview screen?" -- crowd_estimates is an optional
+    # trailing parameter (default None), so every other test in this section
+    # above keeps working unchanged.
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+    crowd_estimates = {("2026-09-07", "18 Loch Tee 1", "09:00"): 1.0}  # "full"
+
+    rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None, crowd_estimates)
+
+    assert "[bold red]■[/]" in rows[0].occupancy_cell
+    assert "0/4" in rows[0].occupancy_cell  # the real count is still there too
+
+
+def test_compute_slot_rows_omits_the_crowd_marker_for_a_past_slot(monkeypatch):
+    # A past slot's real occupancy is already final -- a "usually busy" note
+    # isn't actionable for a slot that's already gone, same reasoning ★/🌙
+    # already skip past slots for.
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "11:18")
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+    crowd_estimates = {("2026-09-07", "18 Loch Tee 1", "09:00"): 1.0}
+
+    rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None, crowd_estimates)
+
+    assert "■" not in rows[0].occupancy_cell
+
+
 def test_compute_slot_rows_stars_a_recommended_slot():
     schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", {"14:00"}, None)
@@ -1006,6 +1036,55 @@ def test_crowd_estimates_omits_a_slot_with_too_few_samples(tmp_path, monkeypatch
     assert tui._crowd_estimates([candidate], config, "0000001") == {}
 
 
+# _compute_crowd_estimates() -- the same prediction work, factored out 2026-09-16
+# so OverviewScreen's own visible per-slot marker can use it independent of
+# ai_assist.avoid_predicted_crowd (direct request: "Would it make sense to
+# integrate heatmap data into the timeslots in overview screen?").
+
+
+def test_compute_crowd_estimates_works_with_no_ai_assist_config_at_all(tmp_path, monkeypatch):
+    # The whole point of the split: unlike _crowd_estimates(), this must not be
+    # gated behind avoid_predicted_crowd -- a bare {} config (no ai_assist key
+    # whatsoever) still gets a real prediction.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+            path=db_path,
+        )
+    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    estimates = tui._compute_crowd_estimates([candidate], {}, "0000001")
+
+    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
+
+
+# _slot_crowd_marker() -- the small colored "■" block _compute_slot_rows()
+# appends to a slot's own occupancy cell.
+
+
+def test_slot_crowd_marker_empty_with_no_estimates_at_all():
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "09:00", None) == ""
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "09:00", {}) == ""
+
+
+def test_slot_crowd_marker_empty_without_a_matching_key():
+    estimates = {("2026-09-07", "18 Loch Tee 1", "10:00"): 0.5}  # different time
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "09:00", estimates) == ""
+
+
+def test_slot_crowd_marker_colors_match_the_heatmap_grids_own_thresholds():
+    estimates = {
+        ("2026-09-07", "18 Loch Tee 1", "09:00"): 0.2,  # open
+        ("2026-09-07", "18 Loch Tee 1", "10:00"): 0.6,  # mid
+        ("2026-09-07", "18 Loch Tee 1", "11:00"): 1.0,  # full
+    }
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "09:00", estimates) == "[green]■[/]"
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "10:00", estimates) == "[yellow]■[/]"
+    assert tui._slot_crowd_marker("2026-09-07", "18 Loch Tee 1", "11:00", estimates) == "[bold red]■[/]"
+
+
 # _too_late_for_daylight() -- added 2026-09-09, direct request: "It would also be
 # great if you could immediately see in the detailed view, which of the timeslots
 # are already too late until sunset." Deliberately independent of whether
@@ -1512,6 +1591,50 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
             await pilot.pause()
             assert table.row_count == collapsed_row_count
             assert tui._TODAY() not in app.screen._expanded_dates
+
+    _run(scenario())
+
+
+def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_config(tmp_path, monkeypatch):
+    # Direct request 2026-09-16: "Would it make sense to integrate heatmap data
+    # into the timeslots in overview screen?" -- end-to-end through the real
+    # screen, with a bare config (no ai_assist section at all), proving the
+    # marker doesn't depend on ai_assist.enabled/avoid_predicted_crowd the way
+    # the AI-ranking use of the same prediction still does.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")  # a Monday
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 prior Mondays, always full
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=4, capacity=4)]),
+            path=db_path,
+        )
+    storage.save_schedule(
+        # Today's own real count is low. crowd_heatmap() folds this scrape into
+        # the same "Monday" bucket too (today is itself a Monday), landing the
+        # average at (4+4+4+0)/16 = 0.75 -- "mid"/yellow, not "full"/red -- which
+        # is itself the point: the marker is the *historical average including
+        # today's own data point*, not a snapshot of the 3 fully-booked days
+        # alone, and it's still visibly different from the real "0/4" beside it.
+        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        path=db_path,
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert "ai_assist" not in app.screen._config()
+            table = app.screen.query_one(DataTable)
+            table.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            row = table.get_row_at(1)  # the expanded 09:00 slot row
+            occupancy_cell = str(row[5])  # Occupancy column, see _render_table()'s own mapping
+            assert "0/4" in occupancy_cell
+            assert "[yellow]■[/]" in occupancy_cell
 
     _run(scenario())
 
@@ -3852,6 +3975,42 @@ def test_holidays_for_club_returns_empty_list_on_a_failed_fetch(monkeypatch):
     monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", fail)
     config = {"calendar": {"country_code": "DE"}}
     assert tui._holidays_for_club(config) == []
+
+
+def test_holidays_for_club_caches_a_successful_fetch(monkeypatch):
+    # Added 2026-09-16 alongside the Overview's own crowd marker -- without this,
+    # every expanded day on every render would be a live Nager.Date fetch (see
+    # _HOLIDAY_CACHE's own docstring).
+    calls = []
+    monkeypatch.setattr(
+        tui.calendar_context, "fetch_public_holidays", lambda code, year: calls.append((code, year)) or ["2026-01-01"]
+    )
+    config = {"calendar": {"country_code": "DE"}}
+
+    assert tui._holidays_for_club(config) == ["2026-01-01"]
+    assert tui._holidays_for_club(config) == ["2026-01-01"]
+
+    assert len(calls) == 1  # the second call was served from the cache
+
+
+def test_holidays_for_club_does_not_cache_a_failed_fetch(monkeypatch):
+    # A transient failure stays retryable on the next call -- caching it would
+    # make one bad network blip a sticky "no holidays" for the rest of the
+    # session.
+    calls = []
+
+    def flaky(code, year):
+        calls.append((code, year))
+        if len(calls) == 1:
+            raise RuntimeError("network down")
+        return ["2026-01-01"]
+
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", flaky)
+    config = {"calendar": {"country_code": "DE"}}
+
+    assert tui._holidays_for_club(config) == []
+    assert tui._holidays_for_club(config) == ["2026-01-01"]
+    assert len(calls) == 2  # both calls actually reached fetch_public_holidays()
 
 
 def test_vacation_ranges_for_club_empty_without_configuration():
