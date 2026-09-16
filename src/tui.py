@@ -3210,22 +3210,137 @@ def _heatmap_legend_markup() -> str:
 
 
 class HeatmapScreen(Screen[None]):
-    """Phase 5's crowd heatmap — a data-readiness view (how close each weekday/day
-    type is to usable) plus, below it, the actual 2D colored grid the original
-    signed-off mockup called for (added 2026-09-16, direct request: "Can we
-    implement the actual 2d colored grid from the mockup?"). Readiness led on its
-    own for over a week first (2026-09-08, direct request: "Can we still start
-    building the UI for the heat map? We need a menu to track how much data has
-    been collected, and how much is still needed to be functional") — the grid
-    would have shipped almost entirely empty back then, every real club here was
-    at most a couple of days into accumulating history. No mockup *file* exists in
-    this repo to check pixel-for-pixel (only ROADMAP.md's own prose description of
-    it survives, from the conversation it was originally agreed in) — built from
-    that description rather than delaying on a file that doesn't exist to find.
+    """Phase 5's crowd heatmap — the actual 2D colored grid the original signed-off
+    mockup called for (added 2026-09-16, direct request: "Can we implement the
+    actual 2d colored grid from the mockup?"). No mockup *file* exists in this repo
+    to check pixel-for-pixel (only ROADMAP.md's own prose description of it
+    survives, from the conversation it was originally agreed in) — built from that
+    description rather than delaying on a file that doesn't exist to find.
 
-    Two readiness tables, mirroring `analytics.crowd_heatmap()`'s own split
-    (reworked 2026-09-09 to match the original signed-off mockup — see that
-    function's docstring for the mismatch this fixes): "By weekday" (one row per
+    One grid per `analytics.crowd_heatmap()` group (reworked 2026-09-09 to match
+    the original signed-off mockup — see that function's docstring for the mismatch
+    this fixes): "By weekday" (columns Sun-Sat) and "Special days" (columns
+    tournament/public_holiday/vacation, compared only against other days of their
+    own kind), hour-of-day as rows — matching the mockup's own axis choice ("real
+    days of the week, each its own column"). Each cell is a colored block
+    (`_heatmap_grid_cell()`): full color once that hour/key combination has hit
+    `analytics.MIN_SAMPLES_FOR_PREDICTION` samples — the same bar `predict_crowding()`
+    already uses to trust a bucket — the same block *dimmed* while still under it (a
+    real signal, just not confident yet — see that function's own docstring), or a
+    plain dim dash with no sample at all. The grid's own rows are whatever hours
+    have actually been scraped (`_heatmap_grid_hours()`) — a club's real operating
+    hours aren't assumed ahead of time. A `#grid-legend` line at the bottom explains
+    all four cell states once, for both grids — the first legend anywhere in this
+    app for the green/yellow/bold-red heat-strip language at all; the Overview's own
+    heat strip (`_heat_strip_markup()`) has used the identical three colors since
+    Phase 2 with nothing ever explaining them.
+
+    The readiness *tables* this screen originally also carried (how close each
+    weekday/day type is to usable — the original 2026-09-08 request this whole
+    feature started from: "We need a menu to track how much data has been
+    collected, and how much is still needed to be functional") moved out to
+    `HeatmapReadinessScreen`, reachable here via `s` — direct request 2026-09-16,
+    right after the grid shipped: "Can you separate stats for the heatmap from the
+    actual heatmap? Would it make sense to put stats in a deeper menu?" The grid is
+    what someone opens Heatmap *for* (the actual crowd picture); the readiness
+    stats are a diagnostic for whether the club has scraped enough history yet to
+    trust it — worth keeping one key-press away rather than always sharing the
+    screen with the six other tables/notes that used to load ahead of it."""
+
+    BINDINGS = [
+        ("escape", "back", "Back"),
+        ("s", "stats", "Data stats"),
+        ("q", "quit", "Quit"),
+    ]
+    _FOOTER_BINDINGS = [
+        ("escape", "binding.cancel"),
+        ("s", "binding.stats"),
+        ("q", "binding.quit"),
+    ]
+
+    def __init__(self, club_id: str, course: str, config: dict) -> None:
+        super().__init__()
+        self.club_id = club_id
+        self.course = course
+        self.config = config
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static("", id="weekday-title")
+        yield DataTable(id="weekday-grid")
+        yield Static("", id="special-title")
+        yield DataTable(id="special-grid")
+        yield Static("", id="grid-legend")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    def on_mount(self) -> None:
+        self.title = i18n.t("heatmap.title", course=self.course)
+
+        self.query_one("#weekday-title", Static).update(i18n.t("heatmap.section.by_weekday"))
+        weekday_grid = self.query_one("#weekday-grid", DataTable)
+        weekday_grid.add_columns(
+            i18n.t("heatmap.column.hour"),
+            *(i18n.t(f"heatmap.weekday_short.{weekday.lower()}") for weekday in calendar_context.WEEKDAYS),
+        )
+
+        self.query_one("#special-title", Static).update(i18n.t("heatmap.section.special_days"))
+        special_grid = self.query_one("#special-grid", DataTable)
+        special_grid.add_columns(
+            i18n.t("heatmap.column.hour"),
+            *(i18n.t(f"heatmap.day_type.{day_type}") for day_type in calendar_context.SPECIAL_DAY_TYPES),
+        )
+
+        self.query_one("#grid-legend", Static).update(_heatmap_legend_markup())
+        self.load_grid()
+
+    def load_grid(self) -> None:
+        holidays = _holidays_for_club(self.config)
+        vacation_ranges = _vacation_ranges_for_club(self.config)
+        heatmap = analytics.crowd_heatmap(self.course, holidays, vacation_ranges, path=_db_path(self.club_id))
+
+        weekday_group = heatmap.get("by_weekday", {})
+        weekday_grid = self.query_one("#weekday-grid", DataTable)
+        weekday_grid.clear()
+        for row in _heatmap_grid_rows(_heatmap_grid_hours(weekday_group), calendar_context.WEEKDAYS, weekday_group):
+            weekday_grid.add_row(*row)
+
+        special_group = heatmap.get("special_days", {})
+        special_grid = self.query_one("#special-grid", DataTable)
+        special_grid.clear()
+        for row in _heatmap_grid_rows(
+            _heatmap_grid_hours(special_group), calendar_context.SPECIAL_DAY_TYPES, special_group
+        ):
+            special_grid.add_row(*row)
+
+    def action_back(self) -> None:
+        # self.dismiss(), not self.app.pop_screen() directly (the only screen
+        # in this app that used to take that shortcut) -- push_screen()'s own
+        # result callback only fires via dismiss(); pop_screen() called
+        # straight from here discards it unfired (confirmed straight from
+        # Textual's own source: Screen.dismiss() invokes the callback itself
+        # before calling pop_screen(), which on its own just drops it). Direct
+        # feedback needed this fixed 2026-09-16 once action_heatmap() started
+        # relying on that callback to reopen the Actions menu on the way out.
+        self.dismiss()
+
+    def action_stats(self) -> None:
+        # A plain push_screen(), not push_screen_wait() (this isn't a worker
+        # context) and no _reopen_actions_menu() callback -- unlike Settings/
+        # Search/Heatmap/Find-a-club, HeatmapReadinessScreen is reached from
+        # *inside* HeatmapScreen itself, not straight from the Actions menu,
+        # so backing out of it should land back here, not skip past this
+        # screen too.
+        self.app.push_screen(HeatmapReadinessScreen(self.club_id, self.course, self.config))
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+
+class HeatmapReadinessScreen(Screen[None]):
+    """Data-collection readiness for the crowd heatmap — split out from
+    `HeatmapScreen`'s own 2D grid 2026-09-16 (see that class's own docstring for
+    the direct request this responds to). Two tables, mirroring
+    `analytics.crowd_heatmap()`'s own split: "By weekday" (one row per
     `calendar_context.WEEKDAYS`, Sun-Sat) and "Special days" (one row per
     `calendar_context.SPECIAL_DAY_TYPES`: tournament/public_holiday/vacation,
     compared only against other days of their own kind). Every row is always shown
@@ -3234,23 +3349,13 @@ class HeatmapScreen(Screen[None]):
     "public_holiday"/"vacation", which is itself useful information (that
     classification simply can't happen yet), not a row to hide. "Ready" reuses
     `analytics.MIN_SAMPLES_FOR_PREDICTION` — the same bar `predict_crowding()`
-    already uses to trust a bucket, not a second, separately-tuned threshold invented
-    just for this display.
+    already uses to trust a bucket, not a second, separately-tuned threshold
+    invented just for this display.
 
-    Directly below each readiness table: that same group's own grid — hour-of-day
-    as rows, weekday (or special day type) as columns, matching the mockup's own
-    axis choice ("real days of the week, each its own column"). Each cell is a
-    colored block (`_heatmap_grid_cell()`): full color once that hour/key
-    combination has hit the same readiness floor, the same block *dimmed* while
-    still under it (a real signal, just not confident yet — see that function's
-    own docstring), or a plain dim dash with no sample at all. Unlike the readiness
-    tables' fixed row sets, the grid's own rows are whatever hours have actually
-    been scraped (`_heatmap_grid_hours()`) — a club's real operating hours aren't
-    assumed ahead of time. A `#grid-legend` line at the bottom explains all four
-    cell states once, for both grids — the first legend anywhere in this app for
-    the green/yellow/bold-red heat-strip language at all; the Overview's own heat
-    strip (`_heat_strip_markup()`) has used the identical three colors since Phase
-    2 with nothing ever explaining them."""
+    Reached from `HeatmapScreen` via `s`, one level deeper than the grid it's a
+    diagnostic for -- not from the top-level Actions menu directly, since this is
+    "more detail about the heatmap you're already looking at," not a separate
+    top-level destination in its own right."""
 
     BINDINGS = [
         ("escape", "back", "Back"),
@@ -3271,16 +3376,13 @@ class HeatmapScreen(Screen[None]):
         yield Header()
         yield Static("", id="weekday-title")
         yield DataTable(id="weekday-table")
-        yield DataTable(id="weekday-grid")
         yield Static("", id="special-title")
         yield DataTable(id="special-table")
-        yield DataTable(id="special-grid")
         yield Static("", id="threshold-note")
-        yield Static("", id="grid-legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def on_mount(self) -> None:
-        self.title = i18n.t("heatmap.title", course=self.course)
+        self.title = i18n.t("heatmap.readiness_title", course=self.course)
 
         self.query_one("#weekday-title", Static).update(i18n.t("heatmap.section.by_weekday"))
         weekday_table = self.query_one("#weekday-table", DataTable)
@@ -3290,11 +3392,6 @@ class HeatmapScreen(Screen[None]):
             i18n.t("heatmap.column.hours_ready"),
             i18n.t("heatmap.column.samples"),
             i18n.t("heatmap.column.status"),
-        )
-        weekday_grid = self.query_one("#weekday-grid", DataTable)
-        weekday_grid.add_columns(
-            i18n.t("heatmap.column.hour"),
-            *(i18n.t(f"heatmap.weekday_short.{weekday.lower()}") for weekday in calendar_context.WEEKDAYS),
         )
 
         self.query_one("#special-title", Static).update(i18n.t("heatmap.section.special_days"))
@@ -3306,16 +3403,10 @@ class HeatmapScreen(Screen[None]):
             i18n.t("heatmap.column.samples"),
             i18n.t("heatmap.column.status"),
         )
-        special_grid = self.query_one("#special-grid", DataTable)
-        special_grid.add_columns(
-            i18n.t("heatmap.column.hour"),
-            *(i18n.t(f"heatmap.day_type.{day_type}") for day_type in calendar_context.SPECIAL_DAY_TYPES),
-        )
 
         self.query_one("#threshold-note", Static).update(
             i18n.t("heatmap.threshold_note", min=analytics.MIN_SAMPLES_FOR_PREDICTION)
         )
-        self.query_one("#grid-legend", Static).update(_heatmap_legend_markup())
         self.load_readiness()
 
     def load_readiness(self) -> None:
@@ -3348,29 +3439,7 @@ class HeatmapScreen(Screen[None]):
                 _readiness_status_text(stats),
             )
 
-        weekday_group = heatmap.get("by_weekday", {})
-        weekday_grid = self.query_one("#weekday-grid", DataTable)
-        weekday_grid.clear()
-        for row in _heatmap_grid_rows(_heatmap_grid_hours(weekday_group), calendar_context.WEEKDAYS, weekday_group):
-            weekday_grid.add_row(*row)
-
-        special_group = heatmap.get("special_days", {})
-        special_grid = self.query_one("#special-grid", DataTable)
-        special_grid.clear()
-        for row in _heatmap_grid_rows(
-            _heatmap_grid_hours(special_group), calendar_context.SPECIAL_DAY_TYPES, special_group
-        ):
-            special_grid.add_row(*row)
-
     def action_back(self) -> None:
-        # self.dismiss(), not self.app.pop_screen() directly (the only screen
-        # in this app that used to take that shortcut) -- push_screen()'s own
-        # result callback only fires via dismiss(); pop_screen() called
-        # straight from here discards it unfired (confirmed straight from
-        # Textual's own source: Screen.dismiss() invokes the callback itself
-        # before calling pop_screen(), which on its own just drops it). Direct
-        # feedback needed this fixed 2026-09-16 once action_heatmap() started
-        # relying on that callback to reopen the Actions menu on the way out.
         self.dismiss()
 
     def action_quit(self) -> None:
