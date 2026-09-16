@@ -2295,6 +2295,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
+        ("c", "collapse_all", "Collapse all"),
         ("x", "dismiss_banners", "Dismiss banners"),
         ("t", "command_palette", "Actions"),
         ("q", "quit", "Quit"),
@@ -2302,6 +2303,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     _FOOTER_BINDINGS = [
         ("enter", "binding.expand_or_confirm"),
         ("r", "binding.refresh"),
+        ("c", "binding.collapse_all"),
         ("x", "binding.dismiss_banners"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
@@ -2809,6 +2811,23 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self.app.push_screen(
             ConfirmBookingScreen(self.club_id, self.course, date, slot_time, default_holes), on_result
         )
+
+    def action_collapse_all(self) -> None:
+        """`c` -- collapse every currently-expanded day row at once, back to the
+        compact day-summary view in a single press. Direct request 2026-09-16,
+        right after the Overview's own per-slot crowd marker shipped: "I'd also
+        like a collapse keybind in the overview screen." `enter` already
+        expands/collapses one day row at a time (`_toggle_expanded()` above) --
+        this doesn't replace that, it's the fast way back once more than one
+        day is open at once, the same relationship `x` (dismiss every banner)
+        already has to acknowledging one at a time. No-op with nothing expanded
+        (same as `x` with no pending banners) rather than needing its own
+        conditional binding."""
+        if not self._expanded_dates:
+            return
+        row = self.query_one(DataTable).cursor_row
+        self._expanded_dates = set()
+        self._rerender_preserving_cursor(row)
 
     def action_search(self) -> None:
         # Callback (not push_screen_wait()) since this itself isn't a worker

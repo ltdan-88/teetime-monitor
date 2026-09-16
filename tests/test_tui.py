@@ -1595,6 +1595,64 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
     _run(scenario())
 
 
+def test_overview_screen_collapse_all_key_collapses_every_expanded_day_at_once(tmp_path, monkeypatch):
+    # Direct request 2026-09-16, right after the Overview's own crowd marker
+    # shipped: "I'd also like a collapse keybind in the overview screen" --
+    # `enter` only ever toggled one day row at a time; `c` clears every
+    # expanded day in a single press.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-09-07", "2026-09-08"]:
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+            path=db_path,
+        )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            table.focus()
+            collapsed_row_count = table.row_count
+
+            app.screen._toggle_expanded("2026-09-07", 0)
+            app.screen._toggle_expanded("2026-09-08", 2)
+            await pilot.pause()
+            assert app.screen._expanded_dates == {"2026-09-07", "2026-09-08"}
+            assert table.row_count == collapsed_row_count + 2
+
+            await pilot.press("c")
+            await pilot.pause()
+            assert app.screen._expanded_dates == set()
+            assert table.row_count == collapsed_row_count
+
+    _run(scenario())
+
+
+def test_overview_screen_collapse_all_is_a_no_op_with_nothing_expanded(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            table.focus()
+            row_count = table.row_count
+
+            await pilot.press("c")
+            await pilot.pause()
+            assert table.row_count == row_count
+            assert app.screen._expanded_dates == set()
+
+    _run(scenario())
+
+
 def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_config(tmp_path, monkeypatch):
     # Direct request 2026-09-16: "Would it make sense to integrate heatmap data
     # into the timeslots in overview screen?" -- end-to-end through the real
@@ -2113,6 +2171,7 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "enter" in text and "Expand day / confirm tee time" in text
             assert "r" in text and "Refresh" in text
+            assert "c" in text and "Collapse all" in text
             assert "x" in text and "Dismiss banners" in text
             assert "t" in text and "Actions" in text
             assert "Settings" not in text
