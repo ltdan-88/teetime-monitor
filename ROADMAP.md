@@ -4181,6 +4181,51 @@ Split test coverage 1:1 with the split screens; one new test confirms `s`
 opens `HeatmapReadinessScreen` and escape returns to the grid. 686 tests
 passing, `ruff check` clean.
 
+## Heatmap data surfaced directly on Overview's own timeslots (2026-09-16)
+
+Direct follow-up right after the grid/stats split: "Is the heatmap course
+specific? Would it make sense to integrate heatmap data into the timeslots
+in overview screen?" (Yes to the first — `analytics.crowd_heatmap(course,
+...)` is scoped to one course, one club, via the per-club SQLite path.)
+
+The actual prediction machinery already existed: `_crowd_estimates()` has
+computed `{(date, course, time): predicted occupancy 0-1}` since 2026-09-10,
+but purely to bias AI ranking, gated behind both `ai_assist.enabled` and
+`ai_assist.avoid_predicted_crowd` — invisible to the large majority of users
+who don't have both switched on. Split the actual computation out into a new
+`_compute_crowd_estimates()`, ungated; `_crowd_estimates()` is now a thin
+gate-then-delegate wrapper kept solely for the AI-ranking call site, unchanged
+behavior. `OverviewScreen`'s own expanded slot rows call the ungated version
+and append a small colored "■" (green/yellow/red, the exact same thresholds
+`_heatmap_grid_cell()` uses on the Heatmap screens) right after a slot's real
+`booked/capacity` count — a supplement, not a replacement: the real count is
+always what's actually happening, the marker is what *usually* happens at
+that hour. Skipped for past slots (not actionable), and simply absent (not a
+dim placeholder) wherever there's no confident prediction yet, same as
+`_heatmap_grid_cell()`'s own "no sample" case reads as a blank dash rather
+than false precision. New `legend.usual_crowd` entry on Overview's own legend,
+plain-icon (not color-swatched — `_wrap_legend()`'s width math reads literal
+characters, not Rich markup brackets, so a colored icon there would throw off
+its own wrap calculation).
+
+**Real perf trap found and fixed along the way.** Computing this unconditionally
+meant `_holidays_for_club()` — a live, uncached Nager.Date fetch — would now run
+once per expanded day on *every* table render (load/refresh/expand/collapse/
+resize), not just the rare `avoid_predicted_crowd`-enabled path it used to be
+gated behind. New `_HOLIDAY_CACHE` (a plain process-lifetime dict, successful
+fetches only — a transient failure stays retryable rather than becoming a sticky
+"no holidays" for the session) turns that into one real fetch per country/year,
+ever. New `conftest.py` fixture `_no_stale_holiday_cache` clears it between
+tests — caught the same class of cross-test leak this project's audit already
+hit twice before (two existing holiday tests share the same country_code/frozen-
+year cache key, which would otherwise have silently read one test's cached
+result back in the other).
+
+10 new tests (`_compute_crowd_estimates`, `_slot_crowd_marker`, the two
+`_compute_slot_rows()` marker cases, one full `OverviewScreen` end-to-end
+check with no `ai_assist` config at all, and 2 holiday-cache tests). 695
+tests passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

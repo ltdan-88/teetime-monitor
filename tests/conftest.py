@@ -110,3 +110,19 @@ def _no_real_credentials_by_default(monkeypatch):
     monkeypatch.delenv("PCC_USER", raising=False)
     monkeypatch.delenv("PCC_PASS", raising=False)
     monkeypatch.setattr(club_config, "resolve_credentials", lambda club_id: ("", ""))
+
+
+@pytest.fixture(autouse=True)
+def _no_stale_holiday_cache(monkeypatch):
+    """`tui._HOLIDAY_CACHE` is deliberate process-lifetime state (see its own
+    docstring) -- exactly the kind of module-level global that leaks between
+    tests in the same pytest process. Caught before it could actually bite:
+    `test_holidays_for_club_returns_the_fetched_list` and
+    `test_holidays_for_club_returns_empty_list_on_a_failed_fetch` both use
+    country_code "DE" against the same frozen `_TODAY()` year (see
+    `_frozen_clock` above) -- without this, whichever of the two runs first
+    would cache its own result under that (country_code, year) key, and the
+    other would silently read the first one's cached list back instead of
+    exercising its own mocked `fetch_public_holidays()` at all.
+    """
+    monkeypatch.setattr(tui, "_HOLIDAY_CACHE", {})
