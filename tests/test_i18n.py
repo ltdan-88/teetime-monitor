@@ -209,3 +209,15 @@ def test_german_ui_never_mixes_formal_sie_with_informal_du():
         if isinstance(value, str) and formal.search(value)
     }
     assert offenders == {}, f"formal 'Sie/Ihr' found in German UI strings: {offenders}"
+
+
+def test_render_booking_change_reservations_sync_failed_login():
+    i18n.set_language("en")
+    text = i18n.render_booking_change("reservations_sync_failed", {"reason": "login"})
+    assert "login failed" in text
+
+
+def test_render_booking_change_reservations_sync_failed_parsing_german():
+    i18n.set_language("de")
+    text = i18n.render_booking_change("reservations_sync_failed", {"reason": "parsing"})
+    assert "geändert" in text

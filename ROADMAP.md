@@ -4022,6 +4022,85 @@ so it is genuinely doing the isolation work the three copies used to do separate
 
 675 tests passing, `ruff check` clean.
 
+## "My Reservations" sync: fixed the actual reliability bug (2026-09-16)
+
+A real booking, on a real club, traced live rather than reasoned about from the
+code: "I made a reservation on Saturday at 3:30 PM. It doesn't show my name or
+that I made this reservation in tee time monitor. It only says 1/4 occupancy."
+Direct follow-up once the actual root cause was found by hand: **"Yes I need
+you to fix it, especially to make it reliably refresh next time I make a
+reservation."**
+
+**What the live trace found.** `_sync_my_reservations()` used to be called from
+inside `run()` — once per course × date, not once per pass. A real club here
+has 3 courses × 5 dates = 15 combinations in one overview window, so a single
+scheduled pass logged into pc caddie and re-fetched the entire "My
+Reservations" page **15 separate times**, all for the exact same,
+course/date-independent page. Confirmed directly against this developer's own
+real club: calling the sync function once, by hand, worked immediately and
+found the real booking; the in-app scrape (two manual `r` presses) hadn't
+picked it up. Fifteen redundant logins in one pass is fifteen separate chances
+for exactly the kind of transient failure that would explain that gap — and
+whichever one of those fifteen actually failed left no trace, because:
+
+**Every failure mode here was `print()`-only.** `LoginError`/`NotImplementedError`
+were both already caught deliberately (so one bad club doesn't take down a
+whole scrape — see this module's own "Login" note), but the only record of a
+failure was a `print()` call, and `print()` output is invisible while the
+Textual TUI has the screen (it runs full-screen in an alternate buffer). A
+real, persistent problem and "nothing new to sync" were indistinguishable from
+inside the running app — confirmed by running `python -m src.scrape_once`
+directly in a plain terminal, which surfaced the same failures the TUI was
+silently swallowing the whole time.
+
+**Two independent fixes:**
+
+1. **`_sync_my_reservations()` moved to `scrape_due_for_club()`, called exactly
+   once per pass** regardless of how many course/date combinations end up due —
+   not per `run()` invocation. Cuts real logins from 15 to 1 per pass for this
+   club; more generally, from (courses × dates) to 1. `run()`'s own
+   `storage.load_confirmed_booking()` read still sees this pass's fresh sync
+   either way, since the caller now runs it before `run()` is ever called for
+   the first course/date — which also fixes a latent inconsistency the old
+   per-call-site version had: whichever course/date happened to be processed
+   *first* in a pass used to see the confirmed-booking state from *before*
+   that pass's own sync, while later ones saw the fresh one.
+2. **A real, visible failure now exists.** `_report_reservations_sync_failure()`
+   writes an ordinary `OverviewScreen` banner (reusing the exact same
+   `booking_changes` table/rendering path as a detected booking-watch change,
+   not a second parallel notification mechanism) on a genuine login or parsing
+   failure — deduplicated, so a persistent problem doesn't write a fresh banner
+   every `AUTO_REFRESH_INTERVAL_SECONDS`. `_clear_reservations_sync_failure()`
+   acknowledges it automatically the moment a later pass actually succeeds, so
+   a transient blip that resolves itself doesn't leave a stale banner needing a
+   manual `x`. New `watch.reservations_sync_failed.{login,parsing,other}` i18n
+   keys, in both languages, following the same "kind + params, not pre-rendered
+   text" convention every other banner kind already uses.
+
+**A real, independently-found regression along the way.** Moving the sync call
+to run unconditionally at the very top of `scrape_due_for_club()` meant ~10
+pre-existing tests in `test_scrape_once.py` started actually reaching
+`scraper.login()` — with this developer's own real, working credentials — and
+hitting the real pc caddie site with a fake test club id (a 404, not a security
+incident, but entirely by luck rather than by design: nothing had ever
+isolated `PCC_USER`/`PCC_PASS` from the real `.env` this project's own tests
+run next to, because `_sync_my_reservations()` had never been reachable from
+this exact call site before). New `tests/conftest.py` fixture
+`_no_real_credentials_by_default` closes it for every test file, not just the
+one that happened to surface it — verified load-bearing the same way as the
+audit's other `conftest.py` fixtures were: disabling it reproduces the same 10
+real-network failures.
+
+Verified against real production data, not just synthetic fixtures: cleaned up
+the 15 duplicate rows this investigation itself had written while diagnosing
+the original report, then re-ran the fixed sync once for real — exactly one
+new row, no failure banner (since it succeeded), and a genuine, previously
+undetected `party_grew` change surfaced in the same pass. Both banner
+languages screenshotted for real rendering, not just asserted in a unit test.
+
+11 new tests (9 in `test_scrape_once.py`, 2 in `test_i18n.py`), plus the new
+`conftest.py` fixture. 681 tests passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

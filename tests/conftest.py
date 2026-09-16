@@ -24,7 +24,7 @@ fixture and wins, so those keep testing exactly what they always did.
 
 import pytest
 
-from src import geocode, global_preferences, i18n, tui
+from src import club_config, geocode, global_preferences, i18n, tui
 
 # Well before TODAY_HIDDEN_AFTER_HHMM ("21:00") and before any realistic tee
 # time -- see this module's own docstring for why both matter.
@@ -84,3 +84,29 @@ def _no_real_geocoding_by_default(monkeypatch):
     their own copy, both patching the same `src.geocode` module object.
     """
     monkeypatch.setattr(geocode, "find_club_location", lambda name: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_credentials_by_default(monkeypatch):
+    """`club_config.resolve_credentials()` reads bare `PCC_USER`/`PCC_PASS` straight
+    from `os.environ` -- which, unlike every other piece of state this file isolates,
+    isn't something a `tmp_path`-redirected file path can protect against, because
+    `load_dotenv()` (see club_config.py's own module docstring) has already merged
+    this project's own real `.env` into the *process's* environment by the time any
+    test runs, for the whole pytest session, regardless of which test file.
+
+    Found live, 2026-09-16: moving `_sync_my_reservations()` to run unconditionally
+    at the top of every `scrape_due_for_club()` call (see that function's own
+    docstring) meant ~10 pre-existing tests in test_scrape_once.py started actually
+    reaching `scraper.login()` with this developer's real, working credentials and
+    hitting the real pc caddie site with a fake club id -- a 404, not a security
+    incident, but entirely by luck: nothing had isolated this before, it simply
+    hadn't been exercised from this exact call site yet. Defaults every test to "no
+    credentials configured" (matching a fresh install); a test that genuinely wants
+    to exercise the login path already sets its own explicit
+    `monkeypatch.setattr(club_config, "resolve_credentials", ...)`, which -- set
+    after this fixture in the same test -- wins over this default the normal way.
+    """
+    monkeypatch.delenv("PCC_USER", raising=False)
+    monkeypatch.delenv("PCC_PASS", raising=False)
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda club_id: ("", ""))
