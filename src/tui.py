@@ -2083,6 +2083,15 @@ class _ClubCourseSwitcher:
         dropdown that still works fine with just the one course it already knows
         about.
 
+        Called from `on_mount()` *and* every periodic/forced refresh
+        (`TeetimeApp._finish_periodic_scrape()`), not just once at mount -- real
+        reliability gap found live 2026-09-16 (see that call site's own comment):
+        a single silent-on-failure attempt at mount meant a transient network blip
+        right at launch left the dropdown stuck on one course for the screen's
+        entire remaining session, with nothing anywhere visibly wrong or ever
+        retrying. Re-running this on the same cadence `load_overview()` already
+        does means a transient failure self-heals within one interval instead.
+
         `self.course` is always kept first in the list handed to `set_options()`,
         not just included somewhere — real bug found live, 2026-09-10, while
         adding last-active-club persistence: `set_options()` briefly resets the
@@ -4171,6 +4180,22 @@ class TeetimeApp(App[None]):
             screen.load_overview()
             screen.refresh_banners()
             screen.query_one(_RefreshStatus).finish_refreshing()
+            # Retries the course dropdown's own fetch too, not just on the initial
+            # on_mount() -- real reliability gap found live 2026-09-16, direct
+            # follow-up after a report of only one course showing: on_mount()'s own
+            # `_refresh_course_options()` call is a single, silent-on-failure
+            # attempt (see that method's own docstring), with nothing anywhere
+            # retrying it afterward. A transient failure right at launch (a slow
+            # response, a momentary network blip) used to leave the dropdown stuck
+            # on whichever single course happened to be showing at the time for
+            # this screen's *entire remaining session* -- every later scrape kept
+            # reloading real tee-sheet data just fine, so nothing else looked
+            # broken, and there was no visible sign the course list itself was
+            # ever short. Piggybacking on the same periodic/forced-refresh cadence
+            # `load_overview()` already reruns on means a transient failure here
+            # now self-heals within one interval, the same "retry rather than stay
+            # silently stuck" fix the reservations-sync failure got in v0.21.0.
+            screen.run_worker(screen._refresh_course_options(), exclusive=True, group="course-options")
 
     def action_force_refresh(self) -> None:
         """`r` on `OverviewScreen` -- the same manual override

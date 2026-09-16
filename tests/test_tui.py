@@ -3534,6 +3534,46 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
     _run(scenario())
 
 
+def test_finish_periodic_scrape_also_retries_course_options(tmp_path, monkeypatch):
+    # Real reliability gap found live 2026-09-16, direct follow-up after a
+    # report of only one course showing in the dropdown: on_mount()'s own
+    # _refresh_course_options() call used to be the *only* attempt, ever, for
+    # a screen's whole session -- a transient failure right at launch left the
+    # dropdown stuck on whichever single course it already knew about
+    # indefinitely, with nothing else in the app looking broken (every later
+    # scrape kept reloading real tee-sheet data just fine). It's now re-run on
+    # every periodic/forced refresh too, via _finish_periodic_scrape() -- so a
+    # transient failure self-heals within one interval instead.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            select = app.screen.query_one("#course-select", Select)
+            # Simulate the initial on_mount() fetch having come back short --
+            # the same single-entry state _refresh_course_options()'s own
+            # silent fallback leaves behind on a transient failure.
+            select.set_options([("9 Loch Tee 1", "9 Loch Tee 1")])
+            select.value = "9 Loch Tee 1"
+
+            app._finish_periodic_scrape()
+            for _ in range(20):
+                if len(list(select._options)) > 1:
+                    break
+                await pilot.pause(0.05)
+            assert {value for _, value in select._options} == {"18 Loch Tee 1", "9 Loch Tee 1", "6 Loch Platz"}
+
+    _run(scenario())
+
+
 # --- Switching club/course via action_switch() (2026-09-07, direct feedback: "how
 # can i switch to a different course from the time schedule menu? It is somehow not
 # possible to return to the previous menus like choosing the course or login").

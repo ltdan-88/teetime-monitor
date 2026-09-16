@@ -4252,6 +4252,40 @@ control. One-line CSS fix: `#switcher`'s own `padding` gained a top value
 change needed. Full suite still green (697 passing) — nothing asserts the
 switcher's exact padding, only its content/behavior.
 
+## Course dropdown: a silent one-shot fetch could get permanently stuck (2026-09-16)
+
+Direct follow-up after asking the user to help narrow down an earlier "only
+the 9-hole course shows" report: "I noticed it when opening the dropdown.
+However after the last update it shows all other courses. You might need to
+double check whether there is a reliability issue." Reproducing the live
+fetch directly against the real club showed it working correctly, which
+pointed at a *reliability* gap rather than a hard bug — confirmed by reading
+the actual call graph: `OverviewScreen.on_mount()` calls
+`_refresh_course_options()` exactly once, ever, for that screen instance's
+whole session; a transient failure there was already designed to fail
+silently (`except Exception: return`, keeping the single-entry seed) — the
+right call for a truly one-off UI nicety, except nothing anywhere *ever*
+retried it afterward, even though the app already re-scrapes and reloads the
+whole table every `AUTO_REFRESH_INTERVAL_SECONDS` regardless. A network blip
+at exactly the wrong moment (app launch) would leave the course dropdown
+stuck on one course for the rest of that session, with nothing else in the
+app looking broken — every later scrape kept reloading real tee-sheet data
+just fine, so there was no visible sign the course list itself was ever
+short.
+
+Fix: `TeetimeApp._finish_periodic_scrape()` — already the callback every
+periodic *and* manual (`r`) refresh runs through — now also re-runs
+`screen._refresh_course_options()`, the same worker `on_mount()` already
+uses. A transient failure now self-heals within one refresh interval instead
+of needing a club/course switch or app restart to ever pick up the club's
+real course list. Same "retry rather than stay silently stuck" shape as the
+v0.21.0 reservations-sync fix, applied to a second, independently-found
+instance of the identical failure class.
+
+New test: simulates the post-failure single-entry dropdown state directly,
+triggers `_finish_periodic_scrape()`, confirms all three of the real club's
+courses show up. 698 tests passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
