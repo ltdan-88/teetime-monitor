@@ -386,16 +386,17 @@ class _FakeResponse:
 class _FakeClient:
     """Records calls and returns canned responses — stands in for httpx.Client."""
 
-    def __init__(self, post_response_text: str = "", get_response_text: str = ""):
+    def __init__(self, post_response_text: str = "", get_response_text: str = "", post_status_code: int = 200):
         self.post_calls: list[tuple[str, dict]] = []
         self.get_calls: list[str] = []
         self.closed = False
         self._post_response_text = post_response_text
         self._get_response_text = get_response_text
+        self._post_status_code = post_status_code
 
     def post(self, url, data=None):
         self.post_calls.append((url, data))
-        return _FakeResponse(self._post_response_text)
+        return _FakeResponse(self._post_response_text, status_code=self._post_status_code)
 
     def get(self, url):
         self.get_calls.append(url)
@@ -425,6 +426,34 @@ def test_login_raises_when_response_still_shows_the_login_form(monkeypatch):
         login("0000001", "user@example.com", "wrong-password")
 
     assert fake_client.closed  # doesn't leak a client for a session that never authenticated
+
+
+def test_login_raises_login_error_not_a_raw_http_error_on_401(monkeypatch):
+    """Found live 2026-09-16: pc caddie answers a rejected login with HTTP 401, not
+    200 -- see login()'s own docstring. Checking raise_for_status() before the
+    form-marker check turned this into an uncaught httpx.HTTPStatusError instead of
+    LoginError, crashing the whole TUI instead of showing the failure banner."""
+    fake_client = _FakeClient(
+        post_response_text='<input type="password" name="rq[password]">',
+        post_status_code=401,
+    )
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    with pytest.raises(LoginError):
+        login("0000001", "user@example.com", "wrong-password")
+
+    assert fake_client.closed
+
+
+def test_login_raises_for_status_when_the_response_is_a_genuine_server_error(monkeypatch):
+    """A failure that ISN'T the recognized rejected-login shape (no password field in
+    the body) still surfaces as a real HTTP error, not silently treated as a login
+    failure."""
+    fake_client = _FakeClient(post_response_text="<html>Internal Server Error</html>", post_status_code=500)
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        login("0000001", "user@example.com", "hunter2")
 
 
 def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(monkeypatch):

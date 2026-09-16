@@ -4101,6 +4101,38 @@ languages screenshotted for real rendering, not just asserted in a unit test.
 11 new tests (9 in `test_scrape_once.py`, 2 in `test_i18n.py`), plus the new
 `conftest.py` fixture. 681 tests passing, `ruff check` clean.
 
+## `login()`: a rejected login crashed the TUI instead of showing the new banner (2026-09-16)
+
+Direct report right after v0.21.0 shipped the fix above: "I'm now receiving
+this error when running the tui: `HTTPStatusError: Client error '401
+Unauthorized' for url 'https://www.pccaddie.net/clubs/0497758/app.php?cat=start'`."
+
+That URL is the login POST target — so this was `login()` itself failing, not
+the new failure-banner mechanism working as designed. Reproduced live, directly
+against the real site: posting deliberately wrong credentials to the real login
+endpoint returns HTTP **401**, still carrying the same login form in the body.
+`login()`'s own confirmation (2026-09-06, see `scraper.py`'s module docstring)
+had only ever been checked with *correct* credentials — a rejected login was
+never actually observed live until now, and it turned out not to be the
+200-with-form-still-showing this function assumed. `login()` called
+`response.raise_for_status()` *before* checking for the form marker, so a 401
+raised a raw `httpx.HTTPStatusError` instead of this function's own
+`LoginError` — invisible to every caller that specifically catches
+`LoginError` (`_sync_my_reservations()` included), so a genuinely wrong or
+stale credential crashed the whole TUI instead of surfacing the
+`reservations_sync_failed` banner v0.21.0 had just built for exactly this
+case.
+
+**Fix:** the form-marker check now runs first, regardless of status code;
+`raise_for_status()` only fires afterward, for a response that's neither a
+successful login nor the recognized rejection shape (a genuine server error).
+Two new tests in `test_scraper.py`: a 401 rejected-login response now raises
+`LoginError` (not a raw HTTP error), and a genuine 500 still raises a real
+error rather than being silently treated as a login failure. Confirmed this
+developer's own real credentials still log in successfully against both real
+clubs, both before and after the fix — the crash was in the failure path
+itself, not evidence the credentials in use were wrong.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
