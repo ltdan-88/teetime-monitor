@@ -4125,6 +4125,30 @@ def test_get_system_commands_on_overview_includes_every_screen_action(tmp_path, 
             assert i18n.t("binding.switch") in titles
             assert i18n.t("binding.search") in titles
             assert i18n.t("binding.heatmap") in titles
+            assert i18n.t("binding.login") in titles
+
+    _run(scenario())
+
+
+def test_action_edit_credentials_pushes_credentials_screen(tmp_path, monkeypatch):
+    # Direct request 2026-09-16: "Can you please make login screen accessible
+    # from actions menu?" -- CredentialsScreen was only reachable two menu
+    # levels deep before this (Actions -> Find a club -> `l`).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            app.screen.action_edit_credentials()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.CredentialsScreen)
 
     _run(scenario())
 
@@ -4147,7 +4171,12 @@ def test_get_system_commands_places_this_apps_own_actions_before_textuals_base_c
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
             titles = [command.title for command in app.get_system_commands(app.screen)]
-            own_actions = [i18n.t("binding.switch"), i18n.t("binding.search"), i18n.t("binding.heatmap")]
+            own_actions = [
+                i18n.t("binding.switch"),
+                i18n.t("binding.search"),
+                i18n.t("binding.heatmap"),
+                i18n.t("binding.login"),
+            ]
             for title in own_actions:
                 assert titles.index(title) < titles.index(i18n.t("binding.theme"))
             assert titles.index(i18n.t("binding.theme")) < titles.index(i18n.t("binding.quit"))
