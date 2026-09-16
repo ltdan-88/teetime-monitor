@@ -4226,6 +4226,22 @@ result back in the other).
 check with no `ai_assist` config at all, and 2 holiday-cache tests). 695
 tests passing, `ruff check` clean.
 
+## Overview: `c` collapses every expanded day at once (2026-09-16)
+
+Direct follow-up right after the crowd-marker feature shipped: "I'd also like
+a collapse keybind in the overview screen." `enter` already expands/collapses
+one day row at a time (`_toggle_expanded()`), but nothing cleared every
+expanded day in one press once more than one was open at once.
+
+New `action_collapse_all()` (`c`): clears `self._expanded_dates` and
+re-renders, same `_rerender_preserving_cursor()` every other expand/collapse/
+confirm/cancel action already uses (cursor clamps to the new, shorter row
+count automatically). No-op with nothing expanded, same convention `x`
+(dismiss banners) already follows for "nothing pending."
+
+3 new tests (footer hint, collapsing two expanded days at once, no-op case).
+697 tests passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
