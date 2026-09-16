@@ -7,13 +7,20 @@ history that can never be filled in later.
 real, no login needed for this part.
 
 **Login (real as of 2026-09-06, once the actual form was inspected live — see
-scraper.py's `login()`)**: `run()` also logs in and syncs "My Reservations" into
-`confirmed_bookings`, via `_sync_my_reservations()` below. Every failure mode there is
+scraper.py's `login()`)**: `scrape_due_for_club()` logs in and syncs "My
+Reservations" into `confirmed_bookings`, via `_sync_my_reservations()` below —
+called there, once per pass, rather than from `run()` (moved 2026-09-16, once a
+real booking traced live showed the old per-course/date call site logging in up
+to a dozen-plus times for the exact same page in a single pass; see
+`scrape_due_for_club()`'s own docstring). Every failure mode there is
 best-effort, not fatal, since this must not stop an unattended run over one club:
 no slug resolved for this `club_id` (can't look up credentials without it), no
 `PCC_USER`/`PCC_PASS` configured yet, a `scraper.LoginError` (wrong credentials), or a
 `NotImplementedError` from `scrape_my_reservations()` itself (a real booking exists
 but its row markup isn't parseable yet — see that function's own docstring for why).
+The last two aren't *silent* any more either — see `_sync_my_reservations()`'s own
+docstring for the real gap found live (a `print()` nobody sees while the TUI has
+the screen) and the `OverviewScreen` banner that now replaces it.
 
 **Weather (added 2026-09-06, alongside making weather.py's fetch calls real)**: `run()`
 also fetches the day's hourly forecast and sun times, using the club's YAML `location`
@@ -109,22 +116,25 @@ def run(
     club_id: str, course: str, date: str, config: dict | None = None, slug: str | None = None
 ) -> list[booking_watch.BookingChange]:
     """Scrape one club/course/date's schedule (plus its weather overlay) and persist
-    it, best-effort syncing "My Reservations" too, then check any confirmed booking
-    for that date against what changed since the previous scrape. Intended to be
-    called by cron/launchd — returns whatever BookingChanges were detected, and also
-    persists each one via `storage.save_booking_change()` (added 2026-09-06 alongside
-    tui.py) — this runs as a separate process from the interactive TUI, so a detected
-    change needs to survive somewhere for the TUI's home screen to read on next open,
-    not just exist as an in-memory return value nothing else reads.
+    it, then check any confirmed booking for that date against what changed since the
+    previous scrape. Intended to be called by cron/launchd — returns whatever
+    BookingChanges were detected, and also persists each one via
+    `storage.save_booking_change()` (added 2026-09-06 alongside tui.py) — this runs as
+    a separate process from the interactive TUI, so a detected change needs to survive
+    somewhere for the TUI's home screen to read on next open, not just exist as an
+    in-memory return value nothing else reads.
+
+    Does *not* sync "My Reservations" itself any more (moved to the caller,
+    `scrape_due_for_club()`, once per pass rather than once per course/date — see
+    that function's own docstring) — `storage.load_confirmed_booking()` below still
+    reads whatever the caller's own sync already landed for this club, since that
+    runs before `run()` is ever called for the first course/date in a pass.
 
     `config`/`slug` are optional — `main()` already has each club's config and local
     clubs/*.yaml slug loaded from its own loop over `club_config.list_clubs()` and
     passes both straight through, rather than having `run()` redundantly re-derive
     them via `_club_config_and_slug_for_id()`. A caller (or test) with neither handy
-    can omit both and `run()` looks them up itself the same way. `slug` specifically
-    is what `_sync_my_reservations()` needs to resolve this club's credentials
-    (`club_config.resolve_credentials()` is keyed by slug, not the numeric `club_id`
-    used everywhere else here).
+    can omit both and `run()` looks them up itself the same way.
 
     Your global `availability`/`preferences` (2026-09-08 — no longer per-club, see
     `global_preferences.py`) are merged on top of whatever `config` this call ends up
@@ -148,8 +158,11 @@ def run(
     _attach_weather(latest, config, club_id, course, date)
     storage.save_schedule(latest, path=db_path)
 
-    _sync_my_reservations(club_id, slug, db_path)
-
+    # _sync_my_reservations() is *not* called here any more (moved to
+    # scrape_due_for_club(), once per pass rather than once per course/date --
+    # see that function's own docstring for why). storage.load_confirmed_booking()
+    # below still sees this pass's own fresh sync either way, since the caller
+    # runs it before this function is ever called for the first course/date.
     changes: list[booking_watch.BookingChange] = []
     if baseline is not None:
         confirmed = storage.load_confirmed_booking(course, date, path=db_path)
@@ -181,11 +194,31 @@ def run(
     return changes
 
 
+_RESERVATIONS_SYNC_FAILED_KIND = "reservations_sync_failed"
+
+
 def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None:
     """Best-effort: log in and save any confirmed bookings pc caddie shows for this
-    account. Every failure mode here is deliberately swallowed, not propagated — see
-    the module docstring's "Login" note for the full list of why. This is the
+    account. Called once per `scrape_due_for_club()` pass (moved there 2026-09-16,
+    see that function's own docstring) rather than once per course/date — "My
+    Reservations" isn't scoped to either, so the old per-course/date call site
+    logged in up to a dozen-plus times in a single pass for the exact same page,
+    and each one was a separate chance for a transient failure. This is the
     login-dependent counterpart to the always-runs schedule scrape above.
+
+    A genuine failure (`LoginError`/`NotImplementedError`) is still swallowed
+    rather than propagated — see the module docstring's "Login" note for the full
+    list of why a bad pass here must not take down the rest of a scrape — but is
+    no longer *only* a `print()` nobody sees. Found live, 2026-09-16, the direct
+    reason this changed: a real booking synced instantly when this function was
+    run by hand, but two in-app `r` presses hadn't picked it up, and nothing
+    anywhere said why not -- `print()` output is invisible while the Textual TUI
+    has the screen, so a real, persistent failure looked identical to "nothing
+    new to sync." `_report_reservations_sync_failure()` now writes a real,
+    visible `OverviewScreen` banner instead (deduplicated -- see its own
+    docstring), and a subsequent successful pass clears it via
+    `_clear_reservations_sync_failure()`, so a transient problem that resolves
+    itself doesn't leave a stale banner behind.
 
     Also reconciles cancellations (2026-09-13, see `_reconcile_cancelled_
     reservations()`'s own docstring) — this used to only ever *add* rows here,
@@ -200,12 +233,62 @@ def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None
         live_bookings = scrape_my_reservations(club_id, username, password)
     except LoginError as exc:
         print(f"[scrape_once] login failed for {club_id}: {exc}")
+        _report_reservations_sync_failure("login", db_path)
         return
     except NotImplementedError:
-        return  # a real booking exists but scraper.py can't parse its row markup yet
+        # a real booking exists but scraper.py can't parse its row markup yet
+        _report_reservations_sync_failure("parsing", db_path)
+        return
     for booking in live_bookings:
         storage.save_confirmed_booking(booking, path=db_path)
     _reconcile_cancelled_reservations(live_bookings, db_path)
+    _clear_reservations_sync_failure(db_path)
+
+
+def _report_reservations_sync_failure(reason: str, db_path: Path) -> None:
+    """Surfaces a "My Reservations" sync failure as a real `OverviewScreen`
+    banner (an ordinary `booking_changes` row, same mechanism as a detected
+    booking-watch change) rather than only the `print()` that used to be the
+    only trace of it — see `_sync_my_reservations()`'s own docstring for why
+    that was found to be a real problem, not just a style nitpick. `reason` is
+    "login" or "parsing", matching `_sync_my_reservations()`'s own two catch
+    clauses; rendered via `i18n.render_booking_change()`, not stored as
+    pre-rendered English text, same convention every other banner kind here
+    already follows.
+
+    Skips writing a new row if an identical one is already pending and
+    unacknowledged — every scheduled pass would otherwise write a fresh banner
+    every `AUTO_REFRESH_INTERVAL_SECONDS` for as long as the underlying problem
+    persists, which would bury the overview in duplicates of the same warning
+    rather than saying it once."""
+    pending = storage.load_unacknowledged_booking_changes(path=db_path)
+    already_flagged = any(
+        change["kind"] == _RESERVATIONS_SYNC_FAILED_KIND and change["params"].get("reason") == reason
+        for change in pending
+    )
+    if already_flagged:
+        return
+    storage.save_booking_change(
+        course="",
+        date=date_cls.today().isoformat(),
+        time=None,
+        kind=_RESERVATIONS_SYNC_FAILED_KIND,
+        message=f"Couldn't check your reservations ({reason}).",
+        params={"reason": reason},
+        path=db_path,
+    )
+
+
+def _clear_reservations_sync_failure(db_path: Path) -> None:
+    """A successful sync means whatever was wrong before, now isn't — acknowledges
+    any still-pending `reservations_sync_failed` banner so a resolved problem
+    doesn't sit there forever needing a manual `x` to go away. Scoped to just
+    that one kind (not every unacknowledged change) so this can't accidentally
+    dismiss an unrelated, still-genuinely-pending booking-watch banner."""
+    pending = storage.load_unacknowledged_booking_changes(path=db_path)
+    stale_ids = [change["id"] for change in pending if change["kind"] == _RESERVATIONS_SYNC_FAILED_KIND]
+    if stale_ids:
+        storage.acknowledge_booking_changes(stale_ids, path=db_path)
 
 
 def _reconcile_cancelled_reservations(live_bookings: list[ConfirmedBooking], db_path: Path) -> None:
@@ -323,12 +406,26 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     Merges your global `availability`/`preferences`/scrape-interval settings on top of
     `config` right away (2026-09-08 — no longer per-club, see `global_preferences.py`)
     since `_should_scrape()` below needs `scrape_interval_minutes` from them before
-    `run()` ever gets a chance to merge it again on its own."""
+    `run()` ever gets a chance to merge it again on its own.
+
+    Syncs "My Reservations" exactly once here, before the course/date loop below —
+    moved 2026-09-16 (direct feedback, once a real booking synced instantly when
+    run by hand but hadn't landed after two in-app `r` presses: "I need you to fix
+    it, especially to make it reliably refresh next time I make a reservation")
+    from `run()`, which used to call it once per course/date and so logged in
+    (and re-fetched the whole reservations page) up to a dozen-plus times in a
+    single pass for no benefit — every one of those logins was redundant, since
+    "My Reservations" isn't scoped to a course or date at all, and each one was
+    also a real chance for a transient failure that the single-call version below
+    no longer multiplies. See `_sync_my_reservations()`'s own docstring for how a
+    failure is now actually surfaced instead of only ever reaching a `print()`
+    nothing sees while the TUI has the screen."""
     config = {**config, **global_preferences.load_preferences()}
     club_id = config.get("club_id")
     if not club_id:
         print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
+    _sync_my_reservations(club_id, slug, _db_path(club_id))
     # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
     # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
     # universal, so a fixed COURSE_ALIASES silently scraped the wrong thing for a

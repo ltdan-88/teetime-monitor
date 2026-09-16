@@ -146,9 +146,13 @@ def test_run_uses_the_split_buffer_keys_directionally(tmp_path, monkeypatch):
     assert changes == []
 
 
-def test_run_skips_my_reservations_when_no_credentials_configured(tmp_path, monkeypatch):
-    # No slug/credentials resolved for this club (see _sync_my_reservations) --
-    # run() must not let that take down the whole scrape.
+def test_run_works_with_a_bare_empty_config(tmp_path, monkeypatch):
+    # Renamed 2026-09-16: this used to be about run() tolerating no
+    # credentials for _sync_my_reservations(), but that call moved out of
+    # run() entirely (to scrape_due_for_club(), once per pass -- see that
+    # function's own docstring) and has its own dedicated tests now. What's
+    # left worth checking here is just that run() itself doesn't need
+    # anything beyond a bare {} config to work.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(
         scrape_once,
@@ -331,6 +335,31 @@ def test_scrape_due_for_club_force_bypasses_should_scrape(tmp_path, monkeypatch)
     assert result == [fake_change] * (len(_FAKE_COURSES) * len(_FAKE_DATES))
 
 
+def test_scrape_due_for_club_syncs_my_reservations_exactly_once_per_pass(tmp_path, monkeypatch):
+    # The actual bug this whole round is about: _sync_my_reservations() used to
+    # be called from inside run(), once per course x date -- 6 courses/dates
+    # here would have meant 6 real logins for the exact same "My Reservations"
+    # page, each one a separate chance to fail. Direct feedback, 2026-09-16:
+    # "I need you to fix it, especially to make it reliably refresh next time I
+    # make a reservation." Moved to scrape_due_for_club() itself, called once
+    # regardless of how many course/date combinations end up due.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug: [])
+    calls = []
+    monkeypatch.setattr(
+        scrape_once, "_sync_my_reservations", lambda club_id, slug, db_path: calls.append((club_id, slug))
+    )
+
+    scrape_once.scrape_due_for_club(
+        "musterhausen", {"club_id": "0000001", "overview_days": 1}, force=True
+    )
+
+    assert len(_FAKE_COURSES) * len(_FAKE_DATES) > 1  # otherwise this test can't tell 1 from N
+    assert calls == [("0000001", "musterhausen")]
+
+
 def test_scrape_due_for_club_skips_club_and_returns_empty_when_course_fetch_fails(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
@@ -451,9 +480,18 @@ def test_sync_my_reservations_catches_login_error(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(scrape_once, "scrape_my_reservations", broken)
 
-    scrape_once._sync_my_reservations("0000001", "musterhausen", scrape_once._db_path("0000001"))
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
     assert "login failed" in capsys.readouterr().out
+    # Not just a print() any more (2026-09-16, "make it reliably refresh" --
+    # print() output is invisible while the Textual TUI has the screen, which
+    # is exactly why a real, persistent failure once looked identical to
+    # "nothing new to sync"): a real, visible OverviewScreen banner too.
+    pending = scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)
+    assert len(pending) == 1
+    assert pending[0]["kind"] == "reservations_sync_failed"
+    assert pending[0]["params"] == {"reason": "login"}
 
 
 def test_sync_my_reservations_catches_not_implemented(tmp_path, monkeypatch):
@@ -465,8 +503,34 @@ def test_sync_my_reservations_catches_not_implemented(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scrape_once, "scrape_my_reservations", not_yet)
 
-    scrape_once._sync_my_reservations("0000001", "musterhausen", scrape_once._db_path("0000001"))
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
     # must not raise -- that's the entire point of this test
+
+    pending = scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)
+    assert len(pending) == 1
+    assert pending[0]["params"] == {"reason": "parsing"}
+
+
+def test_sync_my_reservations_does_not_duplicate_an_already_pending_failure_banner(tmp_path, monkeypatch):
+    # Every scheduled pass would otherwise write a fresh banner every
+    # AUTO_REFRESH_INTERVAL_SECONDS for as long as a login problem persists --
+    # burying the overview in duplicates of the exact same warning instead of
+    # saying it once.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "wrong-password"))
+
+    def broken(club_id, username, password):
+        raise scrape_once.LoginError("bad credentials")
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", broken)
+
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    assert len(scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)) == 1
 
 
 def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monkeypatch):
@@ -483,6 +547,45 @@ def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monk
 
     saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db_path)
     assert saved == booking
+
+
+def test_sync_my_reservations_clears_a_previously_pending_failure_banner_once_it_recovers(tmp_path, monkeypatch):
+    # A transient problem that resolves itself on the next pass shouldn't leave
+    # a stale "couldn't sync" banner sitting there needing a manual `x`.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+
+    def broken(club_id, username, password):
+        raise scrape_once.LoginError("transient")
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", broken)
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+    assert len(scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)) == 1
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [])
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    assert scrape_once.storage.load_unacknowledged_booking_changes(path=db_path) == []
+
+
+def test_sync_my_reservations_clearing_a_failure_does_not_touch_unrelated_banners(tmp_path, monkeypatch):
+    # _clear_reservations_sync_failure() must only ever acknowledge its own
+    # kind -- a genuinely still-pending booking-watch banner (a real detected
+    # change to someone's tee time) must survive an unrelated sync recovering.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    scrape_once.storage.save_booking_change(
+        course="18 Loch Tee 1", date="2026-09-19", time="15:30",
+        kind="party_grew", message="x", params={"count": 2, "time": "15:30"}, path=db_path,
+    )
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password: [])
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    pending = scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)
+    assert [c["kind"] for c in pending] == ["party_grew"]
 
 
 # --- Cancellation reconciliation -- direct question, 2026-09-13: "how do i

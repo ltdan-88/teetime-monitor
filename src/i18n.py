@@ -202,6 +202,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "rain chance",
         "watch.reason.rain_amount": "rain amount",
         "watch.reason.wind": "wind",
+        "watch.reservations_sync_failed.login": "Couldn't check your confirmed reservations — the pc caddie login failed. Check PCC_USER/PCC_PASS.",
+        "watch.reservations_sync_failed.parsing": "Couldn't check your confirmed reservations — pc caddie's page changed in a way this app doesn't recognize yet.",
+        "watch.reservations_sync_failed.other": "Couldn't check your confirmed reservations right now.",
         "club_picker.fetching": "Fetching pc caddie's club directory…",
         "club_picker.fetch_failed": "Couldn't fetch the club directory: {error}",
         "club_picker.no_matches": "No matches",
@@ -427,6 +430,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "watch.reason.rain_chance": "Regenwahrscheinlichkeit",
         "watch.reason.rain_amount": "Regenmenge",
         "watch.reason.wind": "Wind",
+        "watch.reservations_sync_failed.login": "Deine Buchungen konnten nicht geprüft werden — der pc-caddie-Login ist fehlgeschlagen. PCC_USER/PCC_PASS prüfen.",
+        "watch.reservations_sync_failed.parsing": "Deine Buchungen konnten nicht geprüft werden — pc caddie hat seine Seite geändert, diese App kann sie so noch nicht lesen.",
+        "watch.reservations_sync_failed.other": "Deine Buchungen konnten gerade nicht geprüft werden.",
         "club_picker.fetching": "Club-Verzeichnis von pc caddie wird abgerufen…",
         "club_picker.fetch_failed": "Club-Verzeichnis konnte nicht abgerufen werden: {error}",
         "club_picker.no_matches": "Keine Treffer",
@@ -582,11 +588,21 @@ _BUFFER_SHRUNK = "buffer_shrunk"
 _NEIGHBOR_CROWDED = "neighbor_crowded"
 _WEATHER_WORSENED = "weather_worsened"
 
+# Not actually a booking_watch.BookingChange -- scrape_once.py's own
+# _report_reservations_sync_failure() (added 2026-09-16) reuses the exact same
+# `booking_changes` table/banner delivery mechanism for a different kind of
+# notice ("something's wrong with checking your reservations", not "this specific
+# booking's situation changed"), rather than building a second, parallel
+# notification path just for one more case.
+_RESERVATIONS_SYNC_FAILED = "reservations_sync_failed"
+
 
 def render_booking_change(kind: str, params: dict) -> str | None:
-    """Re-render one booking_watch.BookingChange in the current language. Returns
-    None for a `kind` this doesn't recognize, so a caller (tui.py) can fall back to
-    the change's own stored English `message` rather than showing nothing."""
+    """Re-render one booking_watch.BookingChange (or the reservations-sync-failed
+    notice above, which piggybacks on the identical rendering path) in the current
+    language. Returns None for a `kind` this doesn't recognize, so a caller
+    (tui.py) can fall back to the change's own stored English `message` rather
+    than showing nothing."""
     if kind == _PARTY_GREW:
         count = params.get("count", 1)
         key = "watch.party_grew.singular" if count == 1 else "watch.party_grew.plural"
@@ -601,4 +617,7 @@ def render_booking_change(kind: str, params: dict) -> str | None:
         reason_keys = params.get("reason_keys", [])
         reasons = ", ".join(t(f"watch.reason.{key}") for key in reason_keys)
         return t("watch.weather_worsened", time=params.get("time", ""), reasons=reasons)
+    if kind == _RESERVATIONS_SYNC_FAILED:
+        reason = params.get("reason", "")
+        return t(f"watch.reservations_sync_failed.{reason}") if reason else t("watch.reservations_sync_failed.other")
     return None
