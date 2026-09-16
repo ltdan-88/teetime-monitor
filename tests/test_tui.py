@@ -3939,11 +3939,18 @@ def _heatmap_screen(club_id="0000001", course="18 Loch Tee 1", config=None):
     return tui.HeatmapScreen(club_id, course, config or {})
 
 
-def test_heatmap_screen_shows_a_row_per_weekday_and_per_special_day_type(tmp_path, monkeypatch):
+def _heatmap_readiness_screen(club_id="0000001", course="18 Loch Tee 1", config=None):
+    return tui.HeatmapReadinessScreen(club_id, course, config or {})
+
+
+def test_heatmap_readiness_screen_shows_a_row_per_weekday_and_per_special_day_type(tmp_path, monkeypatch):
+    # Direct request 2026-09-16: "Can you separate stats for the heatmap from
+    # the actual heatmap?" -- these readiness tables used to live directly on
+    # HeatmapScreen; now on their own screen, reached from there via `s`.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
     async def scenario():
-        app = _HostApp(_heatmap_screen())
+        app = _HostApp(_heatmap_readiness_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
             weekday_table = app.screen.query_one("#weekday-table")
@@ -3954,7 +3961,7 @@ def test_heatmap_screen_shows_a_row_per_weekday_and_per_special_day_type(tmp_pat
     _run(scenario())
 
 
-def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monkeypatch):
+def test_heatmap_readiness_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monkeypatch):
     # Three Mondays at the same hour -- exactly MIN_SAMPLES_FOR_PREDICTION, so that
     # hour should read as ready, and it should show up in the weekday table, not the
     # special-days one.
@@ -3971,7 +3978,7 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
         )
 
     async def scenario():
-        app = _HostApp(_heatmap_screen())
+        app = _HostApp(_heatmap_readiness_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
             weekday_table = app.screen.query_one("#weekday-table")
@@ -3981,9 +3988,31 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
             assert str(monday_row[2]) == "1"  # hours_ready
             assert str(monday_row[3]) == "3"  # total_samples
 
-            # The grid mirrors the same fact: one row (09:00, the only hour ever
-            # scraped), Monday's own column a full-color cell (3 samples, occupancy
-            # 2/4 -- "mid"), every other weekday's column a blank "no data" dash.
+    _run(scenario())
+
+
+def test_heatmap_screen_grid_reports_a_ready_hour_after_enough_scrapes(tmp_path, monkeypatch):
+    # Same fixture as the readiness-screen version above, checked here against
+    # the grid HeatmapScreen itself still owns.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:
+        storage.save_schedule(
+            Schedule(
+                date=date,
+                course="18 Loch Tee 1",
+                slots=[Slot(time="09:00", booked=2, capacity=4)],
+            ),
+            path=db_path,
+        )
+
+    async def scenario():
+        app = _HostApp(_heatmap_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # One row (09:00, the only hour ever scraped), Monday's own column a
+            # full-color cell (3 samples, occupancy 2/4 -- "mid"), every other
+            # weekday's column a blank "no data" dash.
             weekday_grid = app.screen.query_one("#weekday-grid")
             assert weekday_grid.row_count == 1
             row = weekday_grid.get_row_at(0)
@@ -3992,6 +4021,26 @@ def test_heatmap_screen_reports_a_ready_hour_after_enough_scrapes(tmp_path, monk
             assert str(row[monday_column]) == "[yellow]■[/]"
             other_columns = [i for i in range(1, len(row)) if i != monday_column]
             assert all(str(row[i]) == "[dim]—[/]" for i in other_columns)
+
+    _run(scenario())
+
+
+def test_heatmap_screen_stats_key_opens_readiness_screen_and_escape_returns(tmp_path, monkeypatch):
+    # Direct request 2026-09-16: "Would it make sense to put stats in a deeper
+    # menu?" -- `s` from the grid, not a top-level Actions menu entry, and
+    # backing out lands back on the grid, not past it.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(_heatmap_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_stats()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HeatmapReadinessScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.HeatmapScreen)
 
     _run(scenario())
 

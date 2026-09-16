@@ -4157,6 +4157,30 @@ both languages.
 `get_system_commands()`'s output, and `action_edit_credentials()` actually
 pushes `CredentialsScreen`. 685 tests passing, `ruff check` clean.
 
+## Heatmap grid and stats split into two screens (2026-09-16)
+
+Direct follow-up right after the Actions-menu Login entry shipped: "Can you
+separate stats for the heatmap from the actual heatmap? Would it make sense
+to put stats in a deeper menu?" Since the 2D grid shipped (see "Heatmap:
+implement the actual 2D colored grid from the original mockup" above),
+`HeatmapScreen` had carried both readiness tables (how close each weekday/day
+type is to usable) and the grids themselves stacked on one screen — six
+widgets loading ahead of the grid someone actually opened Heatmap to see.
+
+`HeatmapScreen` now composes only the two grids (`#weekday-grid`/
+`#special-grid`) plus `#grid-legend`. A new `HeatmapReadinessScreen` carries
+the two tables (`#weekday-table`/`#special-table`) plus the threshold note,
+reached from `HeatmapScreen` via a new `s` binding — deliberately *not* a
+second top-level Actions-menu entry, since this is "more detail about the
+heatmap already open," not its own destination (answers the "deeper menu"
+question directly). Escape from the readiness screen lands back on the grid,
+not past it — same `dismiss()`/`push_screen()` pairing every other
+screen-within-a-screen in this app already uses.
+
+Split test coverage 1:1 with the split screens; one new test confirms `s`
+opens `HeatmapReadinessScreen` and escape returns to the grid. 686 tests
+passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
