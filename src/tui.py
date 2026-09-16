@@ -1902,7 +1902,11 @@ class _RefreshStatus(Static):
 _SWITCHER_CSS = """
 #switcher {
     height: auto;
-    padding: 0 2;
+    /* Top padding (added 2026-09-16, direct request: "could you please add a
+       blank row between the header and first dropdown?") -- #switcher used to
+       sit flush against Header(), the club dropdown reading as part of the
+       header bar itself rather than its own separate control. */
+    padding: 1 2 0 2;
 }
 .switcher-row {
     height: 1;
