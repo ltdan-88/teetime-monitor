@@ -69,6 +69,12 @@ that's needed — **no Playwright/browser required for login either**, same conc
 as `scrape_schedule()` already reached. `SELECTORS` (a Playwright selector dict) is
 gone — there was never a need for it once the form turned out this simple.
 
+A *rejected* login wasn't actually seen live until 2026-09-16 (the original walkthrough
+used correct credentials throughout): pc caddie answers wrong credentials with a plain
+HTTP 401, the same login form still in the body. See `login()`'s own docstring for the
+crash this caused (checking `raise_for_status()` before the form-marker check) and the
+fix.
+
 `scrape_my_reservations()` is fully implemented as of 2026-09-07, once a real demo
 booking existed to inspect: a populated row lives in `table.meine-buchungen`, one
 `<tr>` per booking, `<td>`s for Details/Persons/Actions. The Details cell's text nodes
@@ -395,14 +401,29 @@ def login(club_id: str, username: str, password: str) -> httpx.Client:
     function exists so the *user's own* running instance of the tool can log in with
     credentials *they* put in `.env` (see club_config.resolve_credentials()), not
     something invoked with real credentials during development.
+
+    The password-form check runs *before* `raise_for_status()`, not after — found live
+    2026-09-16: a rejected login isn't the 200-with-form-still-showing this was
+    originally confirmed against (2026-09-06, with correct credentials the whole time,
+    so a rejection was never actually seen). pc caddie answers a wrong username/password
+    with a plain HTTP 401, still carrying the same login form in the body. Checking
+    `raise_for_status()` first turned that into a raw, uncaught `httpx.HTTPStatusError`
+    instead of this function's own `LoginError` — invisible to every caller that
+    specifically catches `LoginError` (see scrape_once.py's `_sync_my_reservations()`),
+    so a real wrong-credentials case crashed the whole TUI instead of showing the
+    v0.21.0 failure banner it was built for. Checking the form marker first means any
+    status code pc caddie chooses to send back for a rejected login still becomes a
+    clean `LoginError`; `raise_for_status()` now only fires for a response that's
+    neither a successful login nor the recognized rejection shape — a genuine,
+    unexpected server error.
     """
     client = httpx.Client(timeout=15, follow_redirects=True)
     url = club_url(club_id, "start")
     response = client.post(url, data={"service": "login", "rq[login]": username, _PASSWORD_FIELD: password})
-    response.raise_for_status()
     if _PASSWORD_FIELD in response.text:
         client.close()
         raise LoginError(f"Login failed for club {club_id} — check PCC_USER/PCC_PASS in .env.")
+    response.raise_for_status()
     return client
 
 
