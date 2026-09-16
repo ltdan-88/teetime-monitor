@@ -4242,6 +4242,16 @@ count automatically). No-op with nothing expanded, same convention `x`
 3 new tests (footer hint, collapsing two expanded days at once, no-op case).
 697 tests passing, `ruff check` clean.
 
+## Overview: a blank row above the club/course switcher (2026-09-16)
+
+Direct request: "could you please add a blank row between the header and
+first dropdown?" `#switcher` sat flush against `Header()`, the club dropdown
+reading as part of the header bar itself rather than its own separate
+control. One-line CSS fix: `#switcher`'s own `padding` gained a top value
+(`padding: 1 2 0 2`, was `padding: 0 2`) — no compose()/widget-structure
+change needed. Full suite still green (697 passing) — nothing asserts the
+switcher's exact padding, only its content/behavior.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
