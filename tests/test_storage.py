@@ -540,3 +540,92 @@ def test_save_location_overwrites_a_previous_value(tmp_path):
     save_location({"lat": 3.0, "lon": 4.0}, path=db)
 
     assert load_location(path=db) == {"lat": 3.0, "lon": 4.0}
+
+
+# --- Weather falls back to an earlier scrape when the latest has none (2026-09-17).
+# Direct report: "sometimes I noticed that weather data wasn't pulled for every day in
+# the overview." Open-Meteo was unreachable for ~7 hours; every scrape in that window
+# saved a schedule with zero weather points, and each became "the latest", blanking the
+# column even though good weather sat one row above. ------------------------------
+
+
+def _schedule(date, weather=None, sun=None):
+    return Schedule(
+        date=date,
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=1, capacity=4)],
+        weather=weather or [],
+        sun_times=sun,
+    )
+
+
+_WX = [WeatherPoint(time="09:00", precipitation_probability=10.0, precipitation_mm=0.0,
+                    wind_speed_kph=5.0, temperature_c=18.0, weather_code=1)]
+
+
+def test_load_latest_schedule_falls_back_to_earlier_weather(tmp_path):
+    path = tmp_path / "club.db"
+    save_schedule(_schedule("2026-09-19", weather=_WX, sun=SunTimes(sunrise="07:00", sunset="19:30")), path=path)
+    save_schedule(_schedule("2026-09-19"), path=path)  # weather fetch failed this pass
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-19", path=path)
+
+    assert [point.temperature_c for point in loaded.weather] == [18.0]
+    # Sun times come along with it -- they're fetched in the same step.
+    assert loaded.sun_times == SunTimes(sunrise="07:00", sunset="19:30")
+
+
+def test_load_latest_schedule_still_takes_slots_from_the_newest_scrape(tmp_path):
+    """Only weather falls back. Occupancy must always be the freshest -- that's the
+    whole point of re-scraping."""
+    path = tmp_path / "club.db"
+    save_schedule(_schedule("2026-09-19", weather=_WX), path=path)
+    newest = Schedule(
+        date="2026-09-19",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=4, capacity=4)],  # filled up since
+        weather=[],
+    )
+    save_schedule(newest, path=path)
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-19", path=path)
+
+    assert loaded.slots[0].booked == 4  # newest occupancy, not the older scrape's 1
+    assert loaded.weather  # but weather recovered from the older one
+
+
+def test_load_latest_schedule_prefers_the_latest_weather_when_it_has_some(tmp_path):
+    path = tmp_path / "club.db"
+    save_schedule(_schedule("2026-09-19", weather=_WX), path=path)
+    fresher = [WeatherPoint(time="09:00", precipitation_probability=90.0, precipitation_mm=4.0,
+                            wind_speed_kph=30.0, temperature_c=9.0, weather_code=61)]
+    save_schedule(_schedule("2026-09-19", weather=fresher), path=path)
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-19", path=path)
+
+    assert [point.temperature_c for point in loaded.weather] == [9.0]  # no stale fallback
+
+
+def test_load_latest_schedule_weather_fallback_is_scoped_to_the_same_course_and_date(tmp_path):
+    path = tmp_path / "club.db"
+    save_schedule(_schedule("2026-09-18", weather=_WX), path=path)  # a different day
+    save_schedule(
+        Schedule(date="2026-09-19", course="9 Loch Tee 1",
+                 slots=[Slot(time="09:00", booked=0, capacity=4)], weather=_WX),
+        path=path,
+    )  # a different course
+    save_schedule(_schedule("2026-09-19"), path=path)  # no weather, and nothing to inherit
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-19", path=path)
+
+    assert loaded.weather == []  # must not borrow another day's or another course's
+
+
+def test_load_latest_schedule_without_any_weather_ever_is_still_fine(tmp_path):
+    path = tmp_path / "club.db"
+    save_schedule(_schedule("2026-09-19"), path=path)
+
+    loaded = load_latest_schedule("18 Loch Tee 1", "2026-09-19", path=path)
+
+    assert loaded.weather == []
+    assert loaded.slots[0].time == "09:00"

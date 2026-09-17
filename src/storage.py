@@ -286,10 +286,43 @@ def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -
             for time, booked, capacity, players, block_reason in slot_rows
         ]
 
+        # Weather (and the sun times that come with it) falls back to the most recent
+        # earlier scrape that actually has some, when this one doesn't -- slots always
+        # stay from the latest scrape, since occupancy is the thing that must be fresh.
+        #
+        # Found live 2026-09-17 from a direct report ("sometimes weather data wasn't
+        # pulled for every day in the overview"): Open-Meteo was unreachable for about
+        # seven hours, and every scrape in that window saved a schedule with zero
+        # weather points. `save_schedule()` never overwrites -- each scrape is its own
+        # row -- so those weather-less rows simply became "the latest", and the
+        # overview showed nothing for those days even though perfectly good weather sat
+        # one row above, fetched an hour earlier. Eight consecutive scrapes of one
+        # course/date in the real database, 09:49 to 16:56, all wx=0, with wx=24
+        # immediately before and after.
+        #
+        # A few-hours-stale forecast for a future day is far better than a blank
+        # column, and this also repairs every already-corrupted row on read rather
+        # than needing the next successful scrape to land first.
+        weather_scrape_id = scrape_id
+        if not conn.execute(
+            "SELECT 1 FROM weather_points WHERE scrape_id = ? LIMIT 1", (scrape_id,)
+        ).fetchone():
+            fallback = conn.execute(
+                "SELECT s.id, s.sunrise, s.sunset FROM scrapes s "
+                "WHERE s.course = ? AND s.date = ? AND s.id < ? "
+                "AND EXISTS (SELECT 1 FROM weather_points w WHERE w.scrape_id = s.id) "
+                "ORDER BY s.id DESC LIMIT 1",
+                (course, date, scrape_id),
+            ).fetchone()
+            if fallback is not None:
+                weather_scrape_id, fallback_sunrise, fallback_sunset = fallback
+                if sun_times is None and fallback_sunrise and fallback_sunset:
+                    sun_times = SunTimes(sunrise=fallback_sunrise, sunset=fallback_sunset)
+
         weather_rows = conn.execute(
             "SELECT time, precipitation_probability, precipitation_mm, wind_speed_kph, "
             "temperature_c, weather_code FROM weather_points WHERE scrape_id = ? ORDER BY time",
-            (scrape_id,),
+            (weather_scrape_id,),
         ).fetchall()
         weather = [
             WeatherPoint(
