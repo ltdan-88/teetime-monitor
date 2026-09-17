@@ -185,10 +185,9 @@ cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
     <key>Label</key><string>com.teetimemonitor.scrape</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/teetime-monitor/.venv/bin/python</string>
-        <string>-m</string><string>src.scrape_once</string>
+        <string>/opt/homebrew/bin/teetime-monitor-scrape</string>
     </array>
-    <key>WorkingDirectory</key><string>/path/to/teetime-monitor</string>
+    <key>WorkingDirectory</key><string>/path/to/your/teetime-monitor-directory</string>
     <key>StartInterval</key><integer>900</integer>
     <key>RunAtLoad</key><true/>
     <key>StandardOutPath</key><string>~/Library/Logs/teetime-monitor.log</string>
@@ -198,6 +197,10 @@ cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
 EOF
 launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 ```
+
+`WorkingDirectory` must be the directory you normally run `teetime-monitor` from —
+the one holding your `clubs/`, `data/` and `.env`. That's where the scraper reads
+its config and writes its history, exactly like the app itself.
 
 Empty log means no errors. Remove with `launchctl unload …` plus deleting the plist.
 

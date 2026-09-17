@@ -4399,6 +4399,29 @@ with the caches disabled. Cache invalidation is mutation-tested — removing the
 database fingerprint from the key reproduces a stale read. 4 new tests plus a
 `conftest.py` fixture isolating the new cache. 705 passing, `ruff check` clean.
 
+## The unattended scraper got its own console script (2026-09-17)
+
+Found while answering a strategic question about whether background refresh would
+need a Swift rewrite (it doesn't — macOS has had a working `launchd` agent since
+2026-09-07): the agent this repo documents, and the one actually running on the
+developer's machine, invoked `python -m src.scrape_once`.
+
+That's a real trap. `-m` prepends the *working directory* to `sys.path`, and the
+agent's working directory has to be wherever your `clubs/`, `data/` and `.env`
+live. When that directory is a source checkout — which is exactly the setup here —
+the background scraper silently runs the **working copy** rather than the installed
+release, in whatever state it happens to be mid-edit. Confirmed directly: pointing
+the Homebrew interpreter at `-m src.scrape_once` from the project directory still
+resolved `src` to the local checkout, so swapping the interpreter alone would not
+have fixed it.
+
+New `teetime-monitor-scrape` console script (`src.scrape_once:main`, which already
+existed as the module's `__main__` path). Console scripts resolve from the installed
+package regardless of working directory, so the two can't be confused. Both READMEs'
+launchd examples now use it, plus a note spelling out that `WorkingDirectory` must be
+the directory holding your `clubs/`, `data/` and `.env` — that part still matters, and
+was never explained.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
