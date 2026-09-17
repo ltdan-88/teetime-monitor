@@ -155,16 +155,26 @@ Nothing here is required — the quick start above works with zero setup.
 <details>
 <summary><strong>Files, scheduled scraping, running from source</strong></summary>
 
-Like `terraform`/`docker-compose`, this reads its own state from the directory you
-run it in — pick one and always launch from there.
+State lives in two fixed locations, so it works from any directory — and so a GUI
+front end can find it too (an app launched from Finder has no useful working
+directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
+`TEETIME_MONITOR_DATA_DIR`.
 
 ```
-data/<club_id>.db                             # scrape history, confirmed bookings (SQLite)
-.env                                          # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY -- gitignored
-clubs/<club-id>.yaml                          # per-club: location, overview_days, default_course
-~/.config/teetime-monitor/preferences.yaml    # availability, weather, AI, pace, interval -- global
-~/.config/teetime-monitor/config              # THEME=, LANG= -- global
+~/.config/teetime-monitor/
+    clubs/<club-id>.yaml    # per-club: location, overview_days, default_course
+    .env                    # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
+    preferences.yaml        # availability, weather, AI, pace, interval
+    config                  # THEME=, LANG=
+
+~/.local/share/teetime-monitor/
+    <club_id>.db            # scrape history, confirmed bookings (SQLite)
+    club-directory.json     # cached platform club list
 ```
+
+Upgrading from before v0.31.0? The first launch copies `./clubs`, `./data` and
+`./.env` across automatically and tells you what it moved. It copies rather than
+moves, so the old directory stays as a backup until you delete it.
 
 Availability and preferences are edited from **Actions → Settings**, not by hand.
 `f` on a club writes its YAML for you; `clubs/club.example.yaml` is the annotated
@@ -187,7 +197,6 @@ cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
     <array>
         <string>/opt/homebrew/bin/teetime-monitor-scrape</string>
     </array>
-    <key>WorkingDirectory</key><string>/path/to/your/teetime-monitor-directory</string>
     <key>StartInterval</key><integer>900</integer>
     <key>RunAtLoad</key><true/>
     <key>StandardOutPath</key><string>~/Library/Logs/teetime-monitor.log</string>
@@ -198,9 +207,9 @@ EOF
 launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 ```
 
-`WorkingDirectory` must be the directory you normally run `teetime-monitor` from —
-the one holding your `clubs/`, `data/` and `.env`. That's where the scraper reads
-its config and writes its history, exactly like the app itself.
+No `WorkingDirectory` needed: since v0.31.0 the scraper reads and writes the same
+fixed locations the app does — `~/.config/teetime-monitor/` (clubs, login) and
+`~/.local/share/teetime-monitor/` (scrape history) — so it works from anywhere.
 
 Empty log means no errors. Remove with `launchctl unload …` plus deleting the plist.
 

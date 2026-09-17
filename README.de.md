@@ -158,16 +158,26 @@ Nichts davon ist nötig — der Schnellstart oben kommt ohne Einrichtung aus.
 <details>
 <summary><strong>Dateien, geplanter Abruf, Start aus dem Quellcode</strong></summary>
 
-Wie `terraform`/`docker-compose` liest die Anwendung ihren Zustand aus dem Verzeichnis,
-in dem du sie startest — eines aussuchen und immer von dort starten.
+Der Zustand liegt an zwei festen Orten — die Anwendung läuft damit aus jedem
+Verzeichnis, und eine grafische Oberfläche findet ihn ebenfalls (eine App, die aus
+dem Finder gestartet wird, hat kein brauchbares Arbeitsverzeichnis). Beide lassen
+sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreiben.
 
 ```
-data/<club_id>.db                             # Abruf-Verlauf, bestätigte Buchungen (SQLite)
-.env                                          # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY -- in .gitignore
-clubs/<club-id>.yaml                          # pro Club: Koordinaten, overview_days, Standardplatz
-~/.config/teetime-monitor/preferences.yaml    # Verfügbarkeit, Wetter, KI, Tempo, Intervall -- global
-~/.config/teetime-monitor/config              # THEME=, LANG= -- global
+~/.config/teetime-monitor/
+    clubs/<club-id>.yaml    # pro Club: Koordinaten, overview_days, Standardplatz
+    .env                    # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
+    preferences.yaml        # Verfügbarkeit, Wetter, KI, Tempo, Intervall
+    config                  # THEME=, LANG=
+
+~/.local/share/teetime-monitor/
+    <club_id>.db            # Abruf-Verlauf, bestätigte Buchungen (SQLite)
+    club-directory.json     # zwischengespeicherte Clubliste
 ```
+
+Umstieg von vor v0.31.0? Beim ersten Start werden `./clubs`, `./data` und `./.env`
+automatisch übernommen — mit Hinweis, was kopiert wurde. Kopiert, nicht verschoben:
+das alte Verzeichnis bleibt als Sicherung liegen, bis du es löschst.
 
 Verfügbarkeit und Vorgaben bearbeitest du über **Aktionen → Einstellungen**, nicht von
 Hand. `f` auf einem Club legt dessen YAML an; `clubs/club.example.yaml` ist die
@@ -191,7 +201,6 @@ cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
     <array>
         <string>/opt/homebrew/bin/teetime-monitor-scrape</string>
     </array>
-    <key>WorkingDirectory</key><string>/pfad/zu/deinem/teetime-monitor-verzeichnis</string>
     <key>StartInterval</key><integer>900</integer>
     <key>RunAtLoad</key><true/>
     <key>StandardOutPath</key><string>~/Library/Logs/teetime-monitor.log</string>
@@ -202,9 +211,9 @@ EOF
 launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
 ```
 
-`WorkingDirectory` muss das Verzeichnis sein, aus dem du `teetime-monitor` sonst
-startest — das mit `clubs/`, `data/` und `.env`. Von dort liest der Scraper seine
-Konfiguration und schreibt seinen Verlauf, genau wie die App selbst.
+Kein `WorkingDirectory` nötig: seit v0.31.0 liest und schreibt der Scraper dieselben
+festen Orte wie die App — `~/.config/teetime-monitor/` (Clubs, Login) und
+`~/.local/share/teetime-monitor/` (Verlauf) — er läuft also von überall.
 
 Leeres Log heißt: keine Fehler. Entfernen mit `launchctl unload …` und dem Löschen der
 plist-Datei.

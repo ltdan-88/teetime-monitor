@@ -66,7 +66,7 @@ from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from pathlib import Path
 
-from . import booking_watch, club_config, global_preferences, storage
+from . import booking_watch, club_config, global_preferences, paths, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking
 from .scraper import (
@@ -78,7 +78,7 @@ from .scraper import (
 )
 from .search import resolve_buffer_minutes
 
-DATA_DIR = Path("data")
+DATA_DIR = paths.DATA_DIR  # ~/.local/share/teetime-monitor -- see paths.py
 
 # Upper bound on how many days one pass will scrape, however many the club itself
 # advertises — see scrape_due_for_club(). One real club offers 366 days of tee sheets;
@@ -499,6 +499,14 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
 
 
 def main() -> None:
+    # One-time move off the old working-directory layout (2026-09-17, see paths.py).
+    # The launchd agent still runs with a WorkingDirectory set, so an install that
+    # predates the move migrates itself on its next scheduled pass without anyone
+    # having to notice -- and `needs_migration()` is false forever after.
+    if paths.needs_migration():
+        for item in paths.migrate_from():
+            print(f"[scrape_once] migrated to {paths.CONFIG_DIR}: {item}")
+    paths.ensure_dirs()
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
         scrape_due_for_club(slug, config)

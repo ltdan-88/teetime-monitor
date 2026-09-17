@@ -168,6 +168,7 @@ from . import (
     geocode,
     global_preferences,
     i18n,
+    paths,
     playability,
     recommend,
     scrape_once,
@@ -4323,6 +4324,19 @@ def main() -> None:
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"teetime-monitor {_version()}")
         return
+    # See paths.py: state lives in fixed locations now, so an install that predates
+    # 2026-09-17 has its clubs/database/credentials brought across on first launch.
+    # Printed before the TUI takes the screen -- once the alternate buffer is up,
+    # nothing printed is ever seen (the same trap the v0.21.0 sync-failure banner
+    # exists to work around).
+    if paths.needs_migration():
+        migrated = paths.migrate_from()
+        if migrated:
+            print(f"Moved your teetime-monitor state into {paths.CONFIG_DIR} and {paths.DATA_DIR}:")
+            for item in migrated:
+                print(f"  - {item}")
+            print("The originals were copied, not moved -- delete them once you're happy.\n")
+    paths.ensure_dirs()
     TeetimeApp().run()
 
 

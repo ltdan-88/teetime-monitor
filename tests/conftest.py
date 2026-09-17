@@ -24,7 +24,17 @@ fixture and wins, so those keep testing exactly what they always did.
 
 import pytest
 
-from src import club_config, geocode, global_preferences, i18n, tui
+from src import (
+    club_config,
+    club_directory,
+    env_file,
+    geocode,
+    global_preferences,
+    i18n,
+    paths,
+    scrape_once,
+    tui,
+)
 
 # Well before TODAY_HIDDEN_AFTER_HHMM ("21:00") and before any realistic tee
 # time -- see this module's own docstring for why both matter.
@@ -140,3 +150,42 @@ def _no_stale_heatmap_cache(monkeypatch):
     question entirely, rather than relying on that argument holding forever.
     """
     monkeypatch.setattr(tui, "_HEATMAP_CACHE", {})
+
+
+@pytest.fixture(autouse=True)
+def _no_real_state_directories(monkeypatch, tmp_path):
+    """Nothing may touch the real `~/.config/teetime-monitor` or
+    `~/.local/share/teetime-monitor` (see `paths.py`).
+
+    Added 2026-09-17 when state moved out of the working directory into those fixed
+    locations. Before the move, a test that forgot to redirect `DATA_DIR`/`CLUBS_DIR`
+    wrote into the *repo checkout* — messy, but visible in `git status` and harmless.
+    Afterwards the same mistake would write into this developer's real, live install,
+    silently. That is a strictly worse failure mode, and this project has already been
+    bitten repeatedly by exactly this class of leak (see the credentials, preferences
+    and geocoding fixtures above), so the guard goes in with the move rather than after
+    the first incident.
+
+    Patches the consumer constants *and* `paths` itself, because the two are reached
+    by different code. Each consumer module binds its own constant at import time, so
+    redirecting `paths` alone would never reach `club_config.CLUBS_DIR` and friends.
+    But the reverse gap is just as real and was caught the same day: `tui.main()` and
+    `scrape_once.main()` call `paths.needs_migration()` / `paths.migrate_from()`
+    *directly*, so guarding only the consumers let the three tests that invoke `main()`
+    run a real migration into this developer's live install -- copying every club and
+    all five databases into `~/.config` and `~/.local/share` for real. Caught by
+    parking the real directories and re-running the suite to see them reappear.
+
+    Tests that want their own directory still override these locally, exactly as
+    before, and win the normal way.
+    """
+    config, data = tmp_path / "config", tmp_path / "data"
+    monkeypatch.setattr(club_config, "CLUBS_DIR", config / "clubs")
+    monkeypatch.setattr(scrape_once, "DATA_DIR", data)
+    monkeypatch.setattr(club_directory, "DATA_DIR", data)
+    monkeypatch.setattr(env_file, "ENV_FILE", config / ".env")
+    monkeypatch.setattr(paths, "CONFIG_DIR", config)
+    monkeypatch.setattr(paths, "DATA_DIR", data)
+    monkeypatch.setattr(paths, "CLUBS_DIR", config / "clubs")
+    monkeypatch.setattr(paths, "ENV_FILE", config / ".env")
+    monkeypatch.setattr(paths, "MANAGED_DIRS", (config, config / "clubs", data))

@@ -22,7 +22,9 @@ argument.
 
 from pathlib import Path
 
-ENV_FILE = Path(".env")
+from . import paths
+
+ENV_FILE = paths.ENV_FILE  # ~/.config/teetime-monitor/.env -- see paths.py
 ENV_EXAMPLE_FILE = Path(".env.example")
 
 

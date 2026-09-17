@@ -226,17 +226,24 @@ struct ContentView: View {
 
 @main
 struct TeetimeMonitorPrototype: App {
-    // Point it at a database with `--db <path>`; defaults to the first data/*.db
-    // found under the working directory, matching how the Python app resolves state.
+    /// Resolves the same fixed location the Python side uses (see `src/paths.py`):
+    /// `~/.local/share/teetime-monitor/<club_id>.db`, overridable by
+    /// `TEETIME_MONITOR_DATA_DIR`. That shared convention is what makes a GUI possible
+    /// at all -- an app launched from Finder gets `cwd = "/"`, so nothing
+    /// working-directory-relative could ever be found. `--db <path>` still wins, for
+    /// pointing at a copy without touching your real state.
     private static func resolveDB() -> (String, String) {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--db"), i + 1 < args.count {
-            return (args[i + 1], (args[i + 1] as NSString).lastPathComponent)
+            return (args[i + 1], (args[i + 1] as NSString).lastPathComponent
+                .replacingOccurrences(of: ".db", with: ""))
         }
-        let dir = FileManager.default.currentDirectoryPath + "/data"
-        let found = (try? FileManager.default.contentsOfDirectory(atPath: dir))?
-            .filter { $0.hasSuffix(".db") }.sorted() ?? []
-        guard let first = found.first else { return ("", "no database found") }
+        let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_DATA_DIR"]
+        let dir = (env as NSString?)?.expandingTildeInPath
+            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".local/share/teetime-monitor")
+        let dbs = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
+            .filter { $0.hasSuffix(".db") }.sorted()
+        guard let first = dbs.first else { return ("", "no database found") }
         return ("\(dir)/\(first)", first.replacingOccurrences(of: ".db", with: ""))
     }
 
