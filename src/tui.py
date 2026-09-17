@@ -192,7 +192,8 @@ from .settings_screen import (
     HOUR_CHOICES,
     MIN_OPEN_SPOTS_CHOICES,
     MINUTE_CHOICES,
-    SettingsScreen,
+    AppSettingsScreen,
+    PreferencesScreen,
 )
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
@@ -2899,19 +2900,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # TeetimeApp.action_edit_settings()'s own docstring.
         self.app.action_edit_settings()
 
-    def action_edit_credentials(self) -> None:
-        # Same screen ClubBrowserScreen's own `l` key already pushes, now also
-        # reachable straight from the Actions menu — direct request 2026-09-16
-        # ("Can you please make login screen accessible from actions menu?"),
-        # since until now CredentialsScreen was only reachable two levels deep
-        # (Actions → Find a club → `l`), not obvious for revisiting credentials
-        # you've already set up (e.g. after a password change). `verify_against_club_id`
-        # uses this screen's own club_id directly — already known, no need for
-        # ClubBrowserScreen's own typed-or-favorite fallback (_any_favorite_club_id()).
-        self.app.push_screen(
-            CredentialsScreen(verify_against_club_id=self.club_id),
-            lambda _saved: self.app._reopen_actions_menu(),
-        )
+    def action_edit_preferences(self) -> None:
+        # Delegates to the App for the same reason action_edit_settings does above.
+        # Login is no longer its own Actions entry (2026-09-17) -- it lives in
+        # Settings under "Account" now; CredentialsScreen is still reachable
+        # directly from ClubBrowserScreen's `l` and from the first-launch flow.
+        self.app.action_edit_preferences()
 
     def action_command_palette(self) -> None:
         self.app.action_command_palette()
@@ -3681,8 +3675,17 @@ class _OrderedSystemCommandsProvider(SystemCommandsProvider):
 # ... stay in whatever language Textual itself ships them in") -- direct
 # same-day follow-up: "can you please translate everything in actions
 # screen?"
+# Textual base commands this app doesn't surface at all (2026-09-17, during a review
+# of what the Actions menu should hold). Both act on "the focused widget", which in a
+# single full-screen app is almost always the one DataTable that already fills the
+# available space -- maximizing it reclaims only the switcher, legend and footer, and
+# the entry costs a menu row every time you open `t` looking for something else.
+# "Theme" is skipped for a different reason: it still exists, it just lives in
+# Settings -> Display now (2026-09-17) alongside Language and Units, so leaving
+# Textual's own entry here would be a second way to reach the same setting.
+_SKIPPED_BASE_COMMANDS = {"Maximize", "Minimize", "Theme"}
+
 _BASE_COMMAND_TRANSLATIONS: dict[tuple[str, str], tuple[int, str, str]] = {
-    ("Theme", "Change the current theme"): (10, "binding.theme", "command.theme_description"),
     ("Keys", "Show help for the focused widget and a summary of available keys"): (
         11,
         "binding.keys",
@@ -3793,22 +3796,18 @@ class TeetimeApp(App[None]):
                 i18n.t("binding.heatmap"), i18n.t("command.heatmap_description"), screen.action_heatmap
             )
             yield SystemCommand(
-                i18n.t("binding.settings"), i18n.t("command.settings_description"), screen.action_edit_settings
+                i18n.t("binding.preferences"),
+                i18n.t("command.preferences_description"),
+                screen.action_edit_preferences,
             )
             yield SystemCommand(
-                i18n.t("binding.login"), i18n.t("command.login_description"), screen.action_edit_credentials
+                i18n.t("binding.settings"), i18n.t("command.settings_description"), screen.action_edit_settings
             )
-
-        current = i18n.get_language()
-        other = i18n.other_language(current)
-        yield SystemCommand(
-            i18n.t("command.language_title", other=i18n.LANGUAGE_LABELS[other]),
-            i18n.t("command.language_description", current=i18n.LANGUAGE_LABELS[current]),
-            self.action_switch_language,
-        )
 
         base_commands: list[tuple[int, SystemCommand]] = []
         for command in super().get_system_commands(screen):
+            if command.title in _SKIPPED_BASE_COMMANDS:
+                continue
             mapped = _BASE_COMMAND_TRANSLATIONS.get((command.title, command.help))
             if mapped is None:
                 # A future Textual base command this app doesn't know to
@@ -3823,12 +3822,6 @@ class TeetimeApp(App[None]):
             ))
         for _, command in sorted(base_commands, key=lambda pair: pair[0]):
             yield command
-
-    def action_switch_language(self) -> None:
-        new_lang = i18n.other_language(i18n.get_language())
-        i18n.set_language(new_lang)
-        i18n.save_language(new_lang)
-        self._rebuild_current_screen()
 
     def _reopen_actions_menu(self) -> None:
         """Reopens the Actions menu (`t`) once a screen it opened (Settings,
@@ -4150,10 +4143,25 @@ class TeetimeApp(App[None]):
         "i also want the settings/preferences to be global and not tied to a specific
         club") — `SettingsScreen()` now always opens the one shared settings file
         regardless of which club is active, or even whether one is favorited at all."""
-        self.run_worker(self._do_edit_settings(), exclusive=True, group="settings")
+        self.run_worker(self._do_edit_settings(AppSettingsScreen), exclusive=True, group="settings")
 
-    async def _do_edit_settings(self) -> None:
-        await self.push_screen_wait(SettingsScreen())
+    def action_edit_preferences(self) -> None:
+        """Open `PreferencesScreen` — the golf half of what used to be one settings
+        form (2026-09-17, direct request: "we should separate preferences from
+        settings"). Same worker requirement and same post-save rebuild as
+        `action_edit_settings()` above; see `_do_edit_settings()` for both."""
+        self.run_worker(self._do_edit_settings(PreferencesScreen), exclusive=True, group="settings")
+
+    async def _do_edit_settings(self, screen_class=AppSettingsScreen) -> None:
+        await self.push_screen_wait(screen_class())
+        # Theme and language are saved by the settings form itself, but saving only
+        # *persists* them -- `theme.save_theme()` writes the file and nothing more, so
+        # without this a theme picked in Settings wouldn't actually show until the next
+        # launch. Re-applying here reads whatever was just saved and puts it on the
+        # running app; `_rebuild_current_screen()` below then re-renders every label in
+        # the (possibly new) language. Both are cheap and idempotent, so this runs
+        # unconditionally rather than being gated on whether either actually changed.
+        theme_module.apply_theme(self)
         # A saved availability/preferences change should be reflected immediately --
         # not just on the next scheduled reload -- since it can change the ★ marker
         # and the overview's per-day Pick column all at once.

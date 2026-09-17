@@ -177,8 +177,9 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Collapsible, Header, Input, Label, Select, Static, Switch
 
-from . import global_preferences, i18n, units
+from . import club_config, global_preferences, i18n, units
 from . import theme as theme_module
+from .credentials_screen import CredentialsScreen
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
@@ -296,6 +297,19 @@ class Field:
     `label_key` is an i18n.py key, not literal text — looked up at compose() time so
     the label reflects whatever language is current then, not whatever it was when
     FIELDS (a module-level list, built once at import time) was first defined.
+
+    `getter`/`setter`, when set, take over persistence for this field entirely: it is
+    read and written through them instead of through `path` in the preferences file.
+    Added 2026-09-17 for the two settings that genuinely live somewhere else — the UI
+    language and the colour theme both persist to `user_config.CONFIG_FILE`, not to
+    `preferences.yaml` — so they can sit in this form alongside everything else rather
+    than staying scattered across the Actions menu. `path` is still required and still
+    has to be unique, because it's what `_field_id()` builds this field's widget id
+    from; for a getter/setter field it names nothing in the config dict.
+
+    `kind="action"` is a field that isn't a value at all — it renders a button that
+    opens another screen (currently just Login, which opens `CredentialsScreen`).
+    `open_screen` supplies the screen to push.
     """
 
     label_key: str
@@ -304,15 +318,76 @@ class Field:
     group_key: str
     default: Any = None
     choices: list[tuple[str, str]] | None = None
+    getter: Callable[[], str] | None = None
+    setter: Callable[[str], None] | None = None
+    open_screen: Callable[[], Screen] | None = None
 
 
-GROUP_ORDER = [
+# Split into two screens 2026-09-17, direct request: "we should separate preferences
+# from settings. And also login would fit well into settings." The line drawn is
+# *preferences describe you, settings describe the app* -- everything that feeds the ★
+# recommendation (when you can play, what weather you'll accept, how fast you walk a
+# round) versus everything about how the app itself runs (your login, how it looks, how
+# often it scrapes).
+#
+# Membership is derived from each field's existing `group_key` rather than a new
+# per-field flag, so the FIELDS list below needed almost no editing -- only `units`
+# (display-only, see its own comment) and the two scrape intervals actually moved
+# group, and the old catch-all "timing" group became "pace", which is what its
+# remaining fields (daylight buffer, round durations) always really were.
+def _any_favorite_club_id() -> str | None:
+    """A real club_id to verify a login attempt against, if any club is saved — see
+    `credentials_screen.py` for what `verify_against_club_id` does with it (one pc
+    caddie login is platform-wide, so any saved club works).
+
+    Deliberately a small local reimplementation rather than importing `tui.
+    _any_favorite_club_id()`: `tui.py` imports *this* module, so reaching back into it
+    would be a circular import. The shared part is `club_config`, which both read
+    anyway."""
+    for slug in club_config.list_clubs():
+        club_id = club_config.load_club_config(slug).get("club_id")
+        if club_id:
+            return str(club_id)
+    return None
+
+
+def _theme_label(name: str) -> str:
+    """"catppuccin" -> "Catppuccin", "gruvbox-dark" -> "Gruvbox Dark". The theme names
+    are stable identifiers (shared with brew-launcher, see theme.py), so they're
+    title-cased for display rather than given 10 separate i18n keys — a theme's name is
+    the same word in both languages."""
+    return name.replace("-", " ").replace("_", " ").title()
+
+
+def _current_theme() -> str:
+    """The saved theme, or the resolved default when nothing has been saved yet — so
+    the dropdown opens on what's actually showing rather than on a blank."""
+    return theme_module.load_saved_theme() or theme_module.resolve_theme_name()
+
+
+def _save_language(lang: str) -> None:
+    """Persist *and* apply — `i18n.save_language()` alone only writes the file, leaving
+    the running process on its old language until the next launch. Both are needed here
+    because this is the language switch now (it used to be `TeetimeApp.
+    action_switch_language()`, which did exactly this pair before rebuilding the
+    screen)."""
+    i18n.set_language(lang)
+    i18n.save_language(lang)
+
+
+PREFERENCE_GROUP_ORDER = [
     "settings.group.availability",
     "settings.group.weather",
+    "settings.group.pace",
     "settings.group.priorities",
-    "settings.group.ai",
-    "settings.group.timing",
 ]
+SETTING_GROUP_ORDER = [
+    "settings.group.account",
+    "settings.group.display",
+    "settings.group.scraping",
+    "settings.group.ai",
+]
+GROUP_ORDER = [*PREFERENCE_GROUP_ORDER, *SETTING_GROUP_ORDER]
 
 FIELDS: list[Field] = [
     Field(
@@ -373,7 +448,10 @@ FIELDS: list[Field] = [
     # localized labels looked up fresh at compose() time -- a frozen
     # module-level choices list (the pattern every other dropdown here uses)
     # would go stale the moment the UI language changes.
-    Field("settings.field.units", ("units",), "str", "settings.group.weather", units.DEFAULT_UNITS),
+    # Moved out of the Weather group 2026-09-17: it is display-only (see units.py),
+    # while every other field in that group is a real playability threshold, always
+    # stored in metric regardless of what this is set to.
+    Field("settings.field.units", ("units",), "str", "settings.group.display", units.DEFAULT_UNITS),
     Field("settings.field.avoid_rain", ("preferences", "avoid_rain"), "bool", "settings.group.weather", False),
     Field(
         "settings.field.avoid_rain_probability",
@@ -456,7 +534,7 @@ FIELDS: list[Field] = [
         "settings.field.daylight_buffer",
         ("daylight_buffer_minutes",),
         "int",
-        "settings.group.timing",
+        "settings.group.pace",
         30,
         choices=DAYLIGHT_BUFFER_CHOICES,
     ),
@@ -472,7 +550,7 @@ FIELDS: list[Field] = [
         "settings.field.round_duration_nine",
         ("round_duration_minutes", "nine"),
         "int",
-        "settings.group.timing",
+        "settings.group.pace",
         120,
         choices=ROUND_DURATION_NINE_CHOICES,
     ),
@@ -480,7 +558,7 @@ FIELDS: list[Field] = [
         "settings.field.round_duration_eighteen",
         ("round_duration_minutes", "eighteen"),
         "int",
-        "settings.group.timing",
+        "settings.group.pace",
         240,
         choices=ROUND_DURATION_EIGHTEEN_CHOICES,
     ),
@@ -488,7 +566,7 @@ FIELDS: list[Field] = [
         "settings.field.scrape_interval_normal",
         ("scrape_interval_minutes",),
         "int",
-        "settings.group.timing",
+        "settings.group.scraping",
         DEFAULT_SCRAPE_INTERVAL_MINUTES,
         choices=SCRAPE_INTERVAL_NORMAL_CHOICES,
     ),
@@ -496,9 +574,41 @@ FIELDS: list[Field] = [
         "settings.field.scrape_interval_booked",
         ("scrape_interval_minutes_booked",),
         "int",
-        "settings.group.timing",
+        "settings.group.scraping",
         DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
         choices=SCRAPE_INTERVAL_BOOKED_CHOICES,
+    ),
+    # --- App settings that don't live in preferences.yaml (2026-09-17) ----------
+    # Login, Language and Theme were all top-level Actions-menu entries until the
+    # menu was reviewed: "we should separate preferences from settings. And also
+    # login would fit well into settings." Login is account configuration, and
+    # Language/Theme are display configuration -- none of the three is a place to
+    # go, which is what the Actions menu is for now. Moving them here also ends a
+    # real inconsistency: `units` (display-only) already lived in this form while
+    # the other two display settings sat in the menu.
+    Field(
+        "settings.field.login",
+        ("__login__",),
+        "action",
+        "settings.group.account",
+    ),
+    Field(
+        "settings.field.language",
+        ("__language__",),
+        "str",
+        "settings.group.display",
+        choices=[(label, code) for code, label in i18n.LANGUAGE_LABELS.items()],
+        getter=i18n.get_language,
+        setter=_save_language,
+    ),
+    Field(
+        "settings.field.theme",
+        ("__theme__",),
+        "str",
+        "settings.group.display",
+        choices=[(_theme_label(name), name) for name in theme_module.ALL_THEME_NAMES],
+        getter=_current_theme,
+        setter=theme_module.save_theme,
     ),
 ]
 
@@ -524,12 +634,22 @@ _BUFFER_PATHS = {
 }
 
 
-def config_to_widget_values(config: dict) -> dict[str, Any]:
+def config_to_widget_values(config: dict, fields: list[Field] | None = None) -> dict[str, Any]:
     """What each field's widget should show, given a loaded club config. Pure
     function — kept separate from the widgets themselves so it's testable without a
-    running Textual app."""
+    running Textual app.
+
+    `fields` defaults to every field, so existing callers are unaffected; each screen
+    passes just its own (2026-09-17, once preferences and app settings became two
+    screens — see PREFERENCE_GROUP_ORDER). A field with its own `getter` reads through
+    that instead of the config, and an "action" field has no value at all."""
     values: dict[str, Any] = {}
-    for field in FIELDS:
+    for field in fields if fields is not None else FIELDS:
+        if field.kind == "action":
+            continue
+        if field.getter is not None:
+            values[_field_id(field)] = field.getter()
+            continue
         if field.path in _BUFFER_PATHS:
             # A config saved before the 2026-09-08 before/after split only has the
             # old single buffer_minutes key -- plain _get_path() below would show
@@ -551,11 +671,19 @@ def config_to_widget_values(config: dict) -> dict[str, Any]:
     return values
 
 
-def widget_values_to_config(config: dict, widget_values: dict[str, Any]) -> dict:
+def widget_values_to_config(
+    config: dict, widget_values: dict[str, Any], fields: list[Field] | None = None
+) -> dict:
     """Apply edited widget values back onto a copy of `config`. Pure function, no
-    Textual involved — the app just supplies what's currently in each widget."""
+    Textual involved — the app just supplies what's currently in each widget.
+
+    `fields` defaults to every field (existing callers unaffected); each screen passes
+    just its own. Fields with a `setter` don't belong to `config` at all and are applied
+    by the screen itself, not here — this stays a pure function over the config dict."""
     updated = copy.deepcopy(config)
-    for field in FIELDS:
+    for field in fields if fields is not None else FIELDS:
+        if field.kind == "action" or field.setter is not None:
+            continue
         raw = widget_values[_field_id(field)]
         if field.kind == "bool":
             _set_path(updated, field.path, bool(raw))
@@ -730,12 +858,23 @@ class SettingsScreen(Screen[dict | None]):
     # text-measurement aren't exposed cheaply enough to compute this ahead of time.
     NARROW_WIDTH_THRESHOLD = 72
 
+    # Overridden by each concrete screen below. Defaults keep every existing caller
+    # (and `python -m src.settings_screen`) showing the full form.
+    FIELDS_SHOWN: list[Field] | None = None
+    GROUPS_SHOWN: list[str] | None = None
+
     def __init__(
         self,
         preferences_file: Path | None = None,
         on_saved: Callable[[dict], None] | None = None,
     ) -> None:
         super().__init__()
+        self.groups_shown = self.GROUPS_SHOWN if self.GROUPS_SHOWN is not None else GROUP_ORDER
+        self.fields_shown = (
+            self.FIELDS_SHOWN
+            if self.FIELDS_SHOWN is not None
+            else [f for f in FIELDS if f.group_key in self.groups_shown]
+        )
         # Resolved at call time, not bound as a class-definition-time default -- see
         # env_file.py's module docstring for the frozen-default gotcha this avoids
         # (a caller/test monkeypatching global_preferences.PREFERENCES_FILE after
@@ -762,22 +901,27 @@ class SettingsScreen(Screen[dict | None]):
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll(id="fields"):
-            values = config_to_widget_values(self.config)
+            values = config_to_widget_values(self.config, self.fields_shown)
             fields_by_group: dict[str, list[Field]] = {}
-            for field in FIELDS:
+            for field in self.fields_shown:
                 fields_by_group.setdefault(field.group_key, []).append(field)
             # Grouped into labeled, expanded-by-default sections (2026-09-08 direct
             # feedback: "entries in settings could be grouped into categories, to
             # make it more user friendly") -- expanded by default since these are
             # settings you're here to look at, not a wall of text worth hiding.
-            for group_key in GROUP_ORDER:
+            for group_key in self.groups_shown:
                 with Collapsible(title=i18n.t(group_key), collapsed=False, classes="field-group"):
                     for field in fields_by_group.get(group_key, []):
                         widget_id = _field_id(field)
-                        current = values[widget_id]
+                        current = values.get(widget_id)  # None for an "action" field
                         with Horizontal(classes="field-row"):
                             yield Label(i18n.t(field.label_key), classes="field-label")
-                            if field.kind == "bool":
+                            if field.kind == "action":
+                                # Not a value -- a button that opens another screen.
+                                yield Button(
+                                    i18n.t("button.open"), id=widget_id, classes="field-input"
+                                )
+                            elif field.kind == "bool":
                                 yield Switch(value=current, id=widget_id, classes="field-input")
                             elif field.kind == "optional_time":
                                 hh, _, mm = current.partition(":")
@@ -806,24 +950,14 @@ class SettingsScreen(Screen[dict | None]):
                                         id=mm_id,
                                         classes="time-part",
                                     )
-                            elif field.kind == "str":
-                                # Localized choices looked up here, not as a
-                                # frozen module-level list (unlike every other
-                                # dropdown's `field.choices`) -- see FIELDS'
-                                # own comment on this field for why.
-                                unit_options = [
-                                    (i18n.t("settings.units.metric"), units.METRIC),
-                                    (i18n.t("settings.units.imperial"), units.IMPERIAL),
-                                ]
-                                yield Select(
-                                    unit_options,
-                                    value=current,
-                                    allow_blank=False,
-                                    compact=True,
-                                    id=widget_id,
-                                    classes="field-input",
-                                )
                             elif field.choices is not None:
+                                # Checked *before* the `kind == "str"` branch below
+                                # (reordered 2026-09-17): that branch is units-specific
+                                # but matched on kind alone, so the moment a second
+                                # "str" field with real choices existed (Language and
+                                # Theme, moved in from the Actions menu) it handed them
+                                # units' own metric/imperial options and Select raised
+                                # `InvalidSelectValueError: Illegal select value 'en'`.
                                 options = field.choices
                                 # A value saved outside the preset list (hand-edited
                                 # YAML, or a preset list that changed since) must
@@ -834,6 +968,23 @@ class SettingsScreen(Screen[dict | None]):
                                     options = [(current, current), *options]
                                 yield Select(
                                     options,
+                                    value=current,
+                                    allow_blank=False,
+                                    compact=True,
+                                    id=widget_id,
+                                    classes="field-input",
+                                )
+                            elif field.kind == "str":
+                                # Units only. Localized choices looked up here, not as
+                                # a frozen module-level list (unlike every other
+                                # dropdown's `field.choices`) -- see FIELDS' own
+                                # comment on this field for why.
+                                unit_options = [
+                                    (i18n.t("settings.units.metric"), units.METRIC),
+                                    (i18n.t("settings.units.imperial"), units.IMPERIAL),
+                                ]
+                                yield Select(
+                                    unit_options,
                                     value=current,
                                     allow_blank=False,
                                     compact=True,
@@ -855,7 +1006,9 @@ class SettingsScreen(Screen[dict | None]):
 
     def _read_widget_values(self) -> dict[str, Any]:
         widget_values: dict[str, Any] = {}
-        for field in FIELDS:
+        for field in self.fields_shown:
+            if field.kind == "action":
+                continue
             widget_id = _field_id(field)
             if field.kind == "optional_time":
                 hh_id, mm_id = _time_widget_ids(field)
@@ -877,20 +1030,73 @@ class SettingsScreen(Screen[dict | None]):
         self.app.exit()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        for field in self.fields_shown:
+            if field.kind == "action" and event.button.id == _field_id(field):
+                self.app.push_screen(CredentialsScreen(verify_against_club_id=_any_favorite_club_id()))
+                return
         if event.button.id == "cancel":
             self.action_cancel()
             return
         if event.button.id == "save":
             try:
-                updated = widget_values_to_config(self.config, self._read_widget_values())
+                updated = widget_values_to_config(self.config, self._read_widget_values(), self.fields_shown)
             except ValueError as exc:
                 self.query_one("#status", Static).update(i18n.t("settings.not_saved", error=exc))
                 return
+            # Fields that live outside preferences.yaml (language, theme) apply
+            # through their own setter -- see Field's docstring. Done after the config
+            # write succeeded, so a rejected number never half-applies a language
+            # change alongside it.
+            widget_values = self._read_widget_values()
+            for field in self.fields_shown:
+                if field.setter is None:
+                    continue
+                new_value = widget_values[_field_id(field)]
+                if new_value != field.getter():
+                    field.setter(new_value)
             global_preferences.save_preferences(updated, self.preferences_file)
             self.config = updated
             if self._on_saved is not None:
                 self._on_saved(updated)
             self.query_one("#status", Static).update(i18n.t("settings.saved"))
+
+
+class PreferencesScreen(SettingsScreen):
+    """Everything that decides whether a tee time is good *for you* — when you can
+    play, how big a group, how much space you want around your flight, what weather
+    you'll accept, how fast you walk a round, whether friends' slots rank higher.
+
+    Split out of the single settings form 2026-09-17, direct request: "we should
+    separate preferences from settings." The line is *preferences describe you,
+    settings describe the app*: every field here feeds the ★ recommendation and the
+    per-day Pick column, while nothing here changes how the app itself behaves.
+
+    `avoid_predicted_crowd` deliberately stays on the settings side under "AI ranking"
+    despite reading like a preference — it only takes effect through the AI ranking
+    step, and it was moved there on purpose 2026-09-10 after being found to do nothing
+    where it was. Putting it back here would re-create exactly that problem."""
+
+    GROUPS_SHOWN = PREFERENCE_GROUP_ORDER
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.title = i18n.t("preferences.title")
+
+
+class AppSettingsScreen(SettingsScreen):
+    """How the app itself runs: your pc caddie login, how it looks (language, theme,
+    units), how often it scrapes, and whether recommendations get AI-ranked.
+
+    The counterpart to `PreferencesScreen` above. Login, Language and Theme were all
+    top-level Actions-menu entries before this — see the Field definitions for those
+    three, and `tui.TeetimeApp.get_system_commands()` for what the menu looks like
+    now that it only holds places to go."""
+
+    GROUPS_SHOWN = SETTING_GROUP_ORDER
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.title = i18n.t("settings.title")
 
 
 class SettingsApp(App[None]):

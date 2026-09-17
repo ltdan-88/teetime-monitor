@@ -4422,6 +4422,58 @@ launchd examples now use it, plus a note spelling out that `WorkingDirectory` mu
 the directory holding your `clubs/`, `data/` and `.env` — that part still matters, and
 was never explained.
 
+## Actions menu restructured: preferences split from settings (2026-09-17)
+
+Direct request: "Let me know if some restructuring of the settings menu (keybind t)
+would make sense. I noticed that we should separate preferences from settings. And
+also login would fit well into settings. Check the other menu entries as well."
+
+**The conflation was real and nameable.** One settings form held three different
+kinds of thing: what makes a good tee time *for you* (availability, weather
+thresholds, pace, priorities — all of it feeding the ★ recommendation), how the app
+*looks* (`units`), and how the app *runs* (scrape intervals, AI). The line drawn:
+**preferences describe you, settings describe the app.**
+
+**Two specific misplacements found while checking.** `units` sat inside the Weather
+group next to `avoid_rain_mm`/`avoid_wind_kph`, but it is explicitly display-only —
+the thresholds are always stored in metric regardless of it. And the three display
+settings were split across two homes: `units` in the form, Language and Theme as
+top-level Actions entries, with no principle separating them.
+
+**The result.** Actions (`t`) goes from 11 entries to 8, and every one of them is now
+a place to go or an app-level action: Find a club · Search · Heatmap · Preferences ·
+Settings · Keys · Screenshot · Quit. Login, Language and Theme moved into Settings;
+Maximize/Minimize are no longer surfaced at all (they act on "the focused widget",
+which in this single full-screen app is the one DataTable that already fills the
+space — maximizing reclaims only the switcher, legend and footer).
+
+`PreferencesScreen` holds Availability / Weather / Pace & daylight / Priorities.
+`AppSettingsScreen` holds Account / Display / Scraping / AI ranking. Both subclass the
+existing form screen, which now renders whichever field list it is given; membership is
+derived from each field's existing `group_key` rather than a new per-field flag, so the
+FIELDS list needed almost no editing.
+
+`avoid_predicted_crowd` deliberately stays under AI ranking despite reading like a
+preference — it only takes effect through the AI ranking step, and it was moved there
+on purpose 2026-09-10 after being found to do nothing where it was. Moving it back
+would re-create exactly that problem.
+
+**Two real bugs found while building it.** The compose branch handling `kind == "str"`
+hardcoded units' own metric/imperial options but matched on kind alone — the moment a
+second "str" field with real choices existed (Language, Theme), Select raised
+`InvalidSelectValueError: Illegal select value 'en'`. Fixed by checking `field.choices`
+first. And `theme.save_theme()` only *persists* — so a theme picked in the new form
+would not have shown until the next launch; `_do_edit_settings()` now re-applies the
+theme to the running app when the screen closes.
+
+New `getter`/`setter` hooks on `Field` let Language and Theme live in the form while
+persisting to `user_config.CONFIG_FILE` rather than `preferences.yaml`, and a new
+`kind="action"` renders Login as a button that opens `CredentialsScreen` (still
+independently reachable from the first-launch flow and `l` in the club browser).
+
+5 new tests covering the split, plus the language test rewritten to drive the whole
+save → apply → rebuild chain through the real form. 710 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -2010,9 +2010,11 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
 
-            app.screen.action_edit_settings()
+            # Availability is a *preference* since the 2026-09-17 split, so this
+            # opens PreferencesScreen, not the app-settings half.
+            app.screen.action_edit_preferences()
             await pilot.pause()
-            assert isinstance(app.screen, tui.SettingsScreen)
+            assert isinstance(app.screen, tui.PreferencesScreen)
 
             widget = app.screen.query_one("#field-availability-min_open_spots")
             widget.value = "3"
@@ -2118,7 +2120,7 @@ def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkey
 
             app.screen.action_edit_settings()
             await pilot.pause()
-            assert isinstance(app.screen, tui.SettingsScreen)
+            assert isinstance(app.screen, tui.AppSettingsScreen)
             await pilot.click("#save")
             await pilot.pause()
             await pilot.press("escape")  # not "q" -- see the other e->settings test above
@@ -3861,9 +3863,24 @@ def test_app_switch_language_command_rebuilds_overview_screen_in_german(tmp_path
             await _reach_overview(app, pilot)
             assert i18n.get_language() == "en"  # default, per the autouse fixture
 
-            app.action_switch_language()
+            # Language is a Settings field since the 2026-09-17 menu restructure,
+            # not its own Actions entry -- so switching it goes through the form:
+            # pick it, save, close. Closing is what re-applies the theme and
+            # rebuilds the overview (see TeetimeApp._do_edit_settings()).
+            app.screen.action_edit_settings()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.AppSettingsScreen)
+            app.screen.query_one("#field-__language__", Select).value = "de"
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")  # out of the Actions menu it reopened
             await pilot.pause()
 
+            assert i18n.get_language() == "de"
+            assert isinstance(app.screen, tui.OverviewScreen)
             table = app.screen.query_one(DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
                 "Datum/Zeit", "Wetter", "Temp\n(°C)", "Regen\n(%/mm)", "Wind\n(km/h)",
@@ -4506,31 +4523,44 @@ def test_get_system_commands_on_overview_includes_every_screen_action(tmp_path, 
             await _reach_overview(app, pilot)
             titles = [command.title for command in app.get_system_commands(app.screen)]
             assert i18n.t("binding.settings") in titles
+            assert i18n.t("binding.preferences") in titles
             assert i18n.t("binding.switch") in titles
             assert i18n.t("binding.search") in titles
             assert i18n.t("binding.heatmap") in titles
-            assert i18n.t("binding.login") in titles
+            # Login, Language and Theme are Settings fields now, not menu entries
+            # (2026-09-17); Maximize/Minimize aren't surfaced at all.
+            assert i18n.t("binding.login") not in titles
+            assert i18n.t("binding.theme") not in titles
+            assert "Maximize" not in titles and "Minimize" not in titles
 
     _run(scenario())
 
 
-def test_action_edit_credentials_pushes_credentials_screen(tmp_path, monkeypatch):
-    # Direct request 2026-09-16: "Can you please make login screen accessible
-    # from actions menu?" -- CredentialsScreen was only reachable two menu
-    # levels deep before this (Actions -> Find a club -> `l`).
+def test_login_is_a_settings_field_not_an_actions_entry(tmp_path, monkeypatch):
+    # Direct request 2026-09-17: "login would fit well into settings." It was its
+    # own Actions entry from 2026-09-16 until then; now it's a button in Settings
+    # under "Account", which opens the same CredentialsScreen.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
     monkeypatch.setattr(
         tui.club_config,
         "load_club_config",
-        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "18 Loch Tee 1"},
     )
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
-            app.screen.action_edit_credentials()
+            assert not hasattr(app.screen, "action_edit_credentials")
+
+            app.screen.action_edit_settings()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.AppSettingsScreen)
+
+            await pilot.click("#field-__login__")
             await pilot.pause()
             assert isinstance(app.screen, tui.CredentialsScreen)
 
@@ -4559,11 +4589,14 @@ def test_get_system_commands_places_this_apps_own_actions_before_textuals_base_c
                 i18n.t("binding.switch"),
                 i18n.t("binding.search"),
                 i18n.t("binding.heatmap"),
-                i18n.t("binding.login"),
+                i18n.t("binding.preferences"),
+                i18n.t("binding.settings"),
             ]
+            # Theme is no longer a menu entry (moved into Settings -> Display,
+            # 2026-09-17), so Keys is the first of Textual's own base commands.
             for title in own_actions:
-                assert titles.index(title) < titles.index(i18n.t("binding.theme"))
-            assert titles.index(i18n.t("binding.theme")) < titles.index(i18n.t("binding.quit"))
+                assert titles.index(title) < titles.index(i18n.t("binding.keys"))
+            assert titles.index(i18n.t("binding.keys")) < titles.index(i18n.t("binding.quit"))
             # Quit is always last -- an app-wide convention, not conditional
             # on which base commands (Minimize/Maximize) happen to apply.
             assert titles[-1] == i18n.t("binding.quit")
@@ -4573,9 +4606,10 @@ def test_get_system_commands_places_this_apps_own_actions_before_textuals_base_c
 
 def test_get_system_commands_translates_textuals_own_base_commands(tmp_path, monkeypatch):
     # Direct same-day follow-up: "can you please translate everything in
-    # actions screen?" -- Theme/Keys/Screenshot/Quit used to pass straight
-    # through in whatever language Textual itself ships them in (English),
-    # a gap the module docstring used to explicitly disclose and leave alone.
+    # actions screen?" -- Keys/Screenshot/Quit used to pass straight through in
+    # whatever language Textual itself ships them in (English), a gap the module
+    # docstring used to explicitly disclose and leave alone. (Theme was in this
+    # set too until 2026-09-17, when it moved into Settings -> Display.)
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
     i18n.set_language("de")
@@ -4585,9 +4619,9 @@ def test_get_system_commands_translates_textuals_own_base_commands(tmp_path, mon
             async with app.run_test() as pilot:
                 await pilot.pause()
                 titles = [command.title for command in app.get_system_commands(app.screen)]
-                assert "Design" in titles  # Theme
+                assert "Tasten" in titles  # Keys
                 assert "Beenden" in titles  # Quit
-                assert "Theme" not in titles
+                assert "Keys" not in titles
                 assert "Quit" not in titles
 
         _run(scenario())

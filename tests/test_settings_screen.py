@@ -8,6 +8,8 @@ from src.recommend import DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT
 from src.scrape_once import DEFAULT_SCRAPE_INTERVAL_MINUTES
 from src.settings_screen import (
     FIELDS,
+    AppSettingsScreen,
+    PreferencesScreen,
     SettingsScreen,
     config_to_widget_values,
     widget_values_to_config,
@@ -517,7 +519,14 @@ def test_settings_screen_groups_fields_into_labeled_sections(tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause()
             titles = {str(c.title) for c in app.screen.query(Collapsible)}
-            assert titles == {"Availability", "Weather", "Priorities", "AI ranking", "Timing & scraping"}
+            # The bare SettingsScreen base still shows every group (that's what
+            # `python -m src.settings_screen` gives you); PreferencesScreen and
+            # AppSettingsScreen each show their own half -- see the tests for the
+            # 2026-09-17 split further down.
+            assert titles == {
+                "Availability", "Weather", "Pace & daylight", "Priorities",
+                "Account", "Display", "Scraping", "AI ranking",
+            }
             # Expanded by default -- these are settings you're here to look at.
             assert all(not c.collapsed for c in app.screen.query(Collapsible))
             # A field genuinely lives inside its labeled group, not just anywhere.
@@ -788,3 +797,117 @@ def test_settings_screen_cancel_button_dismisses_not_quits(tmp_path):
             assert len(app.screen_stack) == 1
 
     asyncio.run(scenario())
+
+
+# --- The 2026-09-17 preferences/settings split. Direct request: "we should separate
+# preferences from settings. And also login would fit well into settings." ---------
+
+
+def _groups(screen):
+    from textual.widgets import Collapsible
+
+    return {str(c.title) for c in screen.query(Collapsible)}
+
+
+def test_preferences_screen_shows_only_the_golf_preferences(tmp_path):
+    async def scenario():
+        app = _HostApp(PreferencesScreen(tmp_path / "preferences.yaml"))
+        async with app.run_test(size=(100, 60)) as pilot:
+            await pilot.pause()
+            assert _groups(app.screen) == {"Availability", "Weather", "Pace & daylight", "Priorities"}
+            # A real preference is here...
+            assert app.screen.query(f"#{_id('availability', 'min_open_spots')}")
+            # ...and nothing about how the app itself runs is.
+            assert not app.screen.query("#field-units")
+            assert not app.screen.query("#field-__login__")
+            assert not app.screen.query("#field-__language__")
+
+    asyncio.run(scenario())
+
+
+def test_app_settings_screen_shows_only_the_app_settings(tmp_path):
+    async def scenario():
+        app = _HostApp(AppSettingsScreen(tmp_path / "preferences.yaml"))
+        async with app.run_test(size=(100, 60)) as pilot:
+            await pilot.pause()
+            assert _groups(app.screen) == {"Account", "Display", "Scraping", "AI ranking"}
+            # Login, language, theme and units all live together now.
+            assert app.screen.query("#field-__login__")
+            assert app.screen.query("#field-__language__")
+            assert app.screen.query("#field-__theme__")
+            assert app.screen.query("#field-units")
+            # No golf preferences here.
+            assert not app.screen.query(f"#{_id('availability', 'min_open_spots')}")
+
+    asyncio.run(scenario())
+
+
+def test_saving_one_screen_never_discards_the_other_screens_values(tmp_path):
+    """Both screens load and re-save the same one preferences file, so a save from
+    either must carry the other's keys through untouched rather than writing out only
+    its own half."""
+    preferences_file = tmp_path / "preferences.yaml"
+    global_preferences.save_preferences({"availability": {"min_open_spots": 3}}, preferences_file)
+
+    async def scenario():
+        from textual.widgets import Select
+
+        app = _HostApp(AppSettingsScreen(preferences_file))
+        async with app.run_test(size=(100, 60)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field-units", Select).value = "imperial"
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["units"] == "imperial"  # what this screen edited
+    assert saved["availability"]["min_open_spots"] == 3  # the other screen's, preserved
+
+
+def test_language_and_theme_save_outside_the_preferences_file(tmp_path, monkeypatch):
+    """Both persist to user_config.CONFIG_FILE, not preferences.yaml -- so their
+    `__language__`/`__theme__` placeholder paths must never leak into the saved
+    preferences dict."""
+    from textual.widgets import Select
+
+    from src import theme as theme_module
+    from src import user_config
+
+    preferences_file = tmp_path / "preferences.yaml"
+    config_file = tmp_path / "user-config"
+    monkeypatch.setattr(user_config, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(theme_module, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(i18n, "CONFIG_FILE", config_file)
+
+    async def scenario():
+        app = _HostApp(AppSettingsScreen(preferences_file))
+        async with app.run_test(size=(100, 60)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#field-__language__", Select).value = "de"
+            app.screen.query_one("#field-__theme__", Select).value = "gruvbox"
+            await pilot.pause()
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    assert i18n.load_saved_language(config_file) == "de"
+    assert theme_module.load_saved_theme(config_file) == "gruvbox"
+    saved = global_preferences.load_preferences(preferences_file)
+    assert not [key for key in saved if key.startswith("__")]
+
+
+def test_login_button_is_the_only_action_field(tmp_path):
+    # An "action" field has no value to round-trip -- it must be skipped by both
+    # config_to_widget_values() and widget_values_to_config() rather than KeyError-ing.
+    from src.settings_screen import config_to_widget_values, widget_values_to_config
+
+    login = next(f for f in FIELDS if f.kind == "action")
+    assert login.label_key == "settings.field.login"
+
+    values = config_to_widget_values({}, [login])
+    assert values == {}
+    assert widget_values_to_config({"units": "metric"}, {}, [login]) == {"units": "metric"}
