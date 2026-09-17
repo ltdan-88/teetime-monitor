@@ -4286,6 +4286,72 @@ New test: simulates the post-failure single-entry dropdown state directly,
 triggers `_finish_periodic_scrape()`, confirms all three of the real club's
 courses show up. 698 tests passing, `ruff check` clean.
 
+## A mis-parsed course name was silently cancelling a real booking (2026-09-17)
+
+Found while pulling real data for something unrelated (a design study): the live
+`confirmed_bookings` table held 13 rows whose `course` was the literal string
+`"Not cancelable"` — an English action label from the booking row, stored as a
+course name.
+
+**Root cause.** `_parse_my_reservations_html()` read the course as `lines[-1]` of
+the Details cell. The cell's *leading* order is stable (date/time, club, course),
+but its trailing content is not: on some responses pc caddie appends the row's
+action labels into that same cell instead of keeping them in their own `<td>`s,
+and the last one then reads as the course. The variant is intermittent —
+reproducing the fetch by hand returned the clean German layout, while the damage
+in the database is English — so it appears to come from one backend in a pool
+rather than a permanent markup change.
+
+**Why it mattered far more than a bad string.** A wrong course name means the
+*real* booking is absent from the live list, so
+`_reconcile_cancelled_reservations()` immediately writes a `time=None` "cancelled"
+sentinel against it. The real timestamps show exactly that, 4ms apart:
+
+    23:27:34.521  course='Not cancelable'  time='15:30'   <- mis-parse
+    23:27:34.524  course='9 Loch Tee 1'    time=None      <- real booking "cancelled"
+
+For roughly three hours (rows 34–44) `load_confirmed_booking()` returned the
+`time=None` row, so the overview showed **no 📌 marker at all** for a booking that
+was never cancelled. At 02:29 a pass parsed correctly again and wrote the
+mirror-image sentinel against the fake course. The booking silently vanished and
+reappeared.
+
+**Two fixes.** The course is now read as `lines[2]`, counting from the front,
+which is stable against whatever trails it. And `known_courses` (the club's real
+course list, which `scrape_due_for_club()` already fetches) is passed through as a
+guard: a course name that isn't one the club has raises `NotImplementedError`,
+which the v0.21.0 machinery already surfaces as a visible "parsing" failure banner
+rather than storing silently. `fetch_course_aliases()` moved above the sync call to
+make that list available — deliberately *without* gating the sync on it, so a
+failed course fetch still syncs reservations unvalidated exactly as before.
+
+Mutation-tested: restoring `lines[-1]` reproduces the exact `"Not cancelable"`
+corruption from the live database. Verified against the real site with the guard
+active. The 13 corrupted rows and the 1 false cancellation sentinel were deleted
+from the live database (backed up first to `data/0497758.db.bak-before-cleanup`).
+
+4 new tests in `test_scraper.py`. 701 passing, `ruff check` clean.
+
+## Playwright dropped — a dependency that outlived its last import (2026-09-17)
+
+`pyproject.toml` still required `playwright>=1.45`, and both READMEs plus the
+Homebrew formula's caveats told every user to download a Chromium binary after
+install. Nothing had imported it for a long time: the original spec
+(`docs/spec-v1.md`) assumed a headless browser would be needed, but walking the
+real site 2026-09-06 established that the tee sheet is public HTML and the login
+is an ordinary form POST with no JS and no CSRF token — both plain `httpx` since
+then. The only surviving references in `src/` were docstrings *explaining that it
+isn't needed*.
+
+So the install instructions were not merely stale, they were actively wrong: a
+large package plus a ~150MB browser download for something no code path ever
+launched. Removed from `pyproject.toml`, both READMEs, and the formula's caveats
+and comments. Historical references in `ROADMAP.md` and `docs/spec-v1.md` stay —
+they're the record of how the conclusion was reached.
+
+Verified by building a clean venv from the package with no playwright installed
+and performing a real login and "My Reservations" read against the live site.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
