@@ -12,3 +12,6 @@ cache/
 *.sqlite3
 .DS_Store
 data/
+
+# Built prototype bundle -- rebuild with prototypes/macos-swift/build.sh
+prototypes/macos-swift/TeetimeMonitor.app/
