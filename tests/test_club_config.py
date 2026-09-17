@@ -3,6 +3,7 @@ import importlib
 import dotenv
 
 from src import club_config as club_config_module
+from src import paths
 from src.club_config import (
     list_clubs,
     load_club_config,
@@ -115,30 +116,31 @@ def test_module_import_loads_dotenv(monkeypatch):
     assert len(calls) == 1
 
 
-def test_module_import_resolves_dotenv_path_via_cwd(monkeypatch):
-    # Regression test for a second, deeper instance of the exact gap the test above
-    # already covers, found live 2026-09-10: plain load_dotenv() with no path
-    # argument searches upward from the *calling frame's own file location*, not the
-    # process's working directory -- for a real installed package (Homebrew, any pip
-    # install), that frame is this very module, sitting deep in site-packages, and
-    # walking up from there never reaches anywhere near a user's real .env. Invisible
-    # in every bit of dev-repo testing this project ever did (pytest, a bare
-    # `python -c`), since both fall back to (or coincidentally walk up through) a
-    # directory that happens to have its own .env -- neither resembles how the real
-    # installed binary actually runs. Confirmed live: the real Homebrew-installed
-    # app, launched from a real user's home directory with real working credentials
-    # already sitting in ~/.env, showed the credentials screen on every single
-    # launch regardless -- os.environ never actually saw them. `find_dotenv
-    # (usecwd=True)` searches from the process's actual cwd instead -- verified here
-    # by checking find_dotenv() is actually asked for usecwd=True, and that its
-    # result (not some other path) is what gets handed to load_dotenv().
-    find_dotenv_calls = []
-    monkeypatch.setattr(dotenv, "find_dotenv", lambda *a, **k: find_dotenv_calls.append(k) or "/fake/.env")
+def test_module_import_loads_the_one_fixed_dotenv(monkeypatch):
+    # Superseded the CWD-relative version of this test on 2026-09-17, when state moved
+    # to fixed locations (see paths.py). The bug history is worth keeping: plain
+    # load_dotenv() searched upward from this module's *own file location*, which for
+    # an installed package is deep inside site-packages and never reaches a user's
+    # real .env -- confirmed live, the Homebrew build showed the credentials screen on
+    # every launch even with working credentials present. That was fixed 2026-09-10
+    # with find_dotenv(usecwd=True), which searched from the process's working
+    # directory instead.
+    #
+    # Working directory is no longer a usable anchor either: a GUI front end launched
+    # from Finder gets cwd = "/" (measured), so there is nothing to search from. Both
+    # failure modes are closed by not searching at all -- load exactly paths.ENV_FILE.
     load_dotenv_calls = []
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: load_dotenv_calls.append((a, k)))
     importlib.reload(club_config_module)
-    assert find_dotenv_calls == [{"usecwd": True}]
-    assert load_dotenv_calls == [(("/fake/.env",), {})]
+    assert load_dotenv_calls == [((paths.ENV_FILE,), {})]
+
+
+def test_env_file_is_not_relative_to_the_working_directory():
+    """The whole point of the move: resolving state must not depend on where the
+    process was started from."""
+    assert paths.ENV_FILE.is_absolute()
+    assert paths.CLUBS_DIR.is_absolute()
+    assert paths.DATA_DIR.is_absolute()
 
 
 # --- Favorites (2026-09-07): "saving clubs makes only sense in the sense of

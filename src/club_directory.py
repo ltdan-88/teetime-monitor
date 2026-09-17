@@ -47,10 +47,10 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import club_config
+from . import club_config, paths
 from .scraper import fetch_club_directory
 
-DATA_DIR = Path("data")
+DATA_DIR = paths.DATA_DIR  # ~/.local/share/teetime-monitor -- see paths.py
 CACHE_FILENAME = "club-directory.json"
 
 # Bundled with the app itself (see module docstring's "#4" note) -- not under

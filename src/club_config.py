@@ -60,13 +60,18 @@ import re
 from pathlib import Path
 
 import yaml
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
 
-from . import geocode
+from . import geocode, paths
 
-load_dotenv(find_dotenv(usecwd=True))
+# Loads the one fixed `.env` (paths.ENV_FILE) rather than hunting for one relative
+# to the working directory (2026-09-17, see paths.py): a GUI front end launched from
+# Finder has `cwd = /`, so a CWD-relative search could never find real credentials.
+# `load_dotenv()` still never overrides an already-set environment variable, so an
+# export in your shell continues to win over the file.
+load_dotenv(paths.ENV_FILE)
 
-CLUBS_DIR = Path("clubs")
+CLUBS_DIR = paths.CLUBS_DIR  # ~/.config/teetime-monitor/clubs -- see paths.py
 EXAMPLE_FILENAME = "club.example.yaml"
 
 _SLUG_INVALID_CHARS = re.compile(r"[^a-z0-9]+")

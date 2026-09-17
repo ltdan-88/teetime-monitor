@@ -4553,6 +4553,59 @@ re-scrape needed.
 and that the fallback never crosses a course or date boundary. Mutation-tested. 719
 passing, `ruff check` clean.
 
+## State moved to fixed locations, so a GUI can find it too (2026-09-17)
+
+Direct request, after the macOS prototype proved a hybrid was viable: make the project
+usable from both a Swift app and the terminal at once. Measuring the obstacle first
+settled the design — an app launched the way Finder, Launchpad or Spotlight launches
+it gets **`cwd = "/"`**, so a double-clicked GUI could never find `./clubs`, `./data`
+or `./.env`. The working-directory convention was the blocker, not packaging.
+
+Three options were weighed (fixed location / app remembers a folder / terminal-launch
+only); this is option one.
+
+**New layout**, following the XDG split the app already half-used — `global_
+preferences.py` and `user_config.py` have written to `~/.config/teetime-monitor/`
+since 2026-09-08:
+
+    ~/.config/teetime-monitor/        clubs/<slug>.yaml, .env, preferences.yaml, config
+    ~/.local/share/teetime-monitor/   <club_id>.db, club-directory.json
+
+New `src/paths.py` owns the resolution; the four consumer constants
+(`club_config.CLUBS_DIR`, `scrape_once.DATA_DIR`, `club_directory.DATA_DIR`,
+`env_file.ENV_FILE`) now point at it and are still read at call time, so every existing
+`monkeypatch.setattr` keeps working. `TEETIME_MONITOR_CONFIG_DIR` /
+`TEETIME_MONITOR_DATA_DIR` override both, matching the existing `TEETIME_MONITOR_THEME`
+convention.
+
+`club_config` also stopped hunting for `.env`. It went from bare `load_dotenv()`
+(searched from this module's own file location — useless once installed) to
+`find_dotenv(usecwd=True)` on 2026-09-10, and now loads exactly `paths.ENV_FILE`. Both
+failure modes are closed by not searching at all.
+
+**Migration copies, never moves.** A database here is the only copy of scrape history
+that pc caddie itself cannot reproduce, so the old directory stays untouched as a
+backup. Skips anything already at the destination (so it is idempotent and completes a
+partial run), skips `club.example.yaml` (a repo template, not a saved club), skips
+non-state files like `-wal` journals, and chmods the copied `.env` to 600 since the old
+layout never enforced anything. Runs on first launch of either entry point.
+
+**A real test-isolation leak, caught by parking the live directories.** The first
+version of the conftest guard patched only the four consumer constants — but
+`tui.main()` and `scrape_once.main()` call `paths.needs_migration()`/`migrate_from()`
+*directly*, so the three tests that invoke `main()` ran a real migration into this
+developer's live install, copying every club and all five databases for real. Before
+the move the same mistake would have written into the repo checkout: messy but visible
+in `git status`. Afterwards it writes silently into a real install, which is strictly
+worse. Found by moving the real directories aside and re-running the suite to watch
+them reappear; the guard now patches `paths` as well.
+
+The Swift prototype was repointed at the same location and verified reading the real
+migrated database from `cwd = /` — the hybrid working end to end.
+
+13 new tests in `test_paths.py`, plus the hardened guard. 733 passing, `ruff check`
+clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

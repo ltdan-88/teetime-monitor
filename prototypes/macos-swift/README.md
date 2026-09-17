@@ -36,17 +36,20 @@ dependencies:
 
 ```bash
 ./build.sh
-open TeetimeMonitor.app          # resolves ./data/*.db from the working directory
+open TeetimeMonitor.app
 ```
 
-Or point it at a specific database:
+It reads `~/.local/share/teetime-monitor/<club_id>.db` — the same fixed location the
+Python side uses since v0.31.0 (`src/paths.py`), honouring `TEETIME_MONITOR_DATA_DIR`
+the same way. That shared convention is what makes the GUI possible at all: an app
+launched from Finder gets `cwd = "/"`, so nothing working-directory-relative could
+ever be found.
+
+Point it at a copy instead with `--db`:
 
 ```bash
-./TeetimeMonitor.app/Contents/MacOS/TeetimeMonitor --db /path/to/data/0497758.db
+./TeetimeMonitor.app/Contents/MacOS/TeetimeMonitor --db /path/to/0497758.db
 ```
-
-Run it from your teetime-monitor directory (the one with `data/`) so it finds a
-database, same convention the Python app uses.
 
 ## What building it actually taught us
 
