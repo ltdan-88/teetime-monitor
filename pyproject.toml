@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.27.0"
+version = "0.28.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -30,6 +30,14 @@ dev = [
 
 [project.scripts]
 teetime-monitor = "src.tui:main"
+# The unattended scraper the README's launchd agent runs (added 2026-09-17). Previously
+# that agent invoked `python -m src.scrape_once`, which is a real trap: `-m` prepends the
+# *working directory* to sys.path, and the agent's working directory has to be wherever
+# your clubs/, data/ and .env live -- so if that happens to be a source checkout, the
+# background scraper silently runs the working copy rather than the installed release,
+# whatever state it's in mid-edit. A console script is resolved from the installed
+# package instead, so the two can't be confused.
+teetime-monitor-scrape = "src.scrape_once:main"
 
 [build-system]
 requires = ["setuptools>=68"]
