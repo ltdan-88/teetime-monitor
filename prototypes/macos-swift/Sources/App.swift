@@ -160,13 +160,16 @@ struct DayCard: View {
 /// `ObservableObject`/`@Published`/`@StateObject` trio instead. Identical behaviour,
 /// and it builds with nothing but `swiftc`. See README.md.
 final class OverviewModel: ObservableObject {
+    @Published var clubs: [(path: String, id: String, name: String, lastScrape: String)] = []
+    @Published var clubPath: String = ""
     @Published var courses: [String] = []
     @Published var course: String = ""
     @Published var days: [Day] = []
     @Published var expanded: Set<String> = []
 
-    let dbPath: String
-    init(dbPath: String) { self.dbPath = dbPath }
+    var clubName: String {
+        clubs.first { $0.path == clubPath }?.name ?? "teetime-monitor"
+    }
 
     private var today: String {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
@@ -174,41 +177,64 @@ final class OverviewModel: ObservableObject {
     }
 
     func load() {
-        courses = Store.courses(dbPath: dbPath)
-        if course.isEmpty { course = courses.first ?? "" }
+        clubs = Store.clubs()
+        // Newest-scraped first (see Store.clubs) -- picking alphabetically landed on
+        // an empty leftover test database and showed "no scraped days" forever.
+        if clubPath.isEmpty { clubPath = clubs.first?.path ?? "" }
+        loadCourses()
+    }
+
+    func loadCourses() {
+        guard !clubPath.isEmpty else { courses = []; days = []; return }
+        courses = Store.courses(dbPath: clubPath)
+        if !courses.contains(course) { course = courses.first ?? "" }
         reload()
     }
 
     func reload() {
-        guard !course.isEmpty else { days = []; return }
-        days = Store.days(dbPath: dbPath, course: course, from: today)
+        guard !clubPath.isEmpty, !course.isEmpty else { days = []; return }
+        days = Store.days(dbPath: clubPath, course: course, from: today)
+        expanded = []
     }
 }
 
 struct ContentView: View {
-    let clubName: String
     @StateObject var model: OverviewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(clubName).font(.title2).bold()
+                    Text(model.clubName).font(.title2).bold()
                     Text("reading the scraper's own database — nothing is fetched here")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Picker("", selection: $model.course) {
-                    ForEach(model.courses, id: \.self) { Text($0).tag($0) }
+                VStack(alignment: .trailing, spacing: 5) {
+                    Picker("", selection: $model.clubPath) {
+                        ForEach(model.clubs, id: \.path) { club in
+                            Text(club.lastScrape.isEmpty ? "\(club.name) — never scraped" : club.name)
+                                .tag(club.path)
+                        }
+                    }
+                    .labelsHidden().frame(width: 230)
+                    .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
+
+                    Picker("", selection: $model.course) {
+                        ForEach(model.courses, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 230)
+                    .onChange(of: model.course) { _, _ in model.reload() }
                 }
-                .labelsHidden().frame(width: 190)
-                .onChange(of: model.course) { _, _ in model.reload() }
             }
 
             if model.days.isEmpty {
-                ContentUnavailableView("No scraped days yet",
-                                       systemImage: "calendar.badge.exclamationmark",
-                                       description: Text("Run the scraper, then reopen."))
+                ContentUnavailableView(
+                    "Nothing scraped for this course yet",
+                    systemImage: "calendar.badge.exclamationmark",
+                    description: Text(model.clubs.isEmpty
+                        ? "No club databases found in ~/.local/share/teetime-monitor."
+                        : "Pick another club or course above, or run teetime-monitor-scrape."))
                     .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
@@ -219,39 +245,17 @@ struct ContentView: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 600, minHeight: 540)
         .onAppear { model.load() }
     }
 }
 
 @main
 struct TeetimeMonitorPrototype: App {
-    /// Resolves the same fixed location the Python side uses (see `src/paths.py`):
-    /// `~/.local/share/teetime-monitor/<club_id>.db`, overridable by
-    /// `TEETIME_MONITOR_DATA_DIR`. That shared convention is what makes a GUI possible
-    /// at all -- an app launched from Finder gets `cwd = "/"`, so nothing
-    /// working-directory-relative could ever be found. `--db <path>` still wins, for
-    /// pointing at a copy without touching your real state.
-    private static func resolveDB() -> (String, String) {
-        let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--db"), i + 1 < args.count {
-            return (args[i + 1], (args[i + 1] as NSString).lastPathComponent
-                .replacingOccurrences(of: ".db", with: ""))
-        }
-        let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_DATA_DIR"]
-        let dir = (env as NSString?)?.expandingTildeInPath
-            ?? (NSHomeDirectory() as NSString).appendingPathComponent(".local/share/teetime-monitor")
-        let dbs = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
-            .filter { $0.hasSuffix(".db") }.sorted()
-        guard let first = dbs.first else { return ("", "no database found") }
-        return ("\(dir)/\(first)", first.replacingOccurrences(of: ".db", with: ""))
-    }
-
     var body: some Scene {
-        let (path, name) = Self.resolveDB()
         WindowGroup("teetime-monitor") {
-            ContentView(clubName: name, model: OverviewModel(dbPath: path))
+            ContentView(model: OverviewModel())
         }
-        .defaultSize(width: 620, height: 640)
+        .defaultSize(width: 660, height: 680)
     }
 }

@@ -78,6 +78,69 @@ enum Store {
         while sqlite3_step(stmt) == SQLITE_ROW { row(stmt) }
     }
 
+    /// One entry per club database found, newest-scraped first.
+    ///
+    /// Picking the *alphabetically* first database was a real bug (found 2026-09-17,
+    /// straight from a "no luck" report): this install has five, and the first by name
+    /// is `0000001.db` -- a leftover test club with no scrapes at all -- so the app
+    /// showed "No scraped days yet" permanently no matter what the scraper did.
+    /// Ordering by the most recent scrape puts the club you actually use first, and
+    /// listing them all makes the rest reachable rather than hidden.
+    ///
+    /// The display name comes from the club's own YAML in the config directory when
+    /// one exists (`name:`), read with a plain line scan rather than a YAML dependency
+    /// -- one key, one line, and a wrong guess just means showing the numeric id.
+    static func clubs() -> [(path: String, id: String, name: String, lastScrape: String)] {
+        let home = NSHomeDirectory() as NSString
+        let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_DATA_DIR"]
+        let dataDir = (env as NSString?)?.expandingTildeInPath
+            ?? home.appendingPathComponent(".local/share/teetime-monitor")
+        let configEnv = ProcessInfo.processInfo.environment["TEETIME_MONITOR_CONFIG_DIR"]
+        let clubsDir = ((configEnv as NSString?)?.expandingTildeInPath
+            ?? home.appendingPathComponent(".config/teetime-monitor")) + "/clubs"
+
+        var names: [String: String] = [:]
+        for file in (try? FileManager.default.contentsOfDirectory(atPath: clubsDir)) ?? []
+        where file.hasSuffix(".yaml") {
+            guard let text = try? String(contentsOfFile: "\(clubsDir)/\(file)", encoding: .utf8)
+            else { continue }
+            var id: String?, name: String?
+            for line in text.split(separator: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if t.hasPrefix("club_id:") {
+                    id = t.dropFirst("club_id:".count).trimmingCharacters(in: CharacterSet(charactersIn: " '\"")) 
+                } else if t.hasPrefix("name:") {
+                    name = t.dropFirst("name:".count).trimmingCharacters(in: CharacterSet(charactersIn: " '\""))
+                }
+            }
+            // `name:` is optional in a club YAML (a club favorited before the
+            // directory search could supply one has none), so fall back to the
+            // filename slug, prettified -- same "name or slug" rule tui.py's own
+            // _favorite_clubs() uses. Showing a bare numeric id is the last resort.
+            if let id {
+                let slug = file.replacingOccurrences(of: ".yaml", with: "")
+                    .replacingOccurrences(of: "-", with: " ")
+                    .capitalized
+                names[id] = name ?? slug
+            }
+        }
+
+        var out: [(String, String, String, String)] = []
+        for file in ((try? FileManager.default.contentsOfDirectory(atPath: dataDir)) ?? [])
+            .filter({ $0.hasSuffix(".db") }) {
+            let path = "\(dataDir)/\(file)"
+            let id = file.replacingOccurrences(of: ".db", with: "")
+            var last = ""
+            var db: OpaquePointer?
+            if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db {
+                query(db, "SELECT MAX(scraped_at) FROM scrapes") { s in last = column(s, 0) ?? "" }
+                sqlite3_close(db)
+            }
+            out.append((path, id, names[id] ?? id, last))
+        }
+        return out.sorted { $0.3 > $1.3 }.map { (path: $0.0, id: $0.1, name: $0.2, lastScrape: $0.3) }
+    }
+
     static func courses(dbPath: String) -> [String] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
