@@ -62,6 +62,7 @@ accumulating whether or not the TUI is ever opened on a given day, closing out t
 scoped.
 """
 
+import sys
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from pathlib import Path
@@ -498,7 +499,20 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     return changes
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    """The unattended entry point (`teetime-monitor-scrape`, and the launchd agent).
+
+    `--force` bypasses `_should_scrape()`'s per-course/date interval, the same override
+    the TUI's own `r` key has always had. Added 2026-09-17 once a GUI front end grew a
+    Refresh button: without it, pressing Refresh usually did nothing at all — the
+    throttle correctly decided nothing was due — which is indistinguishable from the
+    button being broken. That is exactly the invisible-failure shape this project has
+    been bitten by before (see the v0.21.0 reservations-sync banner), so the fix is to
+    let an explicit human request actually mean "now", rather than to explain the
+    silence afterwards.
+    """
+    argv = argv if argv is not None else sys.argv[1:]
+    force = "--force" in argv or "-f" in argv
     # One-time move off the old working-directory layout (2026-09-17, see paths.py).
     # The launchd agent still runs with a WorkingDirectory set, so an install that
     # predates the move migrates itself on its next scheduled pass without anyone
@@ -509,7 +523,7 @@ def main() -> None:
     paths.ensure_dirs()
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
-        scrape_due_for_club(slug, config)
+        scrape_due_for_club(slug, config, force=force)
 
 
 if __name__ == "__main__":
