@@ -65,7 +65,6 @@ Alles oben funktioniert ohne jede dieser Zutaten. Jede bringt nur etwas dazu:
 | Zusatz | Bringt |
 |---|---|
 | pc-caddie-Login (`l` in der Club-Suche) | Clubs nach Namen durchsuchen, und eigene Buchungen automatisch übernehmen statt sie selbst zu markieren |
-| Chromium für Playwright (einmalig, Befehl steht in `brew info`) | Wird *nur* für diesen Login gebraucht — zum Lesen der Startliste läuft nie ein Browser |
 | [Anthropic](https://www.anthropic.com/)-API-Key | KI-bewertete Empfehlungen (standardmäßig aus, kostenpflichtig pro Empfehlung) |
 
 **Voraussetzungen:** macOS oder Linux und [Homebrew](https://brew.sh/).

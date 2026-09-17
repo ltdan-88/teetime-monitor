@@ -460,12 +460,38 @@ def _holes_from_course_label(course: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
+def _parse_my_reservations_html(html: str, known_courses: list[str] | None = None) -> list[ConfirmedBooking]:
     """Parse "My Reservations" into ConfirmedBooking rows. Confirmed live against a
     real demo booking (2026-09-07) as well as the empty state (2026-09-06 walkthrough,
     "No bookings found") — see module docstring for the confirmed row shape. Raises
     NotImplementedError for anything that doesn't match either confirmed shape, rather
-    than guessing at unseen markup and silently dropping or mis-parsing a real booking."""
+    than guessing at unseen markup and silently dropping or mis-parsing a real booking.
+
+    **The course is read as `lines[2]`, counting from the front — not `lines[-1]`**
+    (2026-09-17, a real corruption found in this developer's own live database while
+    pulling data for something unrelated). The Details cell's confirmed *leading* order
+    is stable — date/time line, club name, course name — but what follows the course is
+    not: on some responses pc caddie appends the row's own action labels into that same
+    cell instead of keeping them in their own `<td>`s, and `lines[-1]` then reads the
+    last action label as the course name. Caught live as literal
+    `course="Not cancelable"` rows (English action text, on a site otherwise serving
+    German — the variant appears intermittently, presumably from one backend in a pool).
+
+    That mis-parse was not cosmetic. A wrong course name means the *real* booking looks
+    absent from the live list, so `scrape_once._reconcile_cancelled_reservations()`
+    immediately writes a `time=None` "cancelled" sentinel for it — confirmed in the real
+    data, 4ms apart, and the user's genuine Saturday booking then showed no 📌 marker at
+    all for roughly three hours until a later pass happened to parse correctly again and
+    flip the corruption the other way.
+
+    `known_courses` (this club's own real course list, from `fetch_course_aliases()`) is
+    the second guard: when supplied, a parsed course that isn't one of them raises rather
+    than being stored. The module docstring has always recorded that this field is
+    "confirmed to be exactly one of `COURSE_ALIASES`'s own keys" — this actually enforces
+    it, so the next unforeseen markup variant surfaces as a visible sync-failure banner
+    (see `scrape_once._report_reservations_sync_failure()`) instead of silently
+    cancelling a real booking. Optional, so the pure parser stays testable against
+    fixture HTML with no club context."""
     if "No bookings found" in html or "Keine Buchungen gefunden" in html:
         return []
 
@@ -484,13 +510,20 @@ def _parse_my_reservations_html(html: str) -> list[ConfirmedBooking]:
         if details_cell is None:
             continue  # the header row uses <th>, not <td> -- not a booking row
         lines = list(details_cell.stripped_strings)
-        if len(lines) < 2:
+        if len(lines) < 3:
             raise NotImplementedError(
                 f"scrape_my_reservations() got an unrecognized Details cell: {lines!r} "
-                "— see scraper.py's module docstring."
+                "— expected at least a date/time line, a club name and a course name. "
+                "See scraper.py's module docstring."
             )
         date, time = _parse_reservation_datetime(lines[0])
-        course = lines[-1]  # confirmed to always be one of COURSE_ALIASES's own keys
+        course = lines[2]  # see this function's own docstring -- NOT lines[-1]
+        if known_courses is not None and course not in known_courses:
+            raise NotImplementedError(
+                f"scrape_my_reservations() read {course!r} as a course name, but this "
+                f"club's real courses are {known_courses!r} — the Details cell's layout "
+                "may have changed again. See scraper.py's module docstring."
+            )
         bookings.append(
             ConfirmedBooking(
                 date=date,
@@ -652,7 +685,9 @@ def scrape_overview_areas(club_id: str, date: str) -> dict[str, tuple[int, int]]
     )
 
 
-def scrape_my_reservations(club_id: str, username: str, password: str) -> list[ConfirmedBooking]:
+def scrape_my_reservations(
+    club_id: str, username: str, password: str, known_courses: list[str] | None = None
+) -> list[ConfirmedBooking]:
     """Log in and read "My Reservations" — the automatic primary source for
     confirmed_bookings (ROADMAP.md Phase 1). Needs login, unlike scrape_schedule().
 
@@ -661,13 +696,19 @@ def scrape_my_reservations(club_id: str, username: str, password: str) -> list[C
     `username`/`password` are the caller's responsibility to resolve
     (club_config.resolve_credentials()) — this function doesn't read `.env` itself,
     keeping it decoupled from local config file layout.
+
+    `known_courses` is passed straight through to `_parse_my_reservations_html()` as its
+    course-name guard (2026-09-17 — see that function's own docstring for the real
+    corruption this caught). Optional and not fetched here: a caller that already has
+    this club's course list should hand it over, same "pure function over already-fetched
+    inputs" convention `scrape_schedule()`'s own `course_aliases` parameter follows.
     """
     client = login(club_id, username, password)
     try:
         url = club_url(club_id, MY_RESERVATIONS_CATEGORY)
         response = client.get(url)
         response.raise_for_status()
-        return _parse_my_reservations_html(response.text)
+        return _parse_my_reservations_html(response.text, known_courses)
     finally:
         client.close()
 

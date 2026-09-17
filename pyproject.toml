@@ -1,12 +1,18 @@
 [project]
 name = "teetime-monitor"
-version = "0.25.2"
+version = "0.26.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    "playwright>=1.45",
+    # No playwright. The original spec (docs/spec-v1.md) assumed a headless Chromium
+    # would be needed to log in and read the tee sheet; walking the real site
+    # 2026-09-06 showed both are plain HTTP -- the tee sheet is public, and the login
+    # is an ordinary form POST with no JS and no CSRF token (see scraper.py's module
+    # docstring). The dependency outlived its last import by a long way and was finally
+    # dropped 2026-09-17: it pulled a large package, and the install instructions built
+    # on it told every user to download a Chromium binary nothing ever launched.
     "textual>=0.60",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",

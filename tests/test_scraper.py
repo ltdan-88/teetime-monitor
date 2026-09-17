@@ -541,6 +541,49 @@ def test_parse_my_reservations_html_parses_a_real_booking_german():
     assert booking.course == "6 Loch Platz"
 
 
+# The variant that corrupted this developer's own live database (found 2026-09-17):
+# the row's action labels land inside the Details cell instead of their own <td>s, so
+# the old `lines[-1]` read the last action label as the course name. Reconstructed from
+# the real damage -- literal `course="Not cancelable"` rows in data/0497758.db.
+_ACTIONS_IN_DETAILS_CELL_HTML = """
+<table class="table table-bordered table-striped table-condensed cf meine-buchungen">
+<tr><th>Details</th><th>Persons</th><th class="hideprint pcco-actions">Actions</th></tr>
+<tr>
+<td>Sat, 2026-09-19, 15:30 o'clock<br>Golfclub Domäne Niederreutin<br>9 Loch Tee 1<br>
+Save in calendar<br>Show<br>Not cancelable</td>
+<td>Khoe, Roberto *<br></td>
+</tr>
+</table>
+"""
+
+
+def test_parse_my_reservations_html_ignores_action_labels_appended_to_the_details_cell():
+    """Regression test for a real corruption found in live data 2026-09-17. Reading the
+    course as `lines[-1]` picked up "Not cancelable" -- an action label -- as the course
+    name. Counting from the front instead is stable against whatever trails it."""
+    [booking] = _parse_my_reservations_html(_ACTIONS_IN_DETAILS_CELL_HTML)
+    assert booking.course == "9 Loch Tee 1"
+    assert booking.holes == 9  # would have been None off "Not cancelable"
+    assert booking.date == "2026-09-19"
+    assert booking.time == "15:30"
+
+
+def test_parse_my_reservations_html_accepts_a_course_on_the_clubs_real_list():
+    [booking] = _parse_my_reservations_html(_REAL_ROW_HTML_EN, ["18 Loch Tee 1", "6 Loch Platz"])
+    assert booking.course == "6 Loch Platz"
+
+
+def test_parse_my_reservations_html_raises_when_the_course_is_not_one_the_club_has():
+    """The second guard: even if some future markup change slips a non-course string
+    past the positional read, it must not reach storage -- a wrong course name makes the
+    real booking look cancelled (see scrape_once._reconcile_cancelled_reservations)."""
+    with pytest.raises(NotImplementedError, match="Save in calendar"):
+        _parse_my_reservations_html(
+            _ACTIONS_IN_DETAILS_CELL_HTML.replace("9 Loch Tee 1<br>", ""),
+            ["9 Loch Tee 1", "18 Loch Tee 1"],
+        )
+
+
 def test_scrape_my_reservations_returns_confirmed_bookings_for_a_real_row(monkeypatch):
     fake_client = _FakeClient(post_response_text="<html>Welcome back</html>", get_response_text=_REAL_ROW_HTML_EN)
     monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)

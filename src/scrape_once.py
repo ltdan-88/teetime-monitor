@@ -197,7 +197,9 @@ def run(
 _RESERVATIONS_SYNC_FAILED_KIND = "reservations_sync_failed"
 
 
-def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None:
+def _sync_my_reservations(
+    club_id: str, slug: str | None, db_path: Path, known_courses: list[str] | None = None
+) -> None:
     """Best-effort: log in and save any confirmed bookings pc caddie shows for this
     account. Called once per `scrape_due_for_club()` pass (moved there 2026-09-16,
     see that function's own docstring) rather than once per course/date — "My
@@ -223,14 +225,24 @@ def _sync_my_reservations(club_id: str, slug: str | None, db_path: Path) -> None
     Also reconciles cancellations (2026-09-13, see `_reconcile_cancelled_
     reservations()`'s own docstring) — this used to only ever *add* rows here,
     so cancelling a booking on pc caddie's own real site never actually cleared
-    teetime-monitor's own "still booked" state."""
+    teetime-monitor's own "still booked" state.
+
+    `known_courses` (2026-09-17) is this club's real course list, passed through to the
+    parser as a guard on the course name it reads — see
+    `scraper._parse_my_reservations_html()`'s own docstring for the live corruption that
+    motivated it, and note the interaction with `_reconcile_cancelled_reservations()`
+    below: a wrong course name there doesn't merely store a bad row, it makes the *real*
+    booking look cancelled. A mismatch now raises `NotImplementedError`, which this
+    function already routes to a visible "parsing" failure banner. `None` (the caller
+    couldn't fetch the course list this pass) keeps the old unvalidated behavior rather
+    than skipping the sync entirely."""
     if not slug:
         return  # can't resolve credentials (keyed by slug) without knowing it
     username, password = club_config.resolve_credentials(slug)
     if not username or not password:
         return  # PCC_USER/PCC_PASS not configured yet for this club
     try:
-        live_bookings = scrape_my_reservations(club_id, username, password)
+        live_bookings = scrape_my_reservations(club_id, username, password, known_courses)
     except LoginError as exc:
         print(f"[scrape_once] login failed for {club_id}: {exc}")
         _report_reservations_sync_failure("login", db_path)
@@ -425,17 +437,28 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     if not club_id:
         print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
-    _sync_my_reservations(club_id, slug, _db_path(club_id))
     # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
     # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
     # universal, so a fixed COURSE_ALIASES silently scraped the wrong thing for a
     # second real club added the same day. One bad club's fetch must not stop every
     # other saved club (same stance as everything else in this function), so this is
     # caught here and skipped, not left to propagate out of main()'s own loop.
+    #
+    # Runs *before* _sync_my_reservations() (reordered 2026-09-17) purely so the real
+    # course list can be handed to it as a parse guard — see
+    # scraper._parse_my_reservations_html()'s own docstring for the live corruption
+    # that guard exists to stop. Deliberately does NOT gate the sync: a failed course
+    # fetch still lets reservations sync (unvalidated, exactly as before), since the
+    # two are independent and "My Reservations" is worth reading either way.
+    courses = None
     try:
         courses = fetch_course_aliases(club_id)
     except Exception as exc:  # noqa: BLE001
         print(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
+
+    _sync_my_reservations(club_id, slug, _db_path(club_id), list(courses) if courses else None)
+
+    if courses is None:
         return []
 
     # The club's own bookable-date window, straight from its tee sheet, in preference

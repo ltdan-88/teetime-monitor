@@ -64,7 +64,6 @@ Everything above works with none of these. Each one is additive:
 | Add | Unlocks |
 |---|---|
 | A pc caddie login (`l` in the club browser) | Searching the club directory by name, and reading your own confirmed bookings automatically instead of marking them by hand |
-| Chromium for Playwright (one-time, `brew info` prints the command) | Needed *only* by that login — reading the public tee sheet never uses a browser |
 | An [Anthropic](https://www.anthropic.com/) API key | AI-ranked recommendations (off by default; a paid API call per recommendation) |
 
 **Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/).
