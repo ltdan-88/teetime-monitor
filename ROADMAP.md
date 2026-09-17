@@ -4508,6 +4508,51 @@ when that entry is gone. A fresh open still lands on today, unchanged.
 row vanishes, screenshot absent). Mutation-tested: disabling the preservation
 reproduces the jump. 714 passing, `ruff check` clean.
 
+## Missing weather in the overview: a failed fetch buried the good data (2026-09-17)
+
+Direct report, correcting an earlier misreading of the same question: "I specifically
+asked about freezing the screen, because sometimes I noticed that weather data wasn't
+pulled for every day in the overview." The freezing question had been answered on its
+own terms (see the entry above) without chasing the symptom that actually prompted it.
+
+**The symptom was real and current.** Checking the live database found that almost every
+scrape since 14:38 that day had stored *zero* weather points. The log showed why:
+repeated `[Errno 8] nodename nor servname provided` against Open-Meteo — DNS failing for
+that host while pc caddie itself resolved fine throughout, so tee sheets kept updating
+and only weather went missing. It self-healed around 17:56.
+
+**But the transient outage wasn't the bug.** Listing every scrape of one course/date
+showed the real mechanism:
+
+    scrape#489  08:48  weather_points=24
+    scrape#490  09:49  weather_points=0     <- outage starts
+    ...                                        six more, all 0
+    scrape#514  16:56  weather_points=0
+    scrape#515  17:56  weather_points=24    <- recovered
+
+`save_schedule()` deliberately never overwrites — every scrape is its own row — and
+`load_latest_schedule()` reads the newest one. So each weather-less scrape *became* the
+latest, and the overview showed a blank weather column for about seven hours even though
+a complete forecast sat one row above, fetched an hour earlier. A transient upstream
+failure was being turned into persistent visible data loss.
+
+**Fix, in the read path rather than the write path.** `load_latest_schedule()` now takes
+slots from the newest scrape as always — occupancy must be fresh, that's the whole point
+of re-scraping — but falls back to the most recent *earlier* scrape of the same
+course/date that actually has weather, carrying its sun times along (they're fetched in
+the same step). Scoped strictly to the same course and date, so nothing borrows another
+day's forecast.
+
+Doing it on read rather than by copying weather forward at scrape time keeps the stored
+history honest — that scrape genuinely had no weather — and repairs every
+already-corrupted row immediately. Confirmed against the live database: all 14 affected
+course/date combinations went from a blank column to a full 24-point forecast with no
+re-scrape needed.
+
+5 new tests in `test_storage.py`, including that slots still come from the newest scrape
+and that the fallback never crosses a course or date boundary. Mutation-tested. 719
+passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
