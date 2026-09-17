@@ -97,7 +97,7 @@ storage.py's `booking_changes` table for the structured (kind + params) redesign
 replaced storing pre-rendered English prose.
 
 Textual's own built-in command-palette entries (the default "Theme"/"Quit"/"Keys"/
-"Screenshot"/"Maximize" system commands, from `App.get_system_commands()`'s own
+"Keys"/"Quit" system commands, from `App.get_system_commands()`'s own
 base implementation) used to stay in whatever language Textual itself ships them
 in — English — left alone since the original footer/banner report wasn't about
 them specifically. Closed 2026-09-16, direct follow-up once the Actions menu (`t`)
@@ -2745,12 +2745,44 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         return schedules
 
-    def load_overview(self) -> None:
+    def load_overview(self, keep_cursor: bool = False) -> None:
+        """Full reload: re-read the club's bookable-date window, rebuild the table,
+        and place the cursor.
+
+        `keep_cursor` (added 2026-09-17) keeps the cursor on whatever row it was on
+        instead of resetting it to `_initial_date()`'s pick. Background refreshes pass
+        it; a fresh open doesn't. Direct question that prompted this: "wouldn't it be
+        better if navigation was disabled until refresh has completed?" -- the real
+        problem behind that instinct wasn't that you *could* navigate during a refresh,
+        it was that finishing one threw your place away, which felt like the app
+        fighting you. Freezing the UI instead would be a much worse cure: a real
+        refresh pass for a 3-course club measures ~19s, and up to minutes if requests
+        hit their 15s timeouts.
+
+        The cursor is restored by *identity* -- the (date, slot_time) entry it was on,
+        looked up again in the rebuilt `_row_index` -- not by row number, because the
+        row count genuinely changes across a reload (a newly bookable day appears at
+        the end, today's row disappears after TODAY_HIDDEN_AFTER_HHMM). Falls back to
+        the same row number, clamped, if that exact entry is gone."""
         config = self._config()
+        previous = None
+        if keep_cursor and self._row_index:
+            cursor_row = self.query_one(DataTable).cursor_row
+            if 0 <= cursor_row < len(self._row_index):
+                previous = self._row_index[cursor_row]
         dates, open_dates = self._display_dates(config)
         self._cached_dates, self._cached_open_dates = dates, open_dates
         schedules = self._render_table(config, dates, open_dates)
         table = self.query_one(DataTable)
+
+        if keep_cursor:
+            if previous is not None and previous in self._row_index:
+                table.move_cursor(row=self._row_index.index(previous))
+            elif table.row_count:
+                row = cursor_row if previous is not None else 0
+                table.move_cursor(row=min(row, table.row_count - 1))
+            self._schedules = schedules
+            return
 
         # Pre-highlight today, unless today's own cached schedule shows every slot
         # already passed -- see _initial_date()'s own docstring (direct feedback,
@@ -3668,7 +3700,7 @@ class _OrderedSystemCommandsProvider(SystemCommandsProvider):
 # "logical" grouping direct feedback 2026-09-16 asked for: this app's own
 # screen actions first (yielded ahead of this dict entirely -- most likely
 # what `t` was actually pressed for), Language next (how the UI itself
-# reads), then these -- Theme/Keys/Minimize-or-Maximize/Screenshot, Quit
+# reads), then these -- Keys, Quit
 # last, a common app convention rather than one specific to this app.
 # Translating these closes a gap the module docstring used to call out as
 # deliberately left alone ("Textual's own built-in command-palette entries
@@ -3683,7 +3715,9 @@ class _OrderedSystemCommandsProvider(SystemCommandsProvider):
 # "Theme" is skipped for a different reason: it still exists, it just lives in
 # Settings -> Display now (2026-09-17) alongside Language and Units, so leaving
 # Textual's own entry here would be a second way to reach the same setting.
-_SKIPPED_BASE_COMMANDS = {"Maximize", "Minimize", "Theme"}
+# "Screenshot" (Textual's own SVG export) is skipped on direct request the same
+# day -- "we don't need the save screenshot feature."
+_SKIPPED_BASE_COMMANDS = {"Maximize", "Minimize", "Theme", "Screenshot"}
 
 _BASE_COMMAND_TRANSLATIONS: dict[tuple[str, str], tuple[int, str, str]] = {
     ("Keys", "Show help for the focused widget and a summary of available keys"): (
@@ -3698,11 +3732,6 @@ _BASE_COMMAND_TRANSLATIONS: dict[tuple[str, str], tuple[int, str, str]] = {
         "command.minimize_description",
     ),
     ("Maximize", "Maximize the focused widget"): (12, "binding.maximize", "command.maximize_description"),
-    ("Screenshot", "Save an SVG 'screenshot' of the current screen"): (
-        13,
-        "binding.screenshot",
-        "command.screenshot_description",
-    ),
     ("Quit", "Quit the application as soon as possible"): (99, "binding.quit", "command.quit_description"),
 }
 
@@ -4256,7 +4285,9 @@ class TeetimeApp(App[None]):
         self._periodic_scrape_running = False
         screen = self.screen
         if isinstance(screen, OverviewScreen):
-            screen.load_overview()
+            # keep_cursor: a refresh landing while you're reading row 4 must not throw
+            # you back to today -- see load_overview()'s own docstring.
+            screen.load_overview(keep_cursor=True)
             screen.refresh_banners()
             screen.query_one(_RefreshStatus).finish_refreshing()
             # Retries the course dropdown's own fetch too, not just on the initial
