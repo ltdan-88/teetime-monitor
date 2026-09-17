@@ -88,17 +88,33 @@ def resolve_buffer_minutes(availability: dict, direction: str, default: int = 0)
     return availability.get("buffer_minutes", default)
 
 
+def _minutes_since_midnight(hhmm: str) -> int:
+    """"09:40" -> 580. A plain integer parse of the fixed "HH:MM" shape every time in
+    this app already uses, rather than `datetime.strptime()`.
+
+    Measured 2026-09-17 while profiling a real render: `strptime` accounted for
+    **~40% of the whole render** (83,090 calls across ten renders), essentially all of
+    it from `_has_buffer_clearance()` below, which is O(n²) in a day's slots — a real
+    club's tee sheet is ~84 slots, so each call re-parsed the other 83 times, once per
+    slot. `strptime` is a general-purpose format-string parser; this does the same job
+    for this one fixed shape with two `int()` calls.
+
+    Deliberately not applied to every `strptime` in the codebase — the others
+    (`booking_watch.py`, `weather.py`, `playability.py`) run a handful of times per
+    render, never in a nested loop, and are clearer left as they are."""
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+
 def _has_buffer_clearance(
     slot: Slot, other_slots: list[Slot], buffer_before_minutes: int, buffer_after_minutes: int
 ) -> bool:
     if buffer_before_minutes <= 0 and buffer_after_minutes <= 0:
         return True
-    slot_time = datetime.strptime(slot.time, _TIME_FMT)
+    slot_minutes = _minutes_since_midnight(slot.time)
     for other in other_slots:
         if other is slot or not _is_another_flight(other):
             continue
-        other_time = datetime.strptime(other.time, _TIME_FMT)
-        gap_minutes = (other_time - slot_time).total_seconds() / 60
+        gap_minutes = _minutes_since_midnight(other.time) - slot_minutes
         # >= 0 / <= 0 (not a plain < 0 / > 0 split) so an exact-same-time neighbor
         # (gap_minutes == 0) is checked against both directions rather than neither
         # -- matches the old abs()-based check, which always failed a zero gap

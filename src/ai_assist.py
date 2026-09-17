@@ -35,11 +35,44 @@ open-ended commentary to.
 import json
 from typing import Literal
 
-import anthropic
 from pydantic import BaseModel
 
 from . import weather as weather_module
 from .models import SlotMatch
+
+
+def _anthropic_module():
+    """The `anthropic` package, imported on first real use rather than at import time.
+
+    Measured 2026-09-17 while profiling startup: importing `anthropic` eagerly here cost
+    **~200ms of a ~310ms `import src.tui`** — around two thirds of the app's entire
+    import budget — and `src.recommend` imports this module unconditionally, so every
+    launch paid it. AI ranking is off by default (`ai_assist.enabled`, see
+    `settings_screen.py`), so the overwhelmingly common case was paying that cost in
+    full for a library never called once.
+
+    Deferring it means a default launch never imports `anthropic` at all, while the
+    first actual `rank_slots()`/`summarize_history()` call pays the import once and
+    caches the module in this module's own globals for every call after it.
+
+    A module-level `__getattr__` (below) keeps `ai_assist.anthropic` working as an
+    attribute for anything that reaches for it that way — the test suite patches
+    `ai_assist.anthropic.Anthropic` in exactly that style, and resolving it through
+    here hands back the very same module object those patches land on."""
+    global anthropic
+    if "anthropic" not in globals():
+        import anthropic  # noqa: PLC0415 -- deliberately deferred, see docstring
+    return anthropic
+
+
+def __getattr__(name):
+    """PEP 562 module-level attribute hook — see `_anthropic_module()` for why
+    `anthropic` isn't a plain module-level import any more. Only ever fires for a name
+    this module doesn't already define, so it costs nothing on the normal path."""
+    if name == "anthropic":
+        return _anthropic_module()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # Changed from "claude-opus-5" to Haiku, 2026-09-09, direct feedback while wiring
 # ai_assist.enabled into the settings screen: "Are you sure haiku is not good enough
@@ -99,7 +132,7 @@ def classify_booking_label(text: str, model: str = DEFAULT_MODEL) -> BookingLabe
     KNOWN_ANONYMIZED_LABELS and STATUS_* constants for the deterministic path that
     covers everything observed live so far.
     """
-    client = anthropic.Anthropic()
+    client = _anthropic_module().Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=1024,
@@ -180,7 +213,7 @@ def rank_slots(
         "short, plain-language reasons.\n\n" + descriptions
     )
 
-    client = anthropic.Anthropic()
+    client = _anthropic_module().Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=2048,
@@ -231,7 +264,7 @@ def summarize_history(history_rows: list[dict], question: str, model: str = DEFA
         f"question in plain, friendly language, 2-3 sentences.\n\nQuestion: {question}"
         f"\n\nHistory: {json.dumps(history_rows)}"
     )
-    client = anthropic.Anthropic()
+    client = _anthropic_module().Anthropic()
     response = client.messages.create(
         model=model,
         max_tokens=512,

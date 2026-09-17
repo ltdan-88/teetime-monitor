@@ -4352,6 +4352,53 @@ they're the record of how the conclusion was reached.
 Verified by building a clean venv from the package with no playwright installed
 and performing a real login and "My Reservations" read against the live site.
 
+## Profiled and sped up: 2.7x faster start, 4x faster render (2026-09-17)
+
+Direct request: "Can you make the tui even lighter and run snappier?" Profiled the
+real app against the real 1.3MB database rather than guessing, and fixed the four
+things the measurements actually pointed at.
+
+**1. `anthropic` imported eagerly for a feature that's off by default — ~200ms of a
+~310ms startup.** `python -X importtime` put roughly two thirds of the entire import
+budget in one place: `src.recommend` imports `src.ai_assist` unconditionally, which
+imported `anthropic` at module level. AI ranking defaults to off, so nearly every
+launch paid a fifth of a second for a library it never called. Now imported on first
+real use (`ai_assist._anthropic_module()`), with a PEP 562 module `__getattr__` so
+`ai_assist.anthropic` still resolves as an attribute — which is exactly how the test
+suite patches it, so all 15 of those tests kept working untouched.
+
+**2. The crowd heatmap was re-scanned once per expanded day, on every render.**
+`analytics.crowd_heatmap()` walks every date ever scraped for a course and loads each
+one's latest schedule — ~15ms against real data — and `_render_table()` called it
+per expanded day. Five days open meant ~75ms of identical full-history scanning on
+every expand, collapse, confirm, cancel, resize and refresh. Now memoized in
+`_HEATMAP_CACHE`, keyed on the database file's own `(mtime_ns, size)` plus the
+holiday/vacation inputs: exact invalidation, so a fresh scrape is picked up on the
+very next render with no staleness window.
+
+**3. `strptime` was ~40% of a render — 83,090 calls across ten renders.** Essentially
+all of it from `search._has_buffer_clearance()`, which is O(n²) in a day's slots: a
+real tee sheet is ~84 slots, so each one re-parsed the other 83. Replaced with
+`_minutes_since_midnight()`, a two-`int()` parse of the fixed "HH:MM" shape, verified
+identical to `strptime` across all 1440 times in a day. Deliberately not applied to
+the other `strptime` calls in the codebase — they run a handful of times per render,
+never nested, and are clearer as they are.
+
+**4. `_availability_pipeline()` ran twice per expanded day with identical arguments** —
+once via `_day_pick_text()` for the Pick column, once via `_recommended_times_for()`
+for the ★ markers. Now memoized per render, in a dict created inside `_render_table()`
+and discarded when it returns, so it cannot outlive a single render.
+
+| | before | after |
+|---|---|---|
+| `import src.tui` | 349 ms | **131 ms** |
+| `_render_table()`, 5 days expanded | 98 ms | **24 ms** |
+
+Verified the optimisations change nothing: all 341 rendered rows are byte-identical
+with the caches disabled. Cache invalidation is mutation-tested — removing the
+database fingerprint from the key reproduces a stale read. 4 new tests plus a
+`conftest.py` fixture isolating the new cache. 705 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
