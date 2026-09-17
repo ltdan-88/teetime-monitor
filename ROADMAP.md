@@ -4474,6 +4474,40 @@ independently reachable from the first-launch flow and `l` in the club browser).
 5 new tests covering the split, plus the language test rewritten to drive the whole
 save → apply → rebuild chain through the real form. 710 passing, `ruff check` clean.
 
+## Screenshot dropped; a refresh no longer throws away your place (2026-09-17)
+
+Two things, direct: "We don't need the save screenshot feature. Also one question:
+wouldn't it be better if navigation was disabled until refresh has completed?"
+
+**Screenshot removed.** Textual's own SVG-export command joined Maximize/Minimize/Theme
+in `_SKIPPED_BASE_COMMANDS`. The Actions menu is now 7 entries: Find a club, Search,
+Heatmap, Preferences, Settings, Keys, Quit.
+
+**Navigation during refresh: no, but the instinct found a real bug.** Timed against the
+real club before answering — a full pass is `fetch_course_aliases` + `fetch_available_
+dates` + 3 courses x 5 dates at roughly 1.1s each, about **19 seconds**, and up to ~4
+minutes if requests hit their 15s timeouts. Freezing the UI for that would be far worse
+than anything it prevented.
+
+But something *was* wrong. `_finish_periodic_scrape()` called `load_overview()`, which
+ends by placing the cursor at `_initial_date()` — today. So finishing a refresh threw
+away wherever you had navigated to. Reproduced directly: cursor on row 2 (Saturday,
+expanded), refresh completes, cursor back on row 0. Expansions survived; your place did
+not. `_rerender_preserving_cursor()`'s own docstring had already named this exact
+hazard — "yanking the cursor back to today would undo the very navigation the user just
+did" — but only user-initiated actions were routed through it, never background
+refreshes.
+
+`load_overview(keep_cursor=True)` now restores the cursor by *identity* — the
+`(date, slot_time)` entry it was on, looked up again in the rebuilt `_row_index` — not
+by row number, since the row count genuinely changes across a reload (a newly bookable
+day appears, today's row disappears after 21:00). Falls back to a clamped row number
+when that entry is gone. A fresh open still lands on today, unchanged.
+
+4 new tests (cursor held on refresh, fresh open unaffected, graceful fallback when the
+row vanishes, screenshot absent). Mutation-tested: disabling the preservation
+reproduces the jump. 714 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

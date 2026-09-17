@@ -4749,3 +4749,117 @@ def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, mon
 
     _run(scenario())
 
+
+
+# --- A background refresh must not throw away where you were (2026-09-17). Direct
+# question: "wouldn't it be better if navigation was disabled until refresh has
+# completed?" -- the answer was no (a real pass measures ~19s, and up to minutes on
+# timeouts, so freezing the UI would be far worse), but the instinct pointed at a real
+# bug: finishing a refresh reset the cursor to today. ------------------------------
+
+
+def _overview_with_days(tmp_path, monkeypatch, dates):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: dates[0])
+    db_path = scrape_once._db_path("0000001")
+    for date in dates:
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+            path=db_path,
+        )
+
+
+def test_background_refresh_keeps_the_cursor_where_the_user_left_it(tmp_path, monkeypatch):
+    _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            table = screen.query_one(DataTable)
+            table.focus()
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.pause()
+            before = screen._row_index[table.cursor_row]
+            assert before[0] == "2026-09-19"  # genuinely moved off today first
+
+            screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+
+            assert screen._row_index[table.cursor_row] == before
+
+    _run(scenario())
+
+
+def test_a_fresh_open_still_places_the_cursor_on_today(tmp_path, monkeypatch):
+    # The other half: keep_cursor is opt-in, so opening the screen (or any caller
+    # that doesn't pass it) keeps _initial_date()'s own placement.
+    _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18", "2026-09-19"])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            table = screen.query_one(DataTable)
+            table.focus()
+            await pilot.press("down")
+            await pilot.pause()
+            assert screen._row_index[table.cursor_row][0] == "2026-09-18"
+
+            screen.load_overview()  # no keep_cursor
+            await pilot.pause()
+
+            assert screen._row_index[table.cursor_row][0] == "2026-09-17"
+
+    _run(scenario())
+
+
+def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears(tmp_path, monkeypatch):
+    """The cursor is restored by (date, slot_time) identity, so a row that no longer
+    exists after the rebuild must degrade to a clamped row number rather than raise."""
+    _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18", "2026-09-19"])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            table = screen.query_one(DataTable)
+            table.focus()
+            await pilot.press("down")
+            await pilot.press("down")
+            await pilot.pause()
+
+            # The window shrinks under the cursor -- the day it was on is gone.
+            monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-19")
+            screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+
+            assert 0 <= table.cursor_row < table.row_count  # clamped, not raised
+
+    _run(scenario())
+
+
+def test_screenshot_is_not_offered_in_the_actions_menu(tmp_path, monkeypatch):
+    # Direct request 2026-09-17: "We don't need the save screenshot feature."
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            titles = [command.title for command in app.get_system_commands(app.screen)]
+            assert "Screenshot" not in titles
+            assert i18n.t("binding.keys") in titles  # the rest of the menu is intact
+
+    _run(scenario())
