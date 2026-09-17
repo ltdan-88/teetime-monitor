@@ -126,3 +126,17 @@ def _no_stale_holiday_cache(monkeypatch):
     exercising its own mocked `fetch_public_holidays()` at all.
     """
     monkeypatch.setattr(tui, "_HOLIDAY_CACHE", {})
+
+
+@pytest.fixture(autouse=True)
+def _no_stale_heatmap_cache(monkeypatch):
+    """`tui._HEATMAP_CACHE` is deliberate process-lifetime state (see its own
+    docstring), so it leaks between tests exactly like `_HOLIDAY_CACHE` above.
+
+    Its key includes the database's own (mtime_ns, size), which makes a real stale
+    read unlikely -- but every test builds its database under a fresh `tmp_path`,
+    and there is no guarantee two tests' files can't land on the same path with the
+    same fingerprint within one run. Isolating it costs nothing and removes the
+    question entirely, rather than relying on that argument holding forever.
+    """
+    monkeypatch.setattr(tui, "_HEATMAP_CACHE", {})

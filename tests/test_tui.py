@@ -4112,6 +4112,83 @@ def test_holidays_for_club_does_not_cache_a_failed_fetch(monkeypatch):
     assert len(calls) == 2  # both calls actually reached fetch_public_holidays()
 
 
+def test_cached_crowd_heatmap_reuses_the_result_for_an_unchanged_database(tmp_path, monkeypatch):
+    # Added 2026-09-17 after profiling: crowd_heatmap() walks every scraped date and
+    # was being re-run once per expanded day on every render (~15ms each against real
+    # data). See tui._HEATMAP_CACHE's own docstring.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(date="2026-08-17", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+        path=db_path,
+    )
+    calls = []
+    real = tui.analytics.crowd_heatmap
+    monkeypatch.setattr(
+        tui.analytics,
+        "crowd_heatmap",
+        lambda *a, **k: calls.append(1) or real(*a, **k),
+    )
+
+    first = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], db_path)
+    second = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], db_path)
+
+    assert first == second
+    assert len(calls) == 1  # the second call never re-scanned
+
+
+def test_cached_crowd_heatmap_recomputes_after_a_new_scrape_lands(tmp_path, monkeypatch):
+    """The cache must never hide fresh data. Its key is the database's own
+    (mtime_ns, size), so a new scrape invalidates it on the very next render rather
+    than after some timeout."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(date="2026-08-17", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+        path=db_path,
+    )
+    before = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], db_path)
+    assert before["by_weekday"]["Monday"]["09"]["samples"] == 1
+
+    storage.save_schedule(
+        Schedule(date="2026-08-24", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=4, capacity=4)]),
+        path=db_path,
+    )
+    after = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], db_path)
+
+    assert after["by_weekday"]["Monday"]["09"]["samples"] == 2  # picked the new scrape up
+
+
+def test_cached_crowd_heatmap_keeps_courses_apart(tmp_path, monkeypatch):
+    # One cache entry per (database, course) -- a second course must not read back
+    # the first one's heatmap.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(date="2026-08-17", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=4, capacity=4)]),
+        path=db_path,
+    )
+    storage.save_schedule(
+        Schedule(date="2026-08-17", course="9 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        path=db_path,
+    )
+
+    big = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], db_path)
+    small = tui._cached_crowd_heatmap("9 Loch Tee 1", [], [], db_path)
+
+    assert big["by_weekday"]["Monday"]["09"]["average"] == 1.0
+    assert small["by_weekday"]["Monday"]["09"]["average"] == 0.0
+
+
+def test_cached_crowd_heatmap_still_works_with_no_database_file(tmp_path, monkeypatch):
+    # A first run has no database yet -- stat() fails, and the uncached path has to
+    # keep working rather than raising.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    missing = tmp_path / "definitely-not-created-yet.db"
+    result = tui._cached_crowd_heatmap("18 Loch Tee 1", [], [], missing)
+    assert result == {"by_weekday": {}, "special_days": {}}
+
+
 def test_vacation_ranges_for_club_empty_without_configuration():
     assert tui._vacation_ranges_for_club({}) == []
 

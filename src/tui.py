@@ -146,6 +146,7 @@ import importlib.metadata
 import sys
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
+from pathlib import Path
 from typing import NamedTuple
 
 from rich.cells import cell_len
@@ -1253,8 +1254,8 @@ def _compute_crowd_estimates(
     estimates: dict[tuple[str, str, str], float] = {}
     for schedule in schedules:
         if schedule.course not in heatmaps:
-            heatmaps[schedule.course] = analytics.crowd_heatmap(
-                schedule.course, holidays, vacation_ranges, path=_db_path(club_id)
+            heatmaps[schedule.course] = _cached_crowd_heatmap(
+                schedule.course, holidays, vacation_ranges, _db_path(club_id)
             )
         heatmap = heatmaps[schedule.course]
         day_type = calendar_context.classify_day(
@@ -1291,7 +1292,9 @@ def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> d
     return _compute_crowd_estimates(schedules, config, club_id)
 
 
-def _availability_pipeline(schedule: Schedule, config: dict, club_id: str) -> tuple[list, list]:
+def _availability_pipeline(
+    schedule: Schedule, config: dict, club_id: str, cache: dict | None = None
+) -> tuple[list, list]:
     """(deterministic candidates, still-playable matches) for one schedule against
     your global `availability` rules (see `_resolved_config()`) — factored out so both
     the per-day pick column below and the expanded slot rows' own ★ marker derive from one
@@ -1309,14 +1312,29 @@ def _availability_pipeline(schedule: Schedule, config: dict, club_id: str) -> tu
     feedback this responds to (2026-09-08): "why does it always recommend 16:00 on
     any other day?" — `_day_pick_text()` used to take the literal earliest playable
     time, which is exactly 16:00 every day once a saved window starts at 16:00 and
-    that slot happens to be open, regardless of how good the rest of the window is."""
+    that slot happens to be open, regardless of how good the rest of the window is.
+
+    `cache` is an optional per-render memo, keyed by (date, course). Measured
+    2026-09-17: `_render_table()` reaches this twice for every expanded day with
+    identical arguments — once via `_day_pick_text()` for the Pick column, once via
+    `_recommended_times_for()` for the ★ markers on the expanded slot rows — and it was
+    the single most expensive thing left in a render after the heatmap cache. The memo
+    is created fresh inside each `_render_table()` call and thrown away at the end of
+    it, so it cannot go stale across renders: a refresh, a settings change or a new
+    scrape all start from an empty one."""
+    key = (schedule.date, schedule.course)
+    if cache is not None and key in cache:
+        return cache[key]
     if not config.get("availability"):
         return [], []
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
     crowd_estimates = _crowd_estimates([schedule], config, club_id)
     playable = recommend.ranked_matches([schedule], criteria, config, crowd_estimates)
-    return candidates, playable
+    result = (candidates, playable)
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> bool:
@@ -1390,14 +1408,16 @@ def _slot_crowd_marker(
     return f"[{color}]■[/]"
 
 
-def _recommended_times_for(schedule: Schedule, config: dict, club_id: str) -> set[str]:
+def _recommended_times_for(
+    schedule: Schedule, config: dict, club_id: str, cache: dict | None = None
+) -> set[str]:
     """Thin wrapper around `_availability_pipeline()` returning just the still-
     playable slot times — factored out 2026-09-14 (ROADMAP.md's queued "nested/
     collapsed overview" item) once `OverviewScreen`'s own expanded slot rows
     needed the exact same ★ computation `DayDetailScreen._recommended_times()`
     already did, without a `Screen` instance to hang it off of. That method is now
     a one-line delegate to this."""
-    _, playable = _availability_pipeline(schedule, config, club_id)
+    _, playable = _availability_pipeline(schedule, config, club_id, cache)
     return {candidate.slot.time for candidate in playable}
 
 
@@ -1512,6 +1532,7 @@ def _day_pick_text(
     confirmed: ConfirmedBooking | None,
     has_pending_change: bool,
     club_id: str,
+    cache: dict | None = None,
 ) -> str:
     """The overview's Pick column for one day, in priority order:
 
@@ -1537,7 +1558,7 @@ def _day_pick_text(
         return text
     if schedule is None or not config.get("availability"):
         return "[dim]—[/]"
-    candidates, playable = _availability_pipeline(schedule, config, club_id)
+    candidates, playable = _availability_pipeline(schedule, config, club_id, cache)
     if not candidates:
         return "[dim]—[/]"
     if playable:
@@ -2579,6 +2600,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         schedules: list[Schedule] = []
         pending_rows: list[tuple[str, str, str, str, str, str, str, str]] = []
+        # Per-render memo for _availability_pipeline() -- see its own docstring. Created
+        # here and discarded when this call returns, so it can never outlive one render.
+        pipeline_cache: dict[tuple[str, str], tuple[list, list]] = {}
         for one_date in dates:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             # No year (2026-09-15, fitting the whole app on an iPad portrait
@@ -2642,14 +2666,19 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 event_cell = "[dim]…[/]"
                 heat_cell = "[dim]……[/]"
             pick_cell = _day_pick_text(
-                schedule, config, confirmed_by_date.get(one_date), one_date in pending_change_dates, self.club_id
+                schedule,
+                config,
+                confirmed_by_date.get(one_date),
+                one_date in pending_change_dates,
+                self.club_id,
+                pipeline_cache,
             )
             pending_rows.append(
                 (day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, heat_cell, event_cell, pick_cell)
             )
 
             if can_expand and one_date in self._expanded_dates:
-                recommended_times = _recommended_times_for(schedule, config, self.club_id)
+                recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
                 crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
                 for slot_row in _compute_slot_rows(
@@ -3247,6 +3276,48 @@ def _holidays_for_club(config: dict) -> list[str]:
     return holidays
 
 
+# {(db path, course): (inputs fingerprint, heatmap)} -- one entry per course, so this
+# stays bounded no matter how long a session runs. Added 2026-09-17 after profiling
+# the real app against real data: analytics.crowd_heatmap() walks every date ever
+# scraped for a course and loads each one's latest schedule, measured at ~15ms against
+# a 1.3MB database, and _render_table() called it once per *expanded day* -- five days
+# open meant ~75ms of identical full-history scanning on every single render, and a
+# render happens on every expand, collapse, confirm, cancel, resize and refresh.
+#
+# The heatmap only changes when the database does, so the cache key is the file's own
+# (mtime_ns, size) fingerprint plus the holiday/vacation inputs -- exact invalidation
+# rather than a timeout, so a fresh scrape is picked up on the very next render with no
+# staleness window at all.
+_HEATMAP_CACHE: dict[tuple[str, str], tuple] = {}
+
+
+def _cached_crowd_heatmap(
+    course: str, holidays: list[str], vacation_ranges: list[DateRange], db_path: Path
+) -> dict:
+    """`analytics.crowd_heatmap()`, memoized on the database's own fingerprint — see
+    `_HEATMAP_CACHE` above for the measured cost this exists to remove. Falls straight
+    through to an uncached call if the database can't be stat'd (it may not exist yet on
+    a first run), since a missing file is exactly the case where there's nothing worth
+    caching anyway."""
+    try:
+        stat = db_path.stat()
+    except OSError:
+        return analytics.crowd_heatmap(course, holidays, vacation_ranges, path=db_path)
+    inputs = (
+        stat.st_mtime_ns,
+        stat.st_size,
+        tuple(holidays),
+        tuple((vr.start, vr.end) for vr in vacation_ranges),
+    )
+    cache_key = (str(db_path), course)
+    cached = _HEATMAP_CACHE.get(cache_key)
+    if cached is not None and cached[0] == inputs:
+        return cached[1]
+    heatmap = analytics.crowd_heatmap(course, holidays, vacation_ranges, path=db_path)
+    _HEATMAP_CACHE[cache_key] = (inputs, heatmap)
+    return heatmap
+
+
 def _vacation_ranges_for_club(config: dict) -> list[DateRange]:
     """A club's hand-entered `calendar.vacation_ranges` (see clubs/club.example.yaml)
     as real DateRange objects, ready for calendar_context.classify_day(). Empty list
@@ -3425,7 +3496,7 @@ class HeatmapScreen(Screen[None]):
     def load_grid(self) -> None:
         holidays = _holidays_for_club(self.config)
         vacation_ranges = _vacation_ranges_for_club(self.config)
-        heatmap = analytics.crowd_heatmap(self.course, holidays, vacation_ranges, path=_db_path(self.club_id))
+        heatmap = _cached_crowd_heatmap(self.course, holidays, vacation_ranges, _db_path(self.club_id))
 
         weekday_group = heatmap.get("by_weekday", {})
         weekday_grid = self.query_one("#weekday-grid", DataTable)
@@ -3541,7 +3612,7 @@ class HeatmapReadinessScreen(Screen[None]):
     def load_readiness(self) -> None:
         holidays = _holidays_for_club(self.config)
         vacation_ranges = _vacation_ranges_for_club(self.config)
-        heatmap = analytics.crowd_heatmap(self.course, holidays, vacation_ranges, path=_db_path(self.club_id))
+        heatmap = _cached_crowd_heatmap(self.course, holidays, vacation_ranges, _db_path(self.club_id))
         readiness = analytics.heatmap_readiness(heatmap)
 
         weekday_table = self.query_one("#weekday-table", DataTable)
