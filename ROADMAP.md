@@ -4606,6 +4606,25 @@ migrated database from `cwd = /` — the hybrid working end to end.
 13 new tests in `test_paths.py`, plus the hardened guard. 733 passing, `ruff check`
 clean.
 
+## `teetime-monitor-scrape --force` (2026-09-18)
+
+Found while making the macOS prototype productive: pressing a Refresh button in the
+app ran a full scrape cleanly in 6 seconds and changed **nothing**, because
+`_should_scrape()`'s per-course/date interval correctly decided nothing was due. The
+scrape was working exactly as designed; from the UI it was indistinguishable from a
+broken button.
+
+The TUI has always had this override on `r` (`scrape_due_for_club(force=True)`) — the
+console script simply never exposed it. `main()` now takes `--force`/`-f` and passes it
+through. The launchd agent still passes nothing and keeps self-throttling, which is the
+point: forcing every 15 minutes would hammer pc caddie for no benefit, while an
+explicit human "refresh now" should mean now.
+
+Same shape as the v0.21.0 reservations-sync fix: make the silent case actually do
+something rather than explaining the silence afterwards.
+
+2 new tests. 735 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

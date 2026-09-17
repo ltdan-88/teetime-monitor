@@ -746,3 +746,38 @@ def test_scrape_due_for_club_still_scrapes_when_the_date_window_fetch_fails(tmp_
     scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 2})
 
     assert len(seen) == 2
+
+
+# --- `--force` on the console script (2026-09-17). A GUI Refresh button that usually
+# does nothing, because _should_scrape() correctly decided nothing was due, is
+# indistinguishable from a broken button -- see main()'s own docstring. -------------
+
+
+def test_main_passes_force_through_when_asked(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda *a, **k: ["home"])
+    monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda *a, **k: {"club_id": "0000001"})
+    seen = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club",
+                        lambda slug, config, force=False: seen.append(force))
+
+    scrape_once.main(["--force"])
+    scrape_once.main(["-f"])
+    scrape_once.main([])
+
+    assert seen == [True, True, False]
+
+
+def test_main_defaults_to_the_normal_interval(tmp_path, monkeypatch):
+    # The launchd agent passes no arguments, and must keep self-throttling -- forcing
+    # every 15 minutes would hammer pc caddie for no benefit.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda *a, **k: ["home"])
+    monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda *a, **k: {"club_id": "0000001"})
+    seen = []
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club",
+                        lambda slug, config, force=False: seen.append(force))
+
+    scrape_once.main([])
+
+    assert seen == [False]

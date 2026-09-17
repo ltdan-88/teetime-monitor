@@ -159,6 +159,61 @@ struct DayCard: View {
 /// than the Command Line Tools -- so this prototype uses the older, macro-free
 /// `ObservableObject`/`@Published`/`@StateObject` trio instead. Identical behaviour,
 /// and it builds with nothing but `swiftc`. See README.md.
+/// Runs the scraper and watches for its results.
+///
+/// The app never scrapes anything itself -- it shells out to the same
+/// `teetime-monitor-scrape` console script the launchd agent runs, so there is exactly
+/// one implementation of scraping and it stays in Python. See `prototypes/macos-swift/
+/// README.md` on why that split is the whole point of the hybrid.
+enum Scraper {
+    /// Homebrew's symlink first, then the Cellar-independent PATH lookup, so this keeps
+    /// working for a source checkout or a non-standard prefix.
+    static func executable() -> String? {
+        for candidate in ["/opt/homebrew/bin/teetime-monitor-scrape",
+                          "/usr/local/bin/teetime-monitor-scrape"]
+        where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        which.arguments = ["which", "teetime-monitor-scrape"]
+        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
+        try? which.run(); which.waitUntilExit()
+        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return found.isEmpty ? nil : found
+    }
+
+    /// A full pass takes roughly 20 seconds against a real club (and much longer if
+    /// requests hit their timeouts), so this never blocks the UI -- the caller shows
+    /// progress and `done` fires back on the main queue.
+    static func run(done: @escaping (String?) -> Void) {
+        guard let exe = executable() else {
+            done("teetime-monitor-scrape not found — install it with Homebrew.")
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: exe)
+            // --force: an explicit Refresh must actually do something. Without it the
+            // scraper's own per-course/date interval usually decides nothing is due,
+            // and the button looks broken (see scrape_once.main()'s docstring).
+            task.arguments = ["--force"]
+            let err = Pipe(); task.standardError = err; task.standardOutput = Pipe()
+            do { try task.run() } catch {
+                DispatchQueue.main.async { done(error.localizedDescription) }
+                return
+            }
+            task.waitUntilExit()
+            let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            DispatchQueue.main.async {
+                done(task.terminationStatus == 0 ? nil
+                     : (stderr.isEmpty ? "scrape failed (exit \(task.terminationStatus))" : stderr))
+            }
+        }
+    }
+}
+
 final class OverviewModel: ObservableObject {
     @Published var clubs: [(path: String, id: String, name: String, lastScrape: String)] = []
     @Published var clubPath: String = ""
@@ -166,6 +221,32 @@ final class OverviewModel: ObservableObject {
     @Published var course: String = ""
     @Published var days: [Day] = []
     @Published var expanded: Set<String> = []
+    @Published var isScraping = false
+    @Published var problem: String?
+    /// Drives the "updated N minutes ago" line; republished on a timer so it ages in
+    /// place rather than going stale the moment the window stops being touched.
+    @Published var lastScrape: Date?
+    @Published var now = Date()
+
+    private var watcher: Timer?
+    private var seenModification: Date?
+
+    /// Green while the background agent's own cadence would have refreshed by now,
+    /// amber once it's clearly overdue -- so a stopped launchd agent is visible rather
+    /// than silently serving old data.
+    var freshnessColor: Color {
+        guard let lastScrape else { return .secondary }
+        return now.timeIntervalSince(lastScrape) < 45 * 60 ? .green : .orange
+    }
+
+    var freshnessText: String {
+        guard let lastScrape else { return "never scraped" }
+        let minutes = Int(now.timeIntervalSince(lastScrape) / 60)
+        if minutes < 1 { return "updated just now" }
+        if minutes < 60 { return "updated \(minutes) min ago" }
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .full
+        return "updated " + f.localizedString(for: lastScrape, relativeTo: now)
+    }
 
     var clubName: String {
         clubs.first { $0.path == clubPath }?.name ?? "teetime-monitor"
@@ -174,6 +255,41 @@ final class OverviewModel: ObservableObject {
     private var today: String {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         return f.string(from: Date())
+    }
+
+    /// Polls the database's modification time rather than using a filesystem event
+    /// source: SQLite writes through journal/WAL files and can replace the main file,
+    /// which makes watch descriptors go stale, whereas an mtime check is a single stat
+    /// and cannot miss a completed write. Two seconds is far below the scrape interval
+    /// and costs nothing.
+    func startWatching() {
+        watcher?.invalidate()
+        watcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.now = Date()
+            guard !self.clubPath.isEmpty,
+                  let attrs = try? FileManager.default.attributesOfItem(atPath: self.clubPath),
+                  let modified = attrs[.modificationDate] as? Date else { return }
+            if self.seenModification == nil { self.seenModification = modified; return }
+            if modified > self.seenModification! {
+                // The background agent (or our own Refresh) just wrote -- pick it up
+                // without the user having to reopen anything.
+                self.seenModification = modified
+                self.reload()
+            }
+        }
+    }
+
+    func refreshNow() {
+        guard !isScraping else { return }
+        isScraping = true
+        problem = nil
+        Scraper.run { [weak self] error in
+            guard let self else { return }
+            self.isScraping = false
+            self.problem = error
+            self.load()
+        }
     }
 
     func load() {
@@ -193,8 +309,11 @@ final class OverviewModel: ObservableObject {
 
     func reload() {
         guard !clubPath.isEmpty, !course.isEmpty else { days = []; return }
+        let keepOpen = expanded          // a background refresh must not collapse what
         days = Store.days(dbPath: clubPath, course: course, from: today)
-        expanded = []
+        expanded = keepOpen              // you were reading -- same rule as the TUI's
+                                         // own keep_cursor fix (v0.30.0).
+        lastScrape = Store.lastScrape(dbPath: clubPath)
     }
 }
 
@@ -204,12 +323,27 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(model.clubName).font(.title2).bold()
-                    Text("reading the scraper's own database — nothing is fetched here")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        if model.isScraping {
+                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                            Text("Checking pc caddie…").font(.caption2).foregroundStyle(.secondary)
+                        } else {
+                            Circle().fill(model.freshnessColor).frame(width: 6, height: 6)
+                            Text(model.freshnessText).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Spacer()
+                Button {
+                    model.refreshNow()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Run the scraper now")
+                .disabled(model.isScraping)
+                .keyboardShortcut("r", modifiers: .command)
                 VStack(alignment: .trailing, spacing: 5) {
                     Picker("", selection: $model.clubPath) {
                         ForEach(model.clubs, id: \.path) { club in
@@ -243,10 +377,16 @@ struct ContentView: View {
                     }
                 }
             }
+
+            if let problem = model.problem {
+                Label(problem.trimmingCharacters(in: .whitespacesAndNewlines),
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(2)
+            }
         }
         .padding(16)
         .frame(minWidth: 600, minHeight: 540)
-        .onAppear { model.load() }
+        .onAppear { model.load(); model.startWatching() }
     }
 }
 

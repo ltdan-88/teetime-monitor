@@ -141,6 +141,20 @@ enum Store {
         return out.sorted { $0.3 > $1.3 }.map { (path: $0.0, id: $0.1, name: $0.2, lastScrape: $0.3) }
     }
 
+    /// When this club was last scraped, for the freshness line in the toolbar.
+    static func lastScrape(dbPath: String) -> Date? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else { return nil }
+        defer { sqlite3_close(db) }
+        var iso: String?
+        query(db, "SELECT MAX(scraped_at) FROM scrapes") { s in iso = column(s, 0) }
+        guard let iso else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+    }
+
     static func courses(dbPath: String) -> [String] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
