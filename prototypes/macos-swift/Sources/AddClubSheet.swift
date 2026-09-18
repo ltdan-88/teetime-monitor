@@ -26,7 +26,7 @@ struct AddClubSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Add a Club").font(.title2).bold().padding([.top, .horizontal], 16)
+            Text("Add a Club").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
 
             HStack {
                 sourceCaption
@@ -41,7 +41,7 @@ struct AddClubSheet: View {
                 .padding(16)
 
             if let status = status.value {
-                Text(status).font(.caption).foregroundStyle(.secondary)
+                Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 8)
             }
 
@@ -92,7 +92,7 @@ struct AddClubSheet: View {
                 Text("No directory yet — refresh, or type a club id / booking link")
             }
         }
-        .font(.caption2).foregroundStyle(.secondary)
+        .font(scaledFont(.caption2)).foregroundStyle(.secondary)
     }
 
     private func load() {
@@ -142,8 +142,8 @@ private struct AddClubRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.body)
-                Text(clubID).font(.caption).foregroundStyle(.secondary)
+                Text(name).font(scaledFont(.body))
+                Text(clubID).font(scaledFont(.caption)).foregroundStyle(.secondary)
             }
             Spacer()
             if isAdding { ProgressView().controlSize(.small) }

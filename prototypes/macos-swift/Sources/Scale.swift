@@ -3,17 +3,14 @@ import SwiftUI
 /// How large the whole interface renders -- direct request, 2026-09-18 ("maybe
 /// offer different scales (e.g. small, medium, large)").
 ///
-/// Two halves, because neither alone is enough:
+/// Two halves, both driven by the same `factor`:
 ///
-/// - **Text** scales through SwiftUI's own `dynamicTypeSize` environment value.
-///   Every view in this app already uses *semantic* fonts (`.caption2`, `.headline`,
-///   `.title2`...) rather than hardcoded point sizes, so setting that one
-///   environment value at the root scales all of it correctly, with no per-view
-///   change and no `.scaleEffect` blurriness.
-/// - **Fixed pixel frames** (the 42pt time column, the 9pt seat pips, the heat-strip
-///   blocks -- see `Metrics` below) can't follow `dynamicTypeSize` on their own, and
-///   would clip larger text or leave gaps around smaller text. Those multiply by
-///   `factor` instead.
+/// - **Text**, via `scaledFont()` -- an explicitly-sized `Font`, because macOS has
+///   no Dynamic Type and ignores `dynamicTypeSize` for semantic fonts (see
+///   `TextRole` for the bug that taught us this the hard way).
+/// - **Fixed pixel dimensions** (the 42pt time column, the 9pt seat pips, the
+///   heat-strip blocks -- see `Metrics`), which would otherwise clip larger text or
+///   strand smaller text.
 ///
 /// Persisted as `GUI_SCALE=` in the same `~/.config/teetime-monitor/config` file
 /// `THEME=`/`LANG=` already live in. Safe to add a GUI-only key there: Python's own
@@ -31,25 +28,19 @@ enum AppScaleOption: String, CaseIterable {
         }
     }
 
-    /// `.medium` maps to `.large`, which is macOS's *own* default Dynamic Type size
-    /// -- so "Medium" means "exactly what every other Mac app shows", not a shrunken
-    /// middle setting, and an install that never touches this looks unchanged.
-    var dynamicTypeSize: DynamicTypeSize {
-        switch self {
-        case .small: return .small
-        case .medium: return .large
-        case .large: return .xxLarge
-        }
-    }
-
-    /// Multiplier for hardcoded pixel dimensions. Deliberately gentler than the text
-    /// ramp above: these are mostly small indicators (pips, heat blocks) where a
-    /// proportional jump would dominate a row rather than match it.
+    /// Drives both halves of the scale -- font point sizes (`scaledFont`) and
+    /// hardcoded pixel dimensions (`Metrics`) -- so text and the indicators beside
+    /// it stay in proportion rather than drifting apart at the extremes.
+    ///
+    /// Range chosen to be unmistakable at a glance: the first attempt leaned on
+    /// `dynamicTypeSize`, which does nothing on macOS, and "no visible change" is
+    /// exactly the failure this must not repeat. 0.85/1.3 moves a 10pt caption
+    /// between roughly 9pt and 13pt.
     var factor: CGFloat {
         switch self {
-        case .small: return 0.88
+        case .small: return 0.85
         case .medium: return 1.0
-        case .large: return 1.22
+        case .large: return 1.3
         }
     }
 }
@@ -69,12 +60,52 @@ final class AppScale: ObservableObject {
     }
 
     var factor: CGFloat { option.factor }
-    var dynamicTypeSize: DynamicTypeSize { option.dynamicTypeSize }
 
     /// Scale a hardcoded pixel dimension. Rounded so a scaled frame still lands on a
     /// whole point -- half-point frames make adjacent columns disagree about their
     /// own edges, which reads as misalignment rather than as a smaller size.
     func scaled(_ value: CGFloat) -> CGFloat { (value * factor).rounded() }
+}
+
+/// The text styles this app uses, with their real macOS point sizes.
+///
+/// **Why this exists at all**: the first version of the scale feature set
+/// SwiftUI's `dynamicTypeSize` environment value and assumed semantic fonts
+/// (`.caption2`, `.title2`...) would follow it. That is iOS behaviour. macOS has no
+/// Dynamic Type -- `.body` is 13pt whatever that environment value says -- so
+/// scaling appeared to do nothing at all, which is exactly what got reported
+/// ("Scale changes don't seem to change any font size"). Scaling on macOS has to
+/// compute the point size itself, which means every `.font()` call site names a
+/// role here instead of a bare semantic font.
+enum TextRole {
+    case title2, headline, body, subheadline, caption, caption2
+
+    /// macOS's own sizes for these styles. `caption`/`caption2` are both nominally
+    /// 10pt on macOS; kept one point apart here so the hierarchy this app actually
+    /// relies on (a 10pt caption2 detail under an 11pt caption label) stays visible.
+    var size: CGFloat {
+        switch self {
+        case .title2: return 17
+        case .headline: return 13
+        case .body: return 13
+        case .subheadline: return 11
+        case .caption: return 11
+        case .caption2: return 10
+        }
+    }
+
+    var weight: Font.Weight { self == .headline ? .semibold : .regular }
+}
+
+/// One scaled font. A free function rather than a method on a per-view `scale`
+/// property so a call site is a drop-in replacement for `.font(.caption2)` and
+/// doesn't require every small view to hold its own `@ObservedObject` -- the views
+/// that own the layout (`ContentView`, `DayCard`, and each sheet) observe
+/// `AppScale.shared`, and re-rendering them recreates these child views with the
+/// new size.
+func scaledFont(_ role: TextRole, design: Font.Design = .default) -> Font {
+    .system(size: (role.size * AppScale.shared.factor).rounded(),
+            weight: role.weight, design: design)
 }
 
 /// Every hardcoded dimension this app lays out with, in one place at its `.medium`
@@ -119,19 +150,12 @@ enum SheetSize {
 }
 
 extension View {
-    /// Apply one of `SheetSize`'s standard sizes, scaled, *and* the matching text
-    /// scale. Every sheet in this app ends with this instead of its own literal
-    /// `.frame(width:height:)`.
-    ///
-    /// The `dynamicTypeSize` half is set here rather than relied on from
-    /// `ContentView`'s root: a `.sheet`'s content is presented in its own window,
-    /// and doesn't reliably inherit environment modifiers attached to the
-    /// presenting view *after* the `.sheet` modifier itself. Setting it at each
-    /// sheet is what makes a scale change actually reach them too, instead of
-    /// leaving every sheet at the system default while the main window scales.
+    /// Apply one of `SheetSize`'s standard sizes, scaled. Every sheet in this app
+    /// ends with this instead of its own literal `.frame(width:height:)`. The text
+    /// half needs nothing here -- each sheet's own `.font(scaledFont(...))` call
+    /// sites already read the current scale.
     func sheetFrame(_ size: CGSize) -> some View {
         let scale = AppScale.shared
         return frame(width: scale.scaled(size.width), height: scale.scaled(size.height))
-            .environment(\.dynamicTypeSize, scale.dynamicTypeSize)
     }
 }

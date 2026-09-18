@@ -50,9 +50,9 @@ struct SearchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Search").font(.title2).bold().padding([.top, .horizontal], 16)
+            Text("Search").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             Text("Pre-filled from your saved Preferences — edit for this one search.")
-                .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 2)
+                .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 2)
 
             Form {
                 Section("Criteria") {
@@ -71,7 +71,7 @@ struct SearchSheet: View {
             .formStyle(.grouped)
 
             HStack {
-                if let status = status.value { Text(status).font(.caption).foregroundStyle(.secondary) }
+                if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
                 if isSearching.value { ProgressView().controlSize(.small) }
                 Button("Search") { runSearch() }
@@ -148,35 +148,37 @@ struct SearchSheet: View {
 }
 
 private struct SearchResultRow: View {
+    @ObservedObject private var units = AppUnits.shared
     let match: SearchMatch
     let weather: Day?
 
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(weekday(match.date)).font(.caption).bold()
-                Text(match.time).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                Text(weekday(match.date)).font(scaledFont(.caption)).bold()
+                Text(match.time).font(scaledFont(.caption, design: .monospaced)).foregroundStyle(.secondary)
             }
             .frame(width: 100, alignment: .leading)
 
             if let w = weather?.weather(at: match.time) {
-                Image(systemName: icon(for: w.code)).font(.caption).foregroundStyle(.secondary)
+                Image(systemName: icon(for: w.code)).font(scaledFont(.caption)).foregroundStyle(.secondary)
                 if let t = w.temperatureC {
-                    Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
+                    Text(String(format: "%.0f°", Units.temperature(t, units.value)))
+                        .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: 28, alignment: .leading)
                 }
             }
 
-            Text("\(match.capacity - match.booked) open").font(.caption2).foregroundStyle(.secondary)
+            Text("\(match.capacity - match.booked) open").font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .frame(width: 56, alignment: .leading)
 
             if !match.reasons.isEmpty {
                 Text(match.reasons.joined(separator: ", "))
-                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                    .font(scaledFont(.caption2)).foregroundStyle(.tertiary).lineLimit(1)
             }
 
             Spacer()
-            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+            Image(systemName: "chevron.right").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 3)
     }

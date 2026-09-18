@@ -10,7 +10,7 @@ struct PreferencesSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Preferences").font(.title2).bold().padding([.top, .horizontal], 16)
+            Text("Preferences").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             // Genuinely true, not a hope: `_resolved_config()` (tui.py) calls
             // `global_preferences.load_preferences()` fresh, uncached, on every render
             // -- so a running TUI already picks up anything saved here on its very next
@@ -19,7 +19,7 @@ struct PreferencesSheet: View {
             // from the UI, and it's the one genuinely good answer in an otherwise
             // restart-required corner of this app (theme/language, see SettingsSheet).
             Text("Applies immediately -- a running terminal app picks this up on its next refresh, no restart needed.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .padding(.horizontal, 16).padding(.top, 2)
             Form {
                 Section("Availability") {
@@ -56,7 +56,7 @@ struct PreferencesSheet: View {
             .formStyle(.grouped)
 
             HStack {
-                if let status = status.value { Text(status).font(.caption).foregroundStyle(.secondary) }
+                if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
@@ -162,7 +162,7 @@ struct SettingsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Settings").font(.title2).bold().padding([.top, .horizontal], 16)
+            Text("Settings").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             Form {
                 Section {
                     TextField("Username", text: $loginUsername.value)
@@ -170,7 +170,7 @@ struct SettingsSheet: View {
                                 text: $loginPassword.value)
                     HStack {
                         if let loginStatus = loginStatus.value {
-                            Text(loginStatus).font(.caption2).foregroundStyle(.secondary)
+                            Text(loginStatus).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         if isLoggingIn.value { ProgressView().controlSize(.small) }
@@ -200,7 +200,7 @@ struct SettingsSheet: View {
                     Text(verifyClubID == nil
                          ? "Saved either way; pick a club above to also verify it against pc caddie on save."
                          : "Verified live against pc caddie for the selected club when you save.")
-                        .font(.caption2)
+                        .font(scaledFont(.caption2))
                 }
                 // Units lives in preferences.yaml, so like everything in PreferencesSheet
                 // it's live in a running terminal app on its next refresh -- no restart.
@@ -223,10 +223,18 @@ struct SettingsSheet: View {
                 } footer: {
                     Text("Both apply immediately, no restart. Scale affects this app only -- "
                          + "the terminal app follows your terminal's own font size.")
-                        .font(.caption2)
+                        .font(scaledFont(.caption2))
                 }
                 Section {
-                    Picker("Language", selection: $language.value) {
+                    // Labeled for what it actually does today. This app has no
+                    // translations of its own yet -- every string in it is an
+                    // English literal -- so this picker only ever set `LANG=` for
+                    // the *TUI* to read. That was documented in this section's
+                    // footer but read, reasonably, as the control being broken
+                    // ("language settings ... doesn't change anything"). Saying so
+                    // on the control itself is the honest interim state until the
+                    // GUI is genuinely translated.
+                    Picker("Language (terminal app only)", selection: $language.value) {
                         Text("English").tag("en"); Text("Deutsch").tag("de")
                     }
                     Picker("Theme", selection: $theme.value) {
@@ -235,14 +243,18 @@ struct SettingsSheet: View {
                 } header: {
                     Text("Terminal app")
                 } footer: {
-                    Text("Theme applies here immediately. Both of these only reach the terminal app the next time you restart it -- it caches them once at launch and won't notice a change while running, even if you reopen its own Settings screen.")
-                        .font(.caption2)
+                    Text("Theme applies here immediately. Language does not — this app "
+                         + "is English-only for now, and this setting exists to control the "
+                         + "terminal app. Both reach the terminal app only on its next restart: "
+                         + "it caches them at launch and won't notice a change while running, "
+                         + "even if you reopen its own Settings screen.")
+                        .font(scaledFont(.caption2))
                 }
             }
             .formStyle(.grouped)
 
             HStack {
-                if let status = status.value { Text(status).font(.caption).foregroundStyle(.secondary) }
+                if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
@@ -254,6 +266,11 @@ struct SettingsSheet: View {
                         var p = Preferences.load()
                         p.units = units.value
                         try p.save()
+                        // Persisting alone changed nothing on screen before this --
+                        // the app saved `units` correctly and then never read it
+                        // back (see Units.swift). This is the line that actually
+                        // reformats every temperature and wind speed on screen.
+                        AppUnits.shared.value = units.value
                         try UserConfig.setValue("THEME", theme.value)
                         try UserConfig.setValue("LANG", language.value)
                         // Applies immediately, no relaunch: AppTheme.shared is the

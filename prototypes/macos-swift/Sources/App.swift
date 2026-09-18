@@ -30,14 +30,20 @@ func weekday(_ iso: String) -> String {
 /// same role `tui.py`'s `OVERVIEW_LEGEND` plays under the TUI's own table, kept to
 /// the subset this card-based view actually shows.
 struct LegendLine: View {
-    private let entries: [(icon: String, text: String)] = [
-        ("thermometer.medium", "hi/lo °C"),
-        ("drop.fill", "rain % (🌧 ≥50%)"),
-        ("wind", "wind km/h (💨 ≥30)"),
-        ("sunrise.fill", "sunrise"),
-        ("sunset.fill", "sunset"),
-        ("flag.fill", "your booking"),
-    ]
+    @ObservedObject private var units = AppUnits.shared
+
+    // Computed, not a stored `let`: the temperature/wind labels state the current
+    // unit, so they have to follow a Units change the same way the numbers do.
+    private var entries: [(icon: String, text: String)] {
+        [
+            ("thermometer.medium", "hi/lo \(Units.temperatureSymbol(units.value))"),
+            ("drop.fill", "rain % (🌧 ≥50%)"),
+            ("wind", "wind \(Units.windSymbol(units.value)) (💨 ≥30)"),
+            ("sunrise.fill", "sunrise"),
+            ("sunset.fill", "sunset"),
+            ("flag.fill", "your booking"),
+        ]
+    }
 
     var body: some View {
         // Horizontal scroll rather than a wrapping HStack (SwiftUI has no built-in
@@ -54,7 +60,7 @@ struct LegendLine: View {
                 }
             }
         }
-        .font(.caption2).foregroundStyle(.tertiary)
+        .font(scaledFont(.caption2)).foregroundStyle(.tertiary)
     }
 }
 
@@ -78,6 +84,7 @@ struct SlotRow: View {
     let day: Day
     @ObservedObject var model: OverviewModel
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var units = AppUnits.shared
     @StateObject private var showingConfirm = Box(false)
 
     var isMine: Bool { day.bookedTime == slot.time }
@@ -89,13 +96,13 @@ struct SlotRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(slot.time)
-                .font(.system(.caption, design: .monospaced))
+                .font(scaledFont(.caption, design: .monospaced))
                 .fontWeight(isMine ? .bold : .regular)
                 .frame(width: scale.scaled(Metrics.slotTime), alignment: .leading)
 
             if slot.isBlocked {
                 Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : "not bookable")
-                    .font(.caption2).foregroundStyle(.secondary).italic()
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).italic()
             } else {
                 HStack(spacing: 3) {
                     ForEach(0..<max(slot.capacity, 1), id: \.self) { i in
@@ -108,7 +115,7 @@ struct SlotRow: View {
                     }
                 }
                 Text("\(slot.capacity - slot.booked) free")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -119,23 +126,24 @@ struct SlotRow: View {
             // sunsetRowTime for the tie-break rule this shares with Python).
             if slot.time == day.sunriseRowTime {
                 Label("sunrise \(day.sunrise ?? "")", systemImage: "sunrise.fill")
-                    .font(.caption2).foregroundStyle(.orange)
+                    .font(scaledFont(.caption2)).foregroundStyle(.orange)
             }
             if slot.time == day.sunsetRowTime {
                 Label("sunset \(day.sunset ?? "")", systemImage: "sunset.fill")
-                    .font(.caption2).foregroundStyle(.orange)
+                    .font(scaledFont(.caption2)).foregroundStyle(.orange)
             }
             if isMine {
                 Label("you", systemImage: "flag.fill")
-                    .font(.caption2).foregroundStyle(Color.accentColor)
+                    .font(scaledFont(.caption2)).foregroundStyle(Color.accentColor)
             }
             if let w = day.weather(at: slot.time) {
-                Image(systemName: icon(for: w.code)).font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .help("Condition at \(slot.time)")
                 if let t = w.temperatureC {
-                    Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
+                    Text(String(format: "%.0f°", Units.temperature(t, units.value)))
+                        .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: scale.scaled(Metrics.slotTemp), alignment: .trailing)
-                        .help("Temperature")
+                        .help("Temperature (\(Units.temperatureSymbol(units.value)))")
                 }
                 if let p = w.precipitationProbability {
                     // 🌧 only above the threshold -- the real number always shows, same
@@ -145,16 +153,22 @@ struct SlotRow: View {
                         if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
                         Text("\(Int(p))%")
                     }
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
                     .help(p >= 50 ? "Rain chance -- ≥50%, flagged" : "Rain chance")
                 }
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
                         if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }
-                        Text("\(Int(wd))")
+                        Text("\(Int(Units.windSpeed(wd, units.value)))")
                     }
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
-                    .help(wd >= 30 ? "Wind, km/h -- ≥30, flagged" : "Wind, km/h")
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
+                    // The >= 30 test stays on the raw km/h value: it mirrors
+                    // tui._SLOT_WIND_ICON_THRESHOLD_KPH, which is a fixed metric
+                    // threshold regardless of display units (same rule units.py's
+                    // own docstring gives for not converting stored thresholds).
+                    .help(wd >= 30
+                          ? "Wind, \(Units.windSymbol(units.value)) -- ≥30 km/h, flagged"
+                          : "Wind, \(Units.windSymbol(units.value))")
                 }
             }
         }
@@ -191,14 +205,15 @@ struct DayCard: View {
     @ObservedObject var model: OverviewModel
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var units = AppUnits.shared
     var isOpen: Bool { model.expanded.contains(day.date) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
-                Text(weekday(day.date)).font(.headline)
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
+                Text(weekday(day.date)).font(scaledFont(.headline))
 
                 // Day-level summary -- worst condition, high/low, average rain chance,
                 // peak wind, all across 08:00-20:00 -- mirrors tui._condition_cell()/
@@ -214,22 +229,24 @@ struct DayCard: View {
                 Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
                     .help("Condition (worst, 08:00–20:00)")
                 if let (hi, lo) = day.tempHighLow {
-                    Label("\(Int(hi))°/\(Int(lo))°", systemImage: "thermometer.medium")
-                        .font(.system(.subheadline, design: .monospaced))
-                        .help("High / low temperature, daytime")
+                    Label("\(Int(Units.temperature(hi, units.value)))°/"
+                          + "\(Int(Units.temperature(lo, units.value)))°",
+                          systemImage: "thermometer.medium")
+                        .font(scaledFont(.subheadline, design: .monospaced))
+                        .help("High / low temperature (\(Units.temperatureSymbol(units.value))), daytime")
                 }
                 if let p = day.precipAvg {
                     Label("\(Int(p))%", systemImage: "drop.fill")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
                         .help("Average rain chance, daytime")
                 }
                 if let wd = day.windPeak {
-                    Label("\(Int(wd))", systemImage: "wind")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .help("Peak wind, km/h, daytime")
+                    Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
+                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                        .help("Peak wind, \(Units.windSymbol(units.value)), daytime")
                 }
                 if let rise = day.sunrise, let set = day.sunset {
-                    Text("↑\(rise) ↓\(set)").font(.caption2).foregroundStyle(.tertiary)
+                    Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
                         .help("Sunrise / sunset")
                 }
 
@@ -238,7 +255,7 @@ struct DayCard: View {
 
                 if let t = day.bookedTime {
                     Label(t, systemImage: "flag.fill")
-                        .font(.caption).padding(.horizontal, 7).padding(.vertical, 3)
+                        .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.accentColor)
                 }
@@ -252,7 +269,7 @@ struct DayCard: View {
 
             if !day.events.isEmpty {
                 Text(day.events.joined(separator: " · "))
-                    .font(.caption2).foregroundStyle(.secondary).padding(.leading, 20)
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.leading, 20)
             }
 
             if isOpen {
@@ -498,13 +515,13 @@ struct ContentView: View {
                 VStack(spacing: 4) {
                     ForEach(model.banners) { banner in
                         HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "bell.fill").font(.caption).foregroundStyle(.orange)
-                            Text(banner.message).font(.caption)
+                            Image(systemName: "bell.fill").font(scaledFont(.caption)).foregroundStyle(.orange)
+                            Text(banner.message).font(scaledFont(.caption))
                             Spacer()
                             Button {
                                 model.dismiss(banner)
                             } label: {
-                                Image(systemName: "xmark").font(.caption2)
+                                Image(systemName: "xmark").font(scaledFont(.caption2))
                             }
                             .buttonStyle(.plain)
                         }
@@ -521,18 +538,18 @@ struct ContentView: View {
             // real text labels instead of six bare icons explained only by tooltip.
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.clubName).font(.title2).bold()
+                    Text(model.clubName).font(scaledFont(.title2)).bold()
                         .lineLimit(1).truncationMode(.tail)
                     HStack(spacing: 6) {
                         if model.isScraping {
                             ProgressView().controlSize(.small).scaleEffect(0.7)
-                            Text("Checking pc caddie…").font(.caption2).foregroundStyle(.secondary)
+                            Text("Checking pc caddie…").font(scaledFont(.caption2)).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         } else {
                             Circle().fill(model.freshnessColor)
                                 .frame(width: scale.scaled(Metrics.freshnessDot),
                                        height: scale.scaled(Metrics.freshnessDot))
-                            Text(model.freshnessText).font(.caption2).foregroundStyle(.secondary)
+                            Text(model.freshnessText).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -542,7 +559,7 @@ struct ContentView: View {
                 // course -- they were two unlabeled dropdowns stacked in a corner.
                 Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 5) {
                     GridRow {
-                        Text("Club").font(.caption2).foregroundStyle(.secondary)
+                        Text("Club").font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Picker("", selection: $model.clubPath) {
                             ForEach(model.clubs, id: \.path) { club in
                                 Text(club.lastScrape.isEmpty ? "\(club.name) — never scraped" : club.name)
@@ -553,7 +570,7 @@ struct ContentView: View {
                         .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                     }
                     GridRow {
-                        Text("Course").font(.caption2).foregroundStyle(.secondary)
+                        Text("Course").font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Picker("", selection: $model.course) {
                             ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                         }
@@ -614,7 +631,7 @@ struct ContentView: View {
             if let problem = model.problem {
                 Label(problem.trimmingCharacters(in: .whitespacesAndNewlines),
                       systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange).lineLimit(2)
+                    .font(scaledFont(.caption)).foregroundStyle(.orange).lineLimit(2)
             }
 
             // Mirrors tui.py's own OVERVIEW_LEGEND, placed the same way (one line
@@ -642,11 +659,6 @@ struct ContentView: View {
         .background(theme.colors.background)
         .tint(theme.colors.accent)
         .foregroundStyle(theme.colors.foreground)
-        // The whole text half of the scale setting, in one line: every view here
-        // uses semantic fonts (.caption2/.headline/.title2...), so this scales all
-        // of them at once. The pixel half is Metrics * scale.scaled() at each use
-        // site -- see Scale.swift for why both are needed.
-        .environment(\.dynamicTypeSize, scale.dynamicTypeSize)
         .onAppear {
             model.load()
             model.startWatching()
