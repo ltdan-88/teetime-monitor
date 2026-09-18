@@ -54,6 +54,59 @@ struct Day: Identifiable {
             return Double(real.reduce(0) { $0 + $1.booked }) / Double(capacity)
         }
     }
+
+    /// 08:00-20:00 only -- the exact window `tui._temperature_cell()`/
+    /// `_precipitation_cell()`/`_wind_cell()`/`_condition_cell()` all use for a
+    /// day-level summary, so the collapsed row's numbers match what those would show.
+    private var daytimeWeather: [WeatherPoint] { weather.filter { $0.time >= "08:00" && $0.time < "20:00" } }
+
+    /// The single most severe WMO code among the day's daytime hours -- mirrors
+    /// `weather_icons.worst_icon()`'s own severity order exactly (a day that's sunny
+    /// all morning and thunderstorms in the afternoon is a thunderstorm day, not a
+    /// "mostly sunny" one), not just whatever happened to be forecast at noon.
+    var conditionCode: Int? {
+        let known = daytimeWeather.compactMap(\.code).filter { Day.severityOrder.contains($0) }
+        return known.min { Day.severityOrder.firstIndex(of: $0)! < Day.severityOrder.firstIndex(of: $1)! }
+    }
+    private static let severityOrder = [
+        95, 96, 99, 85, 86, 71, 73, 75, 77, 66, 67, 61, 63, 65, 80, 81, 82,
+        56, 57, 51, 53, 55, 45, 48, 3, 2, 1, 0,
+    ]
+
+    /// (high, low) across daytime -- `_temperature_cell()`'s own "24/14", not an
+    /// instantaneous reading.
+    var tempHighLow: (high: Double, low: Double)? {
+        let t = daytimeWeather.compactMap(\.temperatureC)
+        guard let hi = t.max(), let lo = t.min() else { return nil }
+        return (hi, lo)
+    }
+
+    /// Average daytime rain probability -- `_precipitation_cell()`'s own figure
+    /// (the per-slot cell shows one hour's real number; this is the day's summary).
+    var precipAvg: Double? {
+        let p = daytimeWeather.compactMap(\.precipitationProbability)
+        return p.isEmpty ? nil : p.reduce(0, +) / Double(p.count)
+    }
+
+    /// Peak daytime wind -- `_wind_cell()`'s own "worst case across the window", not
+    /// an average.
+    var windPeak: Double? { daytimeWeather.compactMap(\.windKPH).max() }
+
+    /// The slot row nearest sunrise/sunset -- mirrors `tui._closest_slot_time()`
+    /// exactly, including its tie-break: `slots` is already chronological (loaded
+    /// `ORDER BY time`), and `min(by:)` keeps the first-seen minimum on a tie the
+    /// same way Python's own `min()` does, so an equal-distance tie resolves to the
+    /// earlier time in both.
+    private func closestSlotTime(to target: String?) -> String? {
+        guard let target, !slots.isEmpty else { return nil }
+        func minutes(_ t: String) -> Int {
+            (Int(t.prefix(2)) ?? 0) * 60 + (Int(t.dropFirst(3).prefix(2)) ?? 0)
+        }
+        let goal = minutes(target)
+        return slots.map(\.time).min { abs(minutes($0) - goal) < abs(minutes($1) - goal) }
+    }
+    var sunriseRowTime: String? { closestSlotTime(to: sunrise) }
+    var sunsetRowTime: String? { closestSlotTime(to: sunset) }
 }
 
 /// One unacknowledged notice from `booking_changes` -- a friend joined your flight,
