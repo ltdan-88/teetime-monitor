@@ -124,9 +124,20 @@ private struct OptionalTempRow: View {
 }
 
 /// Mirrors `AppSettingsScreen` (v0.29.0's other half): how the app itself runs.
-/// Login/Account is intentionally absent -- it needs a real network call
-/// (`scraper.login()`), which is Tier 2 (a Python subcommand), not a file edit.
+///
+/// Login (2026-09-18, Tier 2's first piece) shells out to `teetime-monitor-login`
+/// rather than reimplementing `scraper.login()` or `.env` writing here -- see
+/// `LoginClient.swift`. It's its own Save button and status line, separate from the
+/// Units/Language/Theme Save below, because it's a real network call with its own
+/// async result, not a local file edit -- same reason `CredentialsScreen` is its own
+/// screen in the TUI rather than a section of `AppSettingsScreen` there either.
 struct SettingsSheet: View {
+    /// The currently-selected club's platform id, so login can verify against a real
+    /// pc caddie session the same way `ClubBrowserScreen.action_login()` does --
+    /// `nil` on a fresh install with nothing saved yet, in which case the save still
+    /// happens, just unverified (see `CredentialsScreen`'s own `verify_against_club_id`).
+    let verifyClubID: String?
+
     @Environment(\.dismiss) private var dismiss
     @StateObject private var units = Box(Preferences.load().units)
     @StateObject private var language = Box(UserConfig.value("LANG") ?? "en")
@@ -136,14 +147,55 @@ struct SettingsSheet: View {
     @StateObject private var theme = Box(AppTheme.shared.name)
     @StateObject private var status = Box<String?>(nil)
 
+    // Username is prefilled (not secret); password never is -- same rule
+    // CredentialsScreen documents: a blank password on save means "keep what's
+    // already there," so there's never a need to display or retype one that works.
+    @StateObject private var loginUsername = Box(EnvStore.currentUsername() ?? "")
+    @StateObject private var loginPassword = Box("")
+    @StateObject private var isLoggingIn = Box(false)
+    @StateObject private var loginStatus = Box<String?>(nil)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Settings").font(.title2).bold().padding([.top, .horizontal], 16)
             Form {
-                Section("Account") {
-                    LabeledContent("pc caddie login") {
-                        Text("Not available in this prototype yet").foregroundStyle(.secondary).font(.caption)
+                Section {
+                    TextField("Username", text: $loginUsername.value)
+                    SecureField(EnvStore.hasSavedPassword() ? "Password (unchanged)" : "Password",
+                                text: $loginPassword.value)
+                    HStack {
+                        if let loginStatus = loginStatus.value {
+                            Text(loginStatus).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if isLoggingIn.value { ProgressView().controlSize(.small) }
+                        Button("Save login") {
+                            isLoggingIn.value = true
+                            loginStatus.value = nil
+                            LoginClient.run(username: loginUsername.value, password: loginPassword.value,
+                                             clubID: verifyClubID) { result, error in
+                                isLoggingIn.value = false
+                                if let result {
+                                    loginStatus.value = result.statusText
+                                    // Never linger in the field once it's written --
+                                    // re-entering this sheet always starts blank
+                                    // again, same as CredentialsScreen's own reset.
+                                    if result.saved { loginPassword.value = "" }
+                                } else {
+                                    loginStatus.value = error ?? "Something went wrong."
+                                }
+                            }
+                        }
+                        .disabled(isLoggingIn.value
+                                  || loginUsername.value.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
+                } header: {
+                    Text("pc caddie login")
+                } footer: {
+                    Text(verifyClubID == nil
+                         ? "Saved either way; pick a club above to also verify it against pc caddie on save."
+                         : "Verified live against pc caddie for the selected club when you save.")
+                        .font(.caption2)
                 }
                 // Units lives in preferences.yaml, so like everything in PreferencesSheet
                 // it's live in a running terminal app on its next refresh -- no restart.
@@ -215,6 +267,6 @@ struct SettingsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 440, height: 420)
+        .frame(width: 440, height: 500)
     }
 }
