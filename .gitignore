@@ -15,3 +15,5 @@ data/
 
 # Built prototype bundle -- rebuild with prototypes/macos-swift/build.sh
 prototypes/macos-swift/TeetimeMonitor.app/
+# SPM build output for the Swift prototype's own test suite (swift run TeetimeMonitorCoreTests)
+prototypes/macos-swift/.build/

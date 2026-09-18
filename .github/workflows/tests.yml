@@ -77,3 +77,19 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check src/ tests/
+
+  # The macOS Swift prototype's own regression suite (added 2026-09-19, alongside
+  # the tests themselves) -- a plain executable, not `.testTarget`/`swift test`,
+  # since neither XCTest nor swift-testing's macros are available under a bare
+  # Command Line Tools install (confirmed directly; see Package.swift's own
+  # docstring in prototypes/macos-swift). `macos-latest` ships full Xcode, but the
+  # executable-target shape works identically there and locally, so this is exactly
+  # what a contributor runs on their own machine before opening a PR.
+  swift-tests:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: prototypes/macos-swift
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift run TeetimeMonitorCoreTests
