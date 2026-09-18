@@ -42,7 +42,7 @@ struct LegendLine: View {
     var body: some View {
         // Horizontal scroll rather than a wrapping HStack (SwiftUI has no built-in
         // flow layout without iOS 16/macOS 13's Layout protocol boilerplate) -- at
-        // the window's 600pt minimum width this doesn't all fit, and a silently
+        // the window's minimum width this doesn't all fit, and a silently
         // truncated legend defeats the point more than a scrollable one would.
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
@@ -60,12 +60,14 @@ struct LegendLine: View {
 
 struct HeatStrip: View {
     let buckets: [Double?]
+    @ObservedObject private var scale = AppScale.shared
     var body: some View {
         HStack(spacing: 2) {
             ForEach(Array(buckets.enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(value.map(fillColor) ?? Color.secondary.opacity(0.18))
-                    .frame(width: 13, height: 7)
+                    .frame(width: scale.scaled(Metrics.heatBlockWidth),
+                           height: scale.scaled(Metrics.heatBlockHeight))
             }
         }
     }
@@ -75,6 +77,7 @@ struct SlotRow: View {
     let slot: Slot
     let day: Day
     @ObservedObject var model: OverviewModel
+    @ObservedObject private var scale = AppScale.shared
     @StateObject private var showingConfirm = Box(false)
 
     var isMine: Bool { day.bookedTime == slot.time }
@@ -88,7 +91,7 @@ struct SlotRow: View {
             Text(slot.time)
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(isMine ? .bold : .regular)
-                .frame(width: 42, alignment: .leading)
+                .frame(width: scale.scaled(Metrics.slotTime), alignment: .leading)
 
             if slot.isBlocked {
                 Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : "not bookable")
@@ -100,7 +103,8 @@ struct SlotRow: View {
                             .fill(i < slot.booked
                                   ? (isMine && i == 0 ? Color.accentColor : Color.secondary)
                                   : Color.secondary.opacity(0.18))
-                            .frame(width: 9, height: 9)
+                            .frame(width: scale.scaled(Metrics.seatPip),
+                                   height: scale.scaled(Metrics.seatPip))
                     }
                 }
                 Text("\(slot.capacity - slot.booked) free")
@@ -130,7 +134,7 @@ struct SlotRow: View {
                     .help("Condition at \(slot.time)")
                 if let t = w.temperatureC {
                     Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
-                        .frame(width: 24, alignment: .trailing)
+                        .frame(width: scale.scaled(Metrics.slotTemp), alignment: .trailing)
                         .help("Temperature")
                 }
                 if let p = w.precipitationProbability {
@@ -138,18 +142,18 @@ struct SlotRow: View {
                     // "worth noticing at a glance flag layered on the number, not a
                     // gate on it" rule tui._slot_precipitation_cell() documents.
                     HStack(spacing: 1) {
-                        if p >= 50 { Text("🌧").font(.system(size: 9)) }
+                        if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
                         Text("\(Int(p))%")
                     }
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
                     .help(p >= 50 ? "Rain chance -- ≥50%, flagged" : "Rain chance")
                 }
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
-                        if wd >= 30 { Text("💨").font(.system(size: 9)) }
+                        if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }
                         Text("\(Int(wd))")
                     }
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
                     .help(wd >= 30 ? "Wind, km/h -- ≥30, flagged" : "Wind, km/h")
                 }
             }
@@ -186,13 +190,14 @@ struct DayCard: View {
     let day: Day
     @ObservedObject var model: OverviewModel
     @ObservedObject private var theme = AppTheme.shared
+    @ObservedObject private var scale = AppScale.shared
     var isOpen: Bool { model.expanded.contains(day.date) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption2).foregroundStyle(.secondary).frame(width: 10)
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
                 Text(weekday(day.date)).font(.headline)
 
                 // Day-level summary -- worst condition, high/low, average rain chance,
@@ -485,6 +490,7 @@ struct ContentView: View {
     // change in SettingsSheet redraw this view immediately -- both hold the exact
     // same AppTheme instance, so its @Published change notification reaches here too.
     @ObservedObject private var theme = AppTheme.shared
+    @ObservedObject private var scale = AppScale.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -507,15 +513,14 @@ struct ContentView: View {
                     }
                 }
             }
-            HStack {
+            // Two rows, not one. Six actions, two pickers and the club identity all
+            // competing for a single row is what squeezed the title into wrapping
+            // one word per line (fixed once with .lineLimit(1), but the real cause
+            // was the row being overloaded). Splitting "what am I looking at" from
+            // "what can I do about it" gives both room, and lets the actions carry
+            // real text labels instead of six bare icons explained only by tooltip.
+            HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // .lineLimit(1) is load-bearing, not cosmetic -- without it, a
-                    // long club name wraps one word per line the moment the
-                    // toolbar's own buttons/pickers squeeze this VStack's width
-                    // down (six icons plus two 230pt pickers now share this row),
-                    // which is exactly the "Golf- / club / Do- / mane..." breakage
-                    // a screenshot caught live. Truncating is the honest fallback
-                    // -- the full name is still in the picker to its right.
                     Text(model.clubName).font(.title2).bold()
                         .lineLimit(1).truncationMode(.tail)
                     HStack(spacing: 6) {
@@ -524,48 +529,70 @@ struct ContentView: View {
                             Text("Checking pc caddie…").font(.caption2).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         } else {
-                            Circle().fill(model.freshnessColor).frame(width: 6, height: 6)
+                            Circle().fill(model.freshnessColor)
+                                .frame(width: scale.scaled(Metrics.freshnessDot),
+                                       height: scale.scaled(Metrics.freshnessDot))
                             Text(model.freshnessText).font(.caption2).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
                 }
-                Spacer(minLength: 8)
-                Button {
-                    model.refreshNow()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Run the scraper now (⌘R, also in the Actions menu)")
-                .disabled(model.isScraping)
-                Button { showingSearch.value = true } label: { Image(systemName: "magnifyingglass") }
-                    .help("Search — ad hoc criteria for this one search (⌘F, also in the Actions menu)")
-                    .disabled(model.clubPath.isEmpty || model.course.isEmpty)
-                Button { showingAddClub.value = true } label: { Image(systemName: "plus.circle") }
-                    .help("Add a club — search the platform directory (also in the Actions menu)")
-                Button { showingHeatmap.value = true } label: { Image(systemName: "square.grid.3x3.fill") }
-                    .help("Crowd heatmap — history by weekday and hour (also in the Actions menu)")
-                    .disabled(model.clubPath.isEmpty || model.course.isEmpty)
-                Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
-                    .help("Preferences — when you can play, weather limits (⌘,, also in the Actions menu)")
-                Button { showingSettings.value = true } label: { Image(systemName: "gearshape") }
-                    .help("Settings — display, scraping, AI (also in the Actions menu)")
-                VStack(alignment: .trailing, spacing: 5) {
-                    Picker("", selection: $model.clubPath) {
-                        ForEach(model.clubs, id: \.path) { club in
-                            Text(club.lastScrape.isEmpty ? "\(club.name) — never scraped" : club.name)
-                                .tag(club.path)
+                Spacer(minLength: 12)
+                // Labeled, so it's clear which picker is the club and which is the
+                // course -- they were two unlabeled dropdowns stacked in a corner.
+                Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 5) {
+                    GridRow {
+                        Text("Club").font(.caption2).foregroundStyle(.secondary)
+                        Picker("", selection: $model.clubPath) {
+                            ForEach(model.clubs, id: \.path) { club in
+                                Text(club.lastScrape.isEmpty ? "\(club.name) — never scraped" : club.name)
+                                    .tag(club.path)
+                            }
                         }
+                        .labelsHidden().frame(width: scale.scaled(Metrics.picker))
+                        .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                     }
-                    .labelsHidden().frame(width: 230)
-                    .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
-
-                    Picker("", selection: $model.course) {
-                        ForEach(model.courses, id: \.self) { Text($0).tag($0) }
+                    GridRow {
+                        Text("Course").font(.caption2).foregroundStyle(.secondary)
+                        Picker("", selection: $model.course) {
+                            ForEach(model.courses, id: \.self) { Text($0).tag($0) }
+                        }
+                        .labelsHidden().frame(width: scale.scaled(Metrics.picker))
+                        .onChange(of: model.course) { _, _ in model.reload() }
                     }
-                    .labelsHidden().frame(width: 230)
-                    .onChange(of: model.course) { _, _ in model.reload() }
                 }
+            }
+
+            // Grouped by what each action is *for* -- act on this course's data,
+            // manage which clubs exist, change how the app behaves -- with dividers
+            // making those three groups visible rather than six equally-spaced
+            // icons implying six unrelated things.
+            HStack(spacing: 8) {
+                Button { model.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    .help("Run the scraper now (⌘R)")
+                    .disabled(model.isScraping)
+                Button { showingSearch.value = true } label: { Label("Search", systemImage: "magnifyingglass") }
+                    .help("Ad hoc criteria for this one search (⌘F)")
+                    .disabled(model.clubPath.isEmpty || model.course.isEmpty)
+                Button { showingHeatmap.value = true } label: {
+                    Label("Heatmap", systemImage: "square.grid.3x3.fill")
+                }
+                .help("Crowd history by weekday and hour")
+                .disabled(model.clubPath.isEmpty || model.course.isEmpty)
+
+                Divider().frame(height: scale.scaled(16))
+
+                Button { showingAddClub.value = true } label: { Label("Add Club", systemImage: "plus.circle") }
+                    .help("Search the platform directory and save a club")
+
+                Spacer()
+
+                Button { showingPreferences.value = true } label: {
+                    Label("Preferences", systemImage: "slider.horizontal.3")
+                }
+                .help("When you can play, weather limits (⌘,)")
+                Button { showingSettings.value = true } label: { Label("Settings", systemImage: "gearshape") }
+                    .help("Display, login, scraping, AI")
             }
 
             if model.days.isEmpty {
@@ -615,6 +642,11 @@ struct ContentView: View {
         .background(theme.colors.background)
         .tint(theme.colors.accent)
         .foregroundStyle(theme.colors.foreground)
+        // The whole text half of the scale setting, in one line: every view here
+        // uses semantic fonts (.caption2/.headline/.title2...), so this scales all
+        // of them at once. The pixel half is Metrics * scale.scaled() at each use
+        // site -- see Scale.swift for why both are needed.
+        .environment(\.dynamicTypeSize, scale.dynamicTypeSize)
         .onAppear {
             model.load()
             model.startWatching()

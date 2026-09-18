@@ -72,7 +72,7 @@ struct PreferencesSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 560)
+        .sheetFrame(SheetSize.form)
     }
 }
 
@@ -149,6 +149,7 @@ struct SettingsSheet: View {
     // on whatever the app is actually showing right now -- matters the second time
     // this sheet opens in one session, after a theme change already happened live.
     @StateObject private var theme = Box(AppTheme.shared.name)
+    @StateObject private var scaleOption = Box(AppScale.shared.option)
     @StateObject private var status = Box<String?>(nil)
 
     // Username is prefilled (not secret); password never is -- same rule
@@ -214,10 +215,14 @@ struct SettingsSheet: View {
                     Picker("Units", selection: $units.value) {
                         Text("Metric").tag("metric"); Text("Imperial").tag("imperial")
                     }
+                    Picker("Scale", selection: $scaleOption.value) {
+                        ForEach(AppScaleOption.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
                 } header: {
                     Text("Display")
                 } footer: {
-                    Text("Applies immediately, same as Preferences -- no restart needed.")
+                    Text("Both apply immediately, no restart. Scale affects this app only -- "
+                         + "the terminal app follows your terminal's own font size.")
                         .font(.caption2)
                 }
                 Section {
@@ -258,10 +263,12 @@ struct SettingsSheet: View {
                         // UserConfig above only makes it survive to the *next*
                         // launch, it doesn't by itself change anything on screen.
                         AppTheme.shared.name = theme.value
+                        try UserConfig.setValue("GUI_SCALE", scaleOption.value.rawValue)
+                        AppScale.shared.option = scaleOption.value
                         // Language is still config-file-only: this prototype has no
                         // localization system of its own yet, so that half genuinely
                         // only takes effect next time the *TUI* restarts.
-                        status.value = "Units & theme applied. Theme/language reach the terminal app on its next restart."
+                        status.value = "Units, scale & theme applied. Theme/language reach the terminal app on its next restart."
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     } catch {
                         status.value = "Couldn't save: \(error.localizedDescription)"
@@ -271,6 +278,6 @@ struct SettingsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 440, height: 500)
+        .sheetFrame(SheetSize.form)
     }
 }
