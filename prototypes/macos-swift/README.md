@@ -113,6 +113,40 @@ data rather than trusting the code:
   Python's own `splitlines()` mismatch on a trailing newline) -- caught by writing
   the same key five times and diffing the byte count, not by inspection.
 
+## Three bugs found by using it (2026-09-18)
+
+Reported directly after the design pass below: "Scale changes don't seem to change
+any font size. Also ... language settings or changing metric to imperial also
+doesn't change anything." Three separate causes, only two of them bugs:
+
+1. **Scale did nothing** -- a real bug, and an assumption worth recording: the first
+   version set SwiftUI's `dynamicTypeSize` environment value and expected semantic
+   fonts (`.caption2`, `.title2`...) to follow it. **That is iOS behaviour. macOS
+   has no Dynamic Type**, so `.body` stayed 13pt no matter what that value said, and
+   the feature was inert from the moment it shipped. Fixed by computing point sizes
+   directly: `TextRole` names each style's real macOS size, `scaledFont()` multiplies
+   it, and all 62 `.font()` call sites now go through it. The factor range widened to
+   0.85/1.3 at the same time -- "no visible change" is exactly the failure mode not
+   to repeat.
+2. **Imperial did nothing** -- also a real bug, and a subtler one: the Units picker
+   had been writing `units:` to `preferences.yaml` correctly since Tier 1, and the
+   *TUI* honoured it the whole time. This app simply never read it back. Every
+   temperature was a hardcoded `"%.0f°"`, every wind speed a bare km/h number. New
+   `Units.swift` ports `src/units.py` exactly (verified against it: 20C -> 68.0000F,
+   18kph -> 11.1847mph, 1.5mm -> 0.0591in, identical to four decimal places) and
+   `AppUnits.shared` applies it live on Save, the same singleton shape `AppTheme`
+   already uses. The >=30 wind flag deliberately still tests raw km/h, matching
+   `tui._SLOT_WIND_ICON_THRESHOLD_KPH` and `units.py`'s own rule about not converting
+   stored thresholds.
+3. **Language does nothing here -- and genuinely isn't implemented.** Not a bug in
+   the code: this app has no translations at all, every string in it is an English
+   literal, and the picker only ever set `LANG=` for the TUI. That *was* stated in
+   the section footer, but a control that appears to do nothing reads as broken
+   regardless. Relabeled "Language (terminal app only)" as an honest interim state.
+   Translating the GUI's own ~108 user-visible strings is real work and a separate
+   decision -- and if it happens it should reuse `i18n.py`'s existing German
+   vocabulary rather than inventing parallel wording for the same domain terms.
+
 ## Design pass and interface scale (2026-09-18)
 
 Direct request after seeing the app with all of Tier 2 in it: "make the design more

@@ -24,7 +24,7 @@ struct HeatmapSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Crowd Heatmap — \(course)").font(.title2).bold().padding([.top, .horizontal], 16)
+            Text("Crowd Heatmap — \(course)").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
 
             if isLoading.value {
                 ProgressView("Crunching scrape history…").frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -44,7 +44,7 @@ struct HeatmapSheet: View {
             }
 
             if let status = status.value {
-                Text(status).font(.caption2).foregroundStyle(.secondary)
+                Text(status).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .padding(.horizontal, 16).padding(.bottom, 8)
             }
 
@@ -103,21 +103,21 @@ private struct HeatmapGridView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
+            Text(title).font(scaledFont(.headline))
             if hours.isEmpty {
-                Text("No data yet").font(.caption).foregroundStyle(.secondary)
+                Text("No data yet").font(scaledFont(.caption)).foregroundStyle(.secondary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
                     GridRow {
                         Text("").frame(width: scale.scaled(Metrics.heatHourLabel))
                         ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
-                            Text(label).font(.caption2).foregroundStyle(.secondary)
+                            Text(label).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         }
                     }
                     ForEach(hours, id: \.self) { hour in
                         GridRow {
                             Text("\(hour):00")
-                                .font(.system(.caption2, design: .monospaced))
+                                .font(scaledFont(.caption2, design: .monospaced))
                                 .frame(width: scale.scaled(Metrics.heatHourLabel), alignment: .leading)
                             ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
                                 HeatmapCell(bucket: group[key]?[hour])
@@ -144,7 +144,7 @@ private struct HeatmapCell: View {
                 .help("\(Int((bucket.average * 100).rounded()))% average occupancy, "
                       + "\(bucket.samples) sample\(bucket.samples == 1 ? "" : "s")")
         } else {
-            Text("–").font(.caption2).foregroundStyle(.tertiary).frame(width: scale.scaled(Metrics.heatCellWidth),
+            Text("–").font(scaledFont(.caption2)).foregroundStyle(.tertiary).frame(width: scale.scaled(Metrics.heatCellWidth),
                                         height: scale.scaled(Metrics.heatCellHeight))
         }
     }
@@ -169,7 +169,7 @@ private struct HeatmapLegendView: View {
                 Text("no data")
             }
         }
-        .font(.caption2).foregroundStyle(.secondary)
+        .font(scaledFont(.caption2)).foregroundStyle(.secondary)
     }
 
     private func swatch(_ color: Color, _ label: String) -> some View {
