@@ -446,6 +446,32 @@ final class OverviewModel: ObservableObject {
     }
 }
 
+/// Routes the menu bar's Actions commands (see `TeetimeMonitorPrototype.body`'s
+/// `.commands` block) to whichever `ContentView` is actually on screen -- a plain
+/// closure-holding singleton, same "one shared instance the whole app reaches
+/// through" shape `AppTheme` already uses in `Theme.swift`, chosen for the same
+/// reason: `.commands` lives on the `App` scene, outside `ContentView`'s own state,
+/// so there's no direct binding path from a menu item down to `model.refreshNow()`
+/// without routing through something both sides can see.
+///
+/// Added 2026-09-18, direct question: "are available key binds shown somewhere in
+/// the GUI?" -- they weren't. Each toolbar button already carried its own
+/// `.keyboardShortcut()`, which makes the shortcut *work*, but does nothing to make
+/// it *discoverable*: nothing on macOS surfaces a shortcut attached to a plain
+/// `Button` unless it also appears in the menu bar (where the OS itself renders the
+/// key equivalent next to the item, and where the system's own "hold ⌘ to see
+/// shortcuts" overlay and Accessibility Inspector both read it from). Moving the
+/// shortcuts here — and removing them from the toolbar buttons below, so each one
+/// has exactly one definition — is what actually answers the question, not a label
+/// added next to a button.
+final class AppCommands: ObservableObject {
+    static let shared = AppCommands()
+    var onRefresh: (() -> Void)?
+    var onSearch: (() -> Void)?
+    var onPreferences: (() -> Void)?
+    var onSettings: (() -> Void)?
+}
+
 struct ContentView: View {
     @StateObject var model: OverviewModel
     @StateObject private var showingPreferences = Box(false)
@@ -496,18 +522,15 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .help("Run the scraper now")
+                .help("Run the scraper now (⌘R, also in the Actions menu)")
                 .disabled(model.isScraping)
-                .keyboardShortcut("r", modifiers: .command)
                 Button { showingSearch.value = true } label: { Image(systemName: "magnifyingglass") }
-                    .help("Search — ad hoc criteria for this one search")
-                    .keyboardShortcut("f", modifiers: .command)
+                    .help("Search — ad hoc criteria for this one search (⌘F, also in the Actions menu)")
                     .disabled(model.clubPath.isEmpty || model.course.isEmpty)
                 Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
-                    .help("Preferences — when you can play, weather limits")
-                    .keyboardShortcut(",", modifiers: .command)
+                    .help("Preferences — when you can play, weather limits (⌘,, also in the Actions menu)")
                 Button { showingSettings.value = true } label: { Image(systemName: "gearshape") }
-                    .help("Settings — display, scraping, AI")
+                    .help("Settings — display, scraping, AI (also in the Actions menu)")
                 VStack(alignment: .trailing, spacing: 5) {
                     Picker("", selection: $model.clubPath) {
                         ForEach(model.clubs, id: \.path) { club in
@@ -562,7 +585,21 @@ struct ContentView: View {
         .background(theme.colors.background)
         .tint(theme.colors.accent)
         .foregroundStyle(theme.colors.foreground)
-        .onAppear { model.load(); model.startWatching() }
+        .onAppear {
+            model.load()
+            model.startWatching()
+            AppCommands.shared.onRefresh = { model.refreshNow() }
+            AppCommands.shared.onSearch = {
+                // Mirrors the toolbar button's own .disabled() guard -- the menu
+                // command has no direct view of model state to grey itself out
+                // with, so it stays enabled but inert instead of opening a sheet
+                // with no club/course to search.
+                guard !model.clubPath.isEmpty, !model.course.isEmpty else { return }
+                showingSearch.value = true
+            }
+            AppCommands.shared.onPreferences = { showingPreferences.value = true }
+            AppCommands.shared.onSettings = { showingSettings.value = true }
+        }
         .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
         .sheet(isPresented: $showingSettings.value) {
             SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id)
@@ -581,5 +618,21 @@ struct TeetimeMonitorPrototype: App {
             ContentView(model: OverviewModel())
         }
         .defaultSize(width: 660, height: 680)
+        .commands {
+            // A real menu, not just a working shortcut -- see AppCommands' own
+            // docstring for why this exists. A new top-level "Actions" menu (not
+            // folded into an existing one) so these four are easy to find as a
+            // group, next to the automatic View/Window menus SwiftUI already adds.
+            CommandMenu("Actions") {
+                Button("Refresh") { AppCommands.shared.onRefresh?() }
+                    .keyboardShortcut("r", modifiers: .command)
+                Button("Search…") { AppCommands.shared.onSearch?() }
+                    .keyboardShortcut("f", modifiers: .command)
+                Divider()
+                Button("Preferences…") { AppCommands.shared.onPreferences?() }
+                    .keyboardShortcut(",", modifiers: .command)
+                Button("Settings…") { AppCommands.shared.onSettings?() }
+            }
+        }
     }
 }
