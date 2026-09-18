@@ -112,7 +112,42 @@ search, also needs login), and the heatmap (porting or exposing
 each is real logic that has to stay in Python, reached the same way `--force`
 already is: a small, well-scoped console-script addition, not a reimplementation.
 
+## Polish round (2026-09-18): live theming, sunrise/sunset, full weather
+
+Four direct remarks after using Tier 1:
+
+1. **"m" for minutes is ambiguous with meters.** Every Stepper label in Preferences
+   now spells out "min" — matches Python's own `settings_screen.py` labels, which
+   spell "(minutes)" out in full rather than abbreviating at all.
+2. **"Do theme changes work, and can it not need a relaunch?"** They didn't apply to
+   this app at all before this — Settings only ever wrote `THEME=` to the shared
+   config file for the *TUI* to pick up next launch. New `Theme.swift` gives the
+   Swift app its own live rendering of all 10 themes (`AppTheme`, a singleton
+   `ObservableObject` every themed view observes) — picking a theme and hitting Save
+   redraws the running window immediately, no relaunch. The three brew-launcher
+   originals (green/amber/red-sands) use the *exact* hex values from `theme.py`'s
+   own `CUSTOM_THEMES`; the seven Textual built-ins aren't defined in this repo at
+   all (Textual's own registry owns them), so those use each palette's own
+   well-known published colors instead — close to what the TUI renders, not a
+   byte-for-byte extraction of it.
+3. **Sunrise/sunset now show two ways**, both mirroring `tui.py` exactly: a compact
+   "↑07:06 ↓19:29" on the collapsed day row, and — the specific slot row nearest
+   each one — a labeled marker, using the identical `_closest_slot_time()` logic
+   including its earlier-wins tie-break. Found and fixed while wiring this up: the
+   expanded view's own 07:00–19:30 row clip would have silently hidden the sunrise
+   marker on any day sunrise falls earlier than 07:00 (it was 06:51 as of
+   2026-09-08) — the clip now always keeps whichever row carries a marker.
+4. **Precipitation, wind and day-level condition were genuinely missing**, not just
+   unstyled — the data was already parsed and sitting in `WeatherPoint`, never
+   rendered. Every slot row now shows rain% (🌧 above 50%) and wind speed (💨 above
+   30kph), the same thresholds `tui._slot_precipitation_cell()`/`_slot_wind_cell()`
+   use. The collapsed day header now shows the actual day-level summary
+   (`tui._condition_cell()`'s "worst icon across daytime", `_temperature_cell()`'s
+   high/low, `_precipitation_cell()`'s average, `_wind_cell()`'s peak) instead of
+   whatever the forecast happened to say at noon.
+
 ## What it deliberately doesn't do
 
 No scraping (beyond shelling out to the existing scraper binary), no login, no real
-booking on pc caddie itself, no search, no heatmap, no i18n, no theming of its own.
+booking on pc caddie itself, no search, no heatmap, no i18n of its own (theme is
+now live; language still only affects the TUI, next launch).

@@ -77,14 +77,45 @@ struct SlotRow: View {
 
             Spacer()
 
+            // Sunrise/sunset noted on whichever slot row is actually closest to it --
+            // mirrors tui._closest_slot_time()'s placement exactly, not a single
+            // summary line detached from any specific time (see Day.sunriseRowTime/
+            // sunsetRowTime for the tie-break rule this shares with Python).
+            if slot.time == day.sunriseRowTime {
+                Label("sunrise \(day.sunrise ?? "")", systemImage: "sunrise.fill")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+            if slot.time == day.sunsetRowTime {
+                Label("sunset \(day.sunset ?? "")", systemImage: "sunset.fill")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
             if isMine {
                 Label("you", systemImage: "flag.fill")
                     .font(.caption2).foregroundStyle(Color.accentColor)
             }
-            if let w = day.weather(at: slot.time), let t = w.temperatureC {
+            if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(.caption2).foregroundStyle(.secondary)
-                Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
-                    .frame(width: 26, alignment: .trailing)
+                if let t = w.temperatureC {
+                    Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                }
+                if let p = w.precipitationProbability {
+                    // 🌧 only above the threshold -- the real number always shows, same
+                    // "worth noticing at a glance flag layered on the number, not a
+                    // gate on it" rule tui._slot_precipitation_cell() documents.
+                    HStack(spacing: 1) {
+                        if p >= 50 { Text("🌧").font(.system(size: 9)) }
+                        Text("\(Int(p))%")
+                    }
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
+                }
+                if let wd = w.windKPH {
+                    HStack(spacing: 1) {
+                        if wd >= 30 { Text("💨").font(.system(size: 9)) }
+                        Text("\(Int(wd))")
+                    }
+                    .font(.caption2).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+                }
             }
         }
         .padding(.vertical, 2)
@@ -118,9 +149,8 @@ struct SlotRow: View {
 struct DayCard: View {
     let day: Day
     @ObservedObject var model: OverviewModel
+    @ObservedObject private var theme = AppTheme.shared
     var isOpen: Bool { model.expanded.contains(day.date) }
-
-    private var noon: WeatherPoint? { day.weather(at: "12:00") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -129,15 +159,25 @@ struct DayCard: View {
                     .font(.caption2).foregroundStyle(.secondary).frame(width: 10)
                 Text(weekday(day.date)).font(.headline)
 
-                if let w = noon {
-                    Image(systemName: icon(for: w.code)).foregroundStyle(.secondary)
-                    if let t = w.temperatureC {
-                        Text(String(format: "%.0f°", t))
-                            .font(.system(.subheadline, design: .monospaced))
-                    }
-                    if let p = w.precipitationProbability, p > 0 {
-                        Text("\(Int(p))%").font(.caption).foregroundStyle(.secondary)
-                    }
+                // Day-level summary -- worst condition, high/low, average rain chance,
+                // peak wind, all across 08:00-20:00 -- mirrors tui._condition_cell()/
+                // _temperature_cell()/_precipitation_cell()/_wind_cell() exactly (each
+                // is a "worst/average across the window" figure, not one instant
+                // reading), not just whatever the forecast happened to say at noon.
+                Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
+                if let (hi, lo) = day.tempHighLow {
+                    Text("\(Int(hi))°/\(Int(lo))°")
+                        .font(.system(.subheadline, design: .monospaced))
+                }
+                if let p = day.precipAvg {
+                    Text("\(Int(p))%").font(.caption).foregroundStyle(.secondary)
+                }
+                if let wd = day.windPeak {
+                    Label("\(Int(wd))", systemImage: "wind")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let rise = day.sunrise, let set = day.sunset {
+                    Text("↑\(rise) ↓\(set)").font(.caption2).foregroundStyle(.tertiary)
                 }
 
                 Spacer()
@@ -165,19 +205,27 @@ struct DayCard: View {
             if isOpen {
                 Divider()
                 VStack(spacing: 0) {
-                    ForEach(day.slots.filter { $0.time >= "07:00" && $0.time <= "19:30" }) { slot in
+                    // The 07:00-19:30 clip keeps this compact against a club's full
+                    // 06:00-19:50 slot list, but sunrise runs earlier than 07:00 for
+                    // real stretches of the year (06:51 as of 2026-09-08) -- explicitly
+                    // keeping whichever row carries the marker means the sunrise/
+                    // sunset note this screen exists to show can't silently vanish
+                    // just because the season shifted.
+                    ForEach(day.slots.filter {
+                        ($0.time >= "07:00" && $0.time <= "19:30")
+                            || $0.time == day.sunriseRowTime || $0.time == day.sunsetRowTime
+                    }) { slot in
                         SlotRow(slot: slot, day: day, model: model)
                     }
                 }
                 .padding(.leading, 20)
-                if let rise = day.sunrise, let set = day.sunset {
-                    Text("sunrise \(rise) · sunset \(set)")
-                        .font(.caption2).foregroundStyle(.tertiary).padding(.leading, 20)
-                }
             }
         }
         .padding(12)
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
+        // theme.colors.surface, not the system-appearance-driven `.quaternary` this
+        // used to be -- a card that ignores the chosen theme entirely would make a
+        // theme switch look like it did nothing, since cards are most of the screen.
+        .background(theme.colors.surface.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -354,6 +402,10 @@ struct ContentView: View {
     @StateObject var model: OverviewModel
     @StateObject private var showingPreferences = Box(false)
     @StateObject private var showingSettings = Box(false)
+    // Observing the shared singleton (not creating a new one) is what makes a theme
+    // change in SettingsSheet redraw this view immediately -- both hold the exact
+    // same AppTheme instance, so its @Published change notification reaches here too.
+    @ObservedObject private var theme = AppTheme.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -445,6 +497,10 @@ struct ContentView: View {
         }
         .padding(16)
         .frame(minWidth: 600, minHeight: 540)
+        .padding(4)
+        .background(theme.colors.background)
+        .tint(theme.colors.accent)
+        .foregroundStyle(theme.colors.foreground)
         .onAppear { model.load(); model.startWatching() }
         .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
         .sheet(isPresented: $showingSettings.value) { SettingsSheet() }

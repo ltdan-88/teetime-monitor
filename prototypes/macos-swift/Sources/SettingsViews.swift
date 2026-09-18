@@ -16,8 +16,8 @@ struct PreferencesSheet: View {
                     Stepper("Min open spots: \(prefs.value.minOpenSpots)", value: $prefs.value.minOpenSpots, in: 1...4)
                     TimeWindowRow(label: "Weekday", after: $prefs.value.weekdayAfter, before: $prefs.value.weekdayBefore)
                     TimeWindowRow(label: "Weekend", after: $prefs.value.weekendAfter, before: $prefs.value.weekendBefore)
-                    Stepper("Buffer before: \(prefs.value.bufferBeforeMinutes)m", value: $prefs.value.bufferBeforeMinutes, in: 0...60, step: 5)
-                    Stepper("Buffer after: \(prefs.value.bufferAfterMinutes)m", value: $prefs.value.bufferAfterMinutes, in: 0...60, step: 5)
+                    Stepper("Buffer before: \(prefs.value.bufferBeforeMinutes) min", value: $prefs.value.bufferBeforeMinutes, in: 0...60, step: 5)
+                    Stepper("Buffer after: \(prefs.value.bufferAfterMinutes) min", value: $prefs.value.bufferAfterMinutes, in: 0...60, step: 5)
                 }
                 Section("Weather") {
                     Toggle("Avoid rain", isOn: $prefs.value.avoidRain)
@@ -35,9 +35,9 @@ struct PreferencesSheet: View {
                     OptionalTempRow(label: "Avoid above", value: $prefs.value.avoidTempAboveC)
                 }
                 Section("Pace & daylight") {
-                    Stepper("Daylight buffer: \(prefs.value.daylightBufferMinutes)m", value: $prefs.value.daylightBufferMinutes, in: 0...60, step: 5)
-                    Stepper("9 holes: \(prefs.value.roundDurationNine)m", value: $prefs.value.roundDurationNine, in: 60...240, step: 15)
-                    Stepper("18 holes: \(prefs.value.roundDurationEighteen)m", value: $prefs.value.roundDurationEighteen, in: 120...360, step: 15)
+                    Stepper("Daylight buffer: \(prefs.value.daylightBufferMinutes) min", value: $prefs.value.daylightBufferMinutes, in: 0...60, step: 5)
+                    Stepper("9 holes: \(prefs.value.roundDurationNine) min", value: $prefs.value.roundDurationNine, in: 60...240, step: 15)
+                    Stepper("18 holes: \(prefs.value.roundDurationEighteen) min", value: $prefs.value.roundDurationEighteen, in: 120...360, step: 15)
                 }
                 Section("Priorities") {
                     Toggle("Prioritize friends' slots", isOn: $prefs.value.prioritizeFriends)
@@ -120,11 +120,11 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var units = Box(Preferences.load().units)
     @StateObject private var language = Box(UserConfig.value("LANG") ?? "en")
-    @StateObject private var theme = Box(UserConfig.value("THEME") ?? "catppuccin")
+    // Seeded from the shared instance, not UserConfig directly, so this always starts
+    // on whatever the app is actually showing right now -- matters the second time
+    // this sheet opens in one session, after a theme change already happened live.
+    @StateObject private var theme = Box(AppTheme.shared.name)
     @StateObject private var status = Box<String?>(nil)
-
-    static let themes = ["catppuccin", "gruvbox", "tokyonight", "nord", "dracula",
-                          "solarized-dark", "solarized-light", "green", "amber", "red-sands"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +143,7 @@ struct SettingsSheet: View {
                         Text("English").tag("en"); Text("Deutsch").tag("de")
                     }
                     Picker("Theme", selection: $theme.value) {
-                        ForEach(Self.themes, id: \.self) { Text($0.replacingOccurrences(of: "-", with: " ").capitalized).tag($0) }
+                        ForEach(ThemeColors.names, id: \.self) { Text($0.replacingOccurrences(of: "-", with: " ").capitalized).tag($0) }
                     }
                 }
             }
@@ -164,11 +164,17 @@ struct SettingsSheet: View {
                         try p.save()
                         try UserConfig.setValue("THEME", theme.value)
                         try UserConfig.setValue("LANG", language.value)
-                        // Honest, not aspirational: this prototype has no theming or
-                        // localization system of its own yet -- Theme/Language are
-                        // shared, global settings (see paths.py), so saving them here
-                        // takes effect the next time the *TUI* opens, not this window.
-                        status.value = "Saved — takes effect next time the terminal app opens"
+                        // Applies immediately, no relaunch: AppTheme.shared is the
+                        // same instance ContentView/DayCard observe via
+                        // @ObservedObject, so this @Published assignment is what
+                        // actually redraws the running window -- persisting to
+                        // UserConfig above only makes it survive to the *next*
+                        // launch, it doesn't by itself change anything on screen.
+                        AppTheme.shared.name = theme.value
+                        // Language is still config-file-only: this prototype has no
+                        // localization system of its own yet, so that half genuinely
+                        // only takes effect next time the *TUI* opens.
+                        status.value = "Theme applied. Language takes effect next time the terminal app opens."
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     } catch {
                         status.value = "Couldn't save: \(error.localizedDescription)"
