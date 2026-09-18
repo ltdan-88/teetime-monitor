@@ -54,7 +54,7 @@ struct HeatmapSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 700, height: 620)
+        .sheetFrame(SheetSize.wide)
         .onAppear { load() }
     }
 
@@ -91,6 +91,7 @@ struct HeatmapSheet: View {
 }
 
 private struct HeatmapGridView: View {
+    @ObservedObject private var scale = AppScale.shared
     let title: String
     let keys: [String]
     let labels: [String]
@@ -108,7 +109,7 @@ private struct HeatmapGridView: View {
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
                     GridRow {
-                        Text("").frame(width: 40)
+                        Text("").frame(width: scale.scaled(Metrics.heatHourLabel))
                         ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
                             Text(label).font(.caption2).foregroundStyle(.secondary)
                         }
@@ -117,7 +118,7 @@ private struct HeatmapGridView: View {
                         GridRow {
                             Text("\(hour):00")
                                 .font(.system(.caption2, design: .monospaced))
-                                .frame(width: 40, alignment: .leading)
+                                .frame(width: scale.scaled(Metrics.heatHourLabel), alignment: .leading)
                             ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
                                 HeatmapCell(bucket: group[key]?[hour])
                             }
@@ -130,6 +131,7 @@ private struct HeatmapGridView: View {
 }
 
 private struct HeatmapCell: View {
+    @ObservedObject private var scale = AppScale.shared
     let bucket: HeatmapBucket?
 
     var body: some View {
@@ -137,23 +139,29 @@ private struct HeatmapCell: View {
             RoundedRectangle(cornerRadius: 2)
                 .fill(fillColor(bucket.average))
                 .opacity(bucket.samples < Analytics.minSamplesForPrediction ? 0.35 : 1.0)
-                .frame(width: 18, height: 13)
+                .frame(width: scale.scaled(Metrics.heatCellWidth),
+                       height: scale.scaled(Metrics.heatCellHeight))
                 .help("\(Int((bucket.average * 100).rounded()))% average occupancy, "
                       + "\(bucket.samples) sample\(bucket.samples == 1 ? "" : "s")")
         } else {
-            Text("–").font(.caption2).foregroundStyle(.tertiary).frame(width: 18, height: 13)
+            Text("–").font(.caption2).foregroundStyle(.tertiary).frame(width: scale.scaled(Metrics.heatCellWidth),
+                                        height: scale.scaled(Metrics.heatCellHeight))
         }
     }
 }
 
 private struct HeatmapLegendView: View {
+    @ObservedObject private var scale = AppScale.shared
+
     var body: some View {
         HStack(spacing: 16) {
             swatch(.green, "under half booked")
             swatch(.orange, "half to full")
             swatch(.red, "fully booked")
             HStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 2).fill(Color.secondary).opacity(0.35).frame(width: 14, height: 11)
+                RoundedRectangle(cornerRadius: 2).fill(Color.secondary).opacity(0.35)
+                    .frame(width: scale.scaled(Metrics.legendSwatchWidth),
+                           height: scale.scaled(Metrics.legendSwatchHeight))
                 Text("thin sample (<3)")
             }
             HStack(spacing: 4) {
@@ -166,7 +174,9 @@ private struct HeatmapLegendView: View {
 
     private func swatch(_ color: Color, _ label: String) -> some View {
         HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 14, height: 11)
+            RoundedRectangle(cornerRadius: 2).fill(color)
+                .frame(width: scale.scaled(Metrics.legendSwatchWidth),
+                       height: scale.scaled(Metrics.legendSwatchHeight))
             Text(label)
         }
     }

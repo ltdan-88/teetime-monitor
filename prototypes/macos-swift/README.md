@@ -113,6 +113,47 @@ data rather than trusting the code:
   Python's own `splitlines()` mismatch on a trailing newline) -- caught by writing
   the same key five times and diffing the byte count, not by inspection.
 
+## Design pass and interface scale (2026-09-18)
+
+Direct request after seeing the app with all of Tier 2 in it: "make the design more
+consistent, user friendly, and maybe offer different scales." Three separate
+problems, all of them symptoms of the same thing -- the interface had grown
+feature-by-feature without anyone laying it out as a whole:
+
+1. **The header was overloaded.** Club identity, six action buttons and two pickers
+   all competed for one row, which is what squeezed the club name into wrapping one
+   word per line (patched with `.lineLimit(1)`; this fixes the cause). Now two rows:
+   identity and the two *labeled* pickers on top ("Club" / "Course" -- they were
+   unlabeled dropdowns stacked in a corner), actions on their own row below.
+2. **Six bare icons explained only by tooltip.** Now labeled buttons, grouped by
+   what each is actually for -- act on this course's data (Refresh / Search /
+   Heatmap), manage which clubs exist (Add Club), change how the app behaves
+   (Preferences / Settings) -- with a divider and a spacer making those groups
+   visible instead of six evenly-spaced icons implying six unrelated things.
+3. **Five sheets at five different hand-picked sizes** (460x560, 440x500, 640x680,
+   560x560, 700x620 -- no two alike, none chosen for a reason that outlived the
+   sheet being written). Now three named sizes in `SheetSize` by what a sheet *is*:
+   a settings form, a form-plus-results browser, or a wide data display.
+
+**Scale** (Small / Medium / Large, in Settings → Display) is two halves, because
+neither alone works. Text scales through SwiftUI's own `dynamicTypeSize` -- every
+view here already uses semantic fonts (`.caption2`/`.headline`/`.title2`), so one
+environment value at the root scales all of it with no per-view change and none of
+`.scaleEffect`'s blurriness. Fixed pixel dimensions can't follow that, and would
+clip larger text or strand smaller text, so every one of them moved into a single
+`Metrics` enum and multiplies by the scale factor at its use site. "Medium" maps to
+macOS's *own* default Dynamic Type size, so an install that never touches this looks
+exactly as it did.
+
+Persisted as `GUI_SCALE=` in the same `~/.config/teetime-monitor/config` file
+`THEME=`/`LANG=` already share. Verified in both directions rather than assumed:
+Python reads the file correctly with the new GUI-only key present, and
+`user_config.save_value()` preserves it when the TUI writes a theme (it rewrites
+only the key it's given); the Swift writer still doesn't grow the file across
+repeated writes (the blank-line bug from Tier 1, re-checked with three keys
+present). Applies live on Save -- same `@Published` singleton shape as `AppTheme`,
+no relaunch.
+
 ## What's still Tier 2
 
 Nothing, as of the heatmap (below) -- every feature originally scoped for Tier 2

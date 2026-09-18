@@ -76,7 +76,7 @@ struct AddClubSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 560, height: 560)
+        .sheetFrame(SheetSize.browser)
         .onAppear { load() }
     }
 

@@ -106,7 +106,7 @@ struct SearchSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 640, height: 680)
+        .sheetFrame(SheetSize.browser)
         // Same interaction as SlotRow -- a confirming dialog, not a silent write on
         // tap, since this marks a local record of what you booked, not a real
         // pc caddie action.
