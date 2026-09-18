@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.34.0"
+version = "0.35.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -44,6 +44,12 @@ teetime-monitor-login = "src.login_cli:main"
 # Headless ad hoc search for the macOS Swift prototype (2026-09-18) -- see
 # search_cli.py's own docstring for the stdin-JSON-in, stdout-JSON-out contract.
 teetime-monitor-search = "src.search_cli:main"
+# Headless platform-directory refresh for the Swift prototype's add-a-club
+# (2026-09-18) -- see directory_cli.py's own docstring for the contract.
+teetime-monitor-directory-refresh = "src.directory_cli:main"
+# Headless add-a-club (save as favorite + geocode) for the Swift prototype
+# (2026-09-18) -- see add_club_cli.py's own docstring for the contract.
+teetime-monitor-add-club = "src.add_club_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
