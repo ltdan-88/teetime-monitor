@@ -11,6 +11,16 @@ struct PreferencesSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Preferences").font(.title2).bold().padding([.top, .horizontal], 16)
+            // Genuinely true, not a hope: `_resolved_config()` (tui.py) calls
+            // `global_preferences.load_preferences()` fresh, uncached, on every render
+            // -- so a running TUI already picks up anything saved here on its very next
+            // refresh (periodic or manual), with no restart and no need to even reopen
+            // its own Settings screen. Worth saying explicitly since it isn't obvious
+            // from the UI, and it's the one genuinely good answer in an otherwise
+            // restart-required corner of this app (theme/language, see SettingsSheet).
+            Text("Applies immediately -- a running terminal app picks this up on its next refresh, no restart needed.")
+                .font(.caption2).foregroundStyle(.secondary)
+                .padding(.horizontal, 16).padding(.top, 2)
             Form {
                 Section("Availability") {
                     Stepper("Min open spots: \(prefs.value.minOpenSpots)", value: $prefs.value.minOpenSpots, in: 1...4)
@@ -135,16 +145,37 @@ struct SettingsSheet: View {
                         Text("Not available in this prototype yet").foregroundStyle(.secondary).font(.caption)
                     }
                 }
-                Section("Display") {
+                // Units lives in preferences.yaml, so like everything in PreferencesSheet
+                // it's live in a running terminal app on its next refresh -- no restart.
+                // Theme/language are the plain config file instead, and `i18n.py` caches
+                // `_current_language` once per process (`get_language()`: resolved on
+                // first call, then never re-read) while `club_config.py` calls
+                // `load_dotenv()` once at import time -- so unlike units, those two
+                // genuinely need the terminal app restarted, not just reopened, to see a
+                // change made here. Verified directly against src/i18n.py and
+                // src/tui.py's `_resolved_config()` rather than assumed.
+                Section {
                     Picker("Units", selection: $units.value) {
                         Text("Metric").tag("metric"); Text("Imperial").tag("imperial")
                     }
+                } header: {
+                    Text("Display")
+                } footer: {
+                    Text("Applies immediately, same as Preferences -- no restart needed.")
+                        .font(.caption2)
+                }
+                Section {
                     Picker("Language", selection: $language.value) {
                         Text("English").tag("en"); Text("Deutsch").tag("de")
                     }
                     Picker("Theme", selection: $theme.value) {
                         ForEach(ThemeColors.names, id: \.self) { Text($0.replacingOccurrences(of: "-", with: " ").capitalized).tag($0) }
                     }
+                } header: {
+                    Text("Terminal app")
+                } footer: {
+                    Text("Theme applies here immediately. Both of these only reach the terminal app the next time you restart it -- it caches them once at launch and won't notice a change while running, even if you reopen its own Settings screen.")
+                        .font(.caption2)
                 }
             }
             .formStyle(.grouped)
@@ -173,8 +204,8 @@ struct SettingsSheet: View {
                         AppTheme.shared.name = theme.value
                         // Language is still config-file-only: this prototype has no
                         // localization system of its own yet, so that half genuinely
-                        // only takes effect next time the *TUI* opens.
-                        status.value = "Theme applied. Language takes effect next time the terminal app opens."
+                        // only takes effect next time the *TUI* restarts.
+                        status.value = "Units & theme applied. Theme/language reach the terminal app on its next restart."
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     } catch {
                         status.value = "Couldn't save: \(error.localizedDescription)"
@@ -184,6 +215,6 @@ struct SettingsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 420, height: 320)
+        .frame(width: 440, height: 420)
     }
 }

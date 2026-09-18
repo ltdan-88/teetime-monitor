@@ -146,6 +146,42 @@ Four direct remarks after using Tier 1:
    high/low, `_precipitation_cell()`'s average, `_wind_cell()`'s peak) instead of
    whatever the forecast happened to say at noon.
 
+## Labels, and what actually needs a TUI restart (2026-09-18)
+
+Two more direct remarks after the polish round above:
+
+1. **Some columns/fields had no label at all** — the day header's temp/rain/wind
+   figures were bare numbers with no unit or icon (unlike wind, which already had
+   one), and the expanded slot row's rain%/wind cells were the same. Fixed by giving
+   every one of those its own icon (`Label`, not bare text — temp gets
+   `thermometer.medium`, rain gets `drop.fill`, matching the icon wind already had)
+   plus a `.help()` tooltip for the exact figure on hover. Added a `LegendLine`
+   below the day list, one line for the whole window rather than repeated per card —
+   the same role and placement `tui.py`'s own `OVERVIEW_LEGEND` plays under the
+   TUI's table, for the same reason: icons that "seemed obvious" while building them
+   aren't obvious to someone opening the app cold.
+2. **Which settings actually need a TUI restart, checked against the source rather
+   than assumed:**
+   - **Preferences (availability, weather thresholds, buffers, pace, priorities) and
+     Settings' Units/AI/scrape-interval fields are already live in a running TUI —
+     no restart, no need to even reopen its own Settings screen.** `tui.py`'s
+     `_resolved_config()` calls `global_preferences.load_preferences()` fresh,
+     uncached, on every single render — this was already true of the codebase
+     before any of this work, not something added here. Both sheets now say so
+     explicitly instead of leaving it to be assumed.
+   - **Theme and language are the one place that's genuinely different**, and do
+     need an actual restart — not just reopening Settings within the same running
+     TUI session. `i18n.get_language()` resolves once per process and caches
+     (`_current_language`), never re-reading the file after that; `club_config.py`
+     calls `load_dotenv()` once at import time for `.env` credentials, same
+     pattern. Confirmed this isn't fixed by simply reopening the TUI's own Settings
+     screen either: its Theme field's `getter` *does* re-read disk, but the
+     `setter` that actually repaints `app.theme` only fires when the picked value
+     differs from what the getter returns — so an unchanged reselection (which is
+     what reopening-without-touching-anything amounts to) applies nothing. Fixed
+     `SettingsSheet`'s messaging to say "next restart" specifically rather than the
+     vaguer, easy-to-misread "next time it opens."
+
 ## What it deliberately doesn't do
 
 No scraping (beyond shelling out to the existing scraper binary), no login, no real
