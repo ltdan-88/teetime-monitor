@@ -64,7 +64,55 @@ Point it at a copy instead with `--db`:
 - **Distribution wouldn't need notarization**, because the Homebrew formula builds from
   source; a Swift version could do the same with `swift build`.
 
+## Tier 1: made productive (2026-09-18)
+
+Preferences, Settings (minus login), confirm/cancel a booking, and banner
+notifications -- all without a single Python change, because none of them ever
+needed pc caddie: they're local file/SQLite edits the Python side already owns the
+shape of.
+
+- **Preferences & Settings** read and write the real `preferences.yaml` and
+  `~/.config/teetime-monitor/config` directly. `YAML.swift` is a small hand-written
+  codec scoped to this file's exact shape (nested maps of scalars, no lists) --
+  verified byte-for-byte round-trip against a real saved file, both directions
+  (Swift reads what Python wrote; Python reads what Swift writes).
+- **Confirm/cancel** writes a `confirmed_bookings` row exactly like
+  `storage.save_confirmed_booking()` does -- append-only, `source: "manual"`,
+  `holes` derived the same leading-digits way `scraper._holes_from_course_label()`
+  does. A confirming dialog on tap, not a silent write, matching why
+  `ConfirmBookingScreen`/`CancelBookingScreen` exist on the Python side: this marks
+  a *local* record of what you already booked on pc caddie's own site, not a real
+  booking action.
+- **Banners** read `booking_changes.message` -- the plain-English fallback that
+  table's own schema comment says exists "for any non-TUI consumer." Deliberately
+  not `i18n.render_booking_change()`'s kind+params re-rendering, which is real
+  per-language logic this prototype doesn't reimplement.
+
+A real, live notification surfaced during this work: an actual "1 more player
+joined your tee time" banner had been sitting unseen in this developer's own
+database the whole time, with no way for any front end to show it until this.
+
+**Two real bugs caught before shipping**, both from testing against copies of real
+data rather than trusting the code:
+- Writing an *empty* time window (`{}`) instead of omitting the key entirely would
+  have silently turned "no weekend rules configured" into "any weekend time is
+  fine" -- confirmed by reading `recommend.default_criteria_from_config()`'s own
+  `_window()` closure, which treats an absent key and a present-but-empty one as
+  genuinely different outcomes.
+- The `KEY=value` writer grew one blank line on every single save (a `split` vs.
+  Python's own `splitlines()` mismatch on a trailing newline) -- caught by writing
+  the same key five times and diffing the byte count, not by inspection.
+
+## What's still Tier 2 (needs a Python subcommand)
+
+Login/credentials (a real `scraper.login()` call), search (running
+`recommend.ranked_matches()`'s actual ranking), add-a-club (the platform directory
+search, also needs login), and the heatmap (porting or exposing
+`analytics.crowd_heatmap()`'s aggregation). None of these are local file edits --
+each is real logic that has to stay in Python, reached the same way `--force`
+already is: a small, well-scoped console-script addition, not a reimplementation.
+
 ## What it deliberately doesn't do
 
-No scraping, no login, no booking, no settings, no preferences, no search, no heatmap,
-no i18n, no notifications, no writes of any kind. It reads and it draws.
+No scraping (beyond shelling out to the existing scraper binary), no login, no real
+booking on pc caddie itself, no search, no heatmap, no i18n, no theming of its own.

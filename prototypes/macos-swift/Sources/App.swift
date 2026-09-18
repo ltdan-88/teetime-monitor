@@ -42,6 +42,9 @@ struct HeatStrip: View {
 struct SlotRow: View {
     let slot: Slot
     let day: Day
+    @ObservedObject var model: OverviewModel
+    @StateObject private var showingConfirm = Box(false)
+
     var isMine: Bool { day.bookedTime == slot.time }
     var isPastSunset: Bool {
         guard let sunset = day.sunset else { return false }
@@ -86,6 +89,29 @@ struct SlotRow: View {
         }
         .padding(.vertical, 2)
         .opacity(isPastSunset ? 0.4 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { if !slot.isBlocked { showingConfirm.value = true } }
+        // A confirming dialog, not a silent write on tap -- matches the TUI's own
+        // ConfirmBookingScreen/CancelBookingScreen, which exist specifically because
+        // this marks a *local* record of what you already booked on pc caddie, not a
+        // real booking action; a stray tap must not silently claim or drop one.
+        .confirmationDialog(
+            isMine ? "Cancel your \(slot.time) booking?" : "Mark \(slot.time) as your booking?",
+            isPresented: $showingConfirm.value, titleVisibility: .visible
+        ) {
+            if isMine {
+                Button("Cancel booking", role: .destructive) {
+                    Store.cancelBooking(dbPath: model.clubPath, course: model.course, date: day.date)
+                    model.reload()
+                }
+            } else {
+                Button("Confirm") {
+                    Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date, time: slot.time)
+                    model.reload()
+                }
+            }
+            Button("Not now", role: .cancel) {}
+        }
     }
 }
 
@@ -140,7 +166,7 @@ struct DayCard: View {
                 Divider()
                 VStack(spacing: 0) {
                     ForEach(day.slots.filter { $0.time >= "07:00" && $0.time <= "19:30" }) { slot in
-                        SlotRow(slot: slot, day: day)
+                        SlotRow(slot: slot, day: day, model: model)
                     }
                 }
                 .padding(.leading, 20)
@@ -227,6 +253,7 @@ final class OverviewModel: ObservableObject {
     /// place rather than going stale the moment the window stops being touched.
     @Published var lastScrape: Date?
     @Published var now = Date()
+    @Published var banners: [Banner] = []
 
     private var watcher: Timer?
     private var seenModification: Date?
@@ -314,14 +341,41 @@ final class OverviewModel: ObservableObject {
         expanded = keepOpen              // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
         lastScrape = Store.lastScrape(dbPath: clubPath)
+        banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
+    }
+
+    func dismiss(_ banner: Banner) {
+        Store.acknowledgeBanners(dbPath: clubPath, ids: [banner.id])
+        banners.removeAll { $0.id == banner.id }
     }
 }
 
 struct ContentView: View {
     @StateObject var model: OverviewModel
+    @StateObject private var showingPreferences = Box(false)
+    @StateObject private var showingSettings = Box(false)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if !model.banners.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(model.banners) { banner in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "bell.fill").font(.caption).foregroundStyle(.orange)
+                            Text(banner.message).font(.caption)
+                            Spacer()
+                            Button {
+                                model.dismiss(banner)
+                            } label: {
+                                Image(systemName: "xmark").font(.caption2)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(8)
+                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+            }
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.clubName).font(.title2).bold()
@@ -344,6 +398,11 @@ struct ContentView: View {
                 .help("Run the scraper now")
                 .disabled(model.isScraping)
                 .keyboardShortcut("r", modifiers: .command)
+                Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
+                    .help("Preferences — when you can play, weather limits")
+                    .keyboardShortcut(",", modifiers: .command)
+                Button { showingSettings.value = true } label: { Image(systemName: "gearshape") }
+                    .help("Settings — display, scraping, AI")
                 VStack(alignment: .trailing, spacing: 5) {
                     Picker("", selection: $model.clubPath) {
                         ForEach(model.clubs, id: \.path) { club in
@@ -387,6 +446,8 @@ struct ContentView: View {
         .padding(16)
         .frame(minWidth: 600, minHeight: 540)
         .onAppear { model.load(); model.startWatching() }
+        .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
+        .sheet(isPresented: $showingSettings.value) { SettingsSheet() }
     }
 }
 
