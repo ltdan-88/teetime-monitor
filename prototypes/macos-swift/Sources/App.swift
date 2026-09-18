@@ -469,6 +469,7 @@ final class AppCommands: ObservableObject {
     var onRefresh: (() -> Void)?
     var onSearch: (() -> Void)?
     var onAddClub: (() -> Void)?
+    var onHeatmap: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
 }
@@ -479,6 +480,7 @@ struct ContentView: View {
     @StateObject private var showingSettings = Box(false)
     @StateObject private var showingSearch = Box(false)
     @StateObject private var showingAddClub = Box(false)
+    @StateObject private var showingHeatmap = Box(false)
     // Observing the shared singleton (not creating a new one) is what makes a theme
     // change in SettingsSheet redraw this view immediately -- both hold the exact
     // same AppTheme instance, so its @Published change notification reaches here too.
@@ -531,6 +533,9 @@ struct ContentView: View {
                     .disabled(model.clubPath.isEmpty || model.course.isEmpty)
                 Button { showingAddClub.value = true } label: { Image(systemName: "plus.circle") }
                     .help("Add a club — search the platform directory (also in the Actions menu)")
+                Button { showingHeatmap.value = true } label: { Image(systemName: "square.grid.3x3.fill") }
+                    .help("Crowd heatmap — history by weekday and hour (also in the Actions menu)")
+                    .disabled(model.clubPath.isEmpty || model.course.isEmpty)
                 Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
                     .help("Preferences — when you can play, weather limits (⌘,, also in the Actions menu)")
                 Button { showingSettings.value = true } label: { Image(systemName: "gearshape") }
@@ -602,6 +607,10 @@ struct ContentView: View {
                 showingSearch.value = true
             }
             AppCommands.shared.onAddClub = { showingAddClub.value = true }
+            AppCommands.shared.onHeatmap = {
+                guard !model.clubPath.isEmpty, !model.course.isEmpty else { return }
+                showingHeatmap.value = true
+            }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
         }
@@ -614,6 +623,10 @@ struct ContentView: View {
                         clubSlug: model.clubs.first { $0.path == model.clubPath }?.slug, model: model)
         }
         .sheet(isPresented: $showingAddClub.value) { AddClubSheet(model: model) }
+        .sheet(isPresented: $showingHeatmap.value) {
+            HeatmapSheet(dbPath: model.clubPath, course: model.course,
+                         clubYAMLPath: model.clubs.first { $0.path == model.clubPath }.map { Store.clubYAMLPath(slug: $0.slug) })
+        }
     }
 }
 
@@ -635,6 +648,7 @@ struct TeetimeMonitorPrototype: App {
                 Button("Search…") { AppCommands.shared.onSearch?() }
                     .keyboardShortcut("f", modifiers: .command)
                 Button("Add a Club…") { AppCommands.shared.onAddClub?() }
+                Button("Crowd Heatmap…") { AppCommands.shared.onHeatmap?() }
                 Divider()
                 Button("Preferences…") { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)

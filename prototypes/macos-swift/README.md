@@ -14,20 +14,30 @@ flagged, and post-sunset slots dimmed.
 
 ## The shortcut that makes it cheap
 
-**It does no scraping at all.** It opens the SQLite database the Python scraper already
-maintains, read-only, and renders it. The launchd agent keeps working exactly as it
-does today; this is a second reader of the same data.
+**It does no scraping, ever.** It opens the SQLite database the Python scraper already
+maintains, read-only for most of what it shows, and renders it. The launchd agent keeps
+working exactly as it does today; this is a second reader (and, since Tier 1/2, a
+second local writer and occasional invoker) of the same state.
 
-That is why it's ~400 lines instead of ~5,000. It deliberately sidesteps the entire
-expensive half of a real rewrite — the scraper, the login, the parsing rules, the
-weather and calendar fetches, the recommendation pipeline — all of which stay in
-Python. Treat that as the prototype's main finding, not a detail: a hybrid like this is
-genuinely viable, and is far cheaper than porting the backend.
+That is why it's still a few thousand lines, not tens of thousands, despite having
+grown well past the original overview-only sketch below into real login, search,
+add-a-club, and a heatmap. Real backend logic — the scraper itself, pc caddie's login
+form, `search()`/`ranked_matches()`'s filtering and AI ranking, the authenticated
+directory fetch, geocoding — stays in Python, reached by shelling out to small,
+well-scoped console scripts (see each dated section below for exactly which). What
+*did* move into Swift, over the course of that same work, is a growing set of small,
+stable, pure functions this prototype ports directly and verifies against Python's own
+output rather than reimplementing from a guess: the day-card weather aggregation, the
+v0.30.1 weather fallback (below), the platform-directory search/club-id matching, and
+the crowd heatmap's own aggregation. Treat the split itself as the prototype's main
+finding, not a detail: a hybrid like this is genuinely viable, and knowing which side
+of that line a given piece of logic belongs on turned out to be a real, recurring
+design decision, not a one-time architecture choice made at the start.
 
-One piece of real logic *is* mirrored rather than skipped: the weather fallback from
-v0.30.1 (when the newest scrape has no weather, fall back to the most recent earlier
-scrape of the same course/date that does). Without it the prototype would show the same
-blank column the Python app used to.
+One piece of real logic was the first to be mirrored rather than skipped: the weather
+fallback from v0.30.1 (when the newest scrape has no weather, fall back to the most
+recent earlier scrape of the same course/date that does). Without it the prototype
+would show the same blank column the Python app used to.
 
 ## Build and run
 
@@ -103,12 +113,52 @@ data rather than trusting the code:
   Python's own `splitlines()` mismatch on a trailing newline) -- caught by writing
   the same key five times and diffing the byte count, not by inspection.
 
-## What's still Tier 2 (needs a Python subcommand)
+## What's still Tier 2
 
-The heatmap -- porting or exposing `analytics.crowd_heatmap()`'s aggregation. Not a
-local file edit -- real logic that has to stay in Python, reached the same way
-`--force` already is: a small, well-scoped console-script addition, not a
-reimplementation.
+Nothing, as of the heatmap (below) -- every feature originally scoped for Tier 2
+turned out to either need a real console-script action after all (login, search's
+ranking, the directory fetch, add-a-club's geocoding) or, on closer reading,
+qualify for Tier 1 once its actual dependencies were checked rather than assumed
+(the heatmap's own aggregation, most of add-a-club).
+
+## The heatmap (2026-09-18, v0.35.0): scoped as Tier 2, shipped as Tier 1
+
+Turned out not to need a new console script at all. `analytics.crowd_heatmap()` is
+"plain SQL/code, no AI involved" by its own module docstring -- grouping
+already-scraped occupancy by weekday/special-day-type and hour, then averaging --
+and its one real dependency, public holidays, is a plain unauthenticated GET
+against Nager.Date, not Python-specific logic. Both port directly
+(`Analytics.swift`/`CalendarContext.swift`), the same call already made for the
+day-card weather formulas, this time verified cell-by-cell: a real club's real
+scrape history run through both Python's `crowd_heatmap()` and the Swift port
+produced identical output for every one of 95 real (weekday, hour) and (special-day,
+hour) cells, average and sample count both, including a same-date reclassification
+from "Monday" to "public_holiday" moving a day's samples wholesale between buckets
+in both implementations identically.
+
+A new toolbar button (also in the Actions menu) opens `HeatmapSheet`: two grids
+(by weekday, and special days compared only against others of their own kind),
+hour-of-day as rows, a legend for the four cell states -- mirroring `HeatmapScreen`.
+
+**One known, flagged gap**: a club's `calendar.vacation_ranges` is a YAML *list* of
+`{start, end, label}` maps, and `YAML.swift`'s parser is deliberately scoped to
+nested maps of scalars only (no lists -- see its own docstring). A vacation day
+classifies as an ordinary weekend/workday here instead of its own bucket, until
+that's worth a real list parser. Narrower than it sounds today: neither of this
+install's own two saved clubs has a `calendar:` block configured at all yet, so
+this changes nothing real yet, only what a future hand-entered vacation range
+would do.
+
+**One thing this round couldn't fully verify**: the live holiday fetch itself.
+Cross-checked that raw network egress works from this environment's own sandbox
+(a synchronous fetch succeeded), and the running `.app` stayed fully responsive
+after triggering a real fetch (against an isolated copy with `calendar.country_code`
+set, since neither real saved club has one) -- but ad hoc `URLSession` completion-handler
+probes compiled as bare command-line binaries repeatedly hung in this same sandbox
+(a known class of gotcha: a single-shot `RunLoop.run(mode:before:.distantFuture)`
+doesn't reliably pump a concurrent dispatch queue's callback the way a real AppKit
+app's own run loop does), so the fetch's *content* landing correctly in the sheet
+wasn't directly confirmed this round the way the aggregation logic was.
 
 ## Add a club (2026-09-18, v0.35.0): the third Tier 2 piece
 
@@ -264,5 +314,5 @@ Two more direct remarks after the polish round above:
 
 No scraping (beyond shelling out to the existing scraper binary; login, search, and
 the two directory actions behind add-a-club are the same shelling-out shape), no
-real booking on pc caddie itself, no heatmap, no i18n of its own (theme is now
-live; language still only affects the TUI, next launch).
+real booking on pc caddie itself, no i18n of its own (theme is now live; language
+still only affects the TUI, next launch).
