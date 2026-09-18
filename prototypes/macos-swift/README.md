@@ -105,11 +105,45 @@ data rather than trusting the code:
 
 ## What's still Tier 2 (needs a Python subcommand)
 
-Add-a-club (the platform directory search, also needs login) and the heatmap
-(porting or exposing `analytics.crowd_heatmap()`'s aggregation). Neither is a local
-file edit -- each is real logic that has to stay in Python, reached the same way
+The heatmap -- porting or exposing `analytics.crowd_heatmap()`'s aggregation. Not a
+local file edit -- real logic that has to stay in Python, reached the same way
 `--force` already is: a small, well-scoped console-script addition, not a
 reimplementation.
+
+## Add a club (2026-09-18, v0.35.0): the third Tier 2 piece
+
+A new toolbar button (also in the Actions menu) opens `AddClubSheet` -- search the
+platform directory by name, or type/paste a club id or booking link, and add it as
+a favorite. Turned out to split cleanly along this prototype's usual line:
+
+- **Searching stays Tier 1.** `club_directory.py`'s own `search()` (case-insensitive
+  substring match) and `looks_like_club_id()` (a couple of regexes) are simple and
+  stable enough to port directly, the same call already made for the day-card
+  weather aggregation formulas -- verified against Python output for every case
+  (bare digits, a 7-digit id, a pasted `/clubs/<id>/` URL, non-matching text).
+  `ClubDirectoryStore.swift` reads the same two files the TUI does: the live cache
+  (`club-directory.json`) if one exists, falling back to the bundled
+  `club_directory_seed.json` snapshot otherwise -- now copied into this app's own
+  `Contents/Resources` by `build.sh`, so a fresh install can search ~1300 clubs by
+  name with zero setup, the same first-run guarantee `load_seed_directory()` gives
+  the TUI.
+- **Two actions genuinely needed Python.** New `teetime-monitor-directory-refresh`
+  (`src/directory_cli.py`) does the live, authenticated fetch `search()` has nothing
+  to search until it's run at least once (`club_directory.refresh_directory()`,
+  resolving credentials the same way `ClubBrowserScreen`'s own `r` does). New
+  `teetime-monitor-add-club` (`src/add_club_cli.py`) saves a chosen result
+  (`club_config.add_favorite()`), including its best-effort geocoding lookup, so a
+  club added from the Swift app gets weather immediately, the same as one added
+  through the TUI.
+
+Verified end to end against the real installed binaries: `looksLikeClubID`/`search`
+matched Python's own output for every case tried; a minimal real `.app` bundle (not
+just a bare `swiftc` binary, which has no meaningful `Bundle.main`) confirmed the
+bundled seed resource actually resolves at runtime, and that a real live cache
+correctly wins over it; `teetime-monitor-directory-refresh` ran a real authenticated
+fetch (1303 clubs) against an isolated copy of real credentials; `teetime-monitor-
+add-club` saved a real club end-to-end, geocoding included. Real `.env`/cache/clubs
+confirmed untouched throughout.
 
 ## Search (2026-09-18, v0.34.0): the second Tier 2 piece
 
@@ -228,7 +262,7 @@ Two more direct remarks after the polish round above:
 
 ## What it deliberately doesn't do
 
-No scraping (beyond shelling out to the existing scraper binary; login and search
-are the same shelling-out shape), no real booking on pc caddie itself, no
-add-a-club, no heatmap, no i18n of its own (theme is now live; language still only
-affects the TUI, next launch).
+No scraping (beyond shelling out to the existing scraper binary; login, search, and
+the two directory actions behind add-a-club are the same shelling-out shape), no
+real booking on pc caddie itself, no heatmap, no i18n of its own (theme is now
+live; language still only affects the TUI, next launch).

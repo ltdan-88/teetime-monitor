@@ -468,6 +468,7 @@ final class AppCommands: ObservableObject {
     static let shared = AppCommands()
     var onRefresh: (() -> Void)?
     var onSearch: (() -> Void)?
+    var onAddClub: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
 }
@@ -477,6 +478,7 @@ struct ContentView: View {
     @StateObject private var showingPreferences = Box(false)
     @StateObject private var showingSettings = Box(false)
     @StateObject private var showingSearch = Box(false)
+    @StateObject private var showingAddClub = Box(false)
     // Observing the shared singleton (not creating a new one) is what makes a theme
     // change in SettingsSheet redraw this view immediately -- both hold the exact
     // same AppTheme instance, so its @Published change notification reaches here too.
@@ -527,6 +529,8 @@ struct ContentView: View {
                 Button { showingSearch.value = true } label: { Image(systemName: "magnifyingglass") }
                     .help("Search — ad hoc criteria for this one search (⌘F, also in the Actions menu)")
                     .disabled(model.clubPath.isEmpty || model.course.isEmpty)
+                Button { showingAddClub.value = true } label: { Image(systemName: "plus.circle") }
+                    .help("Add a club — search the platform directory (also in the Actions menu)")
                 Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
                     .help("Preferences — when you can play, weather limits (⌘,, also in the Actions menu)")
                 Button { showingSettings.value = true } label: { Image(systemName: "gearshape") }
@@ -597,6 +601,7 @@ struct ContentView: View {
                 guard !model.clubPath.isEmpty, !model.course.isEmpty else { return }
                 showingSearch.value = true
             }
+            AppCommands.shared.onAddClub = { showingAddClub.value = true }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
         }
@@ -608,6 +613,7 @@ struct ContentView: View {
             SearchSheet(dbPath: model.clubPath, course: model.course,
                         clubSlug: model.clubs.first { $0.path == model.clubPath }?.slug, model: model)
         }
+        .sheet(isPresented: $showingAddClub.value) { AddClubSheet(model: model) }
     }
 }
 
@@ -628,6 +634,7 @@ struct TeetimeMonitorPrototype: App {
                     .keyboardShortcut("r", modifiers: .command)
                 Button("Search…") { AppCommands.shared.onSearch?() }
                     .keyboardShortcut("f", modifiers: .command)
+                Button("Add a Club…") { AppCommands.shared.onAddClub?() }
                 Divider()
                 Button("Preferences…") { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)
