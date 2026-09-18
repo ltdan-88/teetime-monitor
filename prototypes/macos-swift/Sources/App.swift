@@ -26,6 +26,38 @@ func weekday(_ iso: String) -> String {
     return o.string(from: d)
 }
 
+/// One wrapped line explaining every icon/figure the day list uses -- the exact
+/// same role `tui.py`'s `OVERVIEW_LEGEND` plays under the TUI's own table, kept to
+/// the subset this card-based view actually shows.
+struct LegendLine: View {
+    private let entries: [(icon: String, text: String)] = [
+        ("thermometer.medium", "hi/lo °C"),
+        ("drop.fill", "rain % (🌧 ≥50%)"),
+        ("wind", "wind km/h (💨 ≥30)"),
+        ("sunrise.fill", "sunrise"),
+        ("sunset.fill", "sunset"),
+        ("flag.fill", "your booking"),
+    ]
+
+    var body: some View {
+        // Horizontal scroll rather than a wrapping HStack (SwiftUI has no built-in
+        // flow layout without iOS 16/macOS 13's Layout protocol boilerplate) -- at
+        // the window's 600pt minimum width this doesn't all fit, and a silently
+        // truncated legend defeats the point more than a scrollable one would.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(entries, id: \.text) { entry in
+                    HStack(spacing: 3) {
+                        Image(systemName: entry.icon)
+                        Text(entry.text)
+                    }
+                }
+            }
+        }
+        .font(.caption2).foregroundStyle(.tertiary)
+    }
+}
+
 struct HeatStrip: View {
     let buckets: [Double?]
     var body: some View {
@@ -95,9 +127,11 @@ struct SlotRow: View {
             }
             if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(.caption2).foregroundStyle(.secondary)
+                    .help("Condition at \(slot.time)")
                 if let t = w.temperatureC {
                     Text(String(format: "%.0f°", t)).font(.caption2).foregroundStyle(.secondary)
                         .frame(width: 24, alignment: .trailing)
+                        .help("Temperature")
                 }
                 if let p = w.precipitationProbability {
                     // 🌧 only above the threshold -- the real number always shows, same
@@ -108,6 +142,7 @@ struct SlotRow: View {
                         Text("\(Int(p))%")
                     }
                     .font(.caption2).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
+                    .help(p >= 50 ? "Rain chance -- ≥50%, flagged" : "Rain chance")
                 }
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
@@ -115,6 +150,7 @@ struct SlotRow: View {
                         Text("\(Int(wd))")
                     }
                     .font(.caption2).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+                    .help(wd >= 30 ? "Wind, km/h -- ≥30, flagged" : "Wind, km/h")
                 }
             }
         }
@@ -164,20 +200,32 @@ struct DayCard: View {
                 // _temperature_cell()/_precipitation_cell()/_wind_cell() exactly (each
                 // is a "worst/average across the window" figure, not one instant
                 // reading), not just whatever the forecast happened to say at noon.
+                //
+                // Every value below is wrapped in its own icon (`Label`, not bare
+                // text) and a `.help()` tooltip -- a bare "1%" or "17" reads as
+                // meaningless without knowing which figure it is, same problem the
+                // TUI itself solves with `OVERVIEW_LEGEND` (see the legend line under
+                // the day list below for the full explanation of thresholds/markers).
                 Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
+                    .help("Condition (worst, 08:00–20:00)")
                 if let (hi, lo) = day.tempHighLow {
-                    Text("\(Int(hi))°/\(Int(lo))°")
+                    Label("\(Int(hi))°/\(Int(lo))°", systemImage: "thermometer.medium")
                         .font(.system(.subheadline, design: .monospaced))
+                        .help("High / low temperature, daytime")
                 }
                 if let p = day.precipAvg {
-                    Text("\(Int(p))%").font(.caption).foregroundStyle(.secondary)
+                    Label("\(Int(p))%", systemImage: "drop.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help("Average rain chance, daytime")
                 }
                 if let wd = day.windPeak {
                     Label("\(Int(wd))", systemImage: "wind")
                         .font(.caption).foregroundStyle(.secondary)
+                        .help("Peak wind, km/h, daytime")
                 }
                 if let rise = day.sunrise, let set = day.sunset {
                     Text("↑\(rise) ↓\(set)").font(.caption2).foregroundStyle(.tertiary)
+                        .help("Sunrise / sunset")
                 }
 
                 Spacer()
@@ -493,6 +541,14 @@ struct ContentView: View {
                 Label(problem.trimmingCharacters(in: .whitespacesAndNewlines),
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.orange).lineLimit(2)
+            }
+
+            // Mirrors tui.py's own OVERVIEW_LEGEND, placed the same way (one line
+            // under the list, not repeated per card/row) -- the TUI's own answer to
+            // "these icons aren't self-explanatory" for the same figures shown here
+            // (temp, rain%, wind, sunrise/sunset, the rain/wind flag thresholds).
+            if !model.days.isEmpty {
+                LegendLine()
             }
         }
         .padding(16)
