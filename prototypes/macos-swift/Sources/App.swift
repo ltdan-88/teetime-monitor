@@ -337,7 +337,7 @@ enum Scraper {
 }
 
 final class OverviewModel: ObservableObject {
-    @Published var clubs: [(path: String, id: String, name: String, lastScrape: String)] = []
+    @Published var clubs: [(path: String, id: String, slug: String, name: String, lastScrape: String)] = []
     @Published var clubPath: String = ""
     @Published var courses: [String] = []
     @Published var course: String = ""
@@ -450,6 +450,7 @@ struct ContentView: View {
     @StateObject var model: OverviewModel
     @StateObject private var showingPreferences = Box(false)
     @StateObject private var showingSettings = Box(false)
+    @StateObject private var showingSearch = Box(false)
     // Observing the shared singleton (not creating a new one) is what makes a theme
     // change in SettingsSheet redraw this view immediately -- both hold the exact
     // same AppTheme instance, so its @Published change notification reaches here too.
@@ -498,6 +499,10 @@ struct ContentView: View {
                 .help("Run the scraper now")
                 .disabled(model.isScraping)
                 .keyboardShortcut("r", modifiers: .command)
+                Button { showingSearch.value = true } label: { Image(systemName: "magnifyingglass") }
+                    .help("Search — ad hoc criteria for this one search")
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(model.clubPath.isEmpty || model.course.isEmpty)
                 Button { showingPreferences.value = true } label: { Image(systemName: "slider.horizontal.3") }
                     .help("Preferences — when you can play, weather limits")
                     .keyboardShortcut(",", modifiers: .command)
@@ -561,6 +566,10 @@ struct ContentView: View {
         .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
         .sheet(isPresented: $showingSettings.value) {
             SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id)
+        }
+        .sheet(isPresented: $showingSearch.value) {
+            SearchSheet(dbPath: model.clubPath, course: model.course,
+                        clubSlug: model.clubs.first { $0.path == model.clubPath }?.slug, model: model)
         }
     }
 }
