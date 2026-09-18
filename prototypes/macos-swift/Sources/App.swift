@@ -509,18 +509,28 @@ struct ContentView: View {
             }
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
+                    // .lineLimit(1) is load-bearing, not cosmetic -- without it, a
+                    // long club name wraps one word per line the moment the
+                    // toolbar's own buttons/pickers squeeze this VStack's width
+                    // down (six icons plus two 230pt pickers now share this row),
+                    // which is exactly the "Golf- / club / Do- / mane..." breakage
+                    // a screenshot caught live. Truncating is the honest fallback
+                    // -- the full name is still in the picker to its right.
                     Text(model.clubName).font(.title2).bold()
+                        .lineLimit(1).truncationMode(.tail)
                     HStack(spacing: 6) {
                         if model.isScraping {
                             ProgressView().controlSize(.small).scaleEffect(0.7)
                             Text("Checking pc caddie…").font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(1)
                         } else {
                             Circle().fill(model.freshnessColor).frame(width: 6, height: 6)
                             Text(model.freshnessText).font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 Button {
                     model.refreshNow()
                 } label: {
@@ -589,7 +599,18 @@ struct ContentView: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 600, minHeight: 540)
+        // 600 was sized for the original 3-button toolbar (Refresh/Preferences/
+        // Settings) -- Search, Add a Club, and the heatmap grew it to six icons
+        // sharing the row with two 230pt pickers (460pt on their own), which no
+        // longer fits at 600 (see the .lineLimit(1) comment above for the actual
+        // bug that produced live). 860 (matching .defaultSize below, so the
+        // window can never actually be dragged into the cramped zone) is a
+        // deliberately generous estimate from summing the row's known component
+        // widths, not a verified pixel-exact minimum -- this environment couldn't
+        // drag-resize the real window to confirm the exact floor, so err wide
+        // rather than risk shipping a number that still clips under some system
+        // font/Dynamic Type setting.
+        .frame(minWidth: 860, minHeight: 540)
         .padding(4)
         .background(theme.colors.background)
         .tint(theme.colors.accent)
@@ -636,7 +657,7 @@ struct TeetimeMonitorPrototype: App {
         WindowGroup("teetime-monitor") {
             ContentView(model: OverviewModel())
         }
-        .defaultSize(width: 660, height: 680)
+        .defaultSize(width: 860, height: 680)
         .commands {
             // A real menu, not just a working shortcut -- see AppCommands' own
             // docstring for why this exists. A new top-level "Actions" menu (not
