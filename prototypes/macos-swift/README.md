@@ -41,8 +41,7 @@ would show the same blank column the Python app used to.
 
 ## Build and run
 
-Needs **only the Command Line Tools** — no Xcode, no Swift Package Manager, no
-dependencies:
+Needs **only the Command Line Tools** — no Xcode, no dependencies:
 
 ```bash
 ./build.sh
@@ -60,6 +59,42 @@ Point it at a copy instead with `--db`:
 ```bash
 ./TeetimeMonitor.app/Contents/MacOS/TeetimeMonitor --db /path/to/0497758.db
 ```
+
+## Tests (2026-09-19)
+
+```bash
+swift run TeetimeMonitorCoreTests
+```
+
+Still only the Command Line Tools — `Package.swift` exists for this one purpose,
+not as a dependency manager for the app itself, which `build.sh` still builds
+exactly as before, untouched by any of this.
+
+Not `swift test`: SPM's own `.testTarget` needs either XCTest (its frameworks
+aren't present under a bare CLT install — confirmed directly, not assumed:
+`unable to resolve module dependency: 'XCTest'`) or swift-testing's `@Test`/
+`#expect` macros (also confirmed directly: `plugin for module 'TestingMacros' not
+found` — the exact "the macro plugin ships with Xcode, not the Command Line
+Tools" gotcha this project already hit once for SwiftUI's own `@State`, see
+`Box.swift`). `TeetimeMonitorCoreTests` is a plain executable with a hand-rolled
+`Harness` instead — 157 assertions across 13 files, exits 1 on any failure, runs
+in CI on `macos-latest` (which does happen to ship full Xcode, but the same
+executable shape works identically there and on a bare-CLT machine, so it's what
+a contributor actually runs before opening a PR).
+
+Covers the areas that carry real cross-language duplication risk — unit
+conversion, the heatmap aggregation (cross-checked cell-by-cell against a real
+club's data the day it was ported; the specific cells that check produced are
+pinned as fixture data here), day classification, YAML parsing (including the
+`16:00`-looks-like-a-sexagesimal-number quoting rule), the omitted-vs-present
+window semantics bug (twice — once for `preferences.yaml`, once for ad hoc
+search's own JSON payload), the config-file blank-line-growth bug, translation
+table parity (173 keys, both languages, matching `{placeholders}`), and the
+platform-directory search/club-id matching. Deliberately excludes SwiftUI view
+bodies (`App.swift`'s own `@main` plus the four sheets) — layout isn't something
+an assertion can check without snapshot-testing infrastructure this project
+doesn't have, and pulling `@main` into the test executable's own module risks an
+entry-point conflict for no real test value.
 
 ## What building it actually taught us
 
