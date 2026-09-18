@@ -559,7 +559,9 @@ struct ContentView: View {
         .foregroundStyle(theme.colors.foreground)
         .onAppear { model.load(); model.startWatching() }
         .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
-        .sheet(isPresented: $showingSettings.value) { SettingsSheet() }
+        .sheet(isPresented: $showingSettings.value) {
+            SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id)
+        }
     }
 }
 

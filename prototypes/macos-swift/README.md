@@ -105,12 +105,27 @@ data rather than trusting the code:
 
 ## What's still Tier 2 (needs a Python subcommand)
 
-Login/credentials (a real `scraper.login()` call), search (running
-`recommend.ranked_matches()`'s actual ranking), add-a-club (the platform directory
-search, also needs login), and the heatmap (porting or exposing
+Search (running `recommend.ranked_matches()`'s actual ranking), add-a-club (the
+platform directory search, also needs login), and the heatmap (porting or exposing
 `analytics.crowd_heatmap()`'s aggregation). None of these are local file edits --
 each is real logic that has to stay in Python, reached the same way `--force`
 already is: a small, well-scoped console-script addition, not a reimplementation.
+
+## Login (2026-09-18, v0.33.0): the first Tier 2 piece
+
+`Settings` now has a real pc caddie login, no longer a placeholder. New console
+script `teetime-monitor-login` (`src/login_cli.py`) wraps the exact same
+save-then-optionally-verify flow `CredentialsScreen` already uses (blank password
+keeps the existing one; a rejected or unreachable verification doesn't undo the
+save) -- the Swift app shells out to it instead of reimplementing `scraper.login()`
+or `.env` writing itself. Credentials cross the process boundary over the child's
+stdin as one JSON object, never argv or an inherited environment variable (so they
+never show up in `ps` for this process or its parent), and the result comes back as
+one JSON object on stdout rather than translated text, so `LoginClient.swift`
+doesn't need this project's own i18n strings to read the outcome. Verified end to
+end against the real script and a real (rejected, on purpose) pc caddie login
+attempt, against an isolated `.env` copy -- see `login_cli.py`'s own docstring for
+the full JSON contract.
 
 ## Polish round (2026-09-18): live theming, sunrise/sunset, full weather
 
@@ -184,6 +199,7 @@ Two more direct remarks after the polish round above:
 
 ## What it deliberately doesn't do
 
-No scraping (beyond shelling out to the existing scraper binary), no login, no real
-booking on pc caddie itself, no search, no heatmap, no i18n of its own (theme is
-now live; language still only affects the TUI, next launch).
+No scraping (beyond shelling out to the existing scraper binary; login is the one
+other exception, same shelling-out shape), no real booking on pc caddie itself, no
+search, no add-a-club, no heatmap, no i18n of its own (theme is now live; language
+still only affects the TUI, next launch).
