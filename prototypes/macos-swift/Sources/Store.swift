@@ -308,6 +308,64 @@ enum Store {
         return f.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
     }
 
+    /// Every date this course has ever been scraped for, oldest first -- mirrors
+    /// `storage.distinct_scraped_dates()` exactly. The heatmap (see Analytics.swift)
+    /// needs the *whole* history, unlike `days()` below, which only ever loads a
+    /// bounded window for the day list.
+    static func distinctScrapedDates(dbPath: String, course: String) -> [String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+        var out: [String] = []
+        query(db, "SELECT DISTINCT date FROM scrapes WHERE course = ? ORDER BY date", [course]) { s in
+            if let d = column(s, 0) { out.append(d) }
+        }
+        return out
+    }
+
+    /// Just enough for `analytics._crowd_buckets()`'s own narrow needs -- occupancy
+    /// and whether the day had a tournament -- not the full weather/sunrise shape
+    /// `days()` builds, since a heatmap walks every historical date rather than a
+    /// bounded window and has no use for any of that here.
+    static func occupancySample(dbPath: String, course: String, date: String) -> (slots: [Slot], hasTournament: Bool)? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return nil }
+        defer { sqlite3_close(db) }
+        var scrapeID: Int64 = -1
+        var eventsJSON: String?
+        query(db,
+              "SELECT id, events FROM scrapes WHERE course = ? AND date = ? ORDER BY id DESC LIMIT 1",
+              [course, date]) { s in
+            scrapeID = sqlite3_column_int64(s, 0)
+            eventsJSON = column(s, 1)
+        }
+        guard scrapeID >= 0 else { return nil }
+        var slots: [Slot] = []
+        query(db,
+              "SELECT time, booked, capacity, block_reason FROM slots WHERE scrape_id = \(scrapeID) ORDER BY time") { s in
+            slots.append(Slot(time: column(s, 0) ?? "", booked: Int(sqlite3_column_int(s, 1)),
+                               capacity: Int(sqlite3_column_int(s, 2)), blockReason: column(s, 3)))
+        }
+        var hasTournament = false
+        if let json = eventsJSON, let data = json.data(using: .utf8),
+           let parsed = try? JSONDecoder().decode([String].self, from: data) {
+            hasTournament = !parsed.isEmpty
+        }
+        return (slots, hasTournament)
+    }
+
+    /// `~/.config/teetime-monitor/clubs/<slug>.yaml` -- same env-var-overridable
+    /// resolution `clubs()` already does internally, exposed here since the heatmap
+    /// needs a specific club's own file (for `calendar.country_code`) rather than
+    /// the whole directory listing.
+    static func clubYAMLPath(slug: String) -> String {
+        let home = NSHomeDirectory() as NSString
+        let configEnv = ProcessInfo.processInfo.environment["TEETIME_MONITOR_CONFIG_DIR"]
+        let clubsDir = ((configEnv as NSString?)?.expandingTildeInPath
+            ?? home.appendingPathComponent(".config/teetime-monitor")) + "/clubs"
+        return "\(clubsDir)/\(slug).yaml"
+    }
+
     static func courses(dbPath: String) -> [String] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
