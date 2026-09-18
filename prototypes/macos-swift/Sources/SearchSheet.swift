@@ -18,6 +18,7 @@ struct SearchSheet: View {
     let course: String
     let clubSlug: String?
     @ObservedObject var model: OverviewModel
+    @ObservedObject private var language = AppLanguage.shared
 
     @StateObject private var criteria: Box<SearchCriteriaPayload>
     @StateObject private var isSearching = Box(false)
@@ -50,21 +51,21 @@ struct SearchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Search").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
-            Text("Pre-filled from your saved Preferences — edit for this one search.")
+            Text(t("search.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t("search.prefill_note"))
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 2)
 
             Form {
-                Section("Criteria") {
-                    Stepper("Min open spots: \(criteria.value.minOpenSpots)",
+                Section(t("search.section.criteria")) {
+                    Stepper(t("prefs.min_open_spots", ["n": "\(criteria.value.minOpenSpots)"]),
                             value: $criteria.value.minOpenSpots, in: 1...4)
-                    TimeWindowRow(label: "Weekday", after: $criteria.value.weekdayAfter,
+                    TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
                                   before: $criteria.value.weekdayBefore)
-                    TimeWindowRow(label: "Weekend", after: $criteria.value.weekendAfter,
+                    TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
                                   before: $criteria.value.weekendBefore)
-                    Stepper("Buffer before: \(criteria.value.bufferBeforeMinutes) min",
+                    Stepper(t("prefs.buffer_before", ["n": "\(criteria.value.bufferBeforeMinutes)"]),
                             value: $criteria.value.bufferBeforeMinutes, in: 0...60, step: 5)
-                    Stepper("Buffer after: \(criteria.value.bufferAfterMinutes) min",
+                    Stepper(t("prefs.buffer_after", ["n": "\(criteria.value.bufferAfterMinutes)"]),
                             value: $criteria.value.bufferAfterMinutes, in: 0...60, step: 5)
                 }
             }
@@ -74,7 +75,7 @@ struct SearchSheet: View {
                 if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
                 if isSearching.value { ProgressView().controlSize(.small) }
-                Button("Search") { runSearch() }
+                Button(t("search.button")) { runSearch() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(isSearching.value)
             }
@@ -84,11 +85,11 @@ struct SearchSheet: View {
 
             if results.value.isEmpty {
                 ContentUnavailableView(
-                    status.value == nil ? "No search run yet" : "No matches",
+                    status.value == nil ? t("search.none_yet_title") : t("search.no_matches_title"),
                     systemImage: "magnifyingglass",
                     description: Text(status.value == nil
-                        ? "Adjust the criteria above and press Search."
-                        : "Nothing in the next \(searchDays) days matches these criteria."))
+                        ? t("search.none_yet_desc")
+                        : t("search.no_matches_desc", ["n": "\(searchDays)"])))
                     .frame(maxHeight: .infinity)
             } else {
                 List(results.value) { match in
@@ -102,7 +103,7 @@ struct SearchSheet: View {
 
             HStack {
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(t("button.close")) { dismiss() }
             }
             .padding(16)
         }
@@ -111,18 +112,18 @@ struct SearchSheet: View {
         // tap, since this marks a local record of what you booked, not a real
         // pc caddie action.
         .confirmationDialog(
-            confirming.value.map { "Mark \($0.date) \($0.time) as your booking?" } ?? "",
+            confirming.value.map { t("booking.mark_title", ["time": "\(weekday($0.date)) \($0.time)"]) } ?? "",
             isPresented: Binding(get: { confirming.value != nil }, set: { if !$0 { confirming.value = nil } }),
             titleVisibility: .visible
         ) {
             if let match = confirming.value {
-                Button("Confirm") {
+                Button(t("booking.confirm")) {
                     Store.confirmBooking(dbPath: dbPath, course: match.course, date: match.date, time: match.time)
                     model.reload()
-                    status.value = "Booked \(weekday(match.date)) at \(match.time)."
+                    status.value = t("search.booked", ["day": weekday(match.date), "time": match.time])
                 }
             }
-            Button("Not now", role: .cancel) {}
+            Button(t("booking.not_now"), role: .cancel) {}
         }
     }
 
@@ -138,10 +139,10 @@ struct SearchSheet: View {
             isSearching.value = false
             if let matches {
                 results.value = matches
-                status.value = matches.isEmpty ? "No matches." : nil
+                status.value = matches.isEmpty ? t("search.no_matches_status") : nil
             } else {
                 results.value = []
-                status.value = error ?? "Something went wrong."
+                status.value = error ?? t("error.generic")
             }
         }
     }
@@ -162,14 +163,14 @@ private struct SearchResultRow: View {
 
             if let w = weather?.weather(at: match.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption)).foregroundStyle(.secondary)
-                if let t = w.temperatureC {
-                    Text(String(format: "%.0f°", Units.temperature(t, units.value)))
+                if let tempC = w.temperatureC {
+                    Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
                         .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: 28, alignment: .leading)
                 }
             }
 
-            Text("\(match.capacity - match.booked) open").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+            Text(t("search.open_spots", ["n": "\(match.capacity - match.booked)"])).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .frame(width: 56, alignment: .leading)
 
             if !match.reasons.isEmpty {

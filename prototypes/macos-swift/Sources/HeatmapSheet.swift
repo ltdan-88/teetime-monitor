@@ -17,6 +17,7 @@ struct HeatmapSheet: View {
     let dbPath: String
     let course: String
     let clubYAMLPath: String?
+    @ObservedObject private var language = AppLanguage.shared
 
     @StateObject private var heatmap = Box<CrowdHeatmap?>(nil)
     @StateObject private var isLoading = Box(true)
@@ -24,18 +25,20 @@ struct HeatmapSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Crowd Heatmap — \(course)").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t("heatmap.title", ["course": course])).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
 
             if isLoading.value {
-                ProgressView("Crunching scrape history…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView(t("heatmap.loading")).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let heatmap = heatmap.value {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        HeatmapGridView(title: "By weekday", keys: CalendarContext.weekdays,
-                                        labels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                        HeatmapGridView(title: t("heatmap.by_weekday"), keys: CalendarContext.weekdays,
+                                        labels: CalendarContext.weekdays.map {
+                                            t("weekday.short.\($0.lowercased())")
+                                        },
                                         group: heatmap.byWeekday)
-                        HeatmapGridView(title: "Special days", keys: CalendarContext.specialDayTypes,
-                                        labels: ["Tournament", "Public holiday", "Vacation"],
+                        HeatmapGridView(title: t("heatmap.special_days"), keys: CalendarContext.specialDayTypes,
+                                        labels: CalendarContext.specialDayTypes.map { t("heatmap.\($0)") },
                                         group: heatmap.specialDays)
                         HeatmapLegendView()
                     }
@@ -50,7 +53,7 @@ struct HeatmapSheet: View {
 
             HStack {
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(t("button.close")) { dismiss() }
             }
             .padding(16)
         }
@@ -82,9 +85,7 @@ struct HeatmapSheet: View {
             DispatchQueue.main.async {
                 heatmap.value = result
                 isLoading.value = false
-                status.value = countryCode == nil
-                    ? "No country set for this club — public holidays not shown. Set calendar.country_code in its YAML to enable that."
-                    : nil
+                status.value = countryCode == nil ? t("heatmap.no_country") : nil
             }
         }
     }
@@ -105,7 +106,7 @@ private struct HeatmapGridView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(scaledFont(.headline))
             if hours.isEmpty {
-                Text("No data yet").font(scaledFont(.caption)).foregroundStyle(.secondary)
+                Text(t("heatmap.no_data_yet")).font(scaledFont(.caption)).foregroundStyle(.secondary)
             } else {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
                     GridRow {
@@ -141,8 +142,8 @@ private struct HeatmapCell: View {
                 .opacity(bucket.samples < Analytics.minSamplesForPrediction ? 0.35 : 1.0)
                 .frame(width: scale.scaled(Metrics.heatCellWidth),
                        height: scale.scaled(Metrics.heatCellHeight))
-                .help("\(Int((bucket.average * 100).rounded()))% average occupancy, "
-                      + "\(bucket.samples) sample\(bucket.samples == 1 ? "" : "s")")
+                .help(t("heatmap.cell_tip", ["pct": "\(Int((bucket.average * 100).rounded()))",
+                                            "n": "\(bucket.samples)"]))
         } else {
             Text("–").font(scaledFont(.caption2)).foregroundStyle(.tertiary).frame(width: scale.scaled(Metrics.heatCellWidth),
                                         height: scale.scaled(Metrics.heatCellHeight))
@@ -155,18 +156,18 @@ private struct HeatmapLegendView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            swatch(.green, "under half booked")
-            swatch(.orange, "half to full")
-            swatch(.red, "fully booked")
+            swatch(.green, t("heatmap.legend.open"))
+            swatch(.orange, t("heatmap.legend.mid"))
+            swatch(.red, t("heatmap.legend.full"))
             HStack(spacing: 4) {
                 RoundedRectangle(cornerRadius: 2).fill(Color.secondary).opacity(0.35)
                     .frame(width: scale.scaled(Metrics.legendSwatchWidth),
                            height: scale.scaled(Metrics.legendSwatchHeight))
-                Text("thin sample (<3)")
+                Text(t("heatmap.legend.thin"))
             }
             HStack(spacing: 4) {
                 Text("–").foregroundStyle(.tertiary)
-                Text("no data")
+                Text(t("heatmap.legend.no_data"))
             }
         }
         .font(scaledFont(.caption2)).foregroundStyle(.secondary)

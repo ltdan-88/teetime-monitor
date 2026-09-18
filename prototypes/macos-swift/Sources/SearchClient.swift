@@ -87,7 +87,7 @@ enum SearchClient {
     static func run(dbPath: String, course: String, clubSlug: String?, from: String, days: Int,
                      criteria: SearchCriteriaPayload, done: @escaping ([SearchMatch]?, String?) -> Void) {
         guard let exe = executable() else {
-            done(nil, "teetime-monitor-search not found — install it with Homebrew.")
+            done(nil, t("error.search_missing"))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {

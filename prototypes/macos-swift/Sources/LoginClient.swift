@@ -48,16 +48,16 @@ struct LoginResult {
     var statusText: String {
         if !saved {
             switch reason {
-            case "username_required": return "Username is required."
-            case "password_required": return "Password is required."
-            default: return "Couldn't save — check the fields and try again."
+            case "username_required": return t("login.username_required")
+            case "password_required": return t("login.password_required")
+            default: return t("login.save_failed")
             }
         }
         switch verified {
-        case true: return "Saved and verified — pc caddie accepted these credentials."
-        case false: return "Saved, but pc caddie rejected these credentials."
-        case nil where reason == "network_error": return "Saved — couldn't verify right now (network issue)."
-        default: return "Saved."
+        case true: return t("login.verified")
+        case false: return t("login.rejected")
+        case nil where reason == "network_error": return t("login.unverified")
+        default: return t("login.saved")
         }
     }
 }
@@ -90,7 +90,7 @@ enum LoginClient {
     static func run(username: String, password: String, clubID: String?,
                      done: @escaping (LoginResult?, String?) -> Void) {
         guard let exe = executable() else {
-            done(nil, "teetime-monitor-login not found — install it with Homebrew.")
+            done(nil, t("error.login_missing"))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
