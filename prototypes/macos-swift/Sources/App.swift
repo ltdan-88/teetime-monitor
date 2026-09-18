@@ -21,8 +21,11 @@ func fillColor(_ ratio: Double) -> Color {
 
 func weekday(_ iso: String) -> String {
     let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+    f.locale = Locale(identifier: "en_US_POSIX")  // parsing a fixed ISO shape
     guard let d = f.date(from: iso) else { return iso }
-    let o = DateFormatter(); o.dateFormat = "EEE d MMM"
+    // Formatting, unlike parsing, follows the chosen language -- "Fr 19 Sep"
+    // rather than "Fri 19 Sep" when the interface is German.
+    let o = DateFormatter(); o.dateFormat = "EEE d MMM"; o.locale = currentLocale()
     return o.string(from: d)
 }
 
@@ -36,12 +39,12 @@ struct LegendLine: View {
     // unit, so they have to follow a Units change the same way the numbers do.
     private var entries: [(icon: String, text: String)] {
         [
-            ("thermometer.medium", "hi/lo \(Units.temperatureSymbol(units.value))"),
-            ("drop.fill", "rain % (🌧 ≥50%)"),
-            ("wind", "wind \(Units.windSymbol(units.value)) (💨 ≥30)"),
-            ("sunrise.fill", "sunrise"),
-            ("sunset.fill", "sunset"),
-            ("flag.fill", "your booking"),
+            ("thermometer.medium", t("legend.hilo", ["unit": Units.temperatureSymbol(units.value)])),
+            ("drop.fill", t("legend.rain")),
+            ("wind", t("legend.wind", ["unit": Units.windSymbol(units.value)])),
+            ("sunrise.fill", t("legend.sunrise")),
+            ("sunset.fill", t("legend.sunset")),
+            ("flag.fill", t("legend.booking")),
         ]
     }
 
@@ -101,7 +104,7 @@ struct SlotRow: View {
                 .frame(width: scale.scaled(Metrics.slotTime), alignment: .leading)
 
             if slot.isBlocked {
-                Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : "not bookable")
+                Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : t("overview.not_bookable"))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).italic()
             } else {
                 HStack(spacing: 3) {
@@ -114,7 +117,7 @@ struct SlotRow: View {
                                    height: scale.scaled(Metrics.seatPip))
                     }
                 }
-                Text("\(slot.capacity - slot.booked) free")
+                Text(t("overview.free", ["n": "\(slot.capacity - slot.booked)"]))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
             }
 
@@ -125,25 +128,25 @@ struct SlotRow: View {
             // summary line detached from any specific time (see Day.sunriseRowTime/
             // sunsetRowTime for the tie-break rule this shares with Python).
             if slot.time == day.sunriseRowTime {
-                Label("sunrise \(day.sunrise ?? "")", systemImage: "sunrise.fill")
+                Label(t("overview.sunrise_at", ["time": day.sunrise ?? ""]), systemImage: "sunrise.fill")
                     .font(scaledFont(.caption2)).foregroundStyle(.orange)
             }
             if slot.time == day.sunsetRowTime {
-                Label("sunset \(day.sunset ?? "")", systemImage: "sunset.fill")
+                Label(t("overview.sunset_at", ["time": day.sunset ?? ""]), systemImage: "sunset.fill")
                     .font(scaledFont(.caption2)).foregroundStyle(.orange)
             }
             if isMine {
-                Label("you", systemImage: "flag.fill")
+                Label(t("overview.you"), systemImage: "flag.fill")
                     .font(scaledFont(.caption2)).foregroundStyle(Color.accentColor)
             }
             if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    .help("Condition at \(slot.time)")
-                if let t = w.temperatureC {
-                    Text(String(format: "%.0f°", Units.temperature(t, units.value)))
+                    .help(t("tip.condition_at", ["time": slot.time]))
+                if let tempC = w.temperatureC {
+                    Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
                         .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: scale.scaled(Metrics.slotTemp), alignment: .trailing)
-                        .help("Temperature (\(Units.temperatureSymbol(units.value)))")
+                        .help(t("tip.temp", ["unit": Units.temperatureSymbol(units.value)]))
                 }
                 if let p = w.precipitationProbability {
                     // 🌧 only above the threshold -- the real number always shows, same
@@ -154,7 +157,7 @@ struct SlotRow: View {
                         Text("\(Int(p))%")
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
-                    .help(p >= 50 ? "Rain chance -- ≥50%, flagged" : "Rain chance")
+                    .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))
                 }
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
@@ -167,8 +170,8 @@ struct SlotRow: View {
                     // threshold regardless of display units (same rule units.py's
                     // own docstring gives for not converting stored thresholds).
                     .help(wd >= 30
-                          ? "Wind, \(Units.windSymbol(units.value)) -- ≥30 km/h, flagged"
-                          : "Wind, \(Units.windSymbol(units.value))")
+                          ? t("tip.wind_flagged", ["unit": Units.windSymbol(units.value)])
+                          : t("tip.wind", ["unit": Units.windSymbol(units.value)]))
                 }
             }
         }
@@ -181,21 +184,22 @@ struct SlotRow: View {
         // this marks a *local* record of what you already booked on pc caddie, not a
         // real booking action; a stray tap must not silently claim or drop one.
         .confirmationDialog(
-            isMine ? "Cancel your \(slot.time) booking?" : "Mark \(slot.time) as your booking?",
+            isMine ? t("booking.cancel_title", ["time": slot.time])
+                   : t("booking.mark_title", ["time": slot.time]),
             isPresented: $showingConfirm.value, titleVisibility: .visible
         ) {
             if isMine {
-                Button("Cancel booking", role: .destructive) {
+                Button(t("booking.cancel"), role: .destructive) {
                     Store.cancelBooking(dbPath: model.clubPath, course: model.course, date: day.date)
                     model.reload()
                 }
             } else {
-                Button("Confirm") {
+                Button(t("booking.confirm")) {
                     Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date, time: slot.time)
                     model.reload()
                 }
             }
-            Button("Not now", role: .cancel) {}
+            Button(t("booking.not_now"), role: .cancel) {}
         }
     }
 }
@@ -227,34 +231,34 @@ struct DayCard: View {
                 // TUI itself solves with `OVERVIEW_LEGEND` (see the legend line under
                 // the day list below for the full explanation of thresholds/markers).
                 Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
-                    .help("Condition (worst, 08:00–20:00)")
+                    .help(t("tip.condition_day"))
                 if let (hi, lo) = day.tempHighLow {
                     Label("\(Int(Units.temperature(hi, units.value)))°/"
                           + "\(Int(Units.temperature(lo, units.value)))°",
                           systemImage: "thermometer.medium")
                         .font(scaledFont(.subheadline, design: .monospaced))
-                        .help("High / low temperature (\(Units.temperatureSymbol(units.value))), daytime")
+                        .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
                 }
                 if let p = day.precipAvg {
                     Label("\(Int(p))%", systemImage: "drop.fill")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help("Average rain chance, daytime")
+                        .help(t("tip.rain_day"))
                 }
                 if let wd = day.windPeak {
                     Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help("Peak wind, \(Units.windSymbol(units.value)), daytime")
+                        .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
                 }
                 if let rise = day.sunrise, let set = day.sunset {
                     Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
-                        .help("Sunrise / sunset")
+                        .help(t("tip.sun"))
                 }
 
                 Spacer()
                 HeatStrip(buckets: day.heatStrip)
 
-                if let t = day.bookedTime {
-                    Label(t, systemImage: "flag.fill")
+                if let bookedTime = day.bookedTime {
+                    Label(bookedTime, systemImage: "flag.fill")
                         .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.accentColor)
@@ -333,7 +337,7 @@ enum Scraper {
     /// progress and `done` fires back on the main queue.
     static func run(done: @escaping (String?) -> Void) {
         guard let exe = executable() else {
-            done("teetime-monitor-scrape not found — install it with Homebrew.")
+            done(t("error.scraper_missing"))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -385,12 +389,14 @@ final class OverviewModel: ObservableObject {
     }
 
     var freshnessText: String {
-        guard let lastScrape else { return "never scraped" }
+        guard let lastScrape else { return t("overview.updated_never") }
         let minutes = Int(now.timeIntervalSince(lastScrape) / 60)
-        if minutes < 1 { return "updated just now" }
-        if minutes < 60 { return "updated \(minutes) min ago" }
+        if minutes < 1 { return t("overview.updated_just_now") }
+        if minutes < 60 { return t("overview.updated_minutes", ["n": "\(minutes)"]) }
         let f = RelativeDateTimeFormatter(); f.unitsStyle = .full
-        return "updated " + f.localizedString(for: lastScrape, relativeTo: now)
+        f.locale = currentLocale()
+        return t("overview.updated_relative",
+                 ["when": f.localizedString(for: lastScrape, relativeTo: now)])
     }
 
     var clubName: String {
@@ -508,6 +514,7 @@ struct ContentView: View {
     // same AppTheme instance, so its @Published change notification reaches here too.
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -543,7 +550,7 @@ struct ContentView: View {
                     HStack(spacing: 6) {
                         if model.isScraping {
                             ProgressView().controlSize(.small).scaleEffect(0.7)
-                            Text("Checking pc caddie…").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                            Text(t("overview.checking")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                                 .lineLimit(1)
                         } else {
                             Circle().fill(model.freshnessColor)
@@ -559,10 +566,10 @@ struct ContentView: View {
                 // course -- they were two unlabeled dropdowns stacked in a corner.
                 Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 5) {
                     GridRow {
-                        Text("Club").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                        Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Picker("", selection: $model.clubPath) {
                             ForEach(model.clubs, id: \.path) { club in
-                                Text(club.lastScrape.isEmpty ? "\(club.name) — never scraped" : club.name)
+                                Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
                                     .tag(club.path)
                             }
                         }
@@ -570,7 +577,7 @@ struct ContentView: View {
                         .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                     }
                     GridRow {
-                        Text("Course").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                        Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Picker("", selection: $model.course) {
                             ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                         }
@@ -585,40 +592,40 @@ struct ContentView: View {
             // making those three groups visible rather than six equally-spaced
             // icons implying six unrelated things.
             HStack(spacing: 8) {
-                Button { model.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .help("Run the scraper now (⌘R)")
+                Button { model.refreshNow() } label: { Label(t("action.refresh"), systemImage: "arrow.clockwise") }
+                    .help(t("tip.refresh"))
                     .disabled(model.isScraping)
-                Button { showingSearch.value = true } label: { Label("Search", systemImage: "magnifyingglass") }
-                    .help("Ad hoc criteria for this one search (⌘F)")
+                Button { showingSearch.value = true } label: { Label(t("action.search"), systemImage: "magnifyingglass") }
+                    .help(t("tip.search"))
                     .disabled(model.clubPath.isEmpty || model.course.isEmpty)
                 Button { showingHeatmap.value = true } label: {
-                    Label("Heatmap", systemImage: "square.grid.3x3.fill")
+                    Label(t("action.heatmap"), systemImage: "square.grid.3x3.fill")
                 }
-                .help("Crowd history by weekday and hour")
+                .help(t("tip.heatmap"))
                 .disabled(model.clubPath.isEmpty || model.course.isEmpty)
 
                 Divider().frame(height: scale.scaled(16))
 
-                Button { showingAddClub.value = true } label: { Label("Add Club", systemImage: "plus.circle") }
-                    .help("Search the platform directory and save a club")
+                Button { showingAddClub.value = true } label: { Label(t("action.add_club"), systemImage: "plus.circle") }
+                    .help(t("tip.add_club"))
 
                 Spacer()
 
                 Button { showingPreferences.value = true } label: {
-                    Label("Preferences", systemImage: "slider.horizontal.3")
+                    Label(t("action.preferences"), systemImage: "slider.horizontal.3")
                 }
-                .help("When you can play, weather limits (⌘,)")
-                Button { showingSettings.value = true } label: { Label("Settings", systemImage: "gearshape") }
-                    .help("Display, login, scraping, AI")
+                .help(t("tip.preferences"))
+                Button { showingSettings.value = true } label: { Label(t("action.settings"), systemImage: "gearshape") }
+                    .help(t("tip.settings"))
             }
 
             if model.days.isEmpty {
                 ContentUnavailableView(
-                    "Nothing scraped for this course yet",
+                    t("overview.empty_title"),
                     systemImage: "calendar.badge.exclamationmark",
                     description: Text(model.clubs.isEmpty
-                        ? "No club databases found in ~/.local/share/teetime-monitor."
-                        : "Pick another club or course above, or run teetime-monitor-scrape."))
+                        ? t("overview.empty_no_clubs")
+                        : t("overview.empty_pick_another")))
                     .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
@@ -697,6 +704,12 @@ struct ContentView: View {
 
 @main
 struct TeetimeMonitorPrototype: App {
+    // The Actions menu's own titles go through t() too, and `.commands` is
+    // evaluated as part of this scene's body -- so without observing the language
+    // here, the menu would keep its launch-time wording after a change while the
+    // window content re-rendered around it.
+    @ObservedObject private var language = AppLanguage.shared
+
     var body: some Scene {
         WindowGroup("teetime-monitor") {
             ContentView(model: OverviewModel())
@@ -707,17 +720,17 @@ struct TeetimeMonitorPrototype: App {
             // docstring for why this exists. A new top-level "Actions" menu (not
             // folded into an existing one) so these four are easy to find as a
             // group, next to the automatic View/Window menus SwiftUI already adds.
-            CommandMenu("Actions") {
-                Button("Refresh") { AppCommands.shared.onRefresh?() }
+            CommandMenu(t("menu.actions")) {
+                Button(t("menu.refresh")) { AppCommands.shared.onRefresh?() }
                     .keyboardShortcut("r", modifiers: .command)
-                Button("Search…") { AppCommands.shared.onSearch?() }
+                Button(t("menu.search")) { AppCommands.shared.onSearch?() }
                     .keyboardShortcut("f", modifiers: .command)
-                Button("Add a Club…") { AppCommands.shared.onAddClub?() }
-                Button("Crowd Heatmap…") { AppCommands.shared.onHeatmap?() }
+                Button(t("menu.add_club")) { AppCommands.shared.onAddClub?() }
+                Button(t("menu.heatmap")) { AppCommands.shared.onHeatmap?() }
                 Divider()
-                Button("Preferences…") { AppCommands.shared.onPreferences?() }
+                Button(t("menu.preferences")) { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)
-                Button("Settings…") { AppCommands.shared.onSettings?() }
+                Button(t("menu.settings")) { AppCommands.shared.onSettings?() }
             }
         }
     }

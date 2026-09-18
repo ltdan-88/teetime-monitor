@@ -113,6 +113,40 @@ data rather than trusting the code:
   Python's own `splitlines()` mismatch on a trailing newline) -- caught by writing
   the same key five times and diffing the byte count, not by inspection.
 
+## German, for real (2026-09-18)
+
+Follow-up to the third item below: the Language picker now translates **this app**,
+not just the terminal one. `I18n.swift` holds 173 keys in English and German, with
+the same lookup rule `i18n.py` uses (requested language, then English, then the key
+itself, so a missing string degrades to readable English rather than a blank
+control).
+
+**Shared vocabulary, deliberately.** Where `src/i18n.py` already had a German term
+for the same concept it was copied verbatim rather than re-invented -- "Zeit",
+"Wetter", "Spieler", "gebucht", "Suchen", "Einstellungen", "Design", "Min. freie
+Plätze (Gruppengröße)", "Abstand zur Gruppe davor", "Regen vermeiden", "Zeiten mit
+Freunden bevorzugen", "Auslastungs-Heatmap", "Nach Wochentag", "Besondere Tage",
+"pc caddie Anmeldung", "Passwort", "Speichern", "Abbrechen". Someone moving between
+the two front ends should meet one set of words for one set of ideas.
+
+Two things that would have quietly half-worked, caught before shipping:
+
+- **Nothing observed the language.** Assigning to the singleton would have updated
+  the file and re-rendered nothing -- the exact "setting appears to do nothing"
+  shape this round started with. Every view root now observes `AppLanguage`,
+  including the `App` scene itself, since the Actions menu's own titles go through
+  `t()` and `.commands` is evaluated there.
+- **`t` was shadowed.** `if let t = w.temperatureC` quietly hid the global `t()`
+  function inside two views; the compiler caught it, and those locals were renamed.
+
+Dates follow the language too (`Sa. 19 Sept.` rather than `Sat 19 Sep`) -- parsing
+still pins `en_US_POSIX`, since that reads a fixed ISO shape and must not follow the
+display locale.
+
+The Language picker also moved from the "Terminal app" section to "Display": it now
+changes this app immediately, and still writes `LANG=` for the TUI to pick up on its
+next restart.
+
 ## Three bugs found by using it (2026-09-18)
 
 Reported directly after the design pass below: "Scale changes don't seem to change
@@ -389,5 +423,4 @@ Two more direct remarks after the polish round above:
 
 No scraping (beyond shelling out to the existing scraper binary; login, search, and
 the two directory actions behind add-a-club are the same shelling-out shape), no
-real booking on pc caddie itself, no i18n of its own (theme is now live; language
-still only affects the TUI, next launch).
+real booking on pc caddie itself.

@@ -11,6 +11,7 @@ import SwiftUI
 struct AddClubSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var model: OverviewModel
+    @ObservedObject private var language = AppLanguage.shared
 
     @StateObject private var query = Box("")
     @StateObject private var directory = Box<[DirectoryEntry]>([])
@@ -26,17 +27,17 @@ struct AddClubSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Add a Club").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t("addclub.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
 
             HStack {
                 sourceCaption
                 Spacer()
                 if isRefreshing.value { ProgressView().controlSize(.small) }
-                Button("Refresh directory") { refresh() }.disabled(isRefreshing.value)
+                Button(t("addclub.refresh")) { refresh() }.disabled(isRefreshing.value)
             }
             .padding(.horizontal, 16).padding(.top, 4)
 
-            TextField("Search by name, or paste a club id / booking link", text: $query.value)
+            TextField(t("addclub.search_placeholder"), text: $query.value)
                 .textFieldStyle(.roundedBorder)
                 .padding(16)
 
@@ -46,17 +47,17 @@ struct AddClubSheet: View {
             }
 
             if trimmedQuery.isEmpty {
-                ContentUnavailableView("Search for a club", systemImage: "magnifyingglass",
-                    description: Text("Type a name, a club id, or paste a booking link."))
+                ContentUnavailableView(t("addclub.empty_title"), systemImage: "magnifyingglass",
+                    description: Text(t("addclub.empty_desc")))
                     .frame(maxHeight: .infinity)
             } else if directIDMatch == nil && searchResults.isEmpty {
-                ContentUnavailableView("No matches", systemImage: "magnifyingglass",
-                    description: Text("Nothing in the directory matches \u{201c}\(trimmedQuery)\u{201d}."))
+                ContentUnavailableView(t("addclub.no_matches_title"), systemImage: "magnifyingglass",
+                    description: Text(t("addclub.no_matches_desc", ["query": trimmedQuery])))
                     .frame(maxHeight: .infinity)
             } else {
                 List {
                     if let id = directIDMatch {
-                        AddClubRow(clubID: id, name: "Open club \(id) directly",
+                        AddClubRow(clubID: id, name: t("addclub.open_directly", ["id": id]),
                                    isAdding: addingClubID.value == id) { add(clubID: id, name: "") }
                     }
                     ForEach(searchResults) { entry in
@@ -72,7 +73,7 @@ struct AddClubSheet: View {
 
             HStack {
                 Spacer()
-                Button("Close") { dismiss() }
+                Button(t("button.close")) { dismiss() }
             }
             .padding(16)
         }
@@ -84,12 +85,13 @@ struct AddClubSheet: View {
         Group {
             switch source.value {
             case .live:
-                Text("Live directory, \(directory.value.count) clubs"
-                     + (fetchedAt.value.map { " — fetched \($0)" } ?? ""))
+                Text(fetchedAt.value.map {
+                    t("addclub.source_live_fetched", ["n": "\(directory.value.count)", "when": $0])
+                } ?? t("addclub.source_live", ["n": "\(directory.value.count)"]))
             case .seed:
-                Text("Offline snapshot, \(directory.value.count) clubs — refresh for the live list")
+                Text(t("addclub.source_seed", ["n": "\(directory.value.count)"]))
             case .none:
-                Text("No directory yet — refresh, or type a club id / booking link")
+                Text(t("addclub.source_none"))
             }
         }
         .font(scaledFont(.caption2)).foregroundStyle(.secondary)
@@ -108,10 +110,10 @@ struct AddClubSheet: View {
         DirectoryClient.refresh(fallbackClubID: directIDMatch) { count, error in
             isRefreshing.value = false
             if let count {
-                status.value = "Refreshed — \(count) clubs."
+                status.value = t("addclub.refreshed", ["n": "\(count)"])
                 load()
             } else {
-                status.value = error ?? "Something went wrong."
+                status.value = error ?? t("error.generic")
             }
         }
     }
@@ -125,9 +127,9 @@ struct AddClubSheet: View {
                 // A new clubs/*.yaml just appeared -- Store.clubs() needs re-reading
                 // for it to show up in the toolbar picker.
                 model.load()
-                status.value = "Added \(name.isEmpty ? clubID : name)."
+                status.value = t("addclub.added", ["name": name.isEmpty ? clubID : name])
             } else {
-                status.value = error ?? "Something went wrong."
+                status.value = error ?? t("error.generic")
             }
         }
     }
@@ -147,7 +149,7 @@ private struct AddClubRow: View {
             }
             Spacer()
             if isAdding { ProgressView().controlSize(.small) }
-            Button("Add", action: onAdd).disabled(isAdding)
+            Button(t("addclub.add"), action: onAdd).disabled(isAdding)
         }
         .padding(.vertical, 2)
     }

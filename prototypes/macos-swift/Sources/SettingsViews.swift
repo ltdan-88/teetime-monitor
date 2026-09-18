@@ -5,12 +5,13 @@ import SwiftUI
 /// `PreferencesStore.swift` for the verified round-trip with Python.
 struct PreferencesSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var language = AppLanguage.shared
     @StateObject private var prefs = Box(Preferences.load())
     @StateObject private var status = Box<String?>(nil)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Preferences").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t("prefs.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             // Genuinely true, not a hope: `_resolved_config()` (tui.py) calls
             // `global_preferences.load_preferences()` fresh, uncached, on every render
             // -- so a running TUI already picks up anything saved here on its very next
@@ -18,39 +19,39 @@ struct PreferencesSheet: View {
             // its own Settings screen. Worth saying explicitly since it isn't obvious
             // from the UI, and it's the one genuinely good answer in an otherwise
             // restart-required corner of this app (theme/language, see SettingsSheet).
-            Text("Applies immediately -- a running terminal app picks this up on its next refresh, no restart needed.")
+            Text(t("prefs.live_note"))
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .padding(.horizontal, 16).padding(.top, 2)
             Form {
-                Section("Availability") {
-                    Stepper("Min open spots: \(prefs.value.minOpenSpots)", value: $prefs.value.minOpenSpots, in: 1...4)
-                    TimeWindowRow(label: "Weekday", after: $prefs.value.weekdayAfter, before: $prefs.value.weekdayBefore)
-                    TimeWindowRow(label: "Weekend", after: $prefs.value.weekendAfter, before: $prefs.value.weekendBefore)
-                    Stepper("Buffer before: \(prefs.value.bufferBeforeMinutes) min", value: $prefs.value.bufferBeforeMinutes, in: 0...60, step: 5)
-                    Stepper("Buffer after: \(prefs.value.bufferAfterMinutes) min", value: $prefs.value.bufferAfterMinutes, in: 0...60, step: 5)
+                Section(t("prefs.section.availability")) {
+                    Stepper(t("prefs.min_open_spots", ["n": "\(prefs.value.minOpenSpots)"]), value: $prefs.value.minOpenSpots, in: 1...4)
+                    TimeWindowRow(label: t("prefs.weekday"), after: $prefs.value.weekdayAfter, before: $prefs.value.weekdayBefore)
+                    TimeWindowRow(label: t("prefs.weekend"), after: $prefs.value.weekendAfter, before: $prefs.value.weekendBefore)
+                    Stepper(t("prefs.buffer_before", ["n": "\(prefs.value.bufferBeforeMinutes)"]), value: $prefs.value.bufferBeforeMinutes, in: 0...60, step: 5)
+                    Stepper(t("prefs.buffer_after", ["n": "\(prefs.value.bufferAfterMinutes)"]), value: $prefs.value.bufferAfterMinutes, in: 0...60, step: 5)
                 }
-                Section("Weather") {
-                    Toggle("Avoid rain", isOn: $prefs.value.avoidRain)
+                Section(t("prefs.section.weather")) {
+                    Toggle(t("prefs.avoid_rain"), isOn: $prefs.value.avoidRain)
                     if prefs.value.avoidRain {
-                        Stepper("...above \(Int(prefs.value.avoidRainProbabilityPercent))%",
+                        Stepper(t("prefs.above_percent", ["n": "\(Int(prefs.value.avoidRainProbabilityPercent))"]),
                                 value: $prefs.value.avoidRainProbabilityPercent, in: 0...100, step: 5)
-                        Stepper("...above \(String(format: "%.1f", prefs.value.avoidRainMM))mm",
+                        Stepper(t("prefs.above_mm", ["n": String(format: "%.1f", prefs.value.avoidRainMM)]),
                                 value: $prefs.value.avoidRainMM, in: 0...10, step: 0.5)
                     }
-                    Toggle("Avoid wind", isOn: $prefs.value.avoidWind)
+                    Toggle(t("prefs.avoid_wind"), isOn: $prefs.value.avoidWind)
                     if prefs.value.avoidWind {
-                        Stepper("...above \(Int(prefs.value.avoidWindKPH))kph", value: $prefs.value.avoidWindKPH, in: 0...80, step: 5)
+                        Stepper(t("prefs.above_kph", ["n": "\(Int(prefs.value.avoidWindKPH))"]), value: $prefs.value.avoidWindKPH, in: 0...80, step: 5)
                     }
-                    OptionalTempRow(label: "Avoid below", value: $prefs.value.avoidTempBelowC)
-                    OptionalTempRow(label: "Avoid above", value: $prefs.value.avoidTempAboveC)
+                    OptionalTempRow(label: t("prefs.avoid_below"), value: $prefs.value.avoidTempBelowC)
+                    OptionalTempRow(label: t("prefs.avoid_above"), value: $prefs.value.avoidTempAboveC)
                 }
-                Section("Pace & daylight") {
-                    Stepper("Daylight buffer: \(prefs.value.daylightBufferMinutes) min", value: $prefs.value.daylightBufferMinutes, in: 0...60, step: 5)
-                    Stepper("9 holes: \(prefs.value.roundDurationNine) min", value: $prefs.value.roundDurationNine, in: 60...240, step: 15)
-                    Stepper("18 holes: \(prefs.value.roundDurationEighteen) min", value: $prefs.value.roundDurationEighteen, in: 120...360, step: 15)
+                Section(t("prefs.section.pace")) {
+                    Stepper(t("prefs.daylight_buffer", ["n": "\(prefs.value.daylightBufferMinutes)"]), value: $prefs.value.daylightBufferMinutes, in: 0...60, step: 5)
+                    Stepper(t("prefs.nine_holes", ["n": "\(prefs.value.roundDurationNine)"]), value: $prefs.value.roundDurationNine, in: 60...240, step: 15)
+                    Stepper(t("prefs.eighteen_holes", ["n": "\(prefs.value.roundDurationEighteen)"]), value: $prefs.value.roundDurationEighteen, in: 120...360, step: 15)
                 }
-                Section("Priorities") {
-                    Toggle("Prioritize friends' slots", isOn: $prefs.value.prioritizeFriends)
+                Section(t("prefs.section.priorities")) {
+                    Toggle(t("prefs.prioritize_friends"), isOn: $prefs.value.prioritizeFriends)
                 }
             }
             .formStyle(.grouped)
@@ -58,14 +59,14 @@ struct PreferencesSheet: View {
             HStack {
                 if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save") {
+                Button(t("button.cancel")) { dismiss() }
+                Button(t("button.save")) {
                     do {
                         try prefs.value.save()
-                        status.value = "Saved"
+                        status.value = t("prefs.saved")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { dismiss() }
                     } catch {
-                        status.value = "Couldn't save: \(error.localizedDescription)"
+                        status.value = t("prefs.save_failed", ["error": error.localizedDescription])
                     }
                 }
                 .keyboardShortcut(.defaultAction)
@@ -88,9 +89,9 @@ struct TimeWindowRow: View {
     var body: some View {
         HStack {
             Text(label).frame(width: 70, alignment: .leading)
-            OptionalTimeField(placeholder: "after", value: $after)
+            OptionalTimeField(placeholder: t("prefs.after"), value: $after)
             Text("–")
-            OptionalTimeField(placeholder: "before", value: $before)
+            OptionalTimeField(placeholder: t("prefs.before"), value: $before)
         }
     }
 }
@@ -143,6 +144,7 @@ struct SettingsSheet: View {
     let verifyClubID: String?
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var uiLanguage = AppLanguage.shared
     @StateObject private var units = Box(Preferences.load().units)
     @StateObject private var language = Box(UserConfig.value("LANG") ?? "en")
     // Seeded from the shared instance, not UserConfig directly, so this always starts
@@ -162,11 +164,11 @@ struct SettingsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Settings").font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t("settings.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             Form {
                 Section {
-                    TextField("Username", text: $loginUsername.value)
-                    SecureField(EnvStore.hasSavedPassword() ? "Password (unchanged)" : "Password",
+                    TextField(t("settings.username"), text: $loginUsername.value)
+                    SecureField(EnvStore.hasSavedPassword() ? t("settings.password_unchanged") : t("settings.password"),
                                 text: $loginPassword.value)
                     HStack {
                         if let loginStatus = loginStatus.value {
@@ -174,7 +176,7 @@ struct SettingsSheet: View {
                         }
                         Spacer()
                         if isLoggingIn.value { ProgressView().controlSize(.small) }
-                        Button("Save login") {
+                        Button(t("settings.save_login")) {
                             isLoggingIn.value = true
                             loginStatus.value = nil
                             LoginClient.run(username: loginUsername.value, password: loginPassword.value,
@@ -187,7 +189,7 @@ struct SettingsSheet: View {
                                     // again, same as CredentialsScreen's own reset.
                                     if result.saved { loginPassword.value = "" }
                                 } else {
-                                    loginStatus.value = error ?? "Something went wrong."
+                                    loginStatus.value = error ?? t("error.generic")
                                 }
                             }
                         }
@@ -195,11 +197,11 @@ struct SettingsSheet: View {
                                   || loginUsername.value.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 } header: {
-                    Text("pc caddie login")
+                    Text(t("settings.section.login"))
                 } footer: {
                     Text(verifyClubID == nil
-                         ? "Saved either way; pick a club above to also verify it against pc caddie on save."
-                         : "Verified live against pc caddie for the selected club when you save.")
+                         ? t("settings.login_footer_no_club")
+                         : t("settings.login_footer_club"))
                         .font(scaledFont(.caption2))
                 }
                 // Units lives in preferences.yaml, so like everything in PreferencesSheet
@@ -212,42 +214,33 @@ struct SettingsSheet: View {
                 // change made here. Verified directly against src/i18n.py and
                 // src/tui.py's `_resolved_config()` rather than assumed.
                 Section {
-                    Picker("Units", selection: $units.value) {
-                        Text("Metric").tag("metric"); Text("Imperial").tag("imperial")
+                    Picker(t("settings.units"), selection: $units.value) {
+                        Text(t("settings.metric")).tag("metric"); Text(t("settings.imperial")).tag("imperial")
                     }
-                    Picker("Scale", selection: $scaleOption.value) {
-                        ForEach(AppScaleOption.allCases, id: \.self) { Text($0.label).tag($0) }
+                    Picker(t("settings.scale"), selection: $scaleOption.value) {
+                        ForEach(AppScaleOption.allCases, id: \.self) { Text(t("settings.scale.\($0.rawValue)")).tag($0) }
+                    }
+                    // Lives here, not under "Terminal app", because it now changes
+                    // *this* app's own interface too -- see I18n.swift. It still
+                    // also writes LANG= for the TUI, which picks it up on its next
+                    // restart (hence the mention in that section's footer).
+                    Picker(t("settings.language"), selection: $language.value) {
+                        ForEach(I18n.supported, id: \.self) { Text(I18n.label($0)).tag($0) }
                     }
                 } header: {
-                    Text("Display")
+                    Text(t("settings.section.display"))
                 } footer: {
-                    Text("Both apply immediately, no restart. Scale affects this app only -- "
-                         + "the terminal app follows your terminal's own font size.")
+                    Text(t("settings.display_footer"))
                         .font(scaledFont(.caption2))
                 }
                 Section {
-                    // Labeled for what it actually does today. This app has no
-                    // translations of its own yet -- every string in it is an
-                    // English literal -- so this picker only ever set `LANG=` for
-                    // the *TUI* to read. That was documented in this section's
-                    // footer but read, reasonably, as the control being broken
-                    // ("language settings ... doesn't change anything"). Saying so
-                    // on the control itself is the honest interim state until the
-                    // GUI is genuinely translated.
-                    Picker("Language (terminal app only)", selection: $language.value) {
-                        Text("English").tag("en"); Text("Deutsch").tag("de")
-                    }
-                    Picker("Theme", selection: $theme.value) {
+                    Picker(t("settings.theme"), selection: $theme.value) {
                         ForEach(ThemeColors.names, id: \.self) { Text($0.replacingOccurrences(of: "-", with: " ").capitalized).tag($0) }
                     }
                 } header: {
-                    Text("Terminal app")
+                    Text(t("settings.section.terminal"))
                 } footer: {
-                    Text("Theme applies here immediately. Language does not — this app "
-                         + "is English-only for now, and this setting exists to control the "
-                         + "terminal app. Both reach the terminal app only on its next restart: "
-                         + "it caches them at launch and won't notice a change while running, "
-                         + "even if you reopen its own Settings screen.")
+                    Text(t("settings.terminal_footer"))
                         .font(scaledFont(.caption2))
                 }
             }
@@ -256,8 +249,8 @@ struct SettingsSheet: View {
             HStack {
                 if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
                 Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save") {
+                Button(t("button.cancel")) { dismiss() }
+                Button(t("button.save")) {
                     do {
                         // `units` round-trips through Preferences (same overlay-only-
                         // known-keys save() Tier 1's Preferences edits already use, so
@@ -271,6 +264,7 @@ struct SettingsSheet: View {
                         // back (see Units.swift). This is the line that actually
                         // reformats every temperature and wind speed on screen.
                         AppUnits.shared.value = units.value
+                        AppLanguage.shared.code = language.value
                         try UserConfig.setValue("THEME", theme.value)
                         try UserConfig.setValue("LANG", language.value)
                         // Applies immediately, no relaunch: AppTheme.shared is the
@@ -285,10 +279,10 @@ struct SettingsSheet: View {
                         // Language is still config-file-only: this prototype has no
                         // localization system of its own yet, so that half genuinely
                         // only takes effect next time the *TUI* restarts.
-                        status.value = "Units, scale & theme applied. Theme/language reach the terminal app on its next restart."
+                        status.value = t("settings.applied")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     } catch {
-                        status.value = "Couldn't save: \(error.localizedDescription)"
+                        status.value = t("prefs.save_failed", ["error": error.localizedDescription])
                     }
                 }
                 .keyboardShortcut(.defaultAction)

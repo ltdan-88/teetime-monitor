@@ -124,7 +124,7 @@ enum DirectoryClient {
 
     static func refresh(fallbackClubID: String?, done: @escaping (Int?, String?) -> Void) {
         guard let exe = executable() else {
-            done(nil, "teetime-monitor-directory-refresh not found — install it with Homebrew.")
+            done(nil, t("error.directory_missing"))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -150,10 +150,10 @@ enum DirectoryClient {
                     return
                 }
                 switch obj["reason"] as? String {
-                case "needs_login": done(nil, "No pc caddie login configured yet — add one in Settings first.")
-                case "needs_a_club": done(nil, "Type a club id above, or save a club first, to authenticate with.")
-                case "fetch_failed": done(nil, "Couldn't refresh: \(obj["error"] as? String ?? "unknown error")")
-                default: done(nil, "Couldn't refresh directory.")
+                case "needs_login": done(nil, t("error.needs_login"))
+                case "needs_a_club": done(nil, t("error.needs_a_club"))
+                case "fetch_failed": done(nil, t("error.refresh_failed", ["error": obj["error"] as? String ?? "?"]))
+                default: done(nil, t("error.generic"))
                 }
             }
         }
@@ -181,7 +181,7 @@ enum AddClubClient {
 
     static func add(clubID: String, name: String, done: @escaping (String?, String?) -> Void) {
         guard let exe = executable() else {
-            done(nil, "teetime-monitor-add-club not found — install it with Homebrew.")
+            done(nil, t("error.addclub_missing"))
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -205,7 +205,7 @@ enum AddClubClient {
                 if obj["ok"] as? Bool == true, let slug = obj["slug"] as? String {
                     done(slug, nil)
                 } else {
-                    done(nil, "Couldn't save this club.")
+                    done(nil, t("error.add_failed"))
                 }
             }
         }
