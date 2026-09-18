@@ -251,7 +251,7 @@ enum Store {
     ///
     /// A saved club with no database yet is still listed (it just has nothing to show),
     /// which is the honest state for a club favourited before its first scrape.
-    static func clubs() -> [(path: String, id: String, name: String, lastScrape: String)] {
+    static func clubs() -> [(path: String, id: String, slug: String, name: String, lastScrape: String)] {
         let home = NSHomeDirectory() as NSString
         let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_DATA_DIR"]
         let dataDir = (env as NSString?)?.expandingTildeInPath
@@ -260,7 +260,7 @@ enum Store {
         let clubsDir = ((configEnv as NSString?)?.expandingTildeInPath
             ?? home.appendingPathComponent(".config/teetime-monitor")) + "/clubs"
 
-        var out: [(String, String, String, String)] = []
+        var out: [(String, String, String, String, String)] = []
         for file in ((try? FileManager.default.contentsOfDirectory(atPath: clubsDir)) ?? []).sorted()
         where file.hasSuffix(".yaml") && file != "club.example.yaml" {
             guard let text = try? String(contentsOfFile: "\(clubsDir)/\(file)", encoding: .utf8)
@@ -278,8 +278,8 @@ enum Store {
             // `name:` is optional (a club favourited before a directory search could
             // supply one has none), so fall back to the filename slug -- the same
             // "name or slug" rule tui.py's own _favorite_clubs() uses.
-            let display = name ?? file.replacingOccurrences(of: ".yaml", with: "")
-                .replacingOccurrences(of: "-", with: " ").capitalized
+            let slug = file.replacingOccurrences(of: ".yaml", with: "")
+            let display = name ?? slug.replacingOccurrences(of: "-", with: " ").capitalized
             let path = "\(dataDir)/\(id).db"
             var last = ""
             var db: OpaquePointer?
@@ -288,9 +288,10 @@ enum Store {
                 query(db, "SELECT MAX(scraped_at) FROM scrapes") { s in last = column(s, 0) ?? "" }
                 sqlite3_close(db)
             }
-            out.append((path, id, display, last))
+            out.append((path, id, slug, display, last))
         }
-        return out.sorted { $0.3 > $1.3 }.map { (path: $0.0, id: $0.1, name: $0.2, lastScrape: $0.3) }
+        return out.sorted { $0.4 > $1.4 }
+            .map { (path: $0.0, id: $0.1, slug: $0.2, name: $0.3, lastScrape: $0.4) }
     }
 
     /// When this club was last scraped, for the freshness line in the toolbar.

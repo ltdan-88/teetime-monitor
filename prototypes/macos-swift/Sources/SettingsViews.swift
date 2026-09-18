@@ -76,7 +76,11 @@ struct PreferencesSheet: View {
     }
 }
 
-private struct TimeWindowRow: View {
+// Not private -- SearchSheet.swift reuses this row unchanged for its own
+// weekday/weekend window fields, same "pre-filled from your saved defaults, edit
+// for this one case" fields the TUI's own SearchScreen shares with its Preferences
+// screen (see that class's own docstring).
+struct TimeWindowRow: View {
     let label: String
     @Binding var after: String?
     @Binding var before: String?
@@ -91,7 +95,7 @@ private struct TimeWindowRow: View {
     }
 }
 
-private struct OptionalTimeField: View {
+struct OptionalTimeField: View {
     let placeholder: String
     @Binding var value: String?
 

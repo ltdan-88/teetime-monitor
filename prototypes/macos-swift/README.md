@@ -105,11 +105,40 @@ data rather than trusting the code:
 
 ## What's still Tier 2 (needs a Python subcommand)
 
-Search (running `recommend.ranked_matches()`'s actual ranking), add-a-club (the
-platform directory search, also needs login), and the heatmap (porting or exposing
-`analytics.crowd_heatmap()`'s aggregation). None of these are local file edits --
-each is real logic that has to stay in Python, reached the same way `--force`
-already is: a small, well-scoped console-script addition, not a reimplementation.
+Add-a-club (the platform directory search, also needs login) and the heatmap
+(porting or exposing `analytics.crowd_heatmap()`'s aggregation). Neither is a local
+file edit -- each is real logic that has to stay in Python, reached the same way
+`--force` already is: a small, well-scoped console-script addition, not a
+reimplementation.
+
+## Search (2026-09-18, v0.34.0): the second Tier 2 piece
+
+A real ad hoc search now, not just the day list -- `⌘F` opens a sheet mirroring
+`SearchScreen`: criteria pre-filled from your saved Preferences (min open spots,
+weekday/weekend windows, buffers), edit for this one search, same "starts from your
+defaults" UX that screen shares with the Preferences screen itself. New console
+script `teetime-monitor-search` (`src/search_cli.py`) wraps the exact
+`recommend.ranked_matches()` pipeline `SearchScreen._run_search()` uses, reusing
+`tui._resolved_config()` directly for the config merge so it can't drift from what
+the TUI itself would compute. Only the typed criteria cross over stdin as JSON;
+schedules are loaded by the script itself straight from the club's own SQLite
+database, not round-tripped through the pipe -- results (a JSON array) come back
+with occupancy and any AI-ranking `reasons`, and `SearchSheet` cross-references each
+match's date against `Store.days()` (already read directly elsewhere in this app)
+to show weather per result without the CLI needing to serialize it. Tapping a
+result opens the same confirm dialog `SlotRow` already uses.
+
+Known, flagged gap carried over from the CLI itself: `crowd_estimates` isn't
+computed (needs a live public-holidays fetch), so AI ranking runs when a club has
+it enabled, just without that one bias signal.
+
+Verified end to end against the real installed binary and a real club's data:
+confirmed the same JSON criteria the CLI expects, confirmed a genuine zero-match
+result was actually correct (a 240-minute round teeing off after 16:00 fails this
+real club's own playability check against a ~19:25 sunset plus its 30-minute
+daylight buffer -- not a bug), and confirmed a real positive match set parses
+correctly, all against an isolated copy that left the real `.env`/preferences
+untouched.
 
 ## Login (2026-09-18, v0.33.0): the first Tier 2 piece
 
@@ -199,7 +228,7 @@ Two more direct remarks after the polish round above:
 
 ## What it deliberately doesn't do
 
-No scraping (beyond shelling out to the existing scraper binary; login is the one
-other exception, same shelling-out shape), no real booking on pc caddie itself, no
-search, no add-a-club, no heatmap, no i18n of its own (theme is now live; language
-still only affects the TUI, next launch).
+No scraping (beyond shelling out to the existing scraper binary; login and search
+are the same shelling-out shape), no real booking on pc caddie itself, no
+add-a-club, no heatmap, no i18n of its own (theme is now live; language still only
+affects the TUI, next launch).
