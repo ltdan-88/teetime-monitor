@@ -56,10 +56,116 @@ struct Day: Identifiable {
     }
 }
 
-/// Reads the database the Python scraper already maintains. Deliberately read-only:
-/// this prototype does no scraping, no login and no writing at all -- the existing
-/// launchd agent keeps the data fresh and this just renders it.
+/// One unacknowledged notice from `booking_changes` -- a friend joined your flight,
+/// your buffer shrank, a "My Reservations" sync failed, etc. Shown via its own
+/// `message` field (plain English, stored specifically "as a fallback/for any
+/// non-TUI consumer" per storage.py's own schema comment) rather than
+/// `i18n.render_booking_change()`'s kind+params re-rendering -- that function is
+/// real per-language logic this prototype deliberately doesn't reimplement, and the
+/// stored message exists for exactly this situation.
+struct Banner: Identifiable {
+    let id: Int
+    let course: String
+    let date: String
+    let time: String?
+    let message: String
+}
+
+/// Reads (and, as of Tier 1, writes some of) the database the Python scraper already
+/// maintains. Never scrapes, never logs in -- the existing launchd agent keeps the
+/// data fresh; writes here are limited to local-only facts (a manual confirm/cancel,
+/// acknowledging a banner) that were always just SQLite rows, never a live pc caddie
+/// interaction, on the Python side either.
 enum Store {
+    /// "18 Loch Tee 1" -> 18, "Kurzplatz" -> nil. Mirrors
+    /// `scraper._holes_from_course_label()` exactly: leading digits only, no
+    /// assumption for a name that has none.
+    static func holes(from course: String) -> Int? {
+        var digits = ""
+        for ch in course { if ch.isNumber { digits.append(ch) } else { break } }
+        return Int(digits)
+    }
+
+    /// Records a confirmed tee time -- the manual fallback path
+    /// `storage.save_confirmed_booking()` backs, same `source: "manual"` the TUI's
+    /// own `ConfirmBookingScreen` writes. Never overwrites: `confirmed_bookings` is
+    /// deliberately append-only (see storage.py's own module docstring -- analytics
+    /// needs the full history), and `load_latest_schedule()`/this prototype's own Day
+    /// both already read "latest row wins."
+    static func confirmBooking(dbPath: String, course: String, date: String, time: String) {
+        let holes = holes(from: course)
+        write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
+              + "VALUES (?, ?, ?, ?, 'manual', ?)",
+              [course, date, time, holes.map(String.init) ?? nil, isoNow()])
+    }
+
+    /// Marks a date as "confirmed not playing" -- mirrors `CancelBookingScreen`'s own
+    /// write exactly: `time`/`holes` both NULL, same manual source. A new row, not a
+    /// delete or update, same append-only reasoning as `confirmBooking()` above.
+    static func cancelBooking(dbPath: String, course: String, date: String) {
+        write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
+              + "VALUES (?, ?, NULL, NULL, 'manual', ?)",
+              [course, date, isoNow()])
+    }
+
+    static func banners(dbPath: String) -> [Banner] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+        var out: [Banner] = []
+        query(db, "SELECT id, course, date, time, message FROM booking_changes "
+              + "WHERE acknowledged = 0 ORDER BY id") { s in
+            out.append(Banner(
+                id: Int(sqlite3_column_int(s, 0)),
+                course: column(s, 1) ?? "",
+                date: column(s, 2) ?? "",
+                time: column(s, 3),
+                message: column(s, 4) ?? ""))
+        }
+        return out
+    }
+
+    /// Marks banners seen -- an UPDATE, not a delete, same as
+    /// `storage.acknowledge_booking_changes()`: the row stays as a historical record,
+    /// it just stops showing again.
+    static func acknowledgeBanners(dbPath: String, ids: [Int]) {
+        guard !ids.isEmpty else { return }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return }
+        defer { sqlite3_close(db) }
+        for id in ids {
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "UPDATE booking_changes SET acknowledged = 1 WHERE id = ?", -1, &stmt, nil)
+                == SQLITE_OK else { continue }
+            sqlite3_bind_int(stmt, 1, Int32(id))
+            sqlite3_step(stmt)
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    private static func isoNow() -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.string(from: Date())
+    }
+
+    private static func write(_ dbPath: String, _ sql: String, _ binds: [String?]) {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        for (i, b) in binds.enumerated() {
+            if let b {
+                sqlite3_bind_text(stmt, Int32(i + 1), b, -1, SQLITE_TRANSIENT)
+            } else {
+                sqlite3_bind_null(stmt, Int32(i + 1))
+            }
+        }
+        sqlite3_step(stmt)
+    }
+
     private static func column(_ s: OpaquePointer?, _ i: Int32) -> String? {
         guard let c = sqlite3_column_text(s, i) else { return nil }
         return String(cString: c)
