@@ -136,6 +136,7 @@ struct AddClubSheet: View {
 }
 
 private struct AddClubRow: View {
+    @ObservedObject private var language = AppLanguage.shared
     let clubID: String
     let name: String
     let isAdding: Bool

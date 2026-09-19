@@ -48,17 +48,68 @@ enum CalendarContext {
         return (code?.isEmpty ?? true) ? nil : code
     }
 
-    /// **Known, flagged gap** (same "flagged rather than silently assumed"
-    /// convention `search_cli.py`'s own `crowd_estimates` gap uses) -- a club's
-    /// `calendar.vacation_ranges` is a YAML *list* of `{start, end, label}` maps,
-    /// and `YAML.swift`'s parser is deliberately scoped to nested maps of scalars
-    /// only (see its own docstring: "no lists, no anchors"). A vacation day here
-    /// classifies as an ordinary weekend/workday instead of its own "vacation"
-    /// bucket until this is worth a real list parser -- narrower than it sounds:
-    /// neither of this install's own two saved clubs has a `calendar:` block
-    /// configured at all yet, so today this changes nothing real, only what a
-    /// future hand-entered vacation range would do.
-    static func vacationRanges(clubYAMLPath: String) -> [VacationRange] { [] }
+    /// A club's `calendar.vacation_ranges`, read directly from its own YAML.
+    ///
+    /// Previously always `[]` -- a flagged, known gap: `YAML.swift`'s parser is
+    /// deliberately scoped to nested maps of scalars, no lists (see its own
+    /// docstring), so it can't represent this field's own list-of-maps shape.
+    /// Rather than widen that shared parser (used everywhere `preferences.yaml`'s
+    /// own byte-for-byte round-trip already depends on -- real risk of disturbing
+    /// something already verified, for a field neither of this install's own
+    /// saved clubs uses yet), this is a second, narrow, purpose-built scanner for
+    /// exactly this one field's own *documented* shape -- the flow-style list
+    /// `clubs/club.example.yaml` itself shows and comments as the intended way to
+    /// fill this in:
+    ///
+    /// ```yaml
+    /// vacation_ranges:
+    ///   - { start: "2026-07-04", end: "2026-09-15", label: "summer break" }
+    /// ```
+    ///
+    /// Confirmed against a real `yaml.safe_load()` of that exact shape before
+    /// writing this, not assumed. **Still a real, smaller scope limit**, stated
+    /// plainly rather than silently: a block-style list item (`- start: ...` on
+    /// its own line, `end:`/`label:` indented under it on the following lines) is
+    /// valid YAML `yaml.safe_load()` would also accept, and this scanner does not
+    /// -- it only recognizes the one-line `{ ... }` form the example file itself
+    /// documents as the way to fill this in.
+    static func vacationRanges(clubYAMLPath: String) -> [VacationRange] {
+        guard let text = try? String(contentsOfFile: clubYAMLPath, encoding: .utf8) else { return [] }
+        let lines = text.components(separatedBy: "\n")
+        guard let headerIndex = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("vacation_ranges:")
+        }) else { return [] }
+
+        let itemPattern = try! NSRegularExpression(pattern: #"^\s*-\s*\{(.*)\}\s*$"#)
+        var ranges: [VacationRange] = []
+        for line in lines[(headerIndex + 1)...] {
+            let searchRange = NSRange(line.startIndex..., in: line)
+            guard let match = itemPattern.firstMatch(in: line, range: searchRange),
+                  let innerRange = Range(match.range(at: 1), in: line) else {
+                // Not a `- { ... }` line -- either the list ended (dedented back
+                // to a sibling key) or it's a shape this scanner doesn't
+                // recognize (see the doc comment above). Either way, stop rather
+                // than guess.
+                break
+            }
+            var fields: [String: String] = [:]
+            for pair in line[innerRange].split(separator: ",") {
+                let parts = pair.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let key = parts[0].trimmingCharacters(in: .whitespaces)
+                var value = parts[1].trimmingCharacters(in: .whitespaces)
+                let quotes: [Character] = ["\"", "'"]
+                if let first = value.first, let last = value.last, first == last, quotes.contains(first),
+                   value.count >= 2 {
+                    value = String(value.dropFirst().dropLast())
+                }
+                fields[key] = value
+            }
+            guard let start = fields["start"], let end = fields["end"] else { continue }
+            ranges.append(VacationRange(start: start, end: end, label: fields["label"] ?? ""))
+        }
+        return ranges
+    }
 }
 
 /// A plain, unauthenticated GET against Nager.Date -- not Python-owned logic at
