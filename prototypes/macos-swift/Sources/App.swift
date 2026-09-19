@@ -772,8 +772,52 @@ struct ContentView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(model.clubName).font(scaledFont(.title2)).bold()
-                            .lineLimit(1).truncationMode(.tail)
+                        // The title *is* the club switcher -- direct follow-up,
+                        // 2026-09-19 ("check whether combining club dropdown and
+                        // club header title is feasible"): this title and the
+                        // toolbar's separate "Club" dropdown always showed the
+                        // exact same string (model.clubName is just whichever
+                        // club's `.path == clubPath`, the same lookup the
+                        // dropdown's own selected item resolves to), so the
+                        // dropdown was pure duplication once you noticed it.
+                        // `.font()`/`.bold()` applied to the Picker itself, not
+                        // inside a `label:` closure -- macOS's `.menu`-style
+                        // Picker displays whichever ForEach item matches the
+                        // current selection, not a separate label view, but it
+                        // does render that text through whatever font the
+                        // Picker itself is given, which is what actually makes
+                        // this look like the same bold title as before rather
+                        // than a plain little popup button.
+                        if model.clubs.isEmpty {
+                            // A Picker with nothing in it has no selection to
+                            // display -- keep the plain fallback title (same
+                            // "teetime-monitor" model.clubName already fell back
+                            // to) for a fresh install with no club saved yet,
+                            // rather than an empty-looking popup button.
+                            Text(model.clubName).font(scaledFont(.title2)).bold()
+                                .lineLimit(1).truncationMode(.tail)
+                        } else {
+                            Picker("", selection: $model.clubPath) {
+                                // Alphabetical here, in the dropdown only -- direct
+                                // question, 2026-09-19 ("are entries in club dropdown
+                                // sorted alphabetically?"). `model.clubs` itself stays
+                                // newest-scraped-first (see Store.clubs' own docstring
+                                // for the real bug that ordering fixed: picking
+                                // alphabetically for the *default selection* landed on
+                                // an empty leftover test database), so only the list
+                                // this Picker renders is re-sorted, not which club
+                                // loads when the app opens.
+                                ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                                        id: \.path) { club in
+                                    Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
+                                        .tag(club.path)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .font(scaledFont(.title2)).fontWeight(.bold)
+                            .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
+                        }
                         // Mirrors the TUI's own Header, which sets its subtitle to
                         // "v{version}" from the same package metadata -- direct
                         // request, 2026-09-19 ("I want to see the version ... It
@@ -788,38 +832,13 @@ struct ContentView: View {
                     FreshnessRow(model: model)
                 }
                 Spacer(minLength: 12)
-                // Labeled, so it's clear which picker is the club and which is the
-                // course -- they were two unlabeled dropdowns stacked in a corner.
-                Grid(alignment: .trailing, horizontalSpacing: 6, verticalSpacing: 5) {
-                    GridRow {
-                        Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                        Picker("", selection: $model.clubPath) {
-                            // Alphabetical here, in the dropdown only -- direct
-                            // question, 2026-09-19 ("are entries in club dropdown
-                            // sorted alphabetically?"). `model.clubs` itself stays
-                            // newest-scraped-first (see Store.clubs' own docstring
-                            // for the real bug that ordering fixed: picking
-                            // alphabetically for the *default selection* landed on
-                            // an empty leftover test database), so only the list
-                            // this Picker renders is re-sorted, not which club
-                            // loads when the app opens.
-                            ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
-                                    id: \.path) { club in
-                                Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
-                                    .tag(club.path)
-                            }
-                        }
-                        .labelsHidden().frame(width: scale.scaled(Metrics.picker))
-                        .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
+                HStack(spacing: 6) {
+                    Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    Picker("", selection: $model.course) {
+                        ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                     }
-                    GridRow {
-                        Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                        Picker("", selection: $model.course) {
-                            ForEach(model.courses, id: \.self) { Text($0).tag($0) }
-                        }
-                        .labelsHidden().frame(width: scale.scaled(Metrics.picker))
-                        .onChange(of: model.course) { _, _ in model.reload() }
-                    }
+                    .labelsHidden().frame(width: scale.scaled(Metrics.picker))
+                    .onChange(of: model.course) { _, _ in model.reload() }
                 }
             }
 
