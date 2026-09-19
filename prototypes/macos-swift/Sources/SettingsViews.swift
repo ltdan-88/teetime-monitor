@@ -82,6 +82,7 @@ struct PreferencesSheet: View {
 // for this one case" fields the TUI's own SearchScreen shares with its Preferences
 // screen (see that class's own docstring).
 struct TimeWindowRow: View {
+    @ObservedObject private var language = AppLanguage.shared
     let label: String
     @Binding var after: String?
     @Binding var before: String?

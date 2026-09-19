@@ -150,6 +150,7 @@ struct SearchSheet: View {
 
 private struct SearchResultRow: View {
     @ObservedObject private var units = AppUnits.shared
+    @ObservedObject private var language = AppLanguage.shared
     let match: SearchMatch
     let weather: Day?
 

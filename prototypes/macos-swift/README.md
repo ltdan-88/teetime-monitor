@@ -284,14 +284,20 @@ A new toolbar button (also in the Actions menu) opens `HeatmapSheet`: two grids
 (by weekday, and special days compared only against others of their own kind),
 hour-of-day as rows, a legend for the four cell states -- mirroring `HeatmapScreen`.
 
-**One known, flagged gap**: a club's `calendar.vacation_ranges` is a YAML *list* of
-`{start, end, label}` maps, and `YAML.swift`'s parser is deliberately scoped to
-nested maps of scalars only (no lists -- see its own docstring). A vacation day
-classifies as an ordinary weekend/workday here instead of its own bucket, until
-that's worth a real list parser. Narrower than it sounds today: neither of this
-install's own two saved clubs has a `calendar:` block configured at all yet, so
-this changes nothing real yet, only what a future hand-entered vacation range
-would do.
+**One known, flagged gap, closed 2026-09-19**: a club's `calendar.vacation_ranges`
+is a YAML *list* of `{start, end, label}` maps, and `YAML.swift`'s parser is
+deliberately scoped to nested maps of scalars only (no lists -- see its own
+docstring). Rather than widen that shared parser (real risk to `preferences.yaml`'s
+own already-verified byte-for-byte round-trip, for a field neither of this
+install's own saved clubs used yet), `CalendarContext.vacationRanges()` is now a
+second, narrow, purpose-built scanner for exactly this field's own *documented*
+shape -- the flow-style list `clubs/club.example.yaml` itself shows and comments as
+the intended way to fill this in (`- { start: "2026-07-04", end: "2026-09-15",
+label: "summer break" }`), confirmed against a real `yaml.safe_load()` of that
+exact text before writing the Swift side. Still a real, smaller scope limit, stated
+plainly: a block-style list item (`- start: ...` with `end:`/`label:` indented on
+following lines) is valid YAML `yaml.safe_load()` also accepts, and this scanner
+doesn't recognize it -- only the one-line `{ ... }` form.
 
 **One thing this round couldn't fully verify**: the live holiday fetch itself.
 Cross-checked that raw network egress works from this environment's own sandbox

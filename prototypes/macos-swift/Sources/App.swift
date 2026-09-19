@@ -8,6 +8,7 @@ import SwiftUI
 /// the subset this card-based view actually shows.
 struct LegendLine: View {
     @ObservedObject private var units = AppUnits.shared
+    @ObservedObject private var language = AppLanguage.shared
 
     // Computed, not a stored `let`: the temperature/wind labels state the current
     // unit, so they have to follow a Units change the same way the numbers do.
@@ -62,6 +63,7 @@ struct SlotRow: View {
     @ObservedObject var model: OverviewModel
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
+    @ObservedObject private var language = AppLanguage.shared
     @StateObject private var showingConfirm = Box(false)
 
     var isMine: Bool { day.bookedTime == slot.time }
@@ -184,6 +186,7 @@ struct DayCard: View {
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
+    @ObservedObject private var language = AppLanguage.shared
     var isOpen: Bool { model.expanded.contains(day.date) }
 
     var body: some View {

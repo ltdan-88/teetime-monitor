@@ -93,6 +93,7 @@ struct HeatmapSheet: View {
 
 private struct HeatmapGridView: View {
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
     let title: String
     let keys: [String]
     let labels: [String]
@@ -133,6 +134,7 @@ private struct HeatmapGridView: View {
 
 private struct HeatmapCell: View {
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
     let bucket: HeatmapBucket?
 
     var body: some View {
@@ -153,6 +155,7 @@ private struct HeatmapCell: View {
 
 private struct HeatmapLegendView: View {
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
 
     var body: some View {
         HStack(spacing: 16) {
