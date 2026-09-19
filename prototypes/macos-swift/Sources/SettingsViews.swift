@@ -161,10 +161,24 @@ struct TimeWindowRow: View {
 
     var body: some View {
         HStack {
-            Text(label).frame(width: 70, alignment: .leading)
-            OptionalTimeField(placeholder: t("prefs.after"), value: $after)
-            Text("–")
-            OptionalTimeField(placeholder: t("prefs.before"), value: $before)
+            // 120, not the original 70 -- direct report, 2026-09-19, with a
+            // screenshot showing "Am Wochenende" ("Unter der Woche"'s own 15
+            // characters is the longer of the two German labels this row ever
+            // shows) wrapping mid-*word* into three lines because 70pt isn't wide
+            // enough even for one word of it. 120 comfortably fits both German
+            // labels on one line at every scale this app offers.
+            Text(label).frame(width: 120, alignment: .leading)
+            Spacer()
+            // The two time pickers as their own trailing group, not flush against
+            // the label -- matches every other field in this form (a label on the
+            // left, its control pinned to the trailing edge via a Spacer), which
+            // this row didn't previously do; same report flagged the result as
+            // visually inconsistent with the rows around it.
+            HStack(spacing: 4) {
+                OptionalTimeField(placeholder: t("prefs.after"), value: $after)
+                Text("–")
+                OptionalTimeField(placeholder: t("prefs.before"), value: $before)
+            }
         }
     }
 }

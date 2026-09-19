@@ -196,7 +196,15 @@ struct SlotRow: View {
     }
 }
 
-struct DayCard: View {
+/// The tappable summary row for one day -- split out from the slot list (see
+/// `DayCardBody`) so the day list can pin it in place while its own slots scroll
+/// underneath. Direct report, 2026-09-19: "can you fixate overview row, when it
+/// is uncollapsed and you scroll down?" -- previously the whole day, header and
+/// slots together, was one scrolling unit, so an open day's own heading scrolled
+/// away with everything else the moment you scrolled its slot list. `ContentView`
+/// wraps this pair in a `LazyVStack(pinnedViews: [.sectionHeaders])` `Section`
+/// per day, the same primitive a `List` uses for its own sticky section headers.
+struct DayCardHeader: View {
     let day: Day
     @ObservedObject var model: OverviewModel
     @ObservedObject private var theme = AppTheme.shared
@@ -288,34 +296,80 @@ struct DayCard: View {
                 Text(day.events.joined(separator: " · "))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.leading, 20)
             }
-
-            if isOpen {
-                Divider()
-                VStack(spacing: 0) {
-                    // The 07:00-19:30 clip keeps this compact against a club's full
-                    // 06:00-19:50 slot list, but sunrise runs earlier than 07:00 for
-                    // real stretches of the year (06:51 as of 2026-09-08) -- explicitly
-                    // keeping whichever row carries the marker means the sunrise/
-                    // sunset note this screen exists to show can't silently vanish
-                    // just because the season shifted.
-                    ForEach(day.slots.filter {
-                        ($0.time >= "07:00" && $0.time <= "19:30")
-                            || $0.time == day.sunriseRowTime || $0.time == day.sunsetRowTime
-                    }) { slot in
-                        SlotRow(slot: slot, day: day, model: model)
-                    }
-                }
-                .padding(.leading, 20)
-            }
         }
         .padding(12)
+        // Stretches to the full row width offered by the day list -- without this,
+        // each header sized itself to fit only its own content (the weekday text
+        // plus whichever weather labels that day happens to have), so a day with a
+        // shorter summary had a *narrower* header than one with more labels, and
+        // the trailing Spacer above packed HeatStrip+the booking badge flush to
+        // that narrower header's own right edge instead of a shared one -- the
+        // real cause of the heat strip still visibly shifting row to row after the
+        // earlier fixed-width-badge fix alone, confirmed live (2026-09-19) against
+        // a fresh screenshot.
+        .frame(maxWidth: .infinity, alignment: .leading)
         // theme.colors.surface, not the system-appearance-driven `.quaternary` this
         // used to be -- a card that ignores the chosen theme entirely would make a
         // theme switch look like it did nothing, since cards are most of the screen.
         // Higher opacity while open -- a second, lasting piece of the same feedback
-        // the header's hover highlight gives only momentarily, so an expanded card
-        // still reads as "this one's open" after the pointer has moved away.
-        .background(theme.colors.surface.opacity(isOpen ? 0.85 : 0.55), in: RoundedRectangle(cornerRadius: 10))
+        // the hover highlight above gives only momentarily, so an expanded day
+        // still reads as "this one's open" after the pointer has moved away. Both
+        // values raised from the original 0.85/0.55 now that this header can be
+        // *pinned* on screen while its own slots scroll underneath -- a pinned
+        // header needs a solid-reading background so scrolled rows don't show
+        // through it, not just enough contrast for a card that never overlaps
+        // anything else.
+        //
+        // Only the top corners round while open: DayCardBody sits flush beneath
+        // with the bottom corners instead, so together they still read as one
+        // continuous card even though they're now two separately-pinnable pieces.
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: isOpen ? 0 : 10,
+                                    bottomTrailingRadius: isOpen ? 0 : 10, topTrailingRadius: 10)
+                .fill(theme.colors.surface.opacity(isOpen ? 0.94 : 0.8))
+        )
+    }
+}
+
+/// The slot list for one *open* day -- see `DayCardHeader`'s own docstring for why
+/// this is a separate view. Rendered as this day's `Section` content in
+/// `ContentView`'s pinned-header `LazyVStack`; omitted entirely (not just hidden)
+/// while the day is collapsed, so a collapsed day's `Section` has no content to
+/// scroll through and its header hands off to the next day's immediately.
+struct DayCardBody: View {
+    let day: Day
+    @ObservedObject var model: OverviewModel
+    @ObservedObject private var theme = AppTheme.shared
+
+    // The 07:00-19:30 clip keeps this compact against a club's full 06:00-19:50
+    // slot list, but sunrise runs earlier than 07:00 for real stretches of the
+    // year (06:51 as of 2026-09-08) -- explicitly keeping whichever row carries
+    // the marker means the sunrise/sunset note this screen exists to show can't
+    // silently vanish just because the season shifted.
+    private var visibleSlots: [Slot] {
+        day.slots.filter {
+            ($0.time >= "07:00" && $0.time <= "19:30")
+                || $0.time == day.sunriseRowTime || $0.time == day.sunsetRowTime
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            VStack(spacing: 0) {
+                ForEach(visibleSlots) { slot in
+                    SlotRow(slot: slot, day: day, model: model)
+                }
+            }
+            .padding(.leading, 20)
+        }
+        .padding(.horizontal, 12).padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10,
+                                    bottomTrailingRadius: 10, topTrailingRadius: 0)
+                .fill(theme.colors.surface.opacity(0.94))
+        )
     }
 }
 
@@ -387,10 +441,7 @@ final class OverviewModel: ObservableObject {
     @Published var expanded: Set<String> = []
     @Published var isScraping = false
     @Published var problem: String?
-    /// Drives the "updated N minutes ago" line; republished on a timer so it ages in
-    /// place rather than going stale the moment the window stops being touched.
     @Published var lastScrape: Date?
-    @Published var now = Date()
     @Published var banners: [Banner] = []
 
     private var watcher: Timer?
@@ -398,13 +449,25 @@ final class OverviewModel: ObservableObject {
 
     /// Green while the background agent's own cadence would have refreshed by now,
     /// amber once it's clearly overdue -- so a stopped launchd agent is visible rather
-    /// than silently serving old data.
-    var freshnessColor: Color {
+    /// than silently serving old data. Takes `now` as a parameter rather than reading
+    /// a `@Published var now` this class used to own -- direct report, 2026-09-19,
+    /// with a measured RSS climbing roughly 1MB/s at idle, past 200MB within a
+    /// couple of minutes. Root cause: DayCardHeader/DayCardBody/SlotRow all hold
+    /// `@ObservedObject var model: OverviewModel` (they need it for real reasons --
+    /// `expanded`, booking actions), so a `now` tick living *on this class* fired
+    /// `objectWillChange` for the whole day list every 2 seconds regardless of
+    /// whether any actual schedule data had changed, forcing every visible row
+    /// (including native NSPopUpButton-backed Pickers, once item 2 added several
+    /// per settings row) to fully re-render on a clock, forever. See
+    /// `FreshnessClock`/`FreshnessRow` below: the ticking `now` now lives in its own
+    /// small `ObservableObject` that only that one small view observes, so the tick
+    /// no longer touches `OverviewModel`'s own `objectWillChange` at all.
+    func freshnessColor(now: Date) -> Color {
         guard let lastScrape else { return .secondary }
         return now.timeIntervalSince(lastScrape) < 45 * 60 ? .green : .orange
     }
 
-    var freshnessText: String {
+    func freshnessText(now: Date) -> String {
         guard let lastScrape else { return t("overview.updated_never") }
         let minutes = Int(now.timeIntervalSince(lastScrape) / 60)
         if minutes < 1 { return t("overview.updated_just_now") }
@@ -433,7 +496,6 @@ final class OverviewModel: ObservableObject {
         watcher?.invalidate()
         watcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.now = Date()
             guard !self.clubPath.isEmpty,
                   let attrs = try? FileManager.default.attributesOfItem(atPath: self.clubPath),
                   let modified = attrs[.modificationDate] as? Date else { return }
@@ -519,6 +581,52 @@ final class AppCommands: ObservableObject {
     var onSettings: (() -> Void)?
 }
 
+/// A one-second clock for exactly one job: aging the "updated N minutes ago" line
+/// in place. Deliberately its own small `ObservableObject`, not a `now` field on
+/// `OverviewModel` (that used to be the design -- see `OverviewModel.freshnessColor`'s
+/// own docstring for the real, measured memory/CPU cost that had: every visible row
+/// re-rendering on a clock tick, forever, because everything shares one `model`).
+/// Owned by `FreshnessRow` alone, so the tick only ever invalidates that one small
+/// view.
+final class FreshnessClock: ObservableObject {
+    @Published var now = Date()
+    private var timer: Timer?
+
+    func start() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.now = Date()
+        }
+    }
+}
+
+/// The "● updated N minutes ago" line, split out of `ContentView`'s own body for
+/// the same reason `FreshnessClock` exists: isolate the 2-second tick to the one
+/// small view that actually needs it, instead of `ContentView`'s (and thereby the
+/// whole visible day list's) body re-running every tick.
+private struct FreshnessRow: View {
+    @ObservedObject var model: OverviewModel
+    @ObservedObject private var scale = AppScale.shared
+    @StateObject private var clock = FreshnessClock()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if model.isScraping {
+                ProgressView().controlSize(.small).scaleEffect(0.7)
+                Text(t("overview.checking")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                Circle().fill(model.freshnessColor(now: clock.now))
+                    .frame(width: scale.scaled(Metrics.freshnessDot),
+                           height: scale.scaled(Metrics.freshnessDot))
+                Text(model.freshnessText(now: clock.now)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .onAppear { clock.start() }
+    }
+}
+
 struct ContentView: View {
     @StateObject var model: OverviewModel
     @StateObject private var showingPreferences = Box(false)
@@ -580,19 +688,7 @@ struct ContentView: View {
                         // automatically -- nothing else to wire up for that half.
                         Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     }
-                    HStack(spacing: 6) {
-                        if model.isScraping {
-                            ProgressView().controlSize(.small).scaleEffect(0.7)
-                            Text(t("overview.checking")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        } else {
-                            Circle().fill(model.freshnessColor)
-                                .frame(width: scale.scaled(Metrics.freshnessDot),
-                                       height: scale.scaled(Metrics.freshnessDot))
-                            Text(model.freshnessText).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                    FreshnessRow(model: model)
                 }
                 Spacer(minLength: 12)
                 // Labeled, so it's clear which picker is the club and which is the
@@ -601,7 +697,17 @@ struct ContentView: View {
                     GridRow {
                         Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Picker("", selection: $model.clubPath) {
-                            ForEach(model.clubs, id: \.path) { club in
+                            // Alphabetical here, in the dropdown only -- direct
+                            // question, 2026-09-19 ("are entries in club dropdown
+                            // sorted alphabetically?"). `model.clubs` itself stays
+                            // newest-scraped-first (see Store.clubs' own docstring
+                            // for the real bug that ordering fixed: picking
+                            // alphabetically for the *default selection* landed on
+                            // an empty leftover test database), so only the list
+                            // this Picker renders is re-sorted, not which club
+                            // loads when the app opens.
+                            ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                                    id: \.path) { club in
                                 Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
                                     .tag(club.path)
                             }
@@ -681,9 +787,26 @@ struct ContentView: View {
                         .help(t("tip.collapse_all"))
                     }
                 }
+                // LazyVStack + Section, not the plain VStack this used to be --
+                // `pinnedViews: [.sectionHeaders]` is what actually pins each open
+                // day's own header while its slots scroll underneath (direct
+                // report, 2026-09-19: "can you fixate overview row, when it is
+                // uncollapsed and you scroll down?"), the same primitive a List's
+                // own sticky section headers use. A collapsed day still renders
+                // correctly: its Section simply has no body, so its header hands
+                // off to the next day's immediately rather than lingering pinned
+                // with nothing under it.
                 ScrollView {
-                    VStack(spacing: 7) {
-                        ForEach(model.days) { DayCard(day: $0, model: model) }
+                    LazyVStack(alignment: .leading, spacing: 7, pinnedViews: [.sectionHeaders]) {
+                        ForEach(model.days) { day in
+                            Section {
+                                if model.expanded.contains(day.date) {
+                                    DayCardBody(day: day, model: model)
+                                }
+                            } header: {
+                                DayCardHeader(day: day, model: model)
+                            }
+                        }
                     }
                 }
             }
