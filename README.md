@@ -144,11 +144,12 @@ the exact same data — same club/course, same scrape history, same
 second way to look at the same thing, not a second thing to keep in sync by hand.
 
 It covers most of what's above: the day list with weather and a heat strip, ad hoc
-search, a crowd heatmap, preferences and pc caddie login, adding a club by name or
-id, and — same as the terminal — English/German and a choice of interface scale
-(Small/Medium/Large in Settings). It never scrapes or books anything itself; the
-real work (logging in, searching, scraping) stays in this same Python codebase,
-reached the same way the terminal app reaches it.
+search, a crowd heatmap, preferences and pc caddie login, managing which clubs are
+saved (add by name or id, remove — both from one place under Settings), scrape
+interval and AI ranking, and — same as the terminal — English/German and a choice
+of interface scale (Small/Medium/Large in Settings). It never scrapes or books
+anything itself; the real work (logging in, searching, scraping) stays in this
+same Python codebase, reached the same way the terminal app reaches it.
 
 It doesn't replace the terminal app above — think of it as a prototype exploring
 what a native window over the same state could look like, developed alongside the

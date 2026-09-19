@@ -147,11 +147,13 @@ Hintergrund-Scraper. Ein zweiter Blick auf dieselbe Sache, kein zweites Ding, da
 Hand synchron gehalten werden muss.
 
 Sie deckt das meiste vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
-Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, einen Club
-per Name oder ID hinzufügen — und, wie im Terminal, Deutsch/Englisch sowie eine
-wählbare Oberflächengröße (Klein/Mittel/Groß in den Einstellungen). Sie scrapt und
-bucht selbst nichts; die eigentliche Arbeit (Anmeldung, Suche, Scraping) bleibt in
-diesem selben Python-Code, erreicht auf demselben Weg wie von der Terminal-App aus.
+Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, die Verwaltung
+der gespeicherten Clubs (per Name oder ID hinzufügen, entfernen — beides an einer
+Stelle in den Einstellungen), Abrufintervall und KI-Bewertung — und, wie im Terminal,
+Deutsch/Englisch sowie eine wählbare Oberflächengröße (Klein/Mittel/Groß in den
+Einstellungen). Sie scrapt und bucht selbst nichts; die eigentliche Arbeit (Anmeldung,
+Suche, Scraping) bleibt in diesem selben Python-Code, erreicht auf demselben Weg wie
+von der Terminal-App aus.
 
 Sie ersetzt die Terminal-App oben nicht — eher ein Prototyp, der erkundet, wie ein
 natives Fenster über demselben Zustand aussehen könnte, entwickelt neben der

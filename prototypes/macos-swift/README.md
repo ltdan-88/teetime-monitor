@@ -77,24 +77,109 @@ aren't present under a bare CLT install — confirmed directly, not assumed:
 found` — the exact "the macro plugin ships with Xcode, not the Command Line
 Tools" gotcha this project already hit once for SwiftUI's own `@State`, see
 `Box.swift`). `TeetimeMonitorCoreTests` is a plain executable with a hand-rolled
-`Harness` instead — 157 assertions across 13 files, exits 1 on any failure, runs
-in CI on `macos-latest` (which does happen to ship full Xcode, but the same
-executable shape works identically there and on a bare-CLT machine, so it's what
-a contributor actually runs before opening a PR).
+`Harness` instead — 173 assertions across 13 files (2026-09-19 on), exits 1 on
+any failure, runs in CI on `macos-latest` (which does happen to ship full Xcode,
+but the same executable shape works identically there and on a bare-CLT machine,
+so it's what a contributor actually runs before opening a PR).
 
 Covers the areas that carry real cross-language duplication risk — unit
-conversion, the heatmap aggregation (cross-checked cell-by-cell against a real
-club's data the day it was ported; the specific cells that check produced are
-pinned as fixture data here), day classification, YAML parsing (including the
-`16:00`-looks-like-a-sexagesimal-number quoting rule), the omitted-vs-present
-window semantics bug (twice — once for `preferences.yaml`, once for ad hoc
-search's own JSON payload), the config-file blank-line-growth bug, translation
-table parity (173 keys, both languages, matching `{placeholders}`), and the
-platform-directory search/club-id matching. Deliberately excludes SwiftUI view
-bodies (`App.swift`'s own `@main` plus the four sheets) — layout isn't something
-an assertion can check without snapshot-testing infrastructure this project
-doesn't have, and pulling `@main` into the test executable's own module risks an
-entry-point conflict for no real test value.
+conversion (including `precipitationAmountLabel`, added once precipitation
+cells started showing the actual mm/in amount, not just the probability), the
+heatmap aggregation (cross-checked cell-by-cell against a real club's data the
+day it was ported; the specific cells that check produced are pinned as
+fixture data here), day classification, YAML parsing (including the
+`16:00`-looks-like-a-sexagesimal-number quoting rule, the omitted-vs-present
+window semantics bug twice — once for `preferences.yaml`, once for ad hoc
+search's own JSON payload — and, since 2026-09-19, decoding a double-quoted
+scalar's own `\uXXXX`/`\n`/`\t`/`\\`/`\"` escapes, the exact shape of a real,
+live "umlauts are broken" bug traced to this parser never having implemented
+that at all), the scale reshuffle's own identity tier (`.small`, not
+`.medium`, is the "1.0x, fresh install looks unchanged" factor now), the
+config-file blank-line-growth bug, translation table parity (187 keys, both
+languages, matching `{placeholders}`), and the platform-directory search/
+club-id matching. Deliberately excludes SwiftUI view bodies (`App.swift`'s own
+`@main` plus the sheets) — layout isn't something an assertion can check
+without snapshot-testing infrastructure this project doesn't have, and pulling
+`@main` into the test executable's own module risks an entry-point conflict
+for no real test value.
+
+## A long live-feedback round (2026-09-19–20): feature parity, a real data bug, and repeated layout fixes
+
+The single biggest round of direct feedback this prototype has had, working
+from real screenshots of the running app rather than just descriptions. Three
+kinds of outcome came out of it, worth separating:
+
+**Closed real feature gaps against the TUI.** An audit at the start of this
+round (comparing every TUI screen/setting against this app's own) found three
+structural gaps; two are closed now:
+- **Removing a saved club.** The TUI's own `f` toggles favorite/un-favorite;
+  this app could only ever add one. A new "Clubs" section in Settings lists
+  every saved club with a remove action, integrated there (not a second
+  standalone toolbar entry) alongside "Add a Club…" — see "What's still Tier
+  2" above for the implementation.
+- **Scrape-interval and AI-ranking settings.** Both previously TUI/YAML-only,
+  despite this app's own translation strings implying otherwise. New Settings
+  sections mirror `settings_screen.py`'s own `FIELDS` exactly (the same
+  `SCRAPE_INTERVAL_NORMAL/BOOKED_CHOICES` preset dropdowns, `ai_assist.enabled`/
+  `avoid_predicted_crowd` toggles). `PreferencesStore.swift`'s own `ai_assist`
+  map is *merged* into on save, not replaced wholesale, so a hand-set
+  `ai_assist.model` (a real fallback `settings_screen.py` itself still honors,
+  with no widget on either front end) can't be silently dropped.
+- The third gap found — browsing a club's schedule before saving it, the way
+  `ClubBrowserScreen` can — is still open; adding a club still means
+  favoriting it first.
+
+**A real, live data-correctness bug, not a UI one.** Reported as "umlauts seem
+to be broken," traced to a real saved `clubs/*.yaml` on the reporting machine
+whose `name:` field held a literal six-character backslash-`u`-plus-four-hex-digit
+escape sequence as plain text instead of decoding into the character it names
+-- the real club affected has "Domäne Niederreutin e.V." in its own name, and before this fix its saved YAML held that escape
+sequence for the *decomposed* combining-diaeresis mark specifically (a base
+letter plus a separate combining character), not even a single precomposed
+codepoint. Two real causes stacked: `club_config.save_club_config()`/
+`global_preferences.save_preferences()` called `yaml.safe_dump()` without
+`allow_unicode=True`, so PyYAML backslash-escapes every non-ASCII character in
+a double-quoted scalar; and `YAML.swift`, this prototype's own hand-rolled
+parser, never implemented `\uXXXX` (or any) escape decoding for double-quoted
+strings, since nothing this app itself had ever written needed it before.
+Fixed on both ends — Python now writes raw UTF-8 (nothing needs escaping
+going forward), and the Swift parser now decodes `\uXXXX`/`\n`/`\t`/`\\`/`\"`
+so a file an older version already wrote reads correctly with no re-save
+needed. Also closed the same round: new clubs now get `calendar.country_code`
+geocoded automatically (`geocode.find_club_country_code()`, a second
+Nominatim request alongside the existing location lookup, deliberately kept
+separate from `find_club_location()` so that function's own tested contract
+doesn't change) — the crowd heatmap's "no country set" message now explains
+both that, and the remove-and-re-add path for a club saved before the fix.
+
+**Layout iteration, including one bug the prototype's own environment
+couldn't have caught.** Several real, specific reports across two rounds:
+precipitation cells now show the actual mm/in amount alongside the
+probability (`"70%/1.5mm"`, mirroring `tui._slot_precipitation_cell()`'s own
+combined cell exactly) rather than just the percentage; `.help()` tooltips
+were missing entirely from Search's own weather cells and from the seat
+pips/open-spot count everywhere; the heatmap's two grids now sit side by side
+with a shared hour-of-day row set (a real correctness fix the side-by-side
+layout required — the by-weekday and special-days groups don't necessarily
+cover the same hours on their own) and a legend fixed below the scrolling
+content instead of scrolling away with it; both that sheet and Search's own
+had their fixed heights trimmed once the new layouts left large blank gaps;
+the day list's booking badge and heat strip swapped order, the club/course
+picker labels now sit above their controls consistently, and the freshness/
+version status line moved from beside the (now clickable, combined) club
+title down to the bottom of the window, next to the legend it's now grouped
+with. One fix took two attempts: `HeatStrip`'s own horizontal offset had
+already been "fixed" twice (a fixed-width badge slot, then `maxWidth:
+.infinity` on the header) before a fresh screenshot showed it still drifting
+— the actual cause was a `Spacer` inside a *pinned* `LazyVStack` `Section`
+header not reliably inheriting an expanded width from several layout levels
+up. Replaced with `.overlay(alignment: .trailing)`, which positions the
+trailing group against the leading content's own resolved frame directly,
+with nothing left to propagate. Every one of these needed the same
+disclosure repeated through the round: this environment has no Screen
+Recording permission, so nothing here could be self-verified by rendering it
+— each fix is grounded in reading the actual SwiftUI layout code and reported
+symptoms, not a screenshot taken here.
 
 ## What building it actually taught us
 
@@ -239,14 +324,22 @@ feature-by-feature without anyone laying it out as a whole:
    a settings form, a form-plus-results browser, or a wide data display.
 
 **Scale** (Small / Medium / Large, in Settings → Display) is two halves, because
-neither alone works. Text scales through SwiftUI's own `dynamicTypeSize` -- every
-view here already uses semantic fonts (`.caption2`/`.headline`/`.title2`), so one
-environment value at the root scales all of it with no per-view change and none of
-`.scaleEffect`'s blurriness. Fixed pixel dimensions can't follow that, and would
-clip larger text or strand smaller text, so every one of them moved into a single
-`Metrics` enum and multiplies by the scale factor at its use site. "Medium" maps to
-macOS's *own* default Dynamic Type size, so an install that never touches this looks
-exactly as it did.
+neither alone works: explicitly-sized fonts via `TextRole`/`scaledFont()` (see
+"Three bugs found" below for why this isn't SwiftUI's own `dynamicTypeSize` --
+macOS ignores that for semantic fonts entirely, which is exactly the bug that
+section is about), and fixed pixel dimensions, all collected into one `Metrics`
+enum and multiplied by the scale factor at each use site so text and the
+indicators beside it stay in proportion.
+
+Reshuffled 2026-09-19, direct request ("make old large scale new medium scale,
+old medium is now small, large needs to be extra large"): what used to be
+Medium (1.0, effectively no scaling) is now Small; what used to be Large (1.3)
+is now Medium; the new Large is a genuinely bigger step (1.6), not a repeat of
+the old ceiling under a new name. `AppScale`'s own default fallback moved from
+`.medium` to `.small` along with it, since `.small` is now the "fresh install
+looks unchanged" tier `.medium` used to be. The case names/raw values
+(`small`/`medium`/`large`, what `GUI_SCALE=` actually persists) didn't change,
+only what each one means.
 
 Persisted as `GUI_SCALE=` in the same `~/.config/teetime-monitor/config` file
 `THEME=`/`LANG=` already share. Verified in both directions rather than assumed:
@@ -263,7 +356,13 @@ Nothing, as of the heatmap (below) -- every feature originally scoped for Tier 2
 turned out to either need a real console-script action after all (login, search's
 ranking, the directory fetch, add-a-club's geocoding) or, on closer reading,
 qualify for Tier 1 once its actual dependencies were checked rather than assumed
-(the heatmap's own aggregation, most of add-a-club).
+(the heatmap's own aggregation, most of add-a-club). Two more additions since
+confirm the same pattern rather than breaking it: removing a saved club
+(`Store.removeClub(slug:)`, a direct unlink of `clubs/<slug>.yaml`, mirroring
+`club_config.remove_favorite()` exactly -- scrape history is kept, keyed by
+club id not slug) and the scrape-interval/AI-ranking settings (both just more
+fields on the same `preferences.yaml` `PreferencesStore.swift` already reads
+and writes) needed nothing from Python beyond the file format itself.
 
 ## The heatmap (2026-09-18, v0.35.0): scoped as Tier 2, shipped as Tier 1
 
