@@ -90,11 +90,55 @@ enum YAML {
             return .string(String(raw.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'"))
         }
         if raw.hasPrefix("\"") && raw.hasSuffix("\"") && raw.count >= 2 {
-            return .string(String(raw.dropFirst().dropLast()))
+            return .string(decodeDoubleQuotedEscapes(String(raw.dropFirst().dropLast())))
         }
         if let i = Int(raw) { return .int(i) }
         if let d = Double(raw) { return .double(d) }
         return .string(raw)
+    }
+
+    /// Decodes the handful of double-quoted-scalar escapes this schema's own
+    /// writer (PyYAML, via `club_config.save_club_config()`/`global_preferences.
+    /// save_preferences()`) can actually produce -- `\uXXXX` above all. Direct
+    /// report, 2026-09-19 ("umlauts seem to be broken"): a real saved club.yaml
+    /// held `name: "Doma\u0308ne"` (PyYAML's default `allow_unicode=False`
+    /// backslash-escapes every non-ASCII character in a double-quoted scalar --
+    /// note the *decomposed* combining-diaeresis escape, not even a single
+    /// \u00e4), and this parser previously just stripped the surrounding quotes
+    /// without decoding anything inside them, so that six-character escape
+    /// showed up as literal text instead of combining with the "a" before it to
+    /// render "ä". Both `save_*()` calls now pass `allow_unicode=True` so this
+    /// shouldn't be produced going forward -- this half fixes reading a file an
+    /// older version already wrote, without requiring a re-save to un-break it.
+    /// Not a full YAML 1.1 escape table (no `\xXX`/`\UXXXXXXXX`/named-control
+    /// escapes) -- this parser's own scope is "sufficient for this schema," and
+    /// nothing this app writes or PyYAML emits for it needs those.
+    private static func decodeDoubleQuotedEscapes(_ s: String) -> String {
+        guard s.contains("\\") else { return s }
+        var result = ""
+        var chars = s.makeIterator()
+        while let c = chars.next() {
+            guard c == "\\", let next = chars.next() else { result.append(c); continue }
+            switch next {
+            case "n": result.append("\n")
+            case "t": result.append("\t")
+            case "r": result.append("\r")
+            case "0": result.append("\0")
+            case "\"": result.append("\"")
+            case "\\": result.append("\\")
+            case "u":
+                var hex = ""
+                for _ in 0..<4 { if let h = chars.next() { hex.append(h) } }
+                if let scalarValue = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(scalarValue) {
+                    result.append(Character(scalar))
+                } else {
+                    result.append("\\u\(hex)")  // malformed -- keep it visible rather than dropping it
+                }
+            default:
+                result.append(next)  // an escape this scoped parser doesn't know -- keep the literal character
+            }
+        }
+        return result
     }
 
     /// Mirrors `yaml.safe_dump(config, sort_keys=False)`'s own scalar formatting

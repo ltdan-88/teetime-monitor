@@ -3,7 +3,7 @@
 func runScaleTests() {
     Harness.group("Scale") {
         testFactorsAreOrderedAndDistinct()
-        testMediumIsIdentity()
+        testSmallIsIdentity()
         testScaledRounding()
         testSingletonReactsToOptionChange()
     }
@@ -20,15 +20,20 @@ private func testFactorsAreOrderedAndDistinct() {
     Harness.check("the difference is large enough to notice, not a rounding error", large - small > 0.3)
 }
 
-private func testMediumIsIdentity() {
-    Harness.checkClose("medium's factor is exactly 1.0 (an untouched install looks unchanged)",
-                        AppScaleOption.medium.factor, 1.0, tolerance: 1e-9)
+/// Direct request, 2026-09-19 ("make old large scale new medium scale, old
+/// medium is now small, large needs to be extra large") -- .small, not .medium,
+/// is now the "no scaling at all" tier (see AppScaleOption.factor's own
+/// docstring), and AppScale's own default fallback moved to .small right along
+/// with it so a fresh install still looks unchanged.
+private func testSmallIsIdentity() {
+    Harness.checkClose("small's factor is exactly 1.0 (an untouched install looks unchanged)",
+                        AppScaleOption.small.factor, 1.0, tolerance: 1e-9)
 }
 
 private func testScaledRounding() {
     let scale = AppScale.shared
-    scale.option = .medium
-    Harness.checkClose("medium leaves a dimension unchanged", scale.scaled(42), 42, tolerance: 1e-9)
+    scale.option = .small
+    Harness.checkClose("small leaves a dimension unchanged", scale.scaled(42), 42, tolerance: 1e-9)
     scale.option = .large
     // Rounded to a whole point -- a fractional frame would make adjacent columns
     // disagree about their own edges.

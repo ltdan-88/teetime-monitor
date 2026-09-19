@@ -171,6 +171,23 @@ def test_add_favorite_writes_a_stub_named_after_the_club(tmp_path):
     assert club_config_module.load_club_config(slug, tmp_path)["club_id"] == "0000001"
 
 
+def test_add_favorite_writes_the_real_accented_characters_not_an_escape(tmp_path):
+    # Direct report, 2026-09-19 ("umlauts seem to be broken"): PyYAML's default
+    # allow_unicode=False backslash-escapes every non-ASCII character in a
+    # double-quoted scalar -- confirmed live, a real saved club.yaml held
+    # `name: "Domäne"` (note the *decomposed* combining-diaeresis escape,
+    # not even a single ä). save_club_config() now passes allow_unicode=True
+    # specifically so this never happens -- verified here against the raw file
+    # bytes, not just load_club_config()'s own round-trip (which would pass
+    # either way, since Python's own yaml.safe_load decodes \uXXXX escapes fine;
+    # the real-world bug was in the Swift GUI's own hand-rolled YAML parser,
+    # which doesn't).
+    slug = club_config_module.add_favorite("0000001", "Golfclub Domäne Musterhausen e.V.", tmp_path)
+    raw = (tmp_path / f"{slug}.yaml").read_text(encoding="utf-8")
+    assert "Domäne" in raw
+    assert "\\u" not in raw
+
+
 def test_add_favorite_is_idempotent(tmp_path):
     first = club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)
     second = club_config_module.add_favorite("0000001", "Musterhausen", tmp_path)

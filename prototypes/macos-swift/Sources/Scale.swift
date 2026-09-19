@@ -32,15 +32,23 @@ enum AppScaleOption: String, CaseIterable {
     /// hardcoded pixel dimensions (`Metrics`) -- so text and the indicators beside
     /// it stay in proportion rather than drifting apart at the extremes.
     ///
-    /// Range chosen to be unmistakable at a glance: the first attempt leaned on
-    /// `dynamicTypeSize`, which does nothing on macOS, and "no visible change" is
-    /// exactly the failure this must not repeat. 0.85/1.3 moves a 10pt caption
-    /// between roughly 9pt and 13pt.
+    /// Shifted up a notch, direct request, 2026-09-19 ("make old large scale new
+    /// medium scale, old medium is now small, large needs to be extra large"):
+    /// the whole original 0.85/1.0/1.3 range read as too subtle end to end --
+    /// what used to be Medium (1.0, effectively "no change") is now Small, what
+    /// used to be Large (1.3) is now Medium, and the new Large is a genuinely
+    /// bigger step up (1.6) rather than repeating the old ceiling under a new
+    /// name. The old 0.85 tier is gone outright -- nothing in the request asked
+    /// for a fourth, even-smaller tier, and three meaningfully different sizes
+    /// reads better than four where the bottom one barely differs from the one
+    /// above it. Enum case names/raw values (`small`/`medium`/`large`, what
+    /// `GUI_SCALE=` actually persists) are unchanged, so this doesn't need its
+    /// own migration -- only what each one *means* moved.
     var factor: CGFloat {
         switch self {
-        case .small: return 0.85
-        case .medium: return 1.0
-        case .large: return 1.3
+        case .small: return 1.0
+        case .medium: return 1.3
+        case .large: return 1.6
         }
     }
 }
@@ -56,7 +64,12 @@ final class AppScale: ObservableObject {
     @Published var option: AppScaleOption
 
     private init() {
-        option = AppScaleOption(rawValue: UserConfig.value("GUI_SCALE") ?? "") ?? .medium
+        // .small, not .medium -- .small is the tier whose factor is exactly 1.0
+        // now (see AppScaleOption.factor's own docstring on the 2026-09-19
+        // reshuffle), so this is what keeps a fresh install looking unchanged,
+        // the same property .medium used to hold before that request moved
+        // which tier means "no scaling" at all.
+        option = AppScaleOption(rawValue: UserConfig.value("GUI_SCALE") ?? "") ?? .small
     }
 
     var factor: CGFloat { option.factor }
@@ -108,11 +121,13 @@ func scaledFont(_ role: TextRole, design: Font.Design = .default) -> Font {
             weight: role.weight, design: design)
 }
 
-/// Every hardcoded dimension this app lays out with, in one place at its `.medium`
-/// size -- so a row's own column widths are defined once, next to each other, rather
-/// than as a dozen bare numbers scattered across `App.swift` where nothing said
-/// which ones were supposed to line up with which. Multiply through
-/// `AppScale.shared.scaled(...)` at the use site.
+/// Every hardcoded dimension this app lays out with, in one place at its
+/// unscaled (1.0x, `.small` since the 2026-09-19 scale reshuffle -- see
+/// `AppScaleOption.factor`'s own docstring) size -- so a row's own column
+/// widths are defined once, next to each other, rather than as a dozen bare
+/// numbers scattered across `App.swift` where nothing said which ones were
+/// supposed to line up with which. Multiply through `AppScale.shared.scaled(...)`
+/// at the use site.
 enum Metrics {
     // Slot row columns
     static let slotTime: CGFloat = 42

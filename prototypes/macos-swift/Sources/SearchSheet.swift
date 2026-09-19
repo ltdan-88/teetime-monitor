@@ -255,8 +255,17 @@ private struct SearchResultRow: View {
                 }
             }
 
+            // Extra leading gap, on top of the HStack's own 8pt spacing -- direct
+            // report, 2026-09-19 ("check spacing between wind speed and
+            // occupancy columns in results"): the wind cell above is trailing-
+            // aligned right up against its own 30pt frame edge, so the plain
+            // 8pt HStack spacing alone read as too tight against a weather
+            // group that's otherwise tightly packed (temp/precip/wind sit close
+            // together on purpose, mirroring SlotRow) -- open spots is its own,
+            // separate kind of figure and reads better with real room from it.
             Text(t("search.open_spots", ["n": "\(match.capacity - match.booked)"])).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .frame(width: 48, alignment: .leading)
+                .padding(.leading, 6)
                 .help(t("tip.open_spots"))
 
             if !match.reasons.isEmpty {
