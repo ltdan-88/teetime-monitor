@@ -419,15 +419,19 @@ struct DayCardHeader: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// HeatStrip plus the booking-flag badge, positioned by `leadingSummary`'s own
+    /// The booking-flag badge plus HeatStrip, positioned by `leadingSummary`'s own
     /// `.overlay(alignment: .trailing)` rather than packed after a Spacer -- see
     /// that property's docstring. The badge still reserves its own fixed-width
     /// slot regardless of whether this day has a booking (unchanged from the
     /// original fix), so HeatStrip itself lands at the same offset whether or not
     /// the badge beside it is actually showing anything.
+    ///
+    /// Badge before HeatStrip, not after -- direct request, 2026-09-19 ("swap
+    /// position of booking marking with occupancy indicator"): "you've booked
+    /// this" reads as the more important of the two to see first, occupancy
+    /// second.
     private var trailingHeatAndBadge: some View {
         HStack(spacing: 10) {
-            HeatStrip(buckets: day.heatStrip)
             Group {
                 if let bookedTime = day.bookedTime {
                     Label(bookedTime, systemImage: "flag.fill")
@@ -437,6 +441,7 @@ struct DayCardHeader: View {
                 }
             }
             .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
+            HeatStrip(buckets: day.heatStrip)
         }
     }
 }
@@ -850,30 +855,8 @@ struct ContentView: View {
                         .font(scaledFont(.title2)).fontWeight(.bold)
                         .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                     }
-                    HStack(spacing: 6) {
-                        FreshnessRow(model: model)
-                        // Moved down here from beside the title -- direct report,
-                        // 2026-09-19 ("version placement in GUI not making sense
-                        // to the right of club dropdown"): once the title itself
-                        // became a clickable Picker (same day, earlier), small
-                        // text immediately beside it read as unclear whether it
-                        // was part of the control or not. Grouped with the
-                        // freshness line instead -- both are secondary status
-                        // text about the app/data, not the club identity the
-                        // title itself now conveys. Still mirrors the TUI's own
-                        // Header, which sets its subtitle to "v{version}" from
-                        // the same package metadata -- direct request,
-                        // 2026-09-19 ("I want to see the version ... It should
-                        // match with the version of the TUI."). The Info.plist
-                        // value this reads comes from pyproject.toml at build
-                        // time (see build.sh), the same file tui.py's own
-                        // _version() reads, so there is one number and both
-                        // apps show it. The standard "About TeetimeMonitor"
-                        // panel reads this same Info.plist key automatically --
-                        // nothing else to wire up for that half.
-                        Text("·").font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                        Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    }
+                    // Freshness/version moved out of here entirely -- see the
+                    // bottom-right status row next to LegendLine, below.
                 }
                 Spacer(minLength: 12)
                 // Label above the control, not beside it -- direct report,
@@ -891,7 +874,14 @@ struct ContentView: View {
                     Picker("", selection: $model.course) {
                         ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                     }
-                    .labelsHidden().frame(width: scale.scaled(Metrics.picker))
+                    // Explicit .pickerStyle(.menu), matching the club Picker's own
+                    // -- direct follow-up, 2026-09-19 ("make labels for club and
+                    // course dropdowns align vertically with dropdowns"): the two
+                    // pickers previously differed in whether this was stated
+                    // explicitly, which can affect a control's own vertical chrome/
+                    // padding even when it happens to render the same style by
+                    // default outside a Form.
+                    .labelsHidden().pickerStyle(.menu).frame(width: scale.scaled(Metrics.picker))
                     .onChange(of: model.course) { _, _ in model.reload() }
                 }
             }
@@ -994,8 +984,35 @@ struct ContentView: View {
             // under the list, not repeated per card/row) -- the TUI's own answer to
             // "these icons aren't self-explanatory" for the same figures shown here
             // (temp, rain%, wind, sunrise/sunset, the rain/wind flag thresholds).
-            if !model.visibleDays.isEmpty {
-                LegendLine()
+            //
+            // Freshness/version sit to its right, not up by the title any more --
+            // direct request, 2026-09-19 ("place refresh status and version to
+            // bottom right of window (legend area)"). Both rows are the same
+            // kind of thing -- quiet status text about the app/data, not the
+            // club identity the title conveys -- so this also finishes what
+            // moving version down off the title started two rounds ago. Always
+            // shown (not gated on `!model.visibleDays.isEmpty` the way LegendLine
+            // itself is) so freshness/version don't disappear along with the
+            // legend on a genuinely empty day list.
+            HStack(alignment: .top) {
+                if !model.visibleDays.isEmpty {
+                    LegendLine()
+                }
+                Spacer(minLength: 12)
+                VStack(alignment: .trailing, spacing: 2) {
+                    FreshnessRow(model: model)
+                    // Mirrors the TUI's own Header, which sets its subtitle to
+                    // "v{version}" from the same package metadata -- direct
+                    // request, 2026-09-19 ("I want to see the version ... It
+                    // should match with the version of the TUI."). The
+                    // Info.plist value this reads comes from pyproject.toml at
+                    // build time (see build.sh), the same file tui.py's own
+                    // _version() reads, so there is one number and both apps
+                    // show it. The standard "About TeetimeMonitor" panel reads
+                    // this same Info.plist key automatically -- nothing else
+                    // to wire up for that half.
+                    Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                }
             }
         }
         .padding(16)

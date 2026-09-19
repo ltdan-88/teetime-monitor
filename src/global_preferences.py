@@ -73,7 +73,13 @@ def save_preferences(config: dict, path: Path | None = None) -> None:
     resolved = path if path is not None else PREFERENCES_FILE
     resolved.parent.mkdir(parents=True, exist_ok=True)
     with resolved.open("w") as f:
-        yaml.safe_dump(config, f, sort_keys=False)
+        # allow_unicode=True -- same fix as club_config.save_club_config(), same
+        # reason: preferences.yaml has no non-ASCII fields today, but this file is
+        # also re-written wholesale by the Swift GUI's own PreferencesStore.save()
+        # any time either app saves, so leaving this the ASCII-escaping default
+        # would just be a bug waiting for the first field (a club-specific note,
+        # say) that actually needs it.
+        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
 
 
 def load_last_active_club(config_file: Path | None = None) -> dict | None:

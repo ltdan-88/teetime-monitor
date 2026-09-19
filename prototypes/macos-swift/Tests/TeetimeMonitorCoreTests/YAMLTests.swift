@@ -7,6 +7,8 @@ func runYAMLTests() {
         testQuotedStringsRoundTrip()
         testTimeLikeStringStaysQuoted()
         testCommentsAndBlankLinesIgnored()
+        testDoubleQuotedUnicodeEscapeDecodes()
+        testDoubleQuotedBasicEscapesDecode()
     }
 }
 
@@ -61,6 +63,26 @@ private func testTimeLikeStringStaysQuoted() {
                    dumped.contains("'16:00'") || dumped.contains("\"16:00\""))
     let reparsed = YAML.parse(dumped)
     Harness.checkEqual("round-trips back to the same string, not an Int/Double", reparsed["after"]?.asString, "16:00")
+}
+
+/// Direct report, 2026-09-19 ("umlauts seem to be broken"): a real saved
+/// club.yaml (written before club_config.save_club_config() started passing
+/// allow_unicode=True) held exactly this -- PyYAML's default backslash-escaped
+/// the combining diaeresis as ̈ (note: decomposed, "a" + combining mark,
+/// not a single precomposed ä), and this parser used to hand that escape
+/// back as six literal characters instead of the actual combining character,
+/// which macOS's own text rendering (same NFD handling HFS+ filenames have
+/// used for decades) still renders correctly once decoded.
+private func testDoubleQuotedUnicodeEscapeDecodes() {
+    let parsed = YAML.parse(#"name: "Domäne""#)
+    Harness.checkEqual("decomposed \\u escape decodes and combines visually",
+                        parsed["name"]?.asString, "Domäne")
+}
+
+private func testDoubleQuotedBasicEscapesDecode() {
+    let parsed = YAML.parse(#"note: "line one\nline two\ttabbed\\backslash\"quote""#)
+    Harness.checkEqual("\\n/\\t/\\\\/\\\" all decode",
+                        parsed["note"]?.asString, "line one\nline two\ttabbed\\backslash\"quote")
 }
 
 private func testCommentsAndBlankLinesIgnored() {

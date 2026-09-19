@@ -136,7 +136,18 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) 
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     path = directory / f"{club_id}.yaml"
     with path.open("w") as f:
-        yaml.safe_dump(config, f, sort_keys=False)
+        # allow_unicode=True -- without it PyYAML backslash-escapes every non-ASCII
+        # character in a double-quoted scalar (a club name like "Domäne" becomes
+        # "Domäne" on disk, note the *decomposed* combining-diaeresis escape,
+        # not even a single ä). Direct report, 2026-09-19 ("umlauts seem to be
+        # broken"), traced to the Swift GUI's own hand-rolled YAML parser -- a
+        # scoped parser for this project's own known shape, which never
+        # implemented \uXXXX escape decoding (or any other escape) since nothing
+        # written *by this app itself* ever needed it before. Writing raw UTF-8
+        # instead sidesteps that gap entirely: any UTF-8-aware reader, including
+        # that parser as it already stands, reads it correctly with no escape
+        # decoding involved.
+        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
 
 
 def new_club_stub(club_id: str, name: str = "") -> dict:
