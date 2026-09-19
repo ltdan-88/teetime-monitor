@@ -196,13 +196,14 @@ struct SearchSheet: View {
 }
 
 private struct SearchResultRow: View {
+    @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
     let match: SearchMatch
     let weather: Day?
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(weekday(match.date)).font(scaledFont(.caption)).bold()
                 Text(match.time).font(scaledFont(.caption, design: .monospaced)).foregroundStyle(.secondary)
@@ -218,6 +219,30 @@ private struct SearchResultRow: View {
                     Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
                         .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: 28, alignment: .leading)
+                }
+                // Precipitation and wind -- direct report, 2026-09-19 ("implement
+                // missing weather columns in GUI"): the TUI's own SearchScreen
+                // table has Temperature/Precipitation/Wind columns side by side,
+                // this row previously only had temperature. Same 🌧/💨
+                // threshold-flag convention SlotRow's own precip/wind cells use
+                // (real number always shown, the icon layered on top once it
+                // crosses tui._SLOT_WIND_ICON_THRESHOLD_KPH's own 50%/30kph
+                // marks), not a different convention for the same figures.
+                if let p = w.precipitationProbability {
+                    HStack(spacing: 1) {
+                        if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
+                        Text("\(Int(p))%")
+                    }
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
+                }
+                if let wd = w.windKPH {
+                    HStack(spacing: 1) {
+                        if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }
+                        Text("\(Int(Units.windSpeed(wd, units.value)))")
+                    }
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
                 }
             }
 

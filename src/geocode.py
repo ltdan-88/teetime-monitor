@@ -108,3 +108,51 @@ def find_club_location(club_name: str) -> tuple[float, float] | None:
         return float(results[0]["lat"]), float(results[0]["lon"])
     except (KeyError, ValueError, TypeError):
         return None
+
+
+def find_club_country_code(club_name: str) -> str | None:
+    """Best-effort ISO 3166-1 alpha-2 country code for a club's name (`"DE"`,
+    `"US"`, ...) -- the same free `calendar.country_code` a `clubs/*.yaml` needs
+    for the crowd heatmap's public-holiday lookup (`calendar_context.
+    fetch_public_holidays()`/`tui.py`'s own `_public_holidays()`), previously only
+    obtainable by hand-editing that file. Direct follow-up, 2026-09-19 ("the
+    calendar_country.code issue can be solved the same way as with openmeteo
+    api"): weather.py's own forecast lookup already resolves a club's location
+    automatically via `find_club_location()` above, so requiring a manual step
+    for country code specifically -- when Nominatim, the exact same geocoder,
+    can answer it too -- was the actual gap, not a real difference in what's
+    knowable automatically.
+
+    A second, separate Nominatim request from `find_club_location()`'s own (not
+    `addressdetails=1` added to that one call) -- deliberately, so that
+    function's existing, separately-tested contract (return shape, every
+    caller's mocking) doesn't change for a feature that call's one real
+    production site (`tui.py`'s own unsaved-club location cache) has no use for
+    at all: only `new_club_stub_with_location()` below, which builds a *new*
+    club's `clubs/*.yaml` and is exactly where `calendar.country_code` belongs,
+    calls this. Nominatim's usage cap (see module docstring) is per caller, not
+    per club-add action, so one extra one-off request here costs nothing real.
+
+    Nominatim's own `country_code` comes back lowercase (`"de"`); uppercased
+    here since that's what `calendar_context.fetch_public_holidays()`'s own
+    Nager.Date API call expects, and what every hand-written example in this
+    project's docs already uses. `None` on no match, no address detail, or any
+    request failure -- same forgiving contract as `find_club_location()`."""
+    query = _normalize_query(club_name)
+    if not query:
+        return None
+    try:
+        response = httpx.get(
+            NOMINATIM_URL,
+            params={"q": query, "format": "json", "limit": 1, "addressdetails": 1},
+            headers={"User-Agent": USER_AGENT},
+            timeout=15,
+        )
+        response.raise_for_status()
+        results = response.json()
+    except Exception:  # noqa: BLE001 — best-effort, see module docstring
+        return None
+    if not results:
+        return None
+    code = results[0].get("address", {}).get("country_code")
+    return code.upper() if isinstance(code, str) and code else None

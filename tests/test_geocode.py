@@ -1,5 +1,5 @@
 from src import geocode
-from src.geocode import _normalize_query, find_club_location
+from src.geocode import _normalize_query, find_club_country_code, find_club_location
 
 
 class _FakeResponse:
@@ -109,3 +109,65 @@ def test_find_club_location_returns_none_for_a_blank_name(monkeypatch):
     monkeypatch.setattr(geocode.httpx, "get", fake_get)
 
     assert find_club_location("   ") is None
+
+
+# --- find_club_country_code (Nominatim call, mocked) ---------------------------------
+# Added 2026-09-19, direct follow-up ("the calendar_country.code issue can be solved
+# the same way as with openmeteo api") -- see this function's own docstring for why
+# it's a second, separate Nominatim request rather than reusing find_club_location()'s.
+
+
+def test_find_club_country_code_parses_and_uppercases_the_result(monkeypatch):
+    # Nominatim's own country_code comes back lowercase -- see this function's own
+    # docstring for why it's uppercased before being handed back.
+    payload = [{"address": {"country_code": "de"}}]
+    monkeypatch.setattr(geocode.httpx, "get", lambda url, params, headers, timeout: _FakeResponse(payload))
+
+    assert find_club_country_code("Golf Club Sonnenberg e.V.") == "DE"
+
+
+def test_find_club_country_code_requests_address_details(monkeypatch):
+    captured = {}
+
+    def fake_get(url, params, headers, timeout):
+        captured["params"] = params
+        return _FakeResponse([])
+
+    monkeypatch.setattr(geocode.httpx, "get", fake_get)
+
+    find_club_country_code("Golf Club Sonnenberg e.V.")
+
+    # Without this, Nominatim's response has no "address" object to read
+    # country_code from at all.
+    assert captured["params"]["addressdetails"] == 1
+
+
+def test_find_club_country_code_returns_none_on_no_results(monkeypatch):
+    monkeypatch.setattr(geocode.httpx, "get", lambda url, params, headers, timeout: _FakeResponse([]))
+
+    assert find_club_country_code("A club that doesn't exist anywhere") is None
+
+
+def test_find_club_country_code_returns_none_on_request_failure(monkeypatch):
+    def fake_get(url, params, headers, timeout):
+        raise ConnectionError("no network")
+
+    monkeypatch.setattr(geocode.httpx, "get", fake_get)
+
+    assert find_club_country_code("Golf Club Sonnenberg e.V.") is None
+
+
+def test_find_club_country_code_returns_none_when_address_has_no_country(monkeypatch):
+    payload = [{"address": {}}]
+    monkeypatch.setattr(geocode.httpx, "get", lambda url, params, headers, timeout: _FakeResponse(payload))
+
+    assert find_club_country_code("Golf Club Sonnenberg e.V.") is None
+
+
+def test_find_club_country_code_returns_none_for_a_blank_name(monkeypatch):
+    def fake_get(*a, **k):
+        raise AssertionError("should never even make a request for a blank name")
+
+    monkeypatch.setattr(geocode.httpx, "get", fake_get)
+
+    assert find_club_country_code("   ") is None

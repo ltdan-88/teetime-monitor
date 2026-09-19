@@ -228,7 +228,17 @@ struct SlotRow: View {
         // Blocked slots aren't tappable (see the guard below), so they get no hover
         // highlight either -- a row that lit up on hover but did nothing on click
         // would be its own, subtler version of the same "no feedback" complaint.
-        .background(isHovering.value && !slot.isBlocked ? theme.colors.surface : Color.clear,
+        //
+        // theme.colors.accent, not .surface -- direct report, 2026-09-19 ("row
+        // highlighting in many themes almost invisible"): a theme's surface tone
+        // is chosen to sit close to its background (that's what makes a card
+        // read as "part of the page," see DayCardHeader's own background
+        // comment), which is exactly what made it a bad choice for a highlight
+        // that has to stand out *against* that same background. accent is
+        // chosen for the opposite reason -- visible contrast against the
+        // background by construction, in every theme -- so it's what a hover
+        // state actually needs.
+        .background(isHovering.value && !slot.isBlocked ? theme.colors.accent.opacity(0.15) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onHover { isHovering.value = !slot.isBlocked && $0 }
@@ -301,7 +311,14 @@ struct DayCardHeader: View {
             leadingSummary
                 .overlay(alignment: .trailing) { trailingHeatAndBadge }
                 .padding(.horizontal, 6).padding(.vertical, 3)
-                .background(isHovering.value ? theme.colors.surface : Color.clear,
+                // theme.colors.accent, not .surface -- same fix as SlotRow's own
+                // hover highlight, and the same direct report ("row highlighting
+                // in many themes almost invisible"): surface is deliberately
+                // close to background (see this header's own background comment
+                // below), which reads fine for "this card is part of the page"
+                // but made a hover state that's supposed to stand out against
+                // that same background nearly disappear in several themes.
+                .background(isHovering.value ? theme.colors.accent.opacity(0.15) : Color.clear,
                             in: RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())
                 .onHover { isHovering.value = $0 }
@@ -771,65 +788,83 @@ struct ContentView: View {
             // real text labels instead of six bare icons explained only by tooltip.
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        // The title *is* the club switcher -- direct follow-up,
-                        // 2026-09-19 ("check whether combining club dropdown and
-                        // club header title is feasible"): this title and the
-                        // toolbar's separate "Club" dropdown always showed the
-                        // exact same string (model.clubName is just whichever
-                        // club's `.path == clubPath`, the same lookup the
-                        // dropdown's own selected item resolves to), so the
-                        // dropdown was pure duplication once you noticed it.
-                        // `.font()`/`.bold()` applied to the Picker itself, not
-                        // inside a `label:` closure -- macOS's `.menu`-style
-                        // Picker displays whichever ForEach item matches the
-                        // current selection, not a separate label view, but it
-                        // does render that text through whatever font the
-                        // Picker itself is given, which is what actually makes
-                        // this look like the same bold title as before rather
-                        // than a plain little popup button.
-                        if model.clubs.isEmpty {
-                            // A Picker with nothing in it has no selection to
-                            // display -- keep the plain fallback title (same
-                            // "teetime-monitor" model.clubName already fell back
-                            // to) for a fresh install with no club saved yet,
-                            // rather than an empty-looking popup button.
-                            Text(model.clubName).font(scaledFont(.title2)).bold()
-                                .lineLimit(1).truncationMode(.tail)
-                        } else {
-                            Picker("", selection: $model.clubPath) {
-                                // Alphabetical here, in the dropdown only -- direct
-                                // question, 2026-09-19 ("are entries in club dropdown
-                                // sorted alphabetically?"). `model.clubs` itself stays
-                                // newest-scraped-first (see Store.clubs' own docstring
-                                // for the real bug that ordering fixed: picking
-                                // alphabetically for the *default selection* landed on
-                                // an empty leftover test database), so only the list
-                                // this Picker renders is re-sorted, not which club
-                                // loads when the app opens.
-                                ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
-                                        id: \.path) { club in
-                                    Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
-                                        .tag(club.path)
-                                }
+                    // "Club" caption above the title -- direct request,
+                    // 2026-09-19 ("club dropdown needs a label"). Combining the
+                    // title and dropdown (same day, earlier) traded away the
+                    // toolbar's own "Club" caption that used to sit beside the
+                    // small picker; a big bold Picker reads as *a* title, but
+                    // nothing said *which* one without this.
+                    Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    // The title *is* the club switcher -- direct follow-up,
+                    // 2026-09-19 ("check whether combining club dropdown and
+                    // club header title is feasible"): this title and the
+                    // toolbar's separate "Club" dropdown always showed the
+                    // exact same string (model.clubName is just whichever
+                    // club's `.path == clubPath`, the same lookup the
+                    // dropdown's own selected item resolves to), so the
+                    // dropdown was pure duplication once you noticed it.
+                    // `.font()`/`.bold()` applied to the Picker itself, not
+                    // inside a `label:` closure -- macOS's `.menu`-style
+                    // Picker displays whichever ForEach item matches the
+                    // current selection, not a separate label view, but it
+                    // does render that text through whatever font the
+                    // Picker itself is given, which is what actually makes
+                    // this look like the same bold title as before rather
+                    // than a plain little popup button.
+                    if model.clubs.isEmpty {
+                        // A Picker with nothing in it has no selection to
+                        // display -- keep the plain fallback title (same
+                        // "teetime-monitor" model.clubName already fell back
+                        // to) for a fresh install with no club saved yet,
+                        // rather than an empty-looking popup button.
+                        Text(model.clubName).font(scaledFont(.title2)).bold()
+                            .lineLimit(1).truncationMode(.tail)
+                    } else {
+                        Picker("", selection: $model.clubPath) {
+                            // Alphabetical here, in the dropdown only -- direct
+                            // question, 2026-09-19 ("are entries in club dropdown
+                            // sorted alphabetically?"). `model.clubs` itself stays
+                            // newest-scraped-first (see Store.clubs' own docstring
+                            // for the real bug that ordering fixed: picking
+                            // alphabetically for the *default selection* landed on
+                            // an empty leftover test database), so only the list
+                            // this Picker renders is re-sorted, not which club
+                            // loads when the app opens.
+                            ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                                    id: \.path) { club in
+                                Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
+                                    .tag(club.path)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .font(scaledFont(.title2)).fontWeight(.bold)
-                            .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                         }
-                        // Mirrors the TUI's own Header, which sets its subtitle to
-                        // "v{version}" from the same package metadata -- direct
-                        // request, 2026-09-19 ("I want to see the version ... It
-                        // should match with the version of the TUI."). The Info.plist
-                        // value this reads comes from pyproject.toml at build time
-                        // (see build.sh), the same file tui.py's own _version() reads,
-                        // so there is one number and both apps show it. The standard
-                        // "About TeetimeMonitor" panel reads this same Info.plist key
-                        // automatically -- nothing else to wire up for that half.
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .font(scaledFont(.title2)).fontWeight(.bold)
+                        .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
+                    }
+                    HStack(spacing: 6) {
+                        FreshnessRow(model: model)
+                        // Moved down here from beside the title -- direct report,
+                        // 2026-09-19 ("version placement in GUI not making sense
+                        // to the right of club dropdown"): once the title itself
+                        // became a clickable Picker (same day, earlier), small
+                        // text immediately beside it read as unclear whether it
+                        // was part of the control or not. Grouped with the
+                        // freshness line instead -- both are secondary status
+                        // text about the app/data, not the club identity the
+                        // title itself now conveys. Still mirrors the TUI's own
+                        // Header, which sets its subtitle to "v{version}" from
+                        // the same package metadata -- direct request,
+                        // 2026-09-19 ("I want to see the version ... It should
+                        // match with the version of the TUI."). The Info.plist
+                        // value this reads comes from pyproject.toml at build
+                        // time (see build.sh), the same file tui.py's own
+                        // _version() reads, so there is one number and both
+                        // apps show it. The standard "About TeetimeMonitor"
+                        // panel reads this same Info.plist key automatically --
+                        // nothing else to wire up for that half.
+                        Text("·").font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     }
-                    FreshnessRow(model: model)
                 }
                 Spacer(minLength: 12)
                 HStack(spacing: 6) {
@@ -843,9 +878,15 @@ struct ContentView: View {
             }
 
             // Grouped by what each action is *for* -- act on this course's data,
-            // manage which clubs exist, change how the app behaves -- with dividers
-            // making those three groups visible rather than six equally-spaced
-            // icons implying six unrelated things.
+            // change how the app behaves -- rather than a row of equally-spaced
+            // icons implying every one is unrelated to its neighbors. "Add Club"
+            // used to sit here as its own group; moved into Settings' new Clubs
+            // section (2026-09-19, direct request, "integrate add/remove club
+            // into settings"), the one place club management -- add *and*
+            // remove -- now lives together, rather than add being the one club-
+            // management action stranded in the toolbar. Still reachable without
+            // opening Settings via the Actions menu (⌘-hold discoverable, see
+            // AppCommands' own docstring).
             HStack(spacing: 8) {
                 Button { model.refreshNow() } label: { Label(t("action.refresh"), systemImage: "arrow.clockwise") }
                     .help(t("tip.refresh"))
@@ -858,11 +899,6 @@ struct ContentView: View {
                 }
                 .help(t("tip.heatmap"))
                 .disabled(model.clubPath.isEmpty || model.course.isEmpty)
-
-                Divider().frame(height: scale.scaled(16))
-
-                Button { showingAddClub.value = true } label: { Label(t("action.add_club"), systemImage: "plus.circle") }
-                    .help(t("tip.add_club"))
 
                 Spacer()
 
@@ -990,7 +1026,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
         .sheet(isPresented: $showingSettings.value) {
-            SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id)
+            SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id, model: model)
         }
         .sheet(isPresented: $showingSearch.value) {
             SearchSheet(dbPath: model.clubPath, course: model.course,
