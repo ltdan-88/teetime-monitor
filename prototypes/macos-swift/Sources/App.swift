@@ -6,9 +6,57 @@ import SwiftUI
 /// One wrapped line explaining every icon/figure the day list uses -- the exact
 /// same role `tui.py`'s `OVERVIEW_LEGEND` plays under the TUI's own table, kept to
 /// the subset this card-based view actually shows.
+/// A left-to-right layout that wraps to a new line instead of overflowing --
+/// direct report, 2026-09-19 ("bottom info bar should wrap up when window is not
+/// wide enough"). `LegendLine` used to handle overflow with a horizontal
+/// `ScrollView` instead; with no scrollbar shown and no other affordance hinting
+/// more content existed, its later entries just looked cut off at the window's
+/// minimum width, which is exactly what a live screenshot showed. `Layout` itself
+/// (macOS 13+) has been safe to use since this prototype's `LSMinimumSystemVersion`
+/// was set to 14.0.
+struct FlowLayout: Layout {
+    var hSpacing: CGFloat = 12
+    var vSpacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                widest = max(widest, x - hSpacing)
+                x = 0
+                y += rowHeight + vSpacing
+                rowHeight = 0
+            }
+            x += size.width + hSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        widest = max(widest, x - hSpacing)
+        y += rowHeight
+        return CGSize(width: maxWidth.isFinite ? maxWidth : widest, height: y)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + vSpacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + hSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 struct LegendLine: View {
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
+    @ObservedObject private var scale = AppScale.shared
 
     // Computed, not a stored `let`: the temperature/wind labels state the current
     // unit, so they have to follow a Units change the same way the numbers do.
@@ -23,18 +71,32 @@ struct LegendLine: View {
         ]
     }
 
+    // The heat strip's own green/orange/red meaning -- direct report,
+    // 2026-09-19 ("color bars still don't say what they represent"). The
+    // previous round only added the "08:00-20:00" *time window* to this line (a
+    // different gap the same complaint's wording pointed at); the color *scale*
+    // itself was never actually explained anywhere the day list shows it. Same
+    // three colors, same thresholds as `fillColor()`, and reuses HeatmapSheet's
+    // own legend wording verbatim (heatmap.legend.open/mid/full) rather than
+    // inventing separate copy for the same three states.
+    private var heatSwatches: [(color: Color, text: String)] {
+        [(.green, t("heatmap.legend.open")), (.orange, t("heatmap.legend.mid")), (.red, t("heatmap.legend.full"))]
+    }
+
     var body: some View {
-        // Horizontal scroll rather than a wrapping HStack (SwiftUI has no built-in
-        // flow layout without iOS 16/macOS 13's Layout protocol boilerplate) -- at
-        // the window's minimum width this doesn't all fit, and a silently
-        // truncated legend defeats the point more than a scrollable one would.
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(entries, id: \.text) { entry in
-                    HStack(spacing: 3) {
-                        Image(systemName: entry.icon)
-                        Text(entry.text)
-                    }
+        FlowLayout(hSpacing: 12, vSpacing: 4) {
+            ForEach(entries, id: \.text) { entry in
+                HStack(spacing: 3) {
+                    Image(systemName: entry.icon)
+                    Text(entry.text)
+                }
+            }
+            ForEach(heatSwatches, id: \.text) { swatch in
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 2).fill(swatch.color)
+                        .frame(width: scale.scaled(Metrics.legendSwatchWidth),
+                               height: scale.scaled(Metrics.legendSwatchHeight))
+                    Text(swatch.text)
                 }
             }
         }
@@ -222,75 +284,32 @@ struct DayCardHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
-                Text(weekday(day.date)).font(scaledFont(.headline))
-
-                // Day-level summary -- worst condition, high/low, average rain chance,
-                // peak wind, all across 08:00-20:00 -- mirrors tui._condition_cell()/
-                // _temperature_cell()/_precipitation_cell()/_wind_cell() exactly (each
-                // is a "worst/average across the window" figure, not one instant
-                // reading), not just whatever the forecast happened to say at noon.
-                //
-                // Every value below is wrapped in its own icon (`Label`, not bare
-                // text) and a `.help()` tooltip -- a bare "1%" or "17" reads as
-                // meaningless without knowing which figure it is, same problem the
-                // TUI itself solves with `OVERVIEW_LEGEND` (see the legend line under
-                // the day list below for the full explanation of thresholds/markers).
-                Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
-                    .help(t("tip.condition_day"))
-                if let (hi, lo) = day.tempHighLow {
-                    Label("\(Int(Units.temperature(hi, units.value)))°/"
-                          + "\(Int(Units.temperature(lo, units.value)))°",
-                          systemImage: "thermometer.medium")
-                        .font(scaledFont(.subheadline, design: .monospaced))
-                        .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
-                }
-                if let p = day.precipAvg {
-                    Label("\(Int(p))%", systemImage: "drop.fill")
-                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help(t("tip.rain_day"))
-                }
-                if let wd = day.windPeak {
-                    Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
-                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
-                }
-                if let rise = day.sunrise, let set = day.sunset {
-                    Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
-                        .help(t("tip.sun"))
-                }
-
-                Spacer()
-                HeatStrip(buckets: day.heatStrip)
-
-                // Fixed-width regardless of whether this day has a booking -- reported
-                // live (2026-09-19): with the badge only taking space when present,
-                // HeatStrip landed at a different x on a row with a reservation than on
-                // one without, since the Spacer above packs everything after it as one
-                // trailing group. Reserving this slot's width unconditionally keeps
-                // HeatStrip at the same offset on every row.
-                Group {
-                    if let bookedTime = day.bookedTime {
-                        Label(bookedTime, systemImage: "flag.fill")
-                            .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Color.accentColor.opacity(0.15), in: Capsule())
-                            .foregroundStyle(Color.accentColor)
+            // Leading content and the trailing HeatStrip+badge group used to share
+            // one HStack with a Spacer between them -- reported still shifting
+            // live (2026-09-19) even after the earlier fixed-width-badge and
+            // maxWidth:.infinity fixes, with a screenshot showing the same
+            // symptom. Root cause: this header is a *pinned* Section header (see
+            // ContentView's LazyVStack), and a Spacer only expands to fill
+            // whatever width its own immediate container is actually offered --
+            // that propagating correctly from an ancestor several levels up,
+            // through a VStack, through a pinned header's own special layout
+            // pass, turned out not to be reliable. `.overlay(alignment: .trailing)`
+            // sidesteps that path entirely: it positions the trailing group
+            // relative to the *leading* HStack's own resolved frame, which is
+            // forced to the header's full width right here, one level away from
+            // where it's read -- no Spacer, no multi-level propagation to trust.
+            leadingSummary
+                .overlay(alignment: .trailing) { trailingHeatAndBadge }
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(isHovering.value ? theme.colors.surface : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+                .onHover { isHovering.value = $0 }
+                .onTapGesture {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        if isOpen { model.expanded.remove(day.date) } else { model.expanded.insert(day.date) }
                     }
                 }
-                .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
-            }
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(isHovering.value ? theme.colors.surface : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-            .onHover { isHovering.value = $0 }
-            .onTapGesture {
-                withAnimation(.snappy(duration: 0.18)) {
-                    if isOpen { model.expanded.remove(day.date) } else { model.expanded.insert(day.date) }
-                }
-            }
 
             if !day.events.isEmpty {
                 Text(day.events.joined(separator: " · "))
@@ -298,15 +317,9 @@ struct DayCardHeader: View {
             }
         }
         .padding(12)
-        // Stretches to the full row width offered by the day list -- without this,
-        // each header sized itself to fit only its own content (the weekday text
-        // plus whichever weather labels that day happens to have), so a day with a
-        // shorter summary had a *narrower* header than one with more labels, and
-        // the trailing Spacer above packed HeatStrip+the booking badge flush to
-        // that narrower header's own right edge instead of a shared one -- the
-        // real cause of the heat strip still visibly shifting row to row after the
-        // earlier fixed-width-badge fix alone, confirmed live (2026-09-19) against
-        // a fresh screenshot.
+        // Stretches this whole header (not just leadingSummary above) to the full
+        // row width the day list offers -- keeps the card's own background/corner
+        // radius spanning the full width regardless of content.
         .frame(maxWidth: .infinity, alignment: .leading)
         // theme.colors.surface, not the system-appearance-driven `.quaternary` this
         // used to be -- a card that ignores the chosen theme entirely would make a
@@ -328,6 +341,77 @@ struct DayCardHeader: View {
                                     bottomTrailingRadius: isOpen ? 0 : 10, topTrailingRadius: 10)
                 .fill(theme.colors.surface.opacity(isOpen ? 0.94 : 0.8))
         )
+    }
+
+    /// The chevron/weekday/condition/weather-label group -- everything to the
+    /// *left* of HeatStrip. Its own `.frame(maxWidth: .infinity, alignment: .leading)`
+    /// is what `trailingHeatAndBadge`'s overlay aligns against; naturally-sized
+    /// content (a day with fewer weather labels) still leaves this view's own
+    /// *resolved frame* at the header's full width, which is the property the
+    /// previous Spacer-based layout couldn't reliably guarantee here.
+    private var leadingSummary: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
+            Text(weekday(day.date)).font(scaledFont(.headline))
+
+            // Day-level summary -- worst condition, high/low, average rain chance,
+            // peak wind, all across 08:00-20:00 -- mirrors tui._condition_cell()/
+            // _temperature_cell()/_precipitation_cell()/_wind_cell() exactly (each
+            // is a "worst/average across the window" figure, not one instant
+            // reading), not just whatever the forecast happened to say at noon.
+            //
+            // Every value below is wrapped in its own icon (`Label`, not bare
+            // text) and a `.help()` tooltip -- a bare "1%" or "17" reads as
+            // meaningless without knowing which figure it is, same problem the
+            // TUI itself solves with `OVERVIEW_LEGEND` (see the legend line under
+            // the day list below for the full explanation of thresholds/markers).
+            Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
+                .help(t("tip.condition_day"))
+            if let (hi, lo) = day.tempHighLow {
+                Label("\(Int(Units.temperature(hi, units.value)))°/"
+                      + "\(Int(Units.temperature(lo, units.value)))°",
+                      systemImage: "thermometer.medium")
+                    .font(scaledFont(.subheadline, design: .monospaced))
+                    .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
+            }
+            if let p = day.precipAvg {
+                Label("\(Int(p))%", systemImage: "drop.fill")
+                    .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    .help(t("tip.rain_day"))
+            }
+            if let wd = day.windPeak {
+                Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
+                    .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
+            }
+            if let rise = day.sunrise, let set = day.sunset {
+                Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
+                    .help(t("tip.sun"))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// HeatStrip plus the booking-flag badge, positioned by `leadingSummary`'s own
+    /// `.overlay(alignment: .trailing)` rather than packed after a Spacer -- see
+    /// that property's docstring. The badge still reserves its own fixed-width
+    /// slot regardless of whether this day has a booking (unchanged from the
+    /// original fix), so HeatStrip itself lands at the same offset whether or not
+    /// the badge beside it is actually showing anything.
+    private var trailingHeatAndBadge: some View {
+        HStack(spacing: 10) {
+            HeatStrip(buckets: day.heatStrip)
+            Group {
+                if let bookedTime = day.bookedTime {
+                    Label(bookedTime, systemImage: "flag.fill")
+                        .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
+        }
     }
 }
 
@@ -481,6 +565,19 @@ final class OverviewModel: ObservableObject {
     var clubName: String {
         clubs.first { $0.path == clubPath }?.name ?? "teetime-monitor"
     }
+
+    /// `days`, minus any day with no scraped tee-time slots at all -- direct
+    /// report, 2026-09-19 ("hide days that don't contain details yet"). `days`
+    /// itself attempts a fixed window regardless (mirrors tui.py's own
+    /// `_display_dates()`, which does the same and shows every attempted date --
+    /// there's no existing TUI precedent for hiding these, since its table has
+    /// no equivalent "nothing to show yet" affordance), so a day this far out
+    /// commonly has weather (a separate, always-available forecast) but no real
+    /// slots yet -- a heat strip that's entirely grey with nothing to expand
+    /// into, all cost and no use. Filtered here, not at `Store.days()`, so the
+    /// underlying fetch window is unaffected and this is purely a display
+    /// choice.
+    var visibleDays: [Day] { days.filter { !$0.slots.isEmpty } }
 
     private var today: String {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
@@ -758,14 +855,16 @@ struct ContentView: View {
                     .help(t("tip.settings"))
             }
 
-            if model.days.isEmpty {
+            if model.visibleDays.isEmpty {
+                // maxWidth: .infinity too -- same off-center bug as Search/Add a
+                // Club's own empty states (this VStack is alignment: .leading too).
                 ContentUnavailableView(
                     t("overview.empty_title"),
                     systemImage: "calendar.badge.exclamationmark",
                     description: Text(model.clubs.isEmpty
                         ? t("overview.empty_no_clubs")
                         : t("overview.empty_pick_another")))
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Placed beside the list it acts on, not in the already-full
                 // 6-button toolbar above -- direct request, 2026-09-19 ("I'd like a
@@ -798,7 +897,7 @@ struct ContentView: View {
                 // with nothing under it.
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 7, pinnedViews: [.sectionHeaders]) {
-                        ForEach(model.days) { day in
+                        ForEach(model.visibleDays) { day in
                             Section {
                                 if model.expanded.contains(day.date) {
                                     DayCardBody(day: day, model: model)
@@ -821,7 +920,7 @@ struct ContentView: View {
             // under the list, not repeated per card/row) -- the TUI's own answer to
             // "these icons aren't self-explanatory" for the same figures shown here
             // (temp, rain%, wind, sunrise/sunset, the rain/wind flag thresholds).
-            if !model.days.isEmpty {
+            if !model.visibleDays.isEmpty {
                 LegendLine()
             }
         }

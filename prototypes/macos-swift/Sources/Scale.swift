@@ -146,12 +146,20 @@ enum Metrics {
 /// outlived the sheet being written. Sheets that do the same kind of job now open at
 /// the same size, and all of them grow with the chosen scale.
 enum SheetSize {
+    // Widths trimmed 2026-09-19, direct report ("Search, heatmap, add club,
+    // Preferences and settings screen are too wide"): none of these were ever
+    // measured against what their own content actually needs -- e.g. the
+    // heatmap's widest real grid (7 weekday columns at Metrics.heatCellWidth
+    // plus the hour-label column) comes to roughly 260pt, nowhere near the
+    // 720pt it had. Reduced to comfortably fit each sheet's real content
+    // (including the longest German field labels, which is what actually
+    // drives `form`) rather than picking a smaller number arbitrarily.
     /// A form of settings controls: Preferences, Settings.
-    static let form = CGSize(width: 480, height: 560)
+    static let form = CGSize(width: 460, height: 560)
     /// A form plus a result list: Search, Add a Club.
-    static let browser = CGSize(width: 620, height: 640)
+    static let browser = CGSize(width: 520, height: 640)
     /// Wide data display: the heatmap's two grids.
-    static let wide = CGSize(width: 720, height: 640)
+    static let wide = CGSize(width: 560, height: 640)
 }
 
 extension View {
