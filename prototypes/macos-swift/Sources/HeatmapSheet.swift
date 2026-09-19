@@ -30,6 +30,15 @@ struct HeatmapSheet: View {
             if isLoading.value {
                 ProgressView(t("heatmap.loading")).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let heatmap = heatmap.value {
+                // maxHeight: .infinity -- without it this ScrollView reported its
+                // own *content* height as its ideal size (two full grids plus the
+                // legend routinely runs taller than the sheet itself), which let it
+                // push the status line and Close button below straight out of the
+                // fixed-height sheet instead of shrinking to the space actually
+                // left for it -- confirmed live (2026-09-19) via a screenshot where
+                // the footer note was clipped at the sheet's bottom edge with no
+                // Close button visible at all. SearchSheet's own results List
+                // already carries this same constraint for the same reason.
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         HeatmapGridView(title: t("heatmap.by_weekday"), keys: CalendarContext.weekdays,
@@ -44,6 +53,7 @@ struct HeatmapSheet: View {
                     }
                     .padding(16)
                 }
+                .frame(maxHeight: .infinity)
             }
 
             if let status = status.value {
