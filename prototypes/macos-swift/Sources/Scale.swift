@@ -166,10 +166,19 @@ enum SheetSize {
     /// list is a *comparison* against the criteria beside it, and each result
     /// row is genuinely narrow (a time, a weather icon, an open-spot count,
     /// a chevron), so it doesn't need Add a Club's full-width list treatment.
-    /// 680, not `browser`'s 520 -- a two-column layout needs real width for
-    /// both, but Search.criteriaColumnWidth (340) plus a narrow results
-    /// column is barely more than `browser`'s own *original*, pre-trim 620.
-    static let split = CGSize(width: 680, height: 640)
+    ///
+    /// 760, widened from a first attempt at 680 that shipped broken: with the
+    /// criteria column pinned to a hardcoded 340 (a guess at Form's own real
+    /// per-row overhead, not measured), its longest German row didn't fit and
+    /// `Form`'s grouped style clipped each label's own *leading* characters
+    /// rather than wrapping or truncating -- reported live with a screenshot.
+    /// The criteria column now sizes itself to its own natural content width
+    /// instead (see SearchSheet's own `.fixedSize` comment), so this number
+    /// only has to be wide enough to comfortably fit that natural width *plus*
+    /// a real results column with room to spare -- generous on purpose, since
+    /// guessing too narrow is what broke it the first time and this
+    /// environment can't self-verify rendered layout to catch a repeat.
+    static let split = CGSize(width: 760, height: 640)
     /// Wide data display: the heatmap's two grids.
     static let wide = CGSize(width: 560, height: 640)
 }

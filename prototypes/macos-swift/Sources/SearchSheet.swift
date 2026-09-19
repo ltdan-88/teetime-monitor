@@ -49,12 +49,6 @@ struct SearchSheet: View {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
     }
 
-    // Sized for the longest German field label this form ever shows ("Abstand
-    // zur Gruppe davor (Minuten)") plus its control, not a round number -- a
-    // narrower column would wrap that label, a wider one would just be unused
-    // space next to the results column. See SheetSize.split's own docstring.
-    private let criteriaColumnWidth: CGFloat = 340
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("search.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
@@ -65,12 +59,28 @@ struct SearchSheet: View {
             // 2026-09-19, on top of this same sheet's own width already having
             // just been trimmed ("would it make sense to place search results
             // on the right instead? ... the results don't need that much
-            // width"): each result row really is narrow (see
-            // criteriaColumnWidth's own docstring for the split this enables),
-            // and stacking meant results were only ever visible after scrolling
-            // past the whole criteria form -- keeping both on screen at once
-            // means adjusting a criterion and re-running the search doesn't
-            // lose sight of what's being compared against.
+            // width"): each result row really is narrow, and stacking meant
+            // results were only ever visible after scrolling past the whole
+            // criteria form -- keeping both on screen at once means adjusting
+            // a criterion and re-running the search doesn't lose sight of
+            // what's being compared against.
+            //
+            // The criteria column has *no* explicit width here -- a first cut
+            // hardcoded one (340, "measured" from the longest German label plus
+            // its control), and shipped broken: reported live with a
+            // screenshot showing every label in that column missing its own
+            // *leading* characters ("Kriterien" -> "erien", "Abstand zur
+            // Gruppe davor..." -> "and zur Gruppe davor..."), values and
+            // controls unaffected. That's `Form`'s own grouped style favoring
+            // a row's trailing content when the row doesn't fit the width it's
+            // given, not a simple wrap/truncate -- 340 was a razor-thin,
+            // wrong-by-a-few-points guess at Form's real per-row overhead
+            // (indentation, grouped-style insets) on top of the label/control
+            // measurements themselves. Letting the Form size itself to its own
+            // natural content width removes that guess entirely: it always
+            // requests exactly what its longest un-wrapped row needs. The
+            // results column's own `.frame(maxWidth: .infinity)` still soaks
+            // up whatever's left.
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     Form {
@@ -111,7 +121,7 @@ struct SearchSheet: View {
                     }
                     .padding(.horizontal, 16).padding(.top, 4)
                 }
-                .frame(width: criteriaColumnWidth)
+                .fixedSize(horizontal: true, vertical: false)
 
                 Divider()
 
