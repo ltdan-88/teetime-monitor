@@ -43,5 +43,16 @@ let package = Package(
             dependencies: ["TeetimeMonitorCore"],
             path: "Tests/TeetimeMonitorCoreTests"
         ),
+        // The cross-language drift guard: reads the JSON
+        // ../../scripts/cross_language_reference.py generates from the real Python
+        // functions and recomputes the Swift equivalents for the same inputs,
+        // failing if anything disagrees. A standing check, not the one-time-by-hand
+        // verification every port here previously got -- see that script's own
+        // docstring for the full reasoning.
+        .executableTarget(
+            name: "CrossCheckRunner",
+            dependencies: ["TeetimeMonitorCore"],
+            path: "Tests/CrossCheckRunner"
+        ),
     ]
 )

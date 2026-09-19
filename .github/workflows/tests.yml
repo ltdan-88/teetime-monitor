@@ -76,7 +76,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: ruff check src/ tests/
+      - run: ruff check src/ tests/ scripts/
 
   # The macOS Swift prototype's own regression suite (added 2026-09-19, alongside
   # the tests themselves) -- a plain executable, not `.testTarget`/`swift test`,
@@ -87,9 +87,21 @@ jobs:
   # what a contributor runs on their own machine before opening a PR.
   swift-tests:
     runs-on: macos-latest
-    defaults:
-      run:
-        working-directory: prototypes/macos-swift
     steps:
       - uses: actions/checkout@v4
       - run: swift run TeetimeMonitorCoreTests
+        working-directory: prototypes/macos-swift
+
+      # The cross-language drift guard: Python generates ground truth from its own
+      # real functions, CrossCheckRunner recomputes the Swift ports for the same
+      # inputs and fails on disagreement -- see scripts/cross_language_reference.py
+      # for the full reasoning. Needs Python on this macOS runner, unlike the plain
+      # Swift suite above.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - run: python scripts/cross_language_reference.py > /tmp/reference.json
+      - run: swift run CrossCheckRunner /tmp/reference.json
+        working-directory: prototypes/macos-swift
