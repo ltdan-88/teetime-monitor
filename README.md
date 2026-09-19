@@ -126,12 +126,13 @@ The tables above it say how far along each weekday is.
 
 <p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap: readiness tables above the colored hour-by-weekday grid"></p>
 
-### One menu, two languages, ten themes
+### One menu, two languages, eleven themes
 
 **t** opens **Actions** — find a club, search, heatmap, settings, language, theme.
 The whole interface runs in English or German (including this menu and every
-banner), and ships the same ten colour themes as
-[`brew-launcher`](https://github.com/ltdan-88/brew-launcher).
+banner), and ships eleven colour themes: the same ten as
+[`brew-launcher`](https://github.com/ltdan-88/brew-launcher), plus Catppuccin
+Latte for anyone who wants a light theme that isn't Solarized.
 
 <p align="center"><img src="assets/en/actions.png" alt="The Actions menu: find a club, search, heatmap, settings"></p>
 

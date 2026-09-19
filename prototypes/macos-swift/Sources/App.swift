@@ -45,11 +45,16 @@ struct LegendLine: View {
 struct HeatStrip: View {
     let buckets: [Double?]
     @ObservedObject private var scale = AppScale.shared
+    // theme.colors.faint, not Color.secondary.opacity(0.18) -- this *is* the
+    // "occupancy bars" the user's 2026-09-19 report named directly as unreadable
+    // under solarized-light, so it gets a theme-relative fill rather than relying
+    // on `.preferredColorScheme` making the system gray merely adequate.
+    @ObservedObject private var theme = AppTheme.shared
     var body: some View {
         HStack(spacing: 2) {
             ForEach(Array(buckets.enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(value.map(fillColor) ?? Color.secondary.opacity(0.18))
+                    .fill(value.map(fillColor) ?? theme.colors.faint)
                     .frame(width: scale.scaled(Metrics.heatBlockWidth),
                            height: scale.scaled(Metrics.heatBlockHeight))
             }
@@ -64,7 +69,12 @@ struct SlotRow: View {
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
+    // Same reasoning as HeatStrip: these seat pips are the "occupancy bars in
+    // detailed view" the user's report named as unreadable under a light theme.
+    @ObservedObject private var theme = AppTheme.shared
     @StateObject private var showingConfirm = Box(false)
+    // Same hover-feedback fix as DayCard's header, for the same tappable-row report.
+    @StateObject private var isHovering = Box(false)
 
     var isMine: Bool { day.bookedTime == slot.time }
     var isPastSunset: Bool {
@@ -87,8 +97,8 @@ struct SlotRow: View {
                     ForEach(0..<max(slot.capacity, 1), id: \.self) { i in
                         RoundedRectangle(cornerRadius: 2)
                             .fill(i < slot.booked
-                                  ? (isMine && i == 0 ? Color.accentColor : Color.secondary)
-                                  : Color.secondary.opacity(0.18))
+                                  ? (isMine && i == 0 ? Color.accentColor : theme.colors.muted)
+                                  : theme.colors.faint)
                             .frame(width: scale.scaled(Metrics.seatPip),
                                    height: scale.scaled(Metrics.seatPip))
                     }
@@ -151,9 +161,15 @@ struct SlotRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 2).padding(.horizontal, 4)
         .opacity(isPastSunset ? 0.4 : 1)
+        // Blocked slots aren't tappable (see the guard below), so they get no hover
+        // highlight either -- a row that lit up on hover but did nothing on click
+        // would be its own, subtler version of the same "no feedback" complaint.
+        .background(isHovering.value && !slot.isBlocked ? theme.colors.surface : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
+        .onHover { isHovering.value = !slot.isBlocked && $0 }
         .onTapGesture { if !slot.isBlocked { showingConfirm.value = true } }
         // A confirming dialog, not a silent write on tap -- matches the TUI's own
         // ConfirmBookingScreen/CancelBookingScreen, which exist specifically because
@@ -187,6 +203,13 @@ struct DayCard: View {
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
+    // Direct report, 2026-09-19: "clicking on a row in the overview doesn't
+    // provide enough feedback, since it doesn't highlight the row." Hover state
+    // rather than a tap-flash -- macOS's own outline/table rows highlight on
+    // hover before the click even lands, and that's the feedback the report
+    // asked for (something visible *while* pointing at the row, not just a
+    // blink after).
+    @StateObject private var isHovering = Box(false)
     var isOpen: Bool { model.expanded.contains(day.date) }
 
     var body: some View {
@@ -234,14 +257,27 @@ struct DayCard: View {
                 Spacer()
                 HeatStrip(buckets: day.heatStrip)
 
-                if let bookedTime = day.bookedTime {
-                    Label(bookedTime, systemImage: "flag.fill")
-                        .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.15), in: Capsule())
-                        .foregroundStyle(Color.accentColor)
+                // Fixed-width regardless of whether this day has a booking -- reported
+                // live (2026-09-19): with the badge only taking space when present,
+                // HeatStrip landed at a different x on a row with a reservation than on
+                // one without, since the Spacer above packs everything after it as one
+                // trailing group. Reserving this slot's width unconditionally keeps
+                // HeatStrip at the same offset on every row.
+                Group {
+                    if let bookedTime = day.bookedTime {
+                        Label(bookedTime, systemImage: "flag.fill")
+                            .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.accentColor.opacity(0.15), in: Capsule())
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
+                .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
             }
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(isHovering.value ? theme.colors.surface : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
+            .onHover { isHovering.value = $0 }
             .onTapGesture {
                 withAnimation(.snappy(duration: 0.18)) {
                     if isOpen { model.expanded.remove(day.date) } else { model.expanded.insert(day.date) }
@@ -276,7 +312,10 @@ struct DayCard: View {
         // theme.colors.surface, not the system-appearance-driven `.quaternary` this
         // used to be -- a card that ignores the chosen theme entirely would make a
         // theme switch look like it did nothing, since cards are most of the screen.
-        .background(theme.colors.surface.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        // Higher opacity while open -- a second, lasting piece of the same feedback
+        // the header's hover highlight gives only momentarily, so an expanded card
+        // still reads as "this one's open" after the pointer has moved away.
+        .background(theme.colors.surface.opacity(isOpen ? 0.85 : 0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -475,6 +514,7 @@ final class AppCommands: ObservableObject {
     var onSearch: (() -> Void)?
     var onAddClub: (() -> Void)?
     var onHeatmap: (() -> Void)?
+    var onCollapseAll: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
 }
@@ -492,6 +532,10 @@ struct ContentView: View {
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var language = AppLanguage.shared
+
+    private var appVersionString: String {
+        "v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -522,8 +566,20 @@ struct ContentView: View {
             // real text labels instead of six bare icons explained only by tooltip.
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.clubName).font(scaledFont(.title2)).bold()
-                        .lineLimit(1).truncationMode(.tail)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(model.clubName).font(scaledFont(.title2)).bold()
+                            .lineLimit(1).truncationMode(.tail)
+                        // Mirrors the TUI's own Header, which sets its subtitle to
+                        // "v{version}" from the same package metadata -- direct
+                        // request, 2026-09-19 ("I want to see the version ... It
+                        // should match with the version of the TUI."). The Info.plist
+                        // value this reads comes from pyproject.toml at build time
+                        // (see build.sh), the same file tui.py's own _version() reads,
+                        // so there is one number and both apps show it. The standard
+                        // "About TeetimeMonitor" panel reads this same Info.plist key
+                        // automatically -- nothing else to wire up for that half.
+                        Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    }
                     HStack(spacing: 6) {
                         if model.isScraping {
                             ProgressView().controlSize(.small).scaleEffect(0.7)
@@ -605,6 +661,26 @@ struct ContentView: View {
                         : t("overview.empty_pick_another")))
                     .frame(maxHeight: .infinity)
             } else {
+                // Placed beside the list it acts on, not in the already-full
+                // 6-button toolbar above -- direct request, 2026-09-19 ("I'd like a
+                // button to collapse all incl. a keybind"). Hidden once nothing is
+                // open rather than merely disabled: with every card already
+                // collapsed there is nothing left for it to say.
+                if !model.expanded.isEmpty {
+                    HStack {
+                        Spacer()
+                        // No .keyboardShortcut() here -- same reason AppCommands'
+                        // own docstring gives for every other toolbar action: it
+                        // would work but wouldn't be *discoverable*. The real
+                        // shortcut lives on the Actions-menu item below, routed
+                        // through the same AppCommands.onCollapseAll closure this
+                        // button calls directly.
+                        Button { model.expanded.removeAll() } label: {
+                            Label(t("action.collapse_all"), systemImage: "arrow.up.to.line.compact")
+                        }
+                        .help(t("tip.collapse_all"))
+                    }
+                }
                 ScrollView {
                     VStack(spacing: 7) {
                         ForEach(model.days) { DayCard(day: $0, model: model) }
@@ -643,6 +719,13 @@ struct ContentView: View {
         .background(theme.colors.background)
         .tint(theme.colors.accent)
         .foregroundStyle(theme.colors.foreground)
+        // Forces this window's own color scheme to match the chosen theme rather
+        // than the system's -- see sheetFrame()'s own docstring in Scale.swift for
+        // the real visibility bug (unreadable dropdowns/pips under a light theme
+        // while macOS itself is in Dark Mode, or vice versa) this fixes. `theme`
+        // is already `@ObservedObject`, so this updates live on a theme change,
+        // unlike each sheet's own one-shot version.
+        .preferredColorScheme(theme.colors.isDark ? .dark : .light)
         .onAppear {
             model.load()
             model.startWatching()
@@ -660,6 +743,7 @@ struct ContentView: View {
                 guard !model.clubPath.isEmpty, !model.course.isEmpty else { return }
                 showingHeatmap.value = true
             }
+            AppCommands.shared.onCollapseAll = { model.expanded.removeAll() }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
         }
@@ -704,6 +788,10 @@ struct TeetimeMonitorPrototype: App {
                     .keyboardShortcut("f", modifiers: .command)
                 Button(t("menu.add_club")) { AppCommands.shared.onAddClub?() }
                 Button(t("menu.heatmap")) { AppCommands.shared.onHeatmap?() }
+                // ⌥⌘← -- Finder's and Xcode's own shortcut for "collapse everything
+                // in this outline", reused rather than picked arbitrarily.
+                Button(t("menu.collapse_all")) { AppCommands.shared.onCollapseAll?() }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 Divider()
                 Button(t("menu.preferences")) { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)

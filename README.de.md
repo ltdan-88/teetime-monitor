@@ -128,12 +128,13 @@ erfasst wurde. Die Tabellen darüber zeigen, wie weit jeder Wochentag schon ist.
 
 <p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: Datenstand-Tabellen über dem farbigen Raster aus Stunden und Wochentagen"></p>
 
-### Ein Menü, zwei Sprachen, zehn Designs
+### Ein Menü, zwei Sprachen, elf Designs
 
 **t** öffnet die **Aktionen** — Club suchen, Suchen, Auslastung, Einstellungen, Sprache,
 Design. Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
-und aller Hinweise) und bringt dieselben zehn Farbdesigns mit wie
-[`brew-launcher`](https://github.com/ltdan-88/brew-launcher).
+und aller Hinweise) und bringt elf Farbdesigns mit: dieselben zehn wie
+[`brew-launcher`](https://github.com/ltdan-88/brew-launcher), dazu Catppuccin Latte
+für alle, die ein helles Design abseits von Solarized möchten.
 
 <p align="center"><img src="assets/de/actions.png" alt="Das Aktionen-Menü: Club suchen, Suchen, Auslastung, Einstellungen"></p>
 

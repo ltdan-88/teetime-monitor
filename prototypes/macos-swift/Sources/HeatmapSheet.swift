@@ -156,6 +156,10 @@ private struct HeatmapCell: View {
 private struct HeatmapLegendView: View {
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var language = AppLanguage.shared
+    // Same fix as HeatStrip/the seat pips: this swatch illustrates the grid's own
+    // occupancy fill, so it gets the theme-relative tone too rather than a plain
+    // Color.secondary that can go nearly invisible under a light theme.
+    @ObservedObject private var theme = AppTheme.shared
 
     var body: some View {
         HStack(spacing: 16) {
@@ -163,7 +167,7 @@ private struct HeatmapLegendView: View {
             swatch(.orange, t("heatmap.legend.mid"))
             swatch(.red, t("heatmap.legend.full"))
             HStack(spacing: 4) {
-                RoundedRectangle(cornerRadius: 2).fill(Color.secondary).opacity(0.35)
+                RoundedRectangle(cornerRadius: 2).fill(theme.colors.muted).opacity(0.35)
                     .frame(width: scale.scaled(Metrics.legendSwatchWidth),
                            height: scale.scaled(Metrics.legendSwatchHeight))
                 Text(t("heatmap.legend.thin"))
