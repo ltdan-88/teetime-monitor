@@ -71,6 +71,9 @@ Alles oben funktioniert ohne jede dieser Zutaten. Jede bringt nur etwas dazu:
 
 </details>
 
+Unter macOS baut dieselbe Installation zusätzlich eine native SwiftUI-Begleit-App —
+siehe [**Eine macOS-Begleit-App**](#eine-macos-begleit-app-nur-macos) weiter unten.
+
 ## Was drin steckt
 
 ### Eine Zeile pro Tag, schon ausgewertet
@@ -133,6 +136,31 @@ und aller Hinweise) und bringt dieselben zehn Farbdesigns mit wie
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher).
 
 <p align="center"><img src="assets/de/actions.png" alt="Das Aktionen-Menü: Club suchen, Suchen, Auslastung, Einstellungen"></p>
+
+## Eine macOS-Begleit-App (nur macOS)
+
+`brew install`/`brew upgrade` baut unter macOS zusätzlich ein natives SwiftUI-Fenster
+über genau denselben Daten — derselbe Club, derselbe Platz, derselbe Verlauf,
+derselbe `~/.config/teetime-monitor`-Zustand, aktualisiert vom selben
+Hintergrund-Scraper. Ein zweiter Blick auf dieselbe Sache, kein zweites Ding, das von
+Hand synchron gehalten werden muss.
+
+Sie deckt das meiste vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
+Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, einen Club
+per Name oder ID hinzufügen — und, wie im Terminal, Deutsch/Englisch sowie eine
+wählbare Oberflächengröße (Klein/Mittel/Groß in den Einstellungen). Sie scrapt und
+bucht selbst nichts; die eigentliche Arbeit (Anmeldung, Suche, Scraping) bleibt in
+diesem selben Python-Code, erreicht auf demselben Weg wie von der Terminal-App aus.
+
+Sie ersetzt die Terminal-App oben nicht — eher ein Prototyp, der erkundet, wie ein
+natives Fenster über demselben Zustand aussehen könnte, entwickelt neben der
+Terminal-App statt an ihrer Stelle. Homebrew baut sie direkt in den eigenen Cellar
+(ein einfaches `brew install` kann nicht nach `/Applications` schreiben — das ist
+normalerweise Aufgabe eines Casks), daher gibt `brew install`/`upgrade` den einen
+Befehl aus, der sie wie jede andere App in Launchpad und Spotlight erscheinen lässt.
+Die volle Entstehungsgeschichte, samt allem, was sie bereits kann und noch nicht
+kann, steht in
+[`prototypes/macos-swift/README.md`](prototypes/macos-swift/README.md) (Englisch).
 
 ## Tasten
 

@@ -70,6 +70,9 @@ Everything above works with none of these. Each one is additive:
 
 </details>
 
+On macOS, that same install also builds a native SwiftUI companion app — see
+[**A macOS companion app**](#a-macos-companion-app-macos-only) below.
+
 ## What you get
 
 ### One row per day, already interpreted
@@ -131,6 +134,29 @@ banner), and ships the same ten colour themes as
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher).
 
 <p align="center"><img src="assets/en/actions.png" alt="The Actions menu: find a club, search, heatmap, settings"></p>
+
+## A macOS companion app (macOS only)
+
+`brew install`/`brew upgrade` on macOS also builds a native SwiftUI window over
+the exact same data — same club/course, same scrape history, same
+`~/.config/teetime-monitor` state, updated by the same background scraper. It's a
+second way to look at the same thing, not a second thing to keep in sync by hand.
+
+It covers most of what's above: the day list with weather and a heat strip, ad hoc
+search, a crowd heatmap, preferences and pc caddie login, adding a club by name or
+id, and — same as the terminal — English/German and a choice of interface scale
+(Small/Medium/Large in Settings). It never scrapes or books anything itself; the
+real work (logging in, searching, scraping) stays in this same Python codebase,
+reached the same way the terminal app reaches it.
+
+It doesn't replace the terminal app above — think of it as a prototype exploring
+what a native window over the same state could look like, developed alongside the
+terminal app rather than instead of it. Homebrew builds it straight into its own
+Cellar (a plain `brew install` can't write into `/Applications` — that's normally a
+Cask's job), so `brew install`/`upgrade` prints the one command to make it appear in
+Launchpad and Spotlight like any other app. See
+[`prototypes/macos-swift/README.md`](prototypes/macos-swift/README.md) for the full
+build story, including exactly what it can and can't do yet.
 
 ## Keys
 
