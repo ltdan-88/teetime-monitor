@@ -125,6 +125,11 @@ enum Metrics {
     static let heatBlockWidth: CGFloat = 13
     static let heatBlockHeight: CGFloat = 7
     static let freshnessDot: CGFloat = 6
+    // Reserved regardless of whether a day actually has a booking -- see the
+    // booking-badge slot in DayCard's header. Fixed rather than sized to its own
+    // content so HeatStrip lands at the same x on every row; sized for the widest
+    // real value ("HH:MM" plus the flag icon and its padding), not just "wide enough".
+    static let bookingBadge: CGFloat = 74
     // Toolbar
     static let picker: CGFloat = 230
     // Heatmap grid
@@ -150,12 +155,25 @@ enum SheetSize {
 }
 
 extension View {
-    /// Apply one of `SheetSize`'s standard sizes, scaled. Every sheet in this app
-    /// ends with this instead of its own literal `.frame(width:height:)`. The text
-    /// half needs nothing here -- each sheet's own `.font(scaledFont(...))` call
-    /// sites already read the current scale.
+    /// Apply one of `SheetSize`'s standard sizes, scaled, *and* force this sheet's
+    /// own color scheme to match the chosen theme rather than the system's. Every
+    /// sheet in this app ends with this instead of its own literal
+    /// `.frame(width:height:)`. The text-scale half needs nothing here -- each
+    /// sheet's own `.font(scaledFont(...))` call sites already read the current
+    /// scale.
+    ///
+    /// The color-scheme half is here for the same reason `sheetFrame` already
+    /// carries the scale environment instead of relying on inheritance from
+    /// `ContentView`'s root: a `.sheet`'s content is its own window and doesn't
+    /// reliably inherit modifiers from the presenting view. Without it, a sheet
+    /// opened while running a light theme under a Dark Mode system (or vice versa)
+    /// renders `Color.secondary`/`.tertiary`/native control chrome for the *wrong*
+    /// appearance -- confirmed as the cause of a real visibility bug reported
+    /// live (dropdowns and seat pips unreadable under solarized-light).
     func sheetFrame(_ size: CGSize) -> some View {
         let scale = AppScale.shared
+        let isDark = AppTheme.shared.colors.isDark
         return frame(width: scale.scaled(size.width), height: scale.scaled(size.height))
+            .preferredColorScheme(isDark ? .dark : .light)
     }
 }

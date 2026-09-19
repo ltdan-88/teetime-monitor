@@ -54,6 +54,17 @@ BUILTIN_THEME_MAP = {
     "dracula": "dracula",
     "solarized-dark": "solarized-dark",
     "solarized-light": "solarized-light",
+    # Added 2026-09-19, direct feedback on the macOS GUI ("i would like to have
+    # more light colored themes"): of the ten names above this file has always
+    # offered, solarized-light was the only genuinely light one -- gruvbox/nord/
+    # dracula/tokyonight have no official light palette at all, and swapping
+    # "catppuccin" itself over to its light Latte variant would have silently
+    # changed what every existing catppuccin user (TUI or GUI) already sees.
+    # Textual already ships "catppuccin-latte" as its own separate built-in
+    # theme (real, published Catppuccin colors, not an invented approximation),
+    # so this adds it as an eleventh, purely additive name rather than touching
+    # the existing one.
+    "catppuccin-latte": "catppuccin-latte",
 }
 _REVERSE_BUILTIN_MAP = {textual_name: brew_name for brew_name, textual_name in BUILTIN_THEME_MAP.items()}
 

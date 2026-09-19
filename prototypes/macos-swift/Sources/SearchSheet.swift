@@ -57,16 +57,25 @@ struct SearchSheet: View {
 
             Form {
                 Section(t("search.section.criteria")) {
-                    Stepper(t("prefs.min_open_spots", ["n": "\(criteria.value.minOpenSpots)"]),
-                            value: $criteria.value.minOpenSpots, in: 1...4)
+                    HStack {
+                        Text(t("prefs.min_open_spots_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [1, 2, 3, 4], value: $criteria.value.minOpenSpots)
+                    }
                     TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
                                   before: $criteria.value.weekdayBefore)
                     TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
                                   before: $criteria.value.weekendBefore)
-                    Stepper(t("prefs.buffer_before", ["n": "\(criteria.value.bufferBeforeMinutes)"]),
-                            value: $criteria.value.bufferBeforeMinutes, in: 0...60, step: 5)
-                    Stepper(t("prefs.buffer_after", ["n": "\(criteria.value.bufferAfterMinutes)"]),
-                            value: $criteria.value.bufferAfterMinutes, in: 0...60, step: 5)
+                    HStack {
+                        Text(t("prefs.buffer_before_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferBeforeMinutes, suffix: " min")
+                    }
+                    HStack {
+                        Text(t("prefs.buffer_after_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
+                    }
                 }
             }
             .formStyle(.grouped)

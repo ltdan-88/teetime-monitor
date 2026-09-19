@@ -1,5 +1,53 @@
 import SwiftUI
 
+/// The hour/minute preset lists `settings_screen.py`'s own `HOUR_CHOICES`/
+/// `MINUTE_CHOICES` define -- "--" (unset) plus 05-21 for the hour, "--" plus
+/// 00/15/30/45 for the minute. See that file's own docstring for why the hour
+/// range stops well short of the full clock (no golf club is open at 2am).
+enum TimeChoices {
+    static let hours: [Int] = Array(5...21)
+    static let minutes: [Int] = [0, 15, 30, 45]
+}
+
+/// A dropdown over a fixed integer preset list that also keeps an out-of-list
+/// current value selectable -- the same rule `settings_screen.py`'s own `compose()`
+/// applies to every one of its preset `Select` widgets ("an existing config with a
+/// value outside this list still loads and stays selectable"), so a value saved by
+/// hand, by an older preset list, or by this app's own pre-dropdown Stepper era
+/// doesn't silently vanish the moment this ships.
+///
+/// Direct request, 2026-09-19: "can you please change the time entries into
+/// dropdowns? other entries (e.g. empty slots, rain etc.) also would probably be
+/// quicker to interact with if they were dropdowns instead." Applied only to the
+/// fields that actually have a real Python preset list behind them (min open
+/// spots, the two buffers, the daylight buffer, both round durations) -- the
+/// weather thresholds (rain %/mm, wind kph, temp above/below) stay Steppers, since
+/// `settings_screen.py` itself deliberately keeps those as free-form
+/// `optional_float` fields ("a rain probability threshold could legitimately be
+/// any value 0-100, not a small fixed preset" -- that module's own docstring).
+struct IntChoicePicker: View {
+    let choices: [Int]
+    @Binding var value: Int
+    /// `""` for a bare number (min open spots); `" min"` for every duration/buffer
+    /// field -- mirrors `_int_choices`' own `f"{v} min" if v else "0"` formatting.
+    var suffix: String = ""
+
+    private var options: [Int] {
+        choices.contains(value) ? choices : (choices + [value]).sorted()
+    }
+
+    private func label(_ v: Int) -> String {
+        suffix.isEmpty || v == 0 ? "\(v)" : "\(v)\(suffix)"
+    }
+
+    var body: some View {
+        Picker("", selection: $value) {
+            ForEach(options, id: \.self) { Text(label($0)).tag($0) }
+        }
+        .labelsHidden()
+    }
+}
+
 /// Mirrors `PreferencesScreen` (v0.29.0's split): what makes a good tee time *for
 /// you*. Reads/writes the same `preferences.yaml` directly -- see
 /// `PreferencesStore.swift` for the verified round-trip with Python.
@@ -24,11 +72,23 @@ struct PreferencesSheet: View {
                 .padding(.horizontal, 16).padding(.top, 2)
             Form {
                 Section(t("prefs.section.availability")) {
-                    Stepper(t("prefs.min_open_spots", ["n": "\(prefs.value.minOpenSpots)"]), value: $prefs.value.minOpenSpots, in: 1...4)
+                    HStack {
+                        Text(t("prefs.min_open_spots_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [1, 2, 3, 4], value: $prefs.value.minOpenSpots)
+                    }
                     TimeWindowRow(label: t("prefs.weekday"), after: $prefs.value.weekdayAfter, before: $prefs.value.weekdayBefore)
                     TimeWindowRow(label: t("prefs.weekend"), after: $prefs.value.weekendAfter, before: $prefs.value.weekendBefore)
-                    Stepper(t("prefs.buffer_before", ["n": "\(prefs.value.bufferBeforeMinutes)"]), value: $prefs.value.bufferBeforeMinutes, in: 0...60, step: 5)
-                    Stepper(t("prefs.buffer_after", ["n": "\(prefs.value.bufferAfterMinutes)"]), value: $prefs.value.bufferAfterMinutes, in: 0...60, step: 5)
+                    HStack {
+                        Text(t("prefs.buffer_before_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $prefs.value.bufferBeforeMinutes, suffix: " min")
+                    }
+                    HStack {
+                        Text(t("prefs.buffer_after_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $prefs.value.bufferAfterMinutes, suffix: " min")
+                    }
                 }
                 Section(t("prefs.section.weather")) {
                     Toggle(t("prefs.avoid_rain"), isOn: $prefs.value.avoidRain)
@@ -46,9 +106,21 @@ struct PreferencesSheet: View {
                     OptionalTempRow(label: t("prefs.avoid_above"), value: $prefs.value.avoidTempAboveC)
                 }
                 Section(t("prefs.section.pace")) {
-                    Stepper(t("prefs.daylight_buffer", ["n": "\(prefs.value.daylightBufferMinutes)"]), value: $prefs.value.daylightBufferMinutes, in: 0...60, step: 5)
-                    Stepper(t("prefs.nine_holes", ["n": "\(prefs.value.roundDurationNine)"]), value: $prefs.value.roundDurationNine, in: 60...240, step: 15)
-                    Stepper(t("prefs.eighteen_holes", ["n": "\(prefs.value.roundDurationEighteen)"]), value: $prefs.value.roundDurationEighteen, in: 120...360, step: 15)
+                    HStack {
+                        Text(t("prefs.daylight_buffer_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [0, 15, 30, 45, 60, 90], value: $prefs.value.daylightBufferMinutes, suffix: " min")
+                    }
+                    HStack {
+                        Text(t("prefs.nine_holes_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [60, 75, 90, 105, 120, 135, 150, 165, 180], value: $prefs.value.roundDurationNine, suffix: " min")
+                    }
+                    HStack {
+                        Text(t("prefs.eighteen_holes_label"))
+                        Spacer()
+                        IntChoicePicker(choices: [150, 180, 210, 240, 270, 300, 330], value: $prefs.value.roundDurationEighteen, suffix: " min")
+                    }
                 }
                 Section(t("prefs.section.priorities")) {
                     Toggle(t("prefs.prioritize_friends"), isOn: $prefs.value.prioritizeFriends)
@@ -97,17 +169,64 @@ struct TimeWindowRow: View {
     }
 }
 
+/// Hour + ":" + minute, each its own dropdown -- not the free-text "17:00" field
+/// this used to be. Direct request, 2026-09-19 ("change the time entries into
+/// dropdowns"); mirrors settings_screen.py's own "optional_time" compose() branch
+/// exactly, including its two behaviours: "--" (an empty hour) means "not set" and
+/// blanks the whole value, and choosing an hour with no minute chosen yet collapses
+/// to :00 rather than being a second, redundant way to mean "not set". An
+/// out-of-list value already saved (hand-edited YAML, or the pre-05:00 range this
+/// prototype used to accept via free text) stays loaded and selectable, same as
+/// every other IntChoicePicker on this screen.
 struct OptionalTimeField: View {
     let placeholder: String
     @Binding var value: String?
 
+    private var hourPart: String { value.map { String($0.prefix(2)) } ?? "" }
+    private var minutePart: String { value.map { String($0.suffix(2)) } ?? "" }
+
+    private var hourOptions: [String] {
+        let base = TimeChoices.hours.map { String(format: "%02d", $0) }
+        return hourPart.isEmpty || base.contains(hourPart) ? base : ([hourPart] + base)
+    }
+    private var minuteOptions: [String] {
+        let base = TimeChoices.minutes.map { String(format: "%02d", $0) }
+        return minutePart.isEmpty || base.contains(minutePart) ? base : ([minutePart] + base)
+    }
+
+    private var hour: Binding<String> {
+        Binding(
+            get: { hourPart },
+            set: { newHour in
+                value = newHour.isEmpty ? nil : "\(newHour):\(minutePart.isEmpty ? "00" : minutePart)"
+            }
+        )
+    }
+    private var minute: Binding<String> {
+        Binding(
+            get: { minutePart },
+            set: { newMinute in
+                guard !hourPart.isEmpty else { return }
+                value = "\(hourPart):\(newMinute.isEmpty ? "00" : newMinute)"
+            }
+        )
+    }
+
     var body: some View {
-        TextField(placeholder, text: Binding(
-            get: { value ?? "" },
-            set: { value = $0.isEmpty ? nil : $0 }
-        ))
-        .frame(width: 70)
-        .textFieldStyle(.roundedBorder)
+        HStack(spacing: 2) {
+            Picker("", selection: hour) {
+                Text("--").tag("")
+                ForEach(hourOptions, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden().frame(width: 62)
+            Text(":")
+            Picker("", selection: minute) {
+                Text("--").tag("")
+                ForEach(minuteOptions, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden().frame(width: 62)
+        }
+        .help(placeholder)
     }
 }
 

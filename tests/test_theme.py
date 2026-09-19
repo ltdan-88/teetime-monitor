@@ -33,10 +33,11 @@ def test_to_logical_name_passes_through_names_with_no_brew_launcher_equivalent()
     assert theme.to_logical_name("green") == "green"
 
 
-def test_all_theme_names_covers_all_ten():
-    assert len(theme.ALL_THEME_NAMES) == 10
+def test_all_theme_names_covers_all_eleven():
+    assert len(theme.ALL_THEME_NAMES) == 11
     assert set(theme.ALL_THEME_NAMES) == {
         "catppuccin",
+        "catppuccin-latte",
         "gruvbox",
         "tokyonight",
         "nord",

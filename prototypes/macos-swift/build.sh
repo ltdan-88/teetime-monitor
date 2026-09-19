@@ -4,6 +4,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 APP="TeetimeMonitor.app"
+# Read straight from pyproject.toml rather than hardcoding a number here a
+# second time -- direct request, 2026-09-19 ("I want to see the version in the
+# window header and in 'about'. It should match with the version of the TUI.").
+# This one line is what the TUI's own version already is (tui.py's _version()
+# reads the same package's installed metadata), so there is exactly one place
+# a release bump has to touch for both apps to agree.
+VERSION=$(grep -m1 '^version = ' ../../pyproject.toml | sed -E 's/version = "(.*)"/\1/')
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -parse-as-library -O -o "$APP/Contents/MacOS/TeetimeMonitor" Sources/*.swift
@@ -13,7 +20,7 @@ swiftc -parse-as-library -O -o "$APP/Contents/MacOS/TeetimeMonitor" Sources/*.sw
 # club_directory_seed.json; kept in sync by hand, same tradeoff as duplicating
 # theme.py's CUSTOM_THEMES hex values into Theme.swift already is.
 cp ../../src/club_directory_seed.json "$APP/Contents/Resources/club_directory_seed.json"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -22,7 +29,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key><string>dev.local.teetime.prototype</string>
   <key>CFBundleExecutable</key><string>TeetimeMonitor</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
