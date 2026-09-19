@@ -232,8 +232,26 @@ def test_add_favorite_skips_geocoding_without_a_name(monkeypatch, tmp_path):
         raise AssertionError("should never be called without a name")
 
     monkeypatch.setattr(club_config_module.geocode, "find_club_location", fail_if_called)
+    monkeypatch.setattr(club_config_module.geocode, "find_club_country_code", fail_if_called)
     slug = club_config_module.add_favorite("0000002", clubs_dir=tmp_path)
     assert "location" not in club_config_module.load_club_config(slug, tmp_path)
+    assert "calendar" not in club_config_module.load_club_config(slug, tmp_path)
+
+
+def test_add_favorite_fills_in_a_country_code_when_the_geocoder_finds_one(monkeypatch, tmp_path):
+    # Direct follow-up, 2026-09-19 ("the calendar_country.code issue can be solved
+    # the same way as with openmeteo api"): the crowd heatmap's own holiday lookup
+    # previously required hand-editing calendar.country_code into a freshly-saved
+    # club's YAML -- now set automatically here, same as location already was.
+    monkeypatch.setattr(club_config_module.geocode, "find_club_country_code", lambda name: "DE")
+    slug = club_config_module.add_favorite("0000002", "Golf Club Sonnenberg e.V.", tmp_path)
+    assert club_config_module.load_club_config(slug, tmp_path)["calendar"] == {"country_code": "DE"}
+
+
+def test_add_favorite_skips_country_code_when_the_geocoder_finds_nothing(monkeypatch, tmp_path):
+    monkeypatch.setattr(club_config_module.geocode, "find_club_country_code", lambda name: None)
+    slug = club_config_module.add_favorite("0000002", "A club that doesn't exist anywhere", tmp_path)
+    assert "calendar" not in club_config_module.load_club_config(slug, tmp_path)
 
 
 def test_is_favorite_reflects_add_and_remove(tmp_path):

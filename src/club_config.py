@@ -203,12 +203,24 @@ def new_club_stub_with_location(club_id: str, name: str = "") -> dict:
     "search the whole directory, save as a new file" flow. `name` is blank
     whenever the caller has no name to geocode with (e.g. a club favorited by
     typed-in id alone, never seen in a directory search) — skipped in that case,
-    same as a blank name is skipped anywhere else in this project."""
+    same as a blank name is skipped anywhere else in this project.
+
+    Also sets `calendar.country_code` from the same name, best-effort, via
+    `geocode.find_club_country_code()` -- direct follow-up, 2026-09-19 ("the
+    calendar_country.code issue can be solved the same way as with openmeteo
+    api"): the crowd heatmap's own holiday lookup previously required hand-
+    editing a newly-saved club's YAML to unlock at all, the one genuinely
+    manual step left in an otherwise fully automatic add-a-club flow. See that
+    function's own docstring for why this is a second Nominatim request rather
+    than reusing `find_club_location()`'s one call."""
     stub = new_club_stub(club_id, name)
     location = geocode.find_club_location(name) if name else None
     if location is not None:
         lat, lon = location
         stub["location"] = {"lat": lat, "lon": lon}
+    country_code = geocode.find_club_country_code(name) if name else None
+    if country_code is not None:
+        stub["calendar"] = {"country_code": country_code}
     return stub
 
 

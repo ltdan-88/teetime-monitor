@@ -191,6 +191,13 @@ private let englishStrings: [String: String] = [
     "settings.save_login": "Save login",
     "settings.login_footer_no_club": "Saved either way; pick a club above to also verify it against pc caddie on save.",
     "settings.login_footer_club": "Verified live against pc caddie for the selected club when you save.",
+    // Added 2026-09-19, direct request ("integrate add/remove club into
+    // settings"): club management used to only live behind the toolbar's own
+    // "Add Club" button, with no way at all to remove one -- see this section's
+    // own row/footer text below.
+    "settings.section.clubs": "Clubs",
+    "settings.remove_club": "Remove this club (its scrape history is kept)",
+    "settings.clubs_footer": "Removing a club deletes its saved settings, not its scrape history -- adding it back later picks up right where it left off.",
     "settings.section.display": "Display",
     "settings.units": "Units",
     "settings.metric": "Metric",
@@ -205,6 +212,17 @@ private let englishStrings: [String: String] = [
     "settings.section.terminal": "Terminal app",
     "settings.terminal_footer": "Theme applies here immediately. Theme and language reach the terminal app only on its next restart: it caches them at launch and won't notice a change while running, even if you reopen its own Settings screen.",
     "settings.applied": "Applied. Theme and language reach the terminal app on its next restart.",
+    // Added 2026-09-19, direct request ("implement scrape-interval and ai
+    // settings in GUI") -- wording mirrors settings_screen.py's own FIELDS
+    // labels exactly (settings.field.scrape_interval_normal/booked,
+    // settings.field.ai_assist_enabled/avoid_predicted_crowd,
+    // settings.group.scraping/ai).
+    "settings.group.scraping": "Scraping",
+    "settings.field.scrape_interval_normal": "Scrape interval — normal (minutes)",
+    "settings.field.scrape_interval_booked": "Scrape interval — once booked (minutes)",
+    "settings.group.ai": "AI ranking",
+    "settings.field.ai_assist_enabled": "AI-ranked recommendations",
+    "settings.field.avoid_predicted_crowd": "Avoid predicted crowds",
 
     // Search
     "search.title": "Search",
@@ -397,6 +415,9 @@ private let germanStrings: [String: String] = [
     "settings.save_login": "Anmeldung speichern",
     "settings.login_footer_no_club": "Wird so oder so gespeichert; wähle oben einen Club, um sie beim Speichern auch bei pc caddie zu prüfen.",
     "settings.login_footer_club": "Wird beim Speichern live bei pc caddie für den gewählten Club geprüft.",
+    "settings.section.clubs": "Clubs",
+    "settings.remove_club": "Diesen Club entfernen (Scraping-Verlauf bleibt erhalten)",
+    "settings.clubs_footer": "Beim Entfernen eines Clubs werden nur seine gespeicherten Einstellungen gelöscht, nicht sein Scraping-Verlauf — beim erneuten Hinzufügen geht es genau dort weiter.",
     "settings.section.display": "Anzeige",
     "settings.units": "Einheiten",
     "settings.metric": "Metrisch",
@@ -411,6 +432,12 @@ private let germanStrings: [String: String] = [
     "settings.section.terminal": "Terminal-App",
     "settings.terminal_footer": "Das Design wird hier sofort übernommen. Design und Sprache erreichen die Terminal-App erst bei deren nächstem Neustart: sie liest beide einmal beim Start und bemerkt eine Änderung im laufenden Betrieb nicht, auch nicht beim erneuten Öffnen ihrer eigenen Einstellungen.",
     "settings.applied": "Übernommen. Design und Sprache erreichen die Terminal-App beim nächsten Neustart.",
+    "settings.group.scraping": "Abruf",
+    "settings.field.scrape_interval_normal": "Abrufintervall — normal (Minuten)",
+    "settings.field.scrape_interval_booked": "Abrufintervall — nach Buchung (Minuten)",
+    "settings.group.ai": "KI-Bewertung",
+    "settings.field.ai_assist_enabled": "KI-bewertete Empfehlungen",
+    "settings.field.avoid_predicted_crowd": "Vorhergesagten Andrang vermeiden",
 
     // Search
     "search.title": "Suchen",

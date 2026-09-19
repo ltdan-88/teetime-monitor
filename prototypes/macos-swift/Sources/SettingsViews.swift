@@ -276,6 +276,12 @@ struct SettingsSheet: View {
     /// `nil` on a fresh install with nothing saved yet, in which case the save still
     /// happens, just unverified (see `CredentialsScreen`'s own `verify_against_club_id`).
     let verifyClubID: String?
+    // Added 2026-09-19, direct request ("integrate add/remove club into
+    // settings"): the new Clubs section below needs the live club list to
+    // render, and needs to trigger a reload after an add/remove so the
+    // toolbar's own club switcher (which shares this exact model) updates
+    // immediately rather than waiting for its next unrelated refresh.
+    @ObservedObject var model: OverviewModel
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var uiLanguage = AppLanguage.shared
@@ -286,7 +292,15 @@ struct SettingsSheet: View {
     // this sheet opens in one session, after a theme change already happened live.
     @StateObject private var theme = Box(AppTheme.shared.name)
     @StateObject private var scaleOption = Box(AppScale.shared.option)
+    // Added 2026-09-19, direct request ("implement scrape-interval and ai
+    // settings in GUI") -- mirrors settings_screen.py's own FIELDS paths
+    // exactly (see PreferencesStore.swift's matching fields).
+    @StateObject private var scrapeIntervalMinutes = Box(Preferences.load().scrapeIntervalMinutes)
+    @StateObject private var scrapeIntervalMinutesBooked = Box(Preferences.load().scrapeIntervalMinutesBooked)
+    @StateObject private var aiAssistEnabled = Box(Preferences.load().aiAssistEnabled)
+    @StateObject private var avoidPredictedCrowd = Box(Preferences.load().avoidPredictedCrowd)
     @StateObject private var status = Box<String?>(nil)
+    @StateObject private var showingAddClub = Box(false)
 
     // Username is prefilled (not secret); password never is -- same rule
     // CredentialsScreen documents: a blank password on save means "keep what's
@@ -338,6 +352,45 @@ struct SettingsSheet: View {
                          : t("settings.login_footer_club"))
                         .font(scaledFont(.caption2))
                 }
+                // Direct request, 2026-09-19 ("integrate add/remove club into
+                // settings"): this used to be reachable only through a standalone
+                // toolbar button (add) with no way at all to remove a club --
+                // both now live together here. Sorted alphabetically, matching
+                // the toolbar's own club switcher (see App.swift's Picker there
+                // for why that dropdown's own model.clubs order -- newest-
+                // scraped-first -- stays untouched and only the *display* here
+                // and there is re-sorted).
+                Section {
+                    ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                            id: \.path) { club in
+                        HStack {
+                            Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
+                            Spacer()
+                            // No confirmation dialog -- matches the TUI's own `f`-
+                            // to-unfavorite, a single keypress with no prompt
+                            // either, and the footer below already explains
+                            // up front that this is low-stakes (scrape history
+                            // survives, re-adding picks up where it left off).
+                            Button {
+                                Store.removeClub(slug: club.slug)
+                                model.load()
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.red)
+                            .help(t("settings.remove_club"))
+                        }
+                    }
+                    Button { showingAddClub.value = true } label: {
+                        Label(t("action.add_club"), systemImage: "plus.circle")
+                    }
+                } header: {
+                    Text(t("settings.section.clubs"))
+                } footer: {
+                    Text(t("settings.clubs_footer"))
+                        .font(scaledFont(.caption2))
+                }
                 // Units lives in preferences.yaml, so like everything in PreferencesSheet
                 // it's live in a running terminal app on its next refresh -- no restart.
                 // Theme/language are the plain config file instead, and `i18n.py` caches
@@ -377,6 +430,39 @@ struct SettingsSheet: View {
                     Text(t("settings.terminal_footer"))
                         .font(scaledFont(.caption2))
                 }
+                // Direct request, 2026-09-19 ("implement scrape-interval and ai
+                // settings in GUI") -- both sections and every choice list below
+                // mirror settings_screen.py's own SCRAPE_INTERVAL_NORMAL_CHOICES/
+                // SCRAPE_INTERVAL_BOOKED_CHOICES exactly.
+                Section {
+                    HStack {
+                        Text(t("settings.field.scrape_interval_normal"))
+                        Spacer()
+                        IntChoicePicker(choices: [5, 10, 15, 30, 60, 120, 360],
+                                        value: $scrapeIntervalMinutes.value, suffix: " min")
+                    }
+                    HStack {
+                        Text(t("settings.field.scrape_interval_booked"))
+                        Spacer()
+                        IntChoicePicker(choices: [15, 30, 60, 120, 240],
+                                        value: $scrapeIntervalMinutesBooked.value, suffix: " min")
+                    }
+                } header: {
+                    Text(t("settings.group.scraping"))
+                }
+                Section {
+                    Toggle(t("settings.field.ai_assist_enabled"), isOn: $aiAssistEnabled.value)
+                    // Shown only once AI ranking is actually on -- it "only ever
+                    // does anything through ai_assist.rank_slots()" (Python's own
+                    // FIELDS comment), same reasoning PreferencesSheet already
+                    // uses for the rain/wind threshold fields under their own
+                    // avoid-rain/avoid-wind toggles.
+                    if aiAssistEnabled.value {
+                        Toggle(t("settings.field.avoid_predicted_crowd"), isOn: $avoidPredictedCrowd.value)
+                    }
+                } header: {
+                    Text(t("settings.group.ai"))
+                }
             }
             .formStyle(.grouped)
 
@@ -392,6 +478,10 @@ struct SettingsSheet: View {
                         // the other sheet); theme/language are the plain config file.
                         var p = Preferences.load()
                         p.units = units.value
+                        p.scrapeIntervalMinutes = scrapeIntervalMinutes.value
+                        p.scrapeIntervalMinutesBooked = scrapeIntervalMinutesBooked.value
+                        p.aiAssistEnabled = aiAssistEnabled.value
+                        p.avoidPredictedCrowd = avoidPredictedCrowd.value
                         try p.save()
                         // Persisting alone changed nothing on screen before this --
                         // the app saved `units` correctly and then never read it
@@ -424,5 +514,6 @@ struct SettingsSheet: View {
             .padding(16)
         }
         .sheetFrame(SheetSize.form)
+        .sheet(isPresented: $showingAddClub.value) { AddClubSheet(model: model) }
     }
 }

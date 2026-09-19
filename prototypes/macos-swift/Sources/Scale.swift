@@ -178,9 +178,27 @@ enum SheetSize {
     /// a real results column with room to spare -- generous on purpose, since
     /// guessing too narrow is what broke it the first time and this
     /// environment can't self-verify rendered layout to catch a repeat.
-    static let split = CGSize(width: 760, height: 640)
-    /// Wide data display: the heatmap's two grids.
-    static let wide = CGSize(width: 560, height: 640)
+    ///
+    /// Height trimmed from 640 to 540, direct report, 2026-09-19 ("search
+    /// screen has too much height"): the criteria column's own natural height
+    /// (five form rows plus the Search button) is well under 640, and the
+    /// results List's own `.frame(maxHeight: .infinity)` was stretching to
+    /// fill that leftover space rather than shrinking to it -- kept a bit
+    /// taller than the heatmap sheet below on purpose, since unlike a fixed
+    /// grid, more results genuinely benefit from more visible rows before
+    /// scrolling.
+    static let split = CGSize(width: 760, height: 540)
+    /// Wide data display: the heatmap's two grids, side by side (2026-09-19 on)
+    /// with a fixed-footer legend rather than stacked.
+    ///
+    /// Height trimmed from 640 to 500, same direct report as `split` above,
+    /// with a screenshot this time showing roughly 300pt of pure blank space
+    /// between the last grid row and the legend footer: side-by-side grids
+    /// are much shorter than the stacked layout this height was originally
+    /// picked for (a season's worth of operating hours, ~14 rows, comes to
+    /// roughly 350pt total including both header rows and padding), and nothing
+    /// was resizing the ScrollView above the fixed footer down to match.
+    static let wide = CGSize(width: 560, height: 500)
 }
 
 extension View {

@@ -27,6 +27,21 @@ struct Preferences {
 
     var prioritizeFriends = false
 
+    // Added 2026-09-19, direct request ("implement scrape-interval and ai
+    // settings in GUI") -- both top-level `preferences.yaml` keys, same as
+    // daylightBufferMinutes/roundDurationNine above, not nested under
+    // "preferences". Defaults match scrape_once.py's own
+    // DEFAULT_SCRAPE_INTERVAL_MINUTES/_BOOKED exactly.
+    var scrapeIntervalMinutes = 360
+    var scrapeIntervalMinutesBooked = 60
+    // Both under the nested "ai_assist" key -- settings_screen.py moved these
+    // out of clubs/*.yaml the same way daylightBufferMinutes/round_duration
+    // did (one global switch, not a per-club dial); see that module's own
+    // FIELDS list comment on why avoidPredictedCrowd specifically lives here
+    // and not under Priorities, despite reading like a preference.
+    var aiAssistEnabled = false
+    var avoidPredictedCrowd = false
+
     /// Lives here, not in the `THEME=`/`LANG=` config file, despite being a Settings
     /// -> Display field on the Python side (v0.29.0's split): `settings_screen.py`'s
     /// own `Field("settings.field.units", ("units",), ...)` names a top-level
@@ -72,15 +87,25 @@ struct Preferences {
         let round = root["round_duration_minutes"]
         p.roundDurationNine = round?["nine"]?.asInt ?? p.roundDurationNine
         p.roundDurationEighteen = round?["eighteen"]?.asInt ?? p.roundDurationEighteen
+
+        p.scrapeIntervalMinutes = root["scrape_interval_minutes"]?.asInt ?? p.scrapeIntervalMinutes
+        p.scrapeIntervalMinutesBooked = root["scrape_interval_minutes_booked"]?.asInt ?? p.scrapeIntervalMinutesBooked
+        let ai = root["ai_assist"]
+        p.aiAssistEnabled = ai?["enabled"]?.asBool ?? p.aiAssistEnabled
+        p.avoidPredictedCrowd = ai?["avoid_predicted_crowd"]?.asBool ?? p.avoidPredictedCrowd
         return p
     }
 
-    /// Re-reads the file and overlays just this struct's own known keys, so a field
-    /// this prototype doesn't yet edit (`ai_assist`, `scrape_interval_minutes`,
-    /// `units`) survives a save from here untouched -- the same "only touch fields
-    /// you actually have a widget for" property `widget_values_to_config()` has,
-    /// achieved differently: that function starts from a loaded copy and overwrites
-    /// known paths, which is exactly what this does too.
+    /// Re-reads the file and overlays just this struct's own known keys, so any
+    /// field genuinely unknown to this whole struct survives a save from here
+    /// untouched -- the same "only touch fields you actually have a widget for"
+    /// property `widget_values_to_config()` has, achieved differently: that
+    /// function starts from a loaded copy and overwrites known paths, which is
+    /// exactly what this does too. `ai_assist`/`scrape_interval_minutes*` are
+    /// now among the *known* keys (2026-09-19 on) even though only
+    /// `SettingsSheet`'s own AI/Scraping sections actually edit them --
+    /// `PreferencesSheet` re-writes them unchanged on its own Save, since both
+    /// sheets always start from a fresh `Preferences.load()` right before use.
     func save() throws {
         let existing = (try? String(contentsOfFile: Self.path(), encoding: .utf8)).map(YAML.parse) ?? .map([])
         var root = existing.asMap ?? []
@@ -133,6 +158,22 @@ struct Preferences {
             ("nine", .int(roundDurationNine)),
             ("eighteen", .int(roundDurationEighteen)),
         ]))
+        setTop("scrape_interval_minutes", .int(scrapeIntervalMinutes))
+        setTop("scrape_interval_minutes_booked", .int(scrapeIntervalMinutesBooked))
+
+        // Merged into the existing ai_assist map, not a wholesale replacement --
+        // settings_screen.py itself notes a hand-edited `ai_assist.model` "still
+        // works if set" as a fallback even though no widget (here or on the
+        // Python side) writes one any more; overwriting the whole key would
+        // silently drop that if a user ever had one set by hand.
+        var aiPairs: [(String, YAMLValue)] = existing["ai_assist"]?.asMap ?? []
+        func setAI(_ key: String, _ value: YAMLValue) {
+            if let i = aiPairs.firstIndex(where: { $0.0 == key }) { aiPairs[i].1 = value }
+            else { aiPairs.append((key, value)) }
+        }
+        setAI("enabled", .bool(aiAssistEnabled))
+        setAI("avoid_predicted_crowd", .bool(avoidPredictedCrowd))
+        setTop("ai_assist", .map(aiPairs))
 
         let dir = (Self.path() as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)

@@ -7,6 +7,7 @@ func runPreferencesStoreTests() {
         testOmittedWindowStaysOmitted()
         testPresentWindowStaysPresent()
         testSaveOverlaysOnlyKnownKeys()
+        testScrapeIntervalAndAIAssistRoundTrip()
     }
 }
 
@@ -77,9 +78,13 @@ private func testPresentWindowStaysPresent() {
     }
 }
 
-/// Fields this prototype has no widget for yet (ai_assist, scrape_interval_minutes,
-/// avoid_predicted_crowd) must survive a save untouched -- the whole point of
-/// starting `save()` from a re-read of the existing file rather than a blank one.
+/// A field this whole struct genuinely has no widget for anywhere (a hand-set
+/// `ai_assist.model`, or the pre-move legacy `preferences.avoid_predicted_crowd`
+/// path settings_screen.py's own comment says needs no migration) must still
+/// survive a save untouched -- the whole point of starting `save()` from a
+/// re-read of the existing file rather than a blank one, and (2026-09-19 on,
+/// once ai_assist/scrape_interval_minutes gained real widgets) of merging into
+/// ai_assist's existing map rather than replacing it wholesale.
 private func testSaveOverlaysOnlyKnownKeys() {
     withConfigDir { dir in
         let seed = """
@@ -98,10 +103,34 @@ private func testSaveOverlaysOnlyKnownKeys() {
 
         let raw = try! String(contentsOfFile: dir.file("preferences.yaml"), encoding: .utf8)
         let parsed = YAML.parse(raw)
-        Harness.checkEqual("ai_assist.enabled survives", parsed["ai_assist"]?["enabled"]?.asBool, true)
-        Harness.checkEqual("ai_assist.model survives", parsed["ai_assist"]?["model"]?.asString, "claude-opus")
-        Harness.checkEqual("avoid_predicted_crowd survives", parsed["preferences"]?["avoid_predicted_crowd"]?.asBool, true)
-        Harness.checkEqual("scrape_interval_minutes survives", parsed["scrape_interval_minutes"]?.asInt, 45)
+        Harness.checkEqual("ai_assist.enabled round-trips", parsed["ai_assist"]?["enabled"]?.asBool, true)
+        Harness.checkEqual("a hand-set ai_assist.model this struct has no field for survives",
+                            parsed["ai_assist"]?["model"]?.asString, "claude-opus")
+        Harness.checkEqual("the pre-move legacy preferences.avoid_predicted_crowd path survives",
+                            parsed["preferences"]?["avoid_predicted_crowd"]?.asBool, true)
+        Harness.checkEqual("scrape_interval_minutes round-trips", parsed["scrape_interval_minutes"]?.asInt, 45)
         Harness.checkEqual("min_open_spots was actually updated", parsed["availability"]?["min_open_spots"]?.asInt, 2)
+    }
+}
+
+/// Direct request, 2026-09-19 ("implement scrape-interval and ai settings in
+/// GUI"): scrapeIntervalMinutes/scrapeIntervalMinutesBooked (top-level, like
+/// daylightBufferMinutes) and aiAssistEnabled/avoidPredictedCrowd (nested under
+/// ai_assist, matching settings_screen.py's own FIELDS paths exactly) now
+/// round-trip for real, not just pass through untouched.
+private func testScrapeIntervalAndAIAssistRoundTrip() {
+    withConfigDir { _ in
+        var p = Preferences()
+        p.scrapeIntervalMinutes = 15
+        p.scrapeIntervalMinutesBooked = 30
+        p.aiAssistEnabled = true
+        p.avoidPredictedCrowd = true
+        try! p.save()
+
+        let reloaded = Preferences.load()
+        Harness.checkEqual("scrapeIntervalMinutes round-trips", reloaded.scrapeIntervalMinutes, 15)
+        Harness.checkEqual("scrapeIntervalMinutesBooked round-trips", reloaded.scrapeIntervalMinutesBooked, 30)
+        Harness.checkEqual("aiAssistEnabled round-trips", reloaded.aiAssistEnabled, true)
+        Harness.checkEqual("avoidPredictedCrowd round-trips", reloaded.avoidPredictedCrowd, true)
     }
 }

@@ -294,6 +294,22 @@ enum Store {
             .map { (path: $0.0, id: $0.1, slug: $0.2, name: $0.3, lastScrape: $0.4) }
     }
 
+    /// Un-favorite a club -- direct request, 2026-09-19 ("implement removing/
+    /// unfavoriting club in GUI"), mirroring `club_config.remove_favorite()`
+    /// exactly: deletes `clubs/<slug>.yaml` and nothing else. Scraped history in
+    /// `data/<club_id>.db` is intentionally left alone (kept by club id, not
+    /// slug), so re-adding the same club later still has its history -- same
+    /// Tier 1 "delete the file Python already owns directly" pattern `clubs()`
+    /// above already reads that same file with, not a new console script for
+    /// what's genuinely just an unlink.
+    static func removeClub(slug: String) {
+        let home = NSHomeDirectory() as NSString
+        let configEnv = ProcessInfo.processInfo.environment["TEETIME_MONITOR_CONFIG_DIR"]
+        let clubsDir = ((configEnv as NSString?)?.expandingTildeInPath
+            ?? home.appendingPathComponent(".config/teetime-monitor")) + "/clubs"
+        try? FileManager.default.removeItem(atPath: "\(clubsDir)/\(slug).yaml")
+    }
+
     /// When this club was last scraped, for the freshness line in the toolbar.
     static func lastScrape(dbPath: String) -> Date? {
         var db: OpaquePointer?

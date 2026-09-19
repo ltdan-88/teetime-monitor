@@ -85,15 +85,17 @@ def _no_real_global_preferences_file(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def _no_real_geocoding_by_default(monkeypatch):
-    """`club_config.add_favorite()` calls `geocode.find_club_location()` on every
-    save, which without this makes a real network request to the live Nominatim
-    service. Defaults to "nothing found" (`None`); a test exercising the
-    location-found path overrides it locally.
+    """`club_config.add_favorite()` calls `geocode.find_club_location()` *and*
+    (2026-09-19 on) `geocode.find_club_country_code()` on every save, which
+    without this makes real network requests to the live Nominatim service.
+    Both default to "nothing found" (`None`); a test exercising either found
+    path overrides its own locally.
 
     Same consolidation as above -- test_club_config.py and test_tui.py each had
     their own copy, both patching the same `src.geocode` module object.
     """
     monkeypatch.setattr(geocode, "find_club_location", lambda name: None)
+    monkeypatch.setattr(geocode, "find_club_country_code", lambda name: None)
 
 
 @pytest.fixture(autouse=True)
