@@ -46,14 +46,21 @@ struct AddClubSheet: View {
                     .padding(.horizontal, 16).padding(.bottom, 8)
             }
 
+            // maxWidth: .infinity too, not just maxHeight -- direct report,
+            // 2026-09-19 ("'magnifying glass' placeholder in search, add club etc.
+            // not centered"). Without it, ContentUnavailableView kept its own
+            // natural (narrow) width and this sheet's outer VStack(alignment:
+            // .leading) then hugged it to the left edge instead of centering it --
+            // SearchSheet's own empty state had the identical bug for the same
+            // reason.
             if trimmedQuery.isEmpty {
                 ContentUnavailableView(t("addclub.empty_title"), systemImage: "magnifyingglass",
                     description: Text(t("addclub.empty_desc")))
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if directIDMatch == nil && searchResults.isEmpty {
                 ContentUnavailableView(t("addclub.no_matches_title"), systemImage: "magnifyingglass",
                     description: Text(t("addclub.no_matches_desc", ["query": trimmedQuery])))
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     if let id = directIDMatch {

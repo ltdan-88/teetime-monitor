@@ -93,13 +93,16 @@ struct SearchSheet: View {
             Divider().padding(.top, 8)
 
             if results.value.isEmpty {
+                // maxWidth: .infinity too -- see AddClubSheet's identical fix for
+                // the same direct report; without it this hugged the sheet's left
+                // edge instead of centering, since this VStack is alignment: .leading.
                 ContentUnavailableView(
                     status.value == nil ? t("search.none_yet_title") : t("search.no_matches_title"),
                     systemImage: "magnifyingglass",
                     description: Text(status.value == nil
                         ? t("search.none_yet_desc")
                         : t("search.no_matches_desc", ["n": "\(searchDays)"])))
-                    .frame(maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(results.value) { match in
                     SearchResultRow(match: match, weather: weatherByDate.value[match.date])
