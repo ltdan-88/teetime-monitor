@@ -156,8 +156,20 @@ enum SheetSize {
     // drives `form`) rather than picking a smaller number arbitrarily.
     /// A form of settings controls: Preferences, Settings.
     static let form = CGSize(width: 460, height: 560)
-    /// A form plus a result list: Search, Add a Club.
+    /// A form plus a result list, stacked: Add a Club (the list is the thing
+    /// being searched *for*, so it takes the full width once results appear).
     static let browser = CGSize(width: 520, height: 640)
+    /// Criteria on the left, results on the right: Search only. Added
+    /// 2026-09-19, direct follow-up on the sheet-width trim above ("would it
+    /// make sense to place search results on the right instead? ... the
+    /// results don't need that much width") -- unlike Add a Club, here the
+    /// list is a *comparison* against the criteria beside it, and each result
+    /// row is genuinely narrow (a time, a weather icon, an open-spot count,
+    /// a chevron), so it doesn't need Add a Club's full-width list treatment.
+    /// 680, not `browser`'s 520 -- a two-column layout needs real width for
+    /// both, but Search.criteriaColumnWidth (340) plus a narrow results
+    /// column is barely more than `browser`'s own *original*, pre-trim 620.
+    static let split = CGSize(width: 680, height: 640)
     /// Wide data display: the heatmap's two grids.
     static let wide = CGSize(width: 560, height: 640)
 }
