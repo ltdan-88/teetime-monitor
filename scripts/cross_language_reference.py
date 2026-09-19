@@ -62,6 +62,13 @@ def _units_cases() -> dict:
             {"args": {"units": m}, "expected": units.SYMBOLS[m]["temperature"]} for m in modes
         ],
         "units_wind_symbol": [{"args": {"units": m}, "expected": units.SYMBOLS[m]["wind"]} for m in modes],
+        # Added 2026-09-19 alongside the GUI's own precipitation-mm display (item
+        # 3, "precipitation amount in mm seems to still be missing") -- the one
+        # units.py function that ported to Swift (Units.precipitationAmountLabel)
+        # without ever gaining a cross-check.
+        "units_precipitation_label": [
+            {"args": {"units": m}, "expected": units.precipitation_amount_label(m)} for m in modes
+        ],
     }
 
 

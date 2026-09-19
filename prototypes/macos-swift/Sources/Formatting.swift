@@ -27,6 +27,21 @@ func fillColor(_ ratio: Double) -> Color {
     ratio >= 1.0 ? .red : (ratio >= 0.5 ? .orange : .green)
 }
 
+/// "70%" or "70%/1.5mm" -- mirrors `tui._slot_precipitation_cell()`'s own
+/// "{probability}%{mm}" combination exactly: the amount suffix only appears
+/// when there's a real, nonzero mm figure to show (Python's own `if
+/// point.precipitation_mm else ""` -- 0.0 and nil are both falsy there),
+/// not for every forecast point. Added 2026-09-19, direct report ("precipitation
+/// amount in mm seems to still be missing") -- SlotRow/SearchResultRow
+/// previously showed only the probability, dropping the actual amount TUI's
+/// own table has always carried.
+func precipitationCellText(probability: Double, mm: Double?, units: String) -> String {
+    guard let mm, mm != 0 else { return "\(Int(probability))%" }
+    let amount = Units.precipitationMM(mm, units)
+    let decimals = units == Units.imperial ? 2 : 1
+    return "\(Int(probability))%/" + String(format: "%.\(decimals)f", amount) + Units.precipitationAmountLabel(units)
+}
+
 func weekday(_ iso: String) -> String {
     let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
     f.locale = Locale(identifier: "en_US_POSIX")  // parsing a fixed ISO shape

@@ -117,7 +117,11 @@ enum Metrics {
     // Slot row columns
     static let slotTime: CGFloat = 42
     static let slotTemp: CGFloat = 24
-    static let slotPrecip: CGFloat = 34
+    // Widened from 34 -- direct report, 2026-09-19 ("precipitation amount in mm
+    // seems to still be missing"): this cell now shows "70%/1.5mm", not just
+    // "70%" (mirrors tui._slot_precipitation_cell()'s own "%{mm}" combination),
+    // and 34 was sized for the probability alone.
+    static let slotPrecip: CGFloat = 56
     static let slotWind: CGFloat = 30
     static let seatPip: CGFloat = 9
     // Day card

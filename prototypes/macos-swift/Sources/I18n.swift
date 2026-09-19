@@ -121,12 +121,17 @@ private let englishStrings: [String: String] = [
     "tip.temp_day": "High / low temperature ({unit}), 08:00–20:00",
     "tip.temp": "Temperature ({unit})",
     "tip.rain_day": "Average rain chance, 08:00–20:00",
-    "tip.rain": "Rain chance",
-    "tip.rain_flagged": "Rain chance — ≥50%, flagged",
+    "tip.rain": "Rain chance (and amount, once measurable)",
+    "tip.rain_flagged": "Rain chance — ≥50%, flagged (and amount, once measurable)",
     "tip.wind_day": "Peak wind, {unit}, 08:00–20:00",
     "tip.wind": "Wind, {unit}",
     "tip.wind_flagged": "Wind, {unit} — ≥30 km/h, flagged",
     "tip.sun": "Sunrise / sunset",
+    // Added 2026-09-19, direct report ("search results and overview still
+    // need explanation what percentage and number really mean") -- neither
+    // had any explanation at all before, unlike every weather cell beside them.
+    "tip.open_spots": "Open spots out of this slot's total capacity",
+    "tip.seat_pips": "{booked} of {capacity} spots booked -- filled = booked, empty = open",
 
     // Legend
     "legend.hilo": "hi/lo {unit}, 08:00–20:00",
@@ -269,7 +274,15 @@ private let englishStrings: [String: String] = [
     "heatmap.legend.full": "fully booked",
     "heatmap.legend.thin": "thin sample (<3)",
     "heatmap.legend.no_data": "no data",
-    "heatmap.no_country": "No country set for this club — public holidays not shown. Set calendar.country_code in its YAML to enable that.",
+    // Updated 2026-09-19, direct follow-up ("why does heatmap still say no
+    // country is set for club") right after new clubs started detecting this
+    // automatically: geocode.find_club_country_code() only runs when a club is
+    // first *added* (see that function's own docstring on why there's no
+    // backfill pass), so an already-saved club from before that fix genuinely
+    // still needs one of the two paths this message now spells out -- it
+    // wasn't a bug, but the old wording only mentioned the manual one, which
+    // read as the fix having silently done nothing.
+    "heatmap.no_country": "No country set for this club — public holidays not shown. New clubs detect this automatically now; for one added before that, remove and re-add it under Settings → Clubs, or set calendar.country_code in its YAML by hand.",
     "weekday.short.sunday": "Sun",
     "weekday.short.monday": "Mon",
     "weekday.short.tuesday": "Tue",
@@ -351,12 +364,14 @@ private let germanStrings: [String: String] = [
     "tip.temp_day": "Höchst-/Tiefsttemperatur ({unit}), 08:00–20:00",
     "tip.temp": "Temperatur ({unit})",
     "tip.rain_day": "Durchschnittliche Regenwahrscheinlichkeit, 08:00–20:00",
-    "tip.rain": "Regenwahrscheinlichkeit",
-    "tip.rain_flagged": "Regenwahrscheinlichkeit — ≥50 %, markiert",
+    "tip.rain": "Regenwahrscheinlichkeit (und Menge, sobald messbar)",
+    "tip.rain_flagged": "Regenwahrscheinlichkeit — ≥50 %, markiert (und Menge, sobald messbar)",
     "tip.wind_day": "Stärkster Wind, {unit}, 08:00–20:00",
     "tip.wind": "Wind, {unit}",
     "tip.wind_flagged": "Wind, {unit} — ≥30 km/h, markiert",
     "tip.sun": "Sonnenaufgang / Sonnenuntergang",
+    "tip.open_spots": "Freie Plätze von der Gesamtkapazität dieser Zeit",
+    "tip.seat_pips": "{booked} von {capacity} Plätzen gebucht -- ausgefüllt = gebucht, leer = frei",
 
     // Legend
     "legend.hilo": "Höchst/Tief {unit}, 08:00–20:00",
@@ -484,7 +499,7 @@ private let germanStrings: [String: String] = [
     "heatmap.legend.full": "ausgebucht",
     "heatmap.legend.thin": "wenige Daten (<3)",
     "heatmap.legend.no_data": "keine Daten",
-    "heatmap.no_country": "Für diesen Club ist kein Land gesetzt — Feiertage werden nicht berücksichtigt. Setze calendar.country_code in seiner YAML-Datei, um das zu aktivieren.",
+    "heatmap.no_country": "Für diesen Club ist kein Land gesetzt — Feiertage werden nicht berücksichtigt. Neue Clubs erkennen das jetzt automatisch; entferne diesen Club unter Einstellungen → Clubs und füge ihn erneut hinzu, oder setze calendar.country_code manuell in seiner YAML-Datei.",
     "weekday.short.sunday": "So",
     "weekday.short.monday": "Mo",
     "weekday.short.tuesday": "Di",
