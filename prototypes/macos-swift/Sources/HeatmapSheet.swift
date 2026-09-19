@@ -30,30 +30,55 @@ struct HeatmapSheet: View {
             if isLoading.value {
                 ProgressView(t("heatmap.loading")).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let heatmap = heatmap.value {
-                // maxHeight: .infinity -- without it this ScrollView reported its
-                // own *content* height as its ideal size (two full grids plus the
-                // legend routinely runs taller than the sheet itself), which let it
-                // push the status line and Close button below straight out of the
-                // fixed-height sheet instead of shrinking to the space actually
-                // left for it -- confirmed live (2026-09-19) via a screenshot where
-                // the footer note was clipped at the sheet's bottom edge with no
-                // Close button visible at all. SearchSheet's own results List
-                // already carries this same constraint for the same reason.
+                // Side by side, not stacked -- direct follow-up, 2026-09-19, on
+                // the same visit that reported the Search sheet's clipping bug
+                // ("would a two-column layout work for heatmap with a fixated
+                // legend"): both grids share the same hour-of-day rows (see
+                // sharedHours below), so putting them beside each other makes
+                // "same hour, does a holiday look different from a normal
+                // Wednesday" a glance instead of a scroll. Neither grid gets an
+                // explicit width -- same lesson the Search sheet's own bug just
+                // taught (a guessed fixed width can silently be too narrow for
+                // content that doesn't wrap gracefully); each sizes itself to
+                // its own natural content instead, which is also correct here
+                // since the two grids are genuinely different widths (7 weekday
+                // columns vs. 3 special-day ones).
+                //
+                // maxHeight: .infinity on the ScrollView -- without it this
+                // reported its own *content* height as its ideal size, which
+                // could push what comes after it below the fixed-height sheet
+                // entirely (this exact failure hit the status line/Close button
+                // here before, and the Search sheet's results List independently
+                // needed the same fix).
+                let sharedHours = Array(Set(heatmap.byWeekday.values.flatMap(\.keys))
+                    .union(heatmap.specialDays.values.flatMap(\.keys))).sorted()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top, spacing: 24) {
                         HeatmapGridView(title: t("heatmap.by_weekday"), keys: CalendarContext.weekdays,
                                         labels: CalendarContext.weekdays.map {
                                             t("weekday.short.\($0.lowercased())")
                                         },
-                                        group: heatmap.byWeekday)
+                                        group: heatmap.byWeekday, hours: sharedHours)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Divider()
                         HeatmapGridView(title: t("heatmap.special_days"), keys: CalendarContext.specialDayTypes,
                                         labels: CalendarContext.specialDayTypes.map { t("heatmap.\($0)") },
-                                        group: heatmap.specialDays)
-                        HeatmapLegendView()
+                                        group: heatmap.specialDays, hours: sharedHours)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(16)
                 }
                 .frame(maxHeight: .infinity)
+
+                // The legend, fixed below the scrolling grids rather than
+                // scrolling away with them -- the other half of the same
+                // request ("...with a fixated legend in the bottom"). Simpler
+                // than the day list's own pinned Section header: this isn't a
+                // lazy collection, so moving it below the ScrollView (instead
+                // of inside its content) is the whole fix.
+                Divider()
+                HeatmapLegendView()
+                    .padding(.horizontal, 16).padding(.vertical, 10)
             }
 
             if let status = status.value {
@@ -108,10 +133,18 @@ private struct HeatmapGridView: View {
     let keys: [String]
     let labels: [String]
     let group: HeatmapGroup
-
-    private var hours: [String] {
-        Array(Set(group.values.flatMap { $0.keys })).sorted()
-    }
+    // The *union* of both grids' own hours, computed once by HeatmapSheet and
+    // passed to both -- not each grid's own `group.values.flatMap { $0.keys }`
+    // anymore. Side by side (see HeatmapSheet's own layout, 2026-09-19), row N
+    // has to mean the same hour in both grids for the alignment to be honest;
+    // the by-weekday and special-days groups don't necessarily cover the same
+    // hours on their own (a tournament has never started at 06:00, say), so
+    // each computing its own row set independently could silently misalign
+    // what looks like a shared axis. A row this grid has no data for still
+    // renders (as the existing "no data" dash), which is the correct way to
+    // show "no data at this hour", not a missing row that shifts everything
+    // below it out of sync with the grid beside it.
+    let hours: [String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -172,7 +205,12 @@ private struct HeatmapLegendView: View {
     @ObservedObject private var theme = AppTheme.shared
 
     var body: some View {
-        HStack(spacing: 16) {
+        // FlowLayout, not a plain HStack -- now that the legend is a fixed
+        // footer rather than free to scroll with the grids above it, it has to
+        // hold up at any width the sheet can be resized to, the same "wrap
+        // instead of silently overflow" reasoning LegendLine's own move to
+        // FlowLayout already covers (see App.swift).
+        FlowLayout(hSpacing: 16, vSpacing: 4) {
             swatch(.green, t("heatmap.legend.open"))
             swatch(.orange, t("heatmap.legend.mid"))
             swatch(.red, t("heatmap.legend.full"))
