@@ -49,69 +49,94 @@ struct SearchSheet: View {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
     }
 
+    // Sized for the longest German field label this form ever shows ("Abstand
+    // zur Gruppe davor (Minuten)") plus its control, not a round number -- a
+    // narrower column would wrap that label, a wider one would just be unused
+    // space next to the results column. See SheetSize.split's own docstring.
+    private let criteriaColumnWidth: CGFloat = 340
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("search.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
             Text(t("search.prefill_note"))
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 2)
 
-            Form {
-                Section(t("search.section.criteria")) {
-                    HStack {
-                        Text(t("prefs.min_open_spots_label"))
-                        Spacer()
-                        IntChoicePicker(choices: [1, 2, 3, 4], value: $criteria.value.minOpenSpots)
+            // Criteria on the left, results on the right -- direct follow-up,
+            // 2026-09-19, on top of this same sheet's own width already having
+            // just been trimmed ("would it make sense to place search results
+            // on the right instead? ... the results don't need that much
+            // width"): each result row really is narrow (see
+            // criteriaColumnWidth's own docstring for the split this enables),
+            // and stacking meant results were only ever visible after scrolling
+            // past the whole criteria form -- keeping both on screen at once
+            // means adjusting a criterion and re-running the search doesn't
+            // lose sight of what's being compared against.
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Form {
+                        Section(t("search.section.criteria")) {
+                            HStack {
+                                Text(t("prefs.min_open_spots_label"))
+                                Spacer()
+                                IntChoicePicker(choices: [1, 2, 3, 4], value: $criteria.value.minOpenSpots)
+                            }
+                            TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
+                                          before: $criteria.value.weekdayBefore)
+                            TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
+                                          before: $criteria.value.weekendBefore)
+                            HStack {
+                                Text(t("prefs.buffer_before_label"))
+                                Spacer()
+                                IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferBeforeMinutes, suffix: " min")
+                            }
+                            HStack {
+                                Text(t("prefs.buffer_after_label"))
+                                Spacer()
+                                IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
+                            }
+                        }
                     }
-                    TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
-                                  before: $criteria.value.weekdayBefore)
-                    TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
-                                  before: $criteria.value.weekendBefore)
-                    HStack {
-                        Text(t("prefs.buffer_before_label"))
-                        Spacer()
-                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferBeforeMinutes, suffix: " min")
+                    .formStyle(.grouped)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let status = status.value {
+                            Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            if isSearching.value { ProgressView().controlSize(.small) }
+                            Button(t("search.button")) { runSearch() }
+                                .keyboardShortcut(.defaultAction)
+                                .disabled(isSearching.value)
+                        }
                     }
-                    HStack {
-                        Text(t("prefs.buffer_after_label"))
-                        Spacer()
-                        IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
-                    }
+                    .padding(.horizontal, 16).padding(.top, 4)
                 }
-            }
-            .formStyle(.grouped)
+                .frame(width: criteriaColumnWidth)
 
-            HStack {
-                if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
-                Spacer()
-                if isSearching.value { ProgressView().controlSize(.small) }
-                Button(t("search.button")) { runSearch() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isSearching.value)
-            }
-            .padding(.horizontal, 16).padding(.top, 4)
+                Divider()
 
-            Divider().padding(.top, 8)
-
-            if results.value.isEmpty {
-                // maxWidth: .infinity too -- see AddClubSheet's identical fix for
-                // the same direct report; without it this hugged the sheet's left
-                // edge instead of centering, since this VStack is alignment: .leading.
-                ContentUnavailableView(
-                    status.value == nil ? t("search.none_yet_title") : t("search.no_matches_title"),
-                    systemImage: "magnifyingglass",
-                    description: Text(status.value == nil
-                        ? t("search.none_yet_desc")
-                        : t("search.no_matches_desc", ["n": "\(searchDays)"])))
+                if results.value.isEmpty {
+                    // maxWidth: .infinity too -- see AddClubSheet's identical fix
+                    // for the same direct report; without it this hugged the
+                    // left edge of its own column instead of centering.
+                    ContentUnavailableView(
+                        status.value == nil ? t("search.none_yet_title") : t("search.no_matches_title"),
+                        systemImage: "magnifyingglass",
+                        description: Text(status.value == nil
+                            ? t("search.none_yet_desc")
+                            : t("search.no_matches_desc", ["n": "\(searchDays)"])))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(results.value) { match in
+                        SearchResultRow(match: match, weather: weatherByDate.value[match.date])
+                            .contentShape(Rectangle())
+                            .onTapGesture { confirming.value = match }
+                    }
+                    .listStyle(.plain)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(results.value) { match in
-                    SearchResultRow(match: match, weather: weatherByDate.value[match.date])
-                        .contentShape(Rectangle())
-                        .onTapGesture { confirming.value = match }
                 }
-                .listStyle(.plain)
-                .frame(maxHeight: .infinity)
             }
+            .padding(.top, 8)
 
             HStack {
                 Spacer()
@@ -119,7 +144,7 @@ struct SearchSheet: View {
             }
             .padding(16)
         }
-        .sheetFrame(SheetSize.browser)
+        .sheetFrame(SheetSize.split)
         // Same interaction as SlotRow -- a confirming dialog, not a silent write on
         // tap, since this marks a local record of what you booked, not a real
         // pc caddie action.
@@ -172,7 +197,10 @@ private struct SearchResultRow: View {
                 Text(weekday(match.date)).font(scaledFont(.caption)).bold()
                 Text(match.time).font(scaledFont(.caption, design: .monospaced)).foregroundStyle(.secondary)
             }
-            .frame(width: 100, alignment: .leading)
+            // Trimmed from 100 -- this row now lives in Search's own narrower
+            // results column (see SheetSize.split), and every real weekday
+            // label this shows ("Sa. 19 Sept.") fits comfortably under 90.
+            .frame(width: 90, alignment: .leading)
 
             if let w = weather?.weather(at: match.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption)).foregroundStyle(.secondary)
@@ -184,7 +212,7 @@ private struct SearchResultRow: View {
             }
 
             Text(t("search.open_spots", ["n": "\(match.capacity - match.booked)"])).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .leading)
+                .frame(width: 48, alignment: .leading)
 
             if !match.reasons.isEmpty {
                 Text(match.reasons.joined(separator: ", "))
