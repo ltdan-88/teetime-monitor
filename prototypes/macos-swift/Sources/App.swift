@@ -155,6 +155,10 @@ struct SlotRow: View {
                 Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : t("overview.not_bookable"))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).italic()
             } else {
+                // Direct report, 2026-09-19 ("search results and overview still
+                // need explanation what percentage and number really mean") --
+                // neither of these had any explanation at all before, unlike
+                // every weather cell beside them.
                 HStack(spacing: 3) {
                     ForEach(0..<max(slot.capacity, 1), id: \.self) { i in
                         RoundedRectangle(cornerRadius: 2)
@@ -165,8 +169,10 @@ struct SlotRow: View {
                                    height: scale.scaled(Metrics.seatPip))
                     }
                 }
+                .help(t("tip.seat_pips", ["booked": "\(slot.booked)", "capacity": "\(slot.capacity)"]))
                 Text(t("overview.free", ["n": "\(slot.capacity - slot.booked)"]))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .help(t("tip.open_spots"))
             }
 
             Spacer()
@@ -200,9 +206,12 @@ struct SlotRow: View {
                     // 🌧 only above the threshold -- the real number always shows, same
                     // "worth noticing at a glance flag layered on the number, not a
                     // gate on it" rule tui._slot_precipitation_cell() documents.
+                    // "70%/1.5mm", not just "70%" -- direct report, 2026-09-19
+                    // ("precipitation amount in mm seems to still be missing"),
+                    // mirroring that same function's own probability+amount cell.
                     HStack(spacing: 1) {
                         if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
-                        Text("\(Int(p))%")
+                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value))
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
                     .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))
@@ -867,7 +876,17 @@ struct ContentView: View {
                     }
                 }
                 Spacer(minLength: 12)
-                HStack(spacing: 6) {
+                // Label above the control, not beside it -- direct report,
+                // 2026-09-19 ("club and course label not matching in placement/
+                // alignment/design"): the club title got a "Club" caption above
+                // it in the same session's own earlier round, but this row kept
+                // its original label-beside-picker layout, so the two ended up
+                // inconsistent with each other. Matching VStack(alignment:
+                // .leading, spacing: 2) to the title's own means both captions
+                // now land on the same first-text-baseline too (this HStack's
+                // own .firstTextBaseline alignment), reading as one label row
+                // above two controls rather than two differently-built rows.
+                VStack(alignment: .leading, spacing: 2) {
                     Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     Picker("", selection: $model.course) {
                         ForEach(model.courses, id: \.self) { Text($0).tag($0) }

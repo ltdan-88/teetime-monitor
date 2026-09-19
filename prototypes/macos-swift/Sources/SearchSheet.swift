@@ -215,26 +215,32 @@ private struct SearchResultRow: View {
 
             if let w = weather?.weather(at: match.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    .help(t("tip.condition_at", ["time": match.time]))
                 if let tempC = w.temperatureC {
                     Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
                         .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                         .frame(width: 28, alignment: .leading)
+                        .help(t("tip.temp", ["unit": Units.temperatureSymbol(units.value)]))
                 }
                 // Precipitation and wind -- direct report, 2026-09-19 ("implement
                 // missing weather columns in GUI"): the TUI's own SearchScreen
                 // table has Temperature/Precipitation/Wind columns side by side,
                 // this row previously only had temperature. Same 🌧/💨
-                // threshold-flag convention SlotRow's own precip/wind cells use
-                // (real number always shown, the icon layered on top once it
-                // crosses tui._SLOT_WIND_ICON_THRESHOLD_KPH's own 50%/30kph
-                // marks), not a different convention for the same figures.
+                // threshold-flag convention (and, once mm actually shipped, the
+                // same "{probability}%/{mm}" cell -- direct follow-up, "precipitation
+                // amount in mm seems to still be missing") SlotRow's own precip/
+                // wind cells use, including their tooltips (a different report
+                // on the exact same visit: "search results and overview still
+                // need explanation what percentage and number really mean") --
+                // not a separate, undocumented convention for the same figures.
                 if let p = w.precipitationProbability {
                     HStack(spacing: 1) {
                         if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
-                        Text("\(Int(p))%")
+                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value))
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
+                    .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))
                 }
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
@@ -243,11 +249,15 @@ private struct SearchResultRow: View {
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
+                    .help(wd >= 30
+                          ? t("tip.wind_flagged", ["unit": Units.windSymbol(units.value)])
+                          : t("tip.wind", ["unit": Units.windSymbol(units.value)]))
                 }
             }
 
             Text(t("search.open_spots", ["n": "\(match.capacity - match.booked)"])).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .frame(width: 48, alignment: .leading)
+                .help(t("tip.open_spots"))
 
             if !match.reasons.isEmpty {
                 Text(match.reasons.joined(separator: ", "))

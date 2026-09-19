@@ -69,6 +69,7 @@ runGroup("units_precipitation_mm") { args in
 }
 runGroup("units_temperature_symbol") { args in Units.temperatureSymbol(args["units"] as! String) }
 runGroup("units_wind_symbol") { args in Units.windSymbol(args["units"] as! String) }
+runGroup("units_precipitation_label") { args in Units.precipitationAmountLabel(args["units"] as! String) }
 
 runGroup("classify_day") { args in
     let vacationRanges = (args["vacation_ranges"] as! [[String: Any]]).map {

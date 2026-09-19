@@ -36,6 +36,16 @@ enum Units {
     /// equivalent of the TUI's own unit-bearing column headers.
     static func temperatureSymbol(_ units: String) -> String { units == imperial ? "°F" : "°C" }
     static func windSymbol(_ units: String) -> String { units == imperial ? "mph" : "km/h" }
+
+    /// Mirrors `units.precipitation_amount_label()` -- the one per-cell unit
+    /// suffix that survived the header taking over every other unit label (see
+    /// that function's own docstring): a precipitation cell packs two numbers
+    /// together ("70%/1.5mm"), so this is what tells them apart. Added
+    /// 2026-09-19 alongside actually displaying the mm/in amount at all (direct
+    /// report, "precipitation amount in mm seems to still be missing") --
+    /// SlotRow/SearchResultRow previously showed only the probability
+    /// percentage, never the amount.
+    static func precipitationAmountLabel(_ units: String) -> String { units == imperial ? "in" : "mm" }
 }
 
 /// The running app's current units -- same singleton shape as `AppTheme`/`AppScale`,
