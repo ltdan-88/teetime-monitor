@@ -90,8 +90,17 @@ def _is_another_flight(slot: Slot | None) -> bool:
     return slot is not None and (slot.booked > 0 or slot.block_reason is not None)
 
 
-def _party_grew_change(booking: ConfirmedBooking, baseline_slot: Slot | None, latest_slot: Slot) -> BookingChange | None:
+def _party_grew_change(
+    booking: ConfirmedBooking, baseline_slot: Slot | None, latest_slot: Slot, baseline_predates_booking: bool
+) -> BookingChange | None:
     if baseline_slot is None or latest_slot.booked <= baseline_slot.booked:
+        return None
+    if baseline_predates_booking:
+        # The baseline scrape was taken before this booking even existed — any rise in
+        # `booked` across that boundary is at least partly (often entirely) your own
+        # party first showing up on the sheet, not someone else joining. See
+        # check_for_changes()'s own docstring for the real report this came from and
+        # storage.first_confirmed_at()'s docstring for how the boundary is found.
         return None
     joined = latest_slot.booked - baseline_slot.booked
     plural = "s" if joined != 1 else ""
@@ -228,10 +237,22 @@ def check_for_changes(
     buffer_after_minutes: int,
     round_duration_minutes: int,
     preferences: dict | None = None,
+    baseline_scraped_at: str | None = None,
+    booking_first_confirmed_at: str | None = None,
 ) -> list[BookingChange]:
     """Compare `baseline` (the schedule as scraped around when `booking` was confirmed,
     or as of the last check) against `latest`, and report anything that changed for the
     worse. Only ever compares two already-scraped Schedules — no live site access here.
+
+    `baseline_scraped_at`/`booking_first_confirmed_at` (both ISO 8601, added
+    2026-09-20) are optional and only ever used to gate PARTY_GREW: if `baseline` was
+    scraped before this booking was ever confirmed (`baseline_scraped_at <
+    booking_first_confirmed_at`), a rise in the slot's own booked count across that
+    boundary can't be trusted — it may be entirely your own party appearing on the
+    sheet for the first time, not another player joining, so PARTY_GREW is suppressed
+    for that one comparison. Omitting either timestamp (e.g. older/test callers) keeps
+    the old, unguarded behavior. See `storage.first_confirmed_at()`'s docstring for the
+    real report this fixes and `scrape_once.run()` for where both values come from.
 
     Weather specifically: call weather.conditions_during_round() on both baseline.weather
     and latest.weather for booking.time, and compare the two RoundConditions — a rise in
@@ -249,9 +270,14 @@ def check_for_changes(
         return []  # can't compare without a matching slot in the latest scrape
 
     baseline_slot = _find_slot(baseline, booking.time)
+    baseline_predates_booking = (
+        baseline_scraped_at is not None
+        and booking_first_confirmed_at is not None
+        and baseline_scraped_at < booking_first_confirmed_at
+    )
 
     changes: list[BookingChange] = []
-    party_grew = _party_grew_change(booking, baseline_slot, latest_slot)
+    party_grew = _party_grew_change(booking, baseline_slot, latest_slot, baseline_predates_booking)
     if party_grew is not None:
         changes.append(party_grew)
 

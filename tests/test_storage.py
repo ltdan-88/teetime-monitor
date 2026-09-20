@@ -4,6 +4,7 @@ from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
     distinct_scraped_dates,
+    first_confirmed_at,
     init_db,
     last_scraped_at,
     load_all_confirmed_bookings,
@@ -377,6 +378,45 @@ def test_load_confirmed_booking_returns_most_recent_when_reconfirmed(tmp_path):
     loaded = load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db)
     assert loaded.source == "my_reservations"
     assert loaded.confirmed_at == "t2"
+
+
+def test_first_confirmed_at_returns_none_when_never_confirmed(tmp_path):
+    db = tmp_path / "teetime.db"
+    assert first_confirmed_at("18 Loch Tee 1", "2026-09-06", "14:00", path=db) is None
+
+
+def test_first_confirmed_at_returns_the_earliest_row_not_the_latest(tmp_path):
+    # A re-sync every scrape pass inserts a fresh row with confirmed_at reset to "now"
+    # (scraper.py never overwrites -- see the module docstring), so
+    # load_confirmed_booking() (latest row) is the wrong thing for booking_watch.py to
+    # anchor its "was this already confirmed before the baseline scrape" check on.
+    db = tmp_path / "teetime.db"
+    save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"
+        ),
+        path=db,
+    )
+    save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t2"
+        ),
+        path=db,
+    )
+
+    assert first_confirmed_at("18 Loch Tee 1", "2026-09-06", "14:00", path=db) == "t1"
+
+
+def test_first_confirmed_at_scoped_to_the_exact_time(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"
+        ),
+        path=db,
+    )
+
+    assert first_confirmed_at("18 Loch Tee 1", "2026-09-06", "14:30", path=db) is None
 
 
 def test_confirmed_booking_not_playing_has_none_time(tmp_path):

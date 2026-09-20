@@ -154,6 +154,10 @@ def run(
     # "baseline" before this new scrape becomes "latest". None on the very first scrape
     # for this course/date, which just means there's nothing yet to compare against.
     baseline = storage.load_latest_schedule(course, date, path=db_path)
+    # Its own timestamp, captured here (before this pass's save_schedule() below makes
+    # a newer row "latest") — booking_watch's PARTY_GREW guard needs it. See that
+    # function's own docstring and storage.first_confirmed_at()'s for why.
+    baseline_scraped_at = storage.last_scraped_at(course, date, path=db_path)
 
     latest = scrape_schedule(club_id, course, date)
     _attach_weather(latest, config, club_id, course, date)
@@ -178,8 +182,17 @@ def run(
             holes_key = "eighteen" if confirmed.holes == 18 else "nine"
             round_duration = config.get("round_duration_minutes", {}).get(holes_key, 240)
             preferences = config.get("preferences", {})
+            booking_first_confirmed_at = storage.first_confirmed_at(course, date, confirmed.time, path=db_path)
             changes = booking_watch.check_for_changes(
-                confirmed, baseline, latest, buffer_before, buffer_after, round_duration, preferences
+                confirmed,
+                baseline,
+                latest,
+                buffer_before,
+                buffer_after,
+                round_duration,
+                preferences,
+                baseline_scraped_at=baseline_scraped_at,
+                booking_first_confirmed_at=booking_first_confirmed_at,
             )
             for change in changes:
                 storage.save_booking_change(
