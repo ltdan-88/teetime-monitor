@@ -811,90 +811,56 @@ struct ContentView: View {
             // was the row being overloaded). Splitting "what am I looking at" from
             // "what can I do about it" gives both room, and lets the actions carry
             // real text labels instead of six bare icons explained only by tooltip.
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    // "Club" caption above the title -- direct request,
-                    // 2026-09-19 ("club dropdown needs a label"). Combining the
-                    // title and dropdown (same day, earlier) traded away the
-                    // toolbar's own "Club" caption that used to sit beside the
-                    // small picker; a big bold Picker reads as *a* title, but
-                    // nothing said *which* one without this.
-                    Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    // The title *is* the club switcher -- direct follow-up,
-                    // 2026-09-19 ("check whether combining club dropdown and
-                    // club header title is feasible"): this title and the
-                    // toolbar's separate "Club" dropdown always showed the
-                    // exact same string (model.clubName is just whichever
-                    // club's `.path == clubPath`, the same lookup the
-                    // dropdown's own selected item resolves to), so the
-                    // dropdown was pure duplication once you noticed it.
-                    // `.font()`/`.bold()` applied to the Picker itself, not
-                    // inside a `label:` closure -- macOS's `.menu`-style
-                    // Picker displays whichever ForEach item matches the
-                    // current selection, not a separate label view, but it
-                    // does render that text through whatever font the
-                    // Picker itself is given, which is what actually makes
-                    // this look like the same bold title as before rather
-                    // than a plain little popup button.
-                    if model.clubs.isEmpty {
-                        // A Picker with nothing in it has no selection to
-                        // display -- keep the plain fallback title (same
-                        // "teetime-monitor" model.clubName already fell back
-                        // to) for a fresh install with no club saved yet,
-                        // rather than an empty-looking popup button.
-                        Text(model.clubName).font(scaledFont(.title2)).bold()
-                            .lineLimit(1).truncationMode(.tail)
-                    } else {
-                        Picker("", selection: $model.clubPath) {
-                            // Alphabetical here, in the dropdown only -- direct
-                            // question, 2026-09-19 ("are entries in club dropdown
-                            // sorted alphabetically?"). `model.clubs` itself stays
-                            // newest-scraped-first (see Store.clubs' own docstring
-                            // for the real bug that ordering fixed: picking
-                            // alphabetically for the *default selection* landed on
-                            // an empty leftover test database), so only the list
-                            // this Picker renders is re-sorted, not which club
-                            // loads when the app opens.
-                            ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
-                                    id: \.path) { club in
-                                Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
-                                    .tag(club.path)
-                            }
+            // One row, not two -- direct follow-up, 2026-09-20 ("what if both
+            // labels and dropdowns were all on the same row?"): the previous
+            // label-above-control layout (Club/Platz each in their own two-line
+            // VStack) put both labels at a shared baseline, but still cost a full
+            // caption-line of height per column, and needed the club dropdown
+            // blown up to .title2 bold just to read as *a* title -- a size the
+            // course dropdown never matched, which is what actually looked "not
+            // under its label" despite both being geometrically aligned. A single
+            // "Club: X   Platz: Y" row fixes both at once: same font for every
+            // label and every control, one line total instead of two.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                if model.clubs.isEmpty {
+                    // A Picker with nothing in it has no selection to display --
+                    // keep the plain fallback name (same "teetime-monitor"
+                    // model.clubName already fell back to) for a fresh install
+                    // with no club saved yet, rather than an empty-looking popup
+                    // button.
+                    Text(model.clubName).font(scaledFont(.body)).fontWeight(.semibold)
+                        .lineLimit(1).truncationMode(.tail)
+                } else {
+                    Picker("", selection: $model.clubPath) {
+                        // Alphabetical here, in the dropdown only -- direct
+                        // question, 2026-09-19 ("are entries in club dropdown
+                        // sorted alphabetically?"). `model.clubs` itself stays
+                        // newest-scraped-first (see Store.clubs' own docstring
+                        // for the real bug that ordering fixed: picking
+                        // alphabetically for the *default selection* landed on
+                        // an empty leftover test database), so only the list
+                        // this Picker renders is re-sorted, not which club
+                        // loads when the app opens.
+                        ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+                                id: \.path) { club in
+                            Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
+                                .tag(club.path)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .font(scaledFont(.title2)).fontWeight(.bold)
-                        .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                     }
-                    // Freshness/version moved out of here entirely -- see the
-                    // bottom-right status row next to LegendLine, below.
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .font(scaledFont(.body)).fontWeight(.semibold)
+                    .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
                 }
                 Spacer(minLength: 12)
-                // Label above the control, not beside it -- direct report,
-                // 2026-09-19 ("club and course label not matching in placement/
-                // alignment/design"): the club title got a "Club" caption above
-                // it in the same session's own earlier round, but this row kept
-                // its original label-beside-picker layout, so the two ended up
-                // inconsistent with each other. Matching VStack(alignment:
-                // .leading, spacing: 2) to the title's own means both captions
-                // now land on the same first-text-baseline too (this HStack's
-                // own .firstTextBaseline alignment), reading as one label row
-                // above two controls rather than two differently-built rows.
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    Picker("", selection: $model.course) {
-                        ForEach(model.courses, id: \.self) { Text($0).tag($0) }
-                    }
-                    // Explicit .pickerStyle(.menu), matching the club Picker's own
-                    // -- direct follow-up, 2026-09-19 ("make labels for club and
-                    // course dropdowns align vertically with dropdowns"): the two
-                    // pickers previously differed in whether this was stated
-                    // explicitly, which can affect a control's own vertical chrome/
-                    // padding even when it happens to render the same style by
-                    // default outside a Form.
-                    .labelsHidden().pickerStyle(.menu).frame(width: scale.scaled(Metrics.picker))
-                    .onChange(of: model.course) { _, _ in model.reload() }
+                Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                Picker("", selection: $model.course) {
+                    ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                 }
+                .labelsHidden().pickerStyle(.menu).font(scaledFont(.body)).fontWeight(.semibold)
+                .frame(width: scale.scaled(Metrics.picker))
+                .onChange(of: model.course) { _, _ in model.reload() }
             }
 
             // Grouped by what each action is *for* -- act on this course's data,
