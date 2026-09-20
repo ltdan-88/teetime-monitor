@@ -859,7 +859,16 @@ struct ContentView: View {
                     ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().pickerStyle(.menu).font(scaledFont(.body)).fontWeight(.semibold)
-                .frame(width: scale.scaled(Metrics.picker))
+                // `alignment: .leading` -- direct report, 2026-09-20 ("still a lot
+                // of unnecessary space between course label and course dropdown"):
+                // `.frame(width:)` centers its content within the given box by
+                // default, and Metrics.picker's 230pt is sized for the widest
+                // plausible course name, not this club's actual (often much
+                // shorter) selected one -- so the visible text was floating
+                // centered inside that box, reading as a gap right after "Platz"
+                // rather than the fixed width it actually is (kept so switching
+                // courses doesn't jump the row's width around).
+                .frame(width: scale.scaled(Metrics.picker), alignment: .leading)
                 .onChange(of: model.course) { _, _ in model.reload() }
             }
 
