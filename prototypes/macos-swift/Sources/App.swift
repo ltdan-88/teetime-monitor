@@ -780,7 +780,7 @@ struct ContentView: View {
                     ForEach(model.banners) { banner in
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "bell.fill").font(scaledFont(.caption)).foregroundStyle(.orange)
-                            Text(banner.message).font(scaledFont(.caption))
+                            Text(banner.text).font(scaledFont(.caption))
                             Spacer()
                             Button {
                                 model.dismiss(banner)
