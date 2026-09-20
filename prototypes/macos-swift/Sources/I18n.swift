@@ -70,6 +70,51 @@ func currentLocale() -> Locale {
     Locale(identifier: AppLanguage.shared.code == "de" ? "de_DE" : "en_US")
 }
 
+/// Mirrors `i18n.render_booking_change()` exactly: re-renders one
+/// `booking_changes` row's `kind`+`params` (a JSON-encoded dict, e.g.
+/// `{"count": 2, "time": "14:00"}` -- see `storage.py`'s own schema comment) in
+/// the *current* language, rather than showing the row's own `message` column,
+/// which is plain English rendered once at scrape time and kept "as a
+/// fallback/for any non-TUI consumer" -- which is exactly what this app was
+/// before this existed. Returns `nil` for a `kind` this doesn't recognize, the
+/// same contract `render_booking_change()` has, so a caller falls back to the
+/// row's own stored `message` rather than showing nothing -- matches `t()`'s
+/// own "requested language, then English, then the key itself" degrade-
+/// gracefully spirit, just one level up.
+///
+/// Added 2026-09-20, direct report ("why is the notification not translated?")
+/// after a live screenshot showed an English banner in an otherwise-German
+/// window.
+func renderBookingChange(kind: String, paramsJSON: String) -> String? {
+    guard let data = paramsJSON.data(using: .utf8),
+          let params = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return nil }
+
+    func str(_ key: String) -> String { (params[key] as? String) ?? "" }
+
+    switch kind {
+    case "party_grew":
+        // JSONSerialization hands back an NSNumber for any JSON number -- .intValue
+        // works whether the original literal parsed as an Int or a Double.
+        let count = (params["count"] as? NSNumber)?.intValue ?? 1
+        let key = count == 1 ? "watch.party_grew.singular" : "watch.party_grew.plural"
+        return t(key, ["count": "\(count)", "time": str("time")])
+    case "buffer_shrunk":
+        return t("watch.buffer_shrunk", ["time": str("time"), "neighbor_time": str("neighbor_time")])
+    case "neighbor_crowded":
+        return t("watch.neighbor_crowded", ["time": str("time"), "neighbor_time": str("neighbor_time")])
+    case "weather_worsened":
+        let reasonKeys = (params["reason_keys"] as? [String]) ?? []
+        let reasons = reasonKeys.map { t("watch.reason.\($0)") }.joined(separator: ", ")
+        return t("watch.weather_worsened", ["time": str("time"), "reasons": reasons])
+    case "reservations_sync_failed":
+        let reason = str("reason")
+        return reason.isEmpty ? t("watch.reservations_sync_failed.other") : t("watch.reservations_sync_failed.\(reason)")
+    default:
+        return nil
+    }
+}
+
 // MARK: - English
 
 private let englishStrings: [String: String] = [
@@ -114,6 +159,28 @@ private let englishStrings: [String: String] = [
     "overview.empty_title": "Nothing scraped for this course yet",
     "overview.empty_no_clubs": "No club databases found in ~/.local/share/teetime-monitor.",
     "overview.empty_pick_another": "Pick another club or course above, or run teetime-monitor-scrape.",
+
+    // Booking-change banners -- mirrors i18n.py's own watch.* keys verbatim.
+    // Added 2026-09-20, direct report ("why is the notification not
+    // translated?"): banners previously always showed booking_changes.message,
+    // the plain-English fallback storage.py's own schema comment says exists
+    // "for any non-TUI consumer" -- which is exactly what this app was, despite
+    // the rest of its own UI already being in German. renderBookingChange()
+    // now re-renders from the same kind+params the TUI's own
+    // i18n.render_booking_change() uses, falling back to that English message
+    // only for a kind this doesn't recognize (same fallback contract as the
+    // Python side).
+    "watch.party_grew.singular": "{count} more player joined your {time} tee time since you booked",
+    "watch.party_grew.plural": "{count} more players joined your {time} tee time since you booked",
+    "watch.buffer_shrunk": "The {neighbor_time} slot near your {time} tee time is no longer clear",
+    "watch.neighbor_crowded": "The {neighbor_time} flight near your {time} tee time picked up more players",
+    "watch.weather_worsened": "The forecast for your {time} tee time got worse ({reasons})",
+    "watch.reason.rain_chance": "rain chance",
+    "watch.reason.rain_amount": "rain amount",
+    "watch.reason.wind": "wind",
+    "watch.reservations_sync_failed.login": "Couldn't check your confirmed reservations — the pc caddie login failed. Check PCC_USER/PCC_PASS.",
+    "watch.reservations_sync_failed.parsing": "Couldn't check your confirmed reservations — pc caddie's page changed in a way this app doesn't recognize yet.",
+    "watch.reservations_sync_failed.other": "Couldn't check your confirmed reservations right now.",
 
     // Cell tooltips
     "tip.condition_day": "Condition (worst, 08:00–20:00)",
@@ -357,6 +424,18 @@ private let germanStrings: [String: String] = [
     "overview.empty_title": "Für diesen Platz wurde noch nichts abgerufen",
     "overview.empty_no_clubs": "Keine Club-Datenbanken in ~/.local/share/teetime-monitor gefunden.",
     "overview.empty_pick_another": "Wähle oben einen anderen Club oder Platz, oder führe teetime-monitor-scrape aus.",
+
+    "watch.party_grew.singular": "Seit deiner Buchung ist {count} Spieler zu deiner Tee-Zeit um {time} Uhr dazugekommen",
+    "watch.party_grew.plural": "Seit deiner Buchung sind {count} Spieler zu deiner Tee-Zeit um {time} Uhr dazugekommen",
+    "watch.buffer_shrunk": "Die Zeit {neighbor_time} direkt neben deiner Tee-Zeit um {time} Uhr ist inzwischen belegt",
+    "watch.neighbor_crowded": "Im Flight um {neighbor_time} neben deiner Tee-Zeit um {time} Uhr sind weitere Spieler dazugekommen",
+    "watch.weather_worsened": "Die Vorhersage für deine Tee-Zeit um {time} Uhr hat sich verschlechtert ({reasons})",
+    "watch.reason.rain_chance": "Regenwahrscheinlichkeit",
+    "watch.reason.rain_amount": "Regenmenge",
+    "watch.reason.wind": "Wind",
+    "watch.reservations_sync_failed.login": "Deine Buchungen konnten nicht geprüft werden — der pc-caddie-Login ist fehlgeschlagen. PCC_USER/PCC_PASS prüfen.",
+    "watch.reservations_sync_failed.parsing": "Deine Buchungen konnten nicht geprüft werden — pc caddie hat seine Seite geändert, diese App kann sie so noch nicht lesen.",
+    "watch.reservations_sync_failed.other": "Deine Buchungen konnten gerade nicht geprüft werden.",
 
     // Cell tooltips
     "tip.condition_day": "Wetter (schlechtestes, 08:00–20:00)",

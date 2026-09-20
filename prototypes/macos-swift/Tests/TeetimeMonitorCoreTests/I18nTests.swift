@@ -6,6 +6,7 @@ func runI18nTests() {
         testPlaceholdersMatchBetweenLanguages()
         testLookupAndInterpolation()
         testFallbackChain()
+        testRenderBookingChange()
     }
 }
 
@@ -59,4 +60,52 @@ private func testLookupAndInterpolation() {
 private func testFallbackChain() {
     AppLanguage.shared.code = "en"
     Harness.checkEqual("an unknown key falls back to the key itself", t("does.not.exist"), "does.not.exist")
+}
+
+/// Direct report, 2026-09-20 ("why is the notification not translated?"): banners
+/// used to always show `booking_changes.message`, English rendered once at scrape
+/// time. `renderBookingChange()` re-renders from `kind`+`params` in the current
+/// language instead -- mirrors `i18n.render_booking_change()` exactly, one case per
+/// `kind`, in both languages, matching that function's own real behavior (its own
+/// docstring, and this text copied verbatim from `src/i18n.py`'s own `watch.*`
+/// strings) rather than reimplemented from a guess.
+private func testRenderBookingChange() {
+    AppLanguage.shared.code = "en"
+    Harness.checkEqual("party_grew, singular (en)",
+                        renderBookingChange(kind: "party_grew", paramsJSON: #"{"count":1,"time":"14:20"}"#),
+                        "1 more player joined your 14:20 tee time since you booked")
+    Harness.checkEqual("party_grew, plural (en)",
+                        renderBookingChange(kind: "party_grew", paramsJSON: #"{"count":2,"time":"14:20"}"#),
+                        "2 more players joined your 14:20 tee time since you booked")
+    Harness.checkEqual("buffer_shrunk (en)",
+                        renderBookingChange(kind: "buffer_shrunk", paramsJSON: #"{"time":"14:20","neighbor_time":"14:00"}"#),
+                        "The 14:00 slot near your 14:20 tee time is no longer clear")
+    Harness.checkEqual("neighbor_crowded (en)",
+                        renderBookingChange(kind: "neighbor_crowded", paramsJSON: #"{"time":"14:20","neighbor_time":"14:40"}"#),
+                        "The 14:40 flight near your 14:20 tee time picked up more players")
+    Harness.checkEqual("weather_worsened, multiple reasons (en)",
+                        renderBookingChange(kind: "weather_worsened",
+                                             paramsJSON: #"{"time":"14:20","reason_keys":["rain_chance","wind"]}"#),
+                        "The forecast for your 14:20 tee time got worse (rain chance, wind)")
+    Harness.checkEqual("reservations_sync_failed, a known reason (en)",
+                        renderBookingChange(kind: "reservations_sync_failed", paramsJSON: #"{"reason":"login"}"#),
+                        "Couldn't check your confirmed reservations — the pc caddie login failed. Check PCC_USER/PCC_PASS.")
+    Harness.checkEqual("reservations_sync_failed, no reason falls back to \"other\" (en)",
+                        renderBookingChange(kind: "reservations_sync_failed", paramsJSON: "{}"),
+                        "Couldn't check your confirmed reservations right now.")
+    Harness.check("an unrecognized kind returns nil, same as Python's own None fallback",
+                   renderBookingChange(kind: "something_new", paramsJSON: "{}") == nil)
+
+    AppLanguage.shared.code = "de"
+    Harness.checkEqual("party_grew, singular (de)",
+                        renderBookingChange(kind: "party_grew", paramsJSON: #"{"count":1,"time":"14:20"}"#),
+                        "Seit deiner Buchung ist 1 Spieler zu deiner Tee-Zeit um 14:20 Uhr dazugekommen")
+    Harness.checkEqual("party_grew, plural (de)",
+                        renderBookingChange(kind: "party_grew", paramsJSON: #"{"count":2,"time":"14:20"}"#),
+                        "Seit deiner Buchung sind 2 Spieler zu deiner Tee-Zeit um 14:20 Uhr dazugekommen")
+    Harness.checkEqual("weather_worsened, multiple reasons (de)",
+                        renderBookingChange(kind: "weather_worsened",
+                                             paramsJSON: #"{"time":"14:20","reason_keys":["rain_chance","wind"]}"#),
+                        "Die Vorhersage für deine Tee-Zeit um 14:20 Uhr hat sich verschlechtert (Regenwahrscheinlichkeit, Wind)")
+    AppLanguage.shared.code = "en"
 }

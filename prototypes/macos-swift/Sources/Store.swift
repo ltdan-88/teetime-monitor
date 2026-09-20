@@ -110,18 +110,26 @@ struct Day: Identifiable {
 }
 
 /// One unacknowledged notice from `booking_changes` -- a friend joined your flight,
-/// your buffer shrank, a "My Reservations" sync failed, etc. Shown via its own
-/// `message` field (plain English, stored specifically "as a fallback/for any
-/// non-TUI consumer" per storage.py's own schema comment) rather than
-/// `i18n.render_booking_change()`'s kind+params re-rendering -- that function is
-/// real per-language logic this prototype deliberately doesn't reimplement, and the
-/// stored message exists for exactly this situation.
+/// your buffer shrank, a "My Reservations" sync failed, etc.
+///
+/// Shown via `renderBookingChange(kind:paramsJSON:)` -- the Swift port of
+/// `i18n.render_booking_change()` (see I18n.swift) -- falling back to `message`
+/// (plain English, stored specifically "as a fallback/for any non-TUI consumer"
+/// per storage.py's own schema comment) only for a `kind` that function doesn't
+/// recognize. Direct report, 2026-09-20 ("why is the notification not
+/// translated?"): this used to always show `message`, which is rendered once in
+/// English at scrape time regardless of which language this app is actually
+/// showing everything else in.
 struct Banner: Identifiable {
     let id: Int
     let course: String
     let date: String
     let time: String?
+    let kind: String
+    let paramsJSON: String
     let message: String
+
+    var text: String { renderBookingChange(kind: kind, paramsJSON: paramsJSON) ?? message }
 }
 
 /// Reads (and, as of Tier 1, writes some of) the database the Python scraper already
@@ -166,14 +174,16 @@ enum Store {
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return [] }
         defer { sqlite3_close(db) }
         var out: [Banner] = []
-        query(db, "SELECT id, course, date, time, message FROM booking_changes "
+        query(db, "SELECT id, course, date, time, kind, params, message FROM booking_changes "
               + "WHERE acknowledged = 0 ORDER BY id") { s in
             out.append(Banner(
                 id: Int(sqlite3_column_int(s, 0)),
                 course: column(s, 1) ?? "",
                 date: column(s, 2) ?? "",
                 time: column(s, 3),
-                message: column(s, 4) ?? ""))
+                kind: column(s, 4) ?? "",
+                paramsJSON: column(s, 5) ?? "{}",
+                message: column(s, 6) ?? ""))
         }
         return out
     }
