@@ -224,6 +224,43 @@ def test_run_reports_booking_watch_changes_when_a_booking_exists(tmp_path, monke
     assert saved[0]["date"] == "2026-09-06"
 
 
+def test_run_does_not_report_party_grew_on_the_pass_a_booking_is_first_confirmed(tmp_path, monkeypatch):
+    # Direct report, 2026-09-20 ("i am the only person booked at 14:20 ... this is not
+    # accurate"): the baseline scrape (booked=0) predates the booking; the next scrape
+    # (booked=1) is the booking itself landing on the sheet, not another player -- see
+    # booking_watch.check_for_changes()'s own docstring for the mechanism this exercises
+    # end to end (storage.first_confirmed_at() + baseline_scraped_at, both threaded
+    # through by run() itself, not passed by this test).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    schedules = iter(
+        [
+            Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)]),
+            Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=1, capacity=4)]),
+        ]
+    )
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date: next(schedules))
+
+    # First call establishes the baseline scrape (booked=0), well before the booking
+    # below is ever confirmed.
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
+
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(
+            date="2026-09-06",
+            course="18 Loch Tee 1",
+            time="14:00",
+            source="my_reservations",
+            # Real code (scraper.py) always stamps "now" -- comfortably after the
+            # baseline scrape just saved above, same as it would be live.
+            confirmed_at=datetime.now(UTC).isoformat(),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
+    assert changes == []
+
+
 def test_should_scrape_true_when_never_scraped(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", {}) is True

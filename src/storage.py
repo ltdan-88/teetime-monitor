@@ -221,6 +221,29 @@ def last_scraped_at(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> str
     return row[0] if row else None
 
 
+def first_confirmed_at(course: str, date: str, time: str, path: Path = DEFAULT_DB_PATH) -> str | None:
+    """The earliest `confirmed_at` ever recorded for this exact course/date/time, or
+    None if it's never been confirmed. `confirmed_bookings` never overwrites (see the
+    module docstring) — a re-sync every pass inserts a fresh row with `confirmed_at`
+    reset to "now" (scraper.py), so only the *earliest* row is a usable proxy for "when
+    this booking was first seen," not the latest one `load_confirmed_booking()` returns.
+
+    Added 2026-09-20, direct report: a booking's very first scrape after being placed
+    always showed its own booked-count jump (0 -> your own party) as booking_watch.py's
+    PARTY_GREW — "another player joined" — when the "1 more player" was actually just
+    you. See `booking_watch.check_for_changes()`'s own docstring for how this is used:
+    a PARTY_GREW change is suppressed when the comparison's own baseline scrape
+    predates this timestamp, since any growth across that boundary can't be told apart
+    from your own booking appearing for the first time."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT MIN(confirmed_at) FROM confirmed_bookings WHERE course = ? AND date = ? AND time = ?",
+            (course, date, time),
+        ).fetchone()
+    return row[0] if row and row[0] else None
+
+
 def distinct_scraped_dates(course: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
     """Every date this course has ever been scraped for, oldest first. Added
     2026-09-06 for analytics.py — it needs to walk every historical date to build the

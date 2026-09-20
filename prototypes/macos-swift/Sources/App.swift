@@ -780,7 +780,18 @@ struct ContentView: View {
                     ForEach(model.banners) { banner in
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "bell.fill").font(scaledFont(.caption)).foregroundStyle(.orange)
-                            Text(banner.text).font(scaledFont(.caption))
+                            VStack(alignment: .leading, spacing: 1) {
+                                // `course` is blank for a club-wide notice (e.g.
+                                // reservations_sync_failed, which has no single slot to
+                                // name) -- only shown when there's an actual course to
+                                // name. Direct report 2026-09-20: the banner alone
+                                // ("...your 14:20 tee time...") didn't say which course,
+                                // easy to misread when a club has more than one.
+                                if !banner.course.isEmpty {
+                                    Text(banner.course).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                                }
+                                Text(banner.text).font(scaledFont(.caption))
+                            }
                             Spacer()
                             Button {
                                 model.dismiss(banner)

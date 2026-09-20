@@ -68,6 +68,59 @@ def test_party_grew_not_flagged_without_a_baseline_slot():
     assert changes == []
 
 
+def test_party_grew_suppressed_when_baseline_predates_the_booking_itself():
+    # Direct report, 2026-09-20 ("i am the only person booked at 14:20 ... this is not
+    # accurate"): baseline was scraped *before* this booking was ever confirmed (booked
+    # went 0 -> 1 purely because the booking itself just landed on the sheet) -- that
+    # rise is your own party, not another player, so PARTY_GREW must not fire.
+    baseline = _schedule([Slot(time="14:00", booked=0, capacity=4)])
+    latest = _schedule([Slot(time="14:00", booked=1, capacity=4)])
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20,
+        buffer_after_minutes=20,
+        round_duration_minutes=240,
+        baseline_scraped_at="2026-09-06T08:00:00+00:00",
+        booking_first_confirmed_at="2026-09-06T09:00:00+00:00",  # after the baseline scrape
+    )
+    assert changes == []
+
+
+def test_party_grew_still_fires_when_baseline_postdates_the_booking():
+    # The normal case this whole guard must not break: the booking was already
+    # confirmed well before the baseline scrape, so a later rise really is someone else.
+    baseline = _schedule([Slot(time="14:00", booked=1, capacity=4)])
+    latest = _schedule([Slot(time="14:00", booked=2, capacity=4)])
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20,
+        buffer_after_minutes=20,
+        round_duration_minutes=240,
+        baseline_scraped_at="2026-09-06T09:00:00+00:00",
+        booking_first_confirmed_at="2026-09-06T08:00:00+00:00",  # before the baseline scrape
+    )
+    assert len(changes) == 1
+    assert changes[0].kind == PARTY_GREW
+
+
+def test_party_grew_not_suppressed_when_timestamps_are_omitted():
+    # Back-compat: a caller that doesn't pass either timestamp (e.g. an older or a
+    # simpler test) keeps the old, unguarded behavior rather than silently losing the
+    # feature.
+    baseline = _schedule([Slot(time="14:00", booked=0, capacity=4)])
+    latest = _schedule([Slot(time="14:00", booked=1, capacity=4)])
+
+    changes = check_for_changes(BOOKING, baseline, latest, buffer_before_minutes=20, buffer_after_minutes=20, round_duration_minutes=240)
+    assert len(changes) == 1
+    assert changes[0].kind == PARTY_GREW
+
+
 def test_buffer_shrunk_when_previously_open_neighbor_fills_in():
     baseline = _schedule(
         [Slot(time="14:00", booked=1, capacity=4), Slot(time="14:10", booked=0, capacity=4)]
