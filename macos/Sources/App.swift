@@ -496,8 +496,8 @@ struct DayCardBody: View {
 ///
 /// The app never scrapes anything itself -- it shells out to the same
 /// `teetime-monitor-scrape` console script the launchd agent runs, so there is exactly
-/// one implementation of scraping and it stays in Python. See `prototypes/macos-swift/
-/// README.md` on why that split is the whole point of the hybrid.
+/// one implementation of scraping and it stays in Python. See `macos/README.md`
+/// on why that split is the whole point of the hybrid.
 enum Scraper {
     /// Homebrew's symlink first, then the Cellar-independent PATH lookup, so this keeps
     /// working for a source checkout or a non-standard prefix.
@@ -755,7 +755,7 @@ final class OverviewModel: ObservableObject {
     }
 }
 
-/// Routes the menu bar's Actions commands (see `TeetimeMonitorPrototype.body`'s
+/// Routes the menu bar's Actions commands (see `TeetimeMonitorApp.body`'s
 /// `.commands` block) to whichever `ContentView` is actually on screen -- a plain
 /// closure-holding singleton, same "one shared instance the whole app reaches
 /// through" shape `AppTheme` already uses in `Theme.swift`, chosen for the same
@@ -1169,7 +1169,7 @@ struct ContentView: View {
 }
 
 @main
-struct TeetimeMonitorPrototype: App {
+struct TeetimeMonitorApp: App {
     // The Actions menu's own titles go through t() too, and `.commands` is
     // evaluated as part of this scene's body -- so without observing the language
     // here, the menu would keep its launch-time wording after a change while the

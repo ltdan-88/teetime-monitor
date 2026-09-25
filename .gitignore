@@ -18,7 +18,7 @@ data/
 # config, so this isn't a source of truth anything reads.
 uv.lock
 
-# Built prototype bundle -- rebuild with prototypes/macos-swift/build.sh
-prototypes/macos-swift/TeetimeMonitor.app/
-# SPM build output for the Swift prototype's own test suite (swift run TeetimeMonitorCoreTests)
-prototypes/macos-swift/.build/
+# Built .app bundle -- rebuild with macos/build.sh
+macos/TeetimeMonitor.app/
+# SPM build output for the macOS GUI's own test suite (swift run TeetimeMonitorCoreTests)
+macos/.build/

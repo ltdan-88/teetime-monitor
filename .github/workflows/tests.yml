@@ -78,19 +78,19 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check src/ tests/ scripts/
 
-  # The macOS Swift prototype's own regression suite (added 2026-09-19, alongside
-  # the tests themselves) -- a plain executable, not `.testTarget`/`swift test`,
-  # since neither XCTest nor swift-testing's macros are available under a bare
-  # Command Line Tools install (confirmed directly; see Package.swift's own
-  # docstring in prototypes/macos-swift). `macos-latest` ships full Xcode, but the
-  # executable-target shape works identically there and locally, so this is exactly
-  # what a contributor runs on their own machine before opening a PR.
+  # The macOS GUI's own regression suite (added 2026-09-19, alongside the tests
+  # themselves) -- a plain executable, not `.testTarget`/`swift test`, since
+  # neither XCTest nor swift-testing's macros are available under a bare Command
+  # Line Tools install (confirmed directly; see Package.swift's own docstring in
+  # macos/). `macos-latest` ships full Xcode, but the executable-target shape
+  # works identically there and locally, so this is exactly what a contributor
+  # runs on their own machine before opening a PR.
   swift-tests:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - run: swift run TeetimeMonitorCoreTests
-        working-directory: prototypes/macos-swift
+        working-directory: macos
 
       # The cross-language drift guard: Python generates ground truth from its own
       # real functions, CrossCheckRunner recomputes the Swift ports for the same
@@ -104,4 +104,4 @@ jobs:
       - run: pip install -e .
       - run: python scripts/cross_language_reference.py > /tmp/reference.json
       - run: swift run CrossCheckRunner /tmp/reference.json
-        working-directory: prototypes/macos-swift
+        working-directory: macos

@@ -4,7 +4,7 @@
 credentials from UI" — this is the exact same save-then-optionally-verify flow,
 exposed as a `teetime-monitor-login` console script the Swift app can shell out to
 instead of reimplementing the save/verify logic itself. Same hybrid rule every other
-Tier 2 feature follows (see prototypes/macos-swift/README.md): real backend logic —
+Tier 2 feature follows (see macos/README.md): real backend logic —
 talking to pc caddie, writing `.env` — stays in Python; the Swift app only invokes it
 and renders the result.
 
