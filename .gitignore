@@ -13,6 +13,11 @@ cache/
 .DS_Store
 data/
 
+# Local-only lockfile from running `uv` directly -- the project installs via
+# `pip install -e .` everywhere (CI, README, launchd agent) and has no [tool.uv]
+# config, so this isn't a source of truth anything reads.
+uv.lock
+
 # Built prototype bundle -- rebuild with prototypes/macos-swift/build.sh
 prototypes/macos-swift/TeetimeMonitor.app/
 # SPM build output for the Swift prototype's own test suite (swift run TeetimeMonitorCoreTests)
