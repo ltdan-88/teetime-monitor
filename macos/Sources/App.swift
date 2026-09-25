@@ -380,6 +380,7 @@ struct DayCardHeader: View {
             Image(systemName: isOpen ? "chevron.down" : "chevron.right")
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.chevron))
             Text(weekday(day.date)).font(scaledFont(.headline))
+                .frame(width: scale.scaled(Metrics.dayWeekday), alignment: .leading)
 
             // Day-level summary -- worst condition, high/low, average rain chance,
             // peak wind, all across 08:00-20:00 -- mirrors tui._condition_cell()/
@@ -392,29 +393,53 @@ struct DayCardHeader: View {
             // meaningless without knowing which figure it is, same problem the
             // TUI itself solves with `OVERVIEW_LEGEND` (see the legend line under
             // the day list below for the full explanation of thresholds/markers).
+            //
+            // Every field below now sits in its own fixed-width column
+            // (Metrics.dayCondition/dayTemp/dayRain/dayWind/daySun) and renders
+            // an empty placeholder rather than disappearing when its own optional
+            // is nil -- direct report, 2026-09-26 ("icons, temperatures, wind,
+            // sunrise/sunset times etc. are not always aligned between the
+            // different days"). A day with a wider condition icon, an extra
+            // temperature digit, or (previously) no weather at all for a given
+            // field used to shove everything after it sideways relative to the
+            // row above and below; same fixed-column fix `SlotRow` already uses
+            // for its own time/temp/precip/wind cells.
             Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
                 .help(t("tip.condition_day"))
-            if let (hi, lo) = day.tempHighLow {
-                Label("\(Int(Units.temperature(hi, units.value)))°/"
-                      + "\(Int(Units.temperature(lo, units.value)))°",
-                      systemImage: "thermometer.medium")
-                    .font(scaledFont(.subheadline, design: .monospaced))
-                    .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
+                .frame(width: scale.scaled(Metrics.dayCondition))
+            Group {
+                if let (hi, lo) = day.tempHighLow {
+                    Label("\(Int(Units.temperature(hi, units.value)))°/"
+                          + "\(Int(Units.temperature(lo, units.value)))°",
+                          systemImage: "thermometer.medium")
+                        .font(scaledFont(.subheadline, design: .monospaced))
+                        .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
+                }
             }
-            if let p = day.precipAvg {
-                Label("\(Int(p))%", systemImage: "drop.fill")
-                    .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                    .help(t("tip.rain_day"))
+            .frame(width: scale.scaled(Metrics.dayTemp), alignment: .leading)
+            Group {
+                if let p = day.precipAvg {
+                    Label("\(Int(p))%", systemImage: "drop.fill")
+                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                        .help(t("tip.rain_day"))
+                }
             }
-            if let wd = day.windPeak {
-                Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
-                    .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                    .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
+            .frame(width: scale.scaled(Metrics.dayRain), alignment: .leading)
+            Group {
+                if let wd = day.windPeak {
+                    Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
+                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                        .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
+                }
             }
-            if let rise = day.sunrise, let set = day.sunset {
-                Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
-                    .help(t("tip.sun"))
+            .frame(width: scale.scaled(Metrics.dayWind), alignment: .leading)
+            Group {
+                if let rise = day.sunrise, let set = day.sunset {
+                    Text("↑\(rise) ↓\(set)").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
+                        .help(t("tip.sun"))
+                }
             }
+            .frame(width: scale.scaled(Metrics.daySun), alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
