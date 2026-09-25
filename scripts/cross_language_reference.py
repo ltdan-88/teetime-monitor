@@ -1,5 +1,5 @@
 """Generates ground-truth output from Python's own functions, for
-`prototypes/macos-swift`'s `CrossCheckRunner` to compare its Swift ports against.
+`macos/`'s `CrossCheckRunner` to compare its Swift ports against.
 
 Exists because those ports were, until now, verified exactly once by hand at the
 point each was written (a probe script, a one-off diff against real data) and never

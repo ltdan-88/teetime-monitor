@@ -6,7 +6,7 @@ from — `./clubs/`, `./data/`, `./.env` — deliberately, and documented that w
 it in"). That works fine for a terminal tool you always `cd` into.
 
 It stops working the moment a second, non-terminal front end exists. Measured directly
-while prototyping a macOS app (see `prototypes/macos-swift/`): an app launched the way
+while prototyping a macOS app (see `macos/`): an app launched the way
 Finder, Launchpad or Spotlight launches it gets **`cwd = /`**, so a double-clicked GUI
 would find no clubs, no database and no credentials at all. Any interface that isn't
 started from a shell has no meaningful working directory to inherit.

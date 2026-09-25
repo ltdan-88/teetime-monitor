@@ -1,13 +1,21 @@
-# teetime-monitor — macOS Swift prototype
+# teetime-monitor — macOS GUI
 
-A deliberately small SwiftUI prototype of the overview screen, built to answer one
-question: **what would a native macOS version feel like, and what would it cost?**
+A native SwiftUI companion to the terminal app, reaching the same real backend —
+same scrape history, same config, same console scripts — through a second,
+graphical front end. `brew install`/`upgrade` on macOS builds it straight into
+the Cellar alongside the TUI (see the root
+[`README.md`](../README.md#a-macos-companion-app-macos-only)), and as of
+v0.40.0 it has full feature parity with the terminal app: nothing left on
+either side that the other can't do.
 
-Not a rewrite. Shipped as of v0.36.0, though: `brew install`/`upgrade` on macOS
-builds it straight into the Cellar alongside the TUI (see the root
-[`README.md`](../../README.md#a-macos-companion-app-macos-only)) — "prototype"
-describes how it's built and evolved (see "What building it actually taught us"
-below), not whether it reaches a real install.
+Not a rewrite, and moved out of `prototypes/` (2026-09-25) once it stopped
+being one in every sense that mattered — see "Promoted out of `prototypes/`"
+below for exactly what that did and didn't change. It started (below) as a
+deliberately small sketch answering one question: **what would a native macOS
+version feel like, and what would it cost?** That history stays in this file
+because the answer it found — a thin native shell over Python's own state and
+console scripts — is still the architecture today, not because the app itself
+is still a sketch.
 
 ## What it does
 
@@ -106,6 +114,39 @@ club-id matching. Deliberately excludes SwiftUI view bodies (`App.swift`'s own
 without snapshot-testing infrastructure this project doesn't have, and pulling
 `@main` into the test executable's own module risks an entry-point conflict
 for no real test value.
+
+## Promoted out of `prototypes/` (2026-09-25)
+
+Direct call, after closing the feature gaps below: "it isn't a prototype
+anymore." Structural, not architectural — nothing about the hybrid split
+(Swift for the view, Python for real logic) changes here, only the identity
+this app presents as:
+
+- **Moved** `prototypes/macos-swift/` → `macos/`, via `git mv` (history/blame
+  intact). Every path reference that pointed at the old location — the
+  Homebrew formula's own `install` step, `.github/workflows/tests.yml`'s
+  `swift-tests` job, both root READMEs, `scripts/cross_language_reference.py`,
+  `src/paths.py`/`src/login_cli.py`'s own doc comments, `.gitignore` — moved
+  with it. `build.sh`'s two `../../` relative paths (to `pyproject.toml` and
+  `src/club_directory_seed.json`) became `../` — one directory level shallower
+  now, and easy to miss since nothing fails loudly until the very next build.
+- **Renamed** the `@main` App struct from `TeetimeMonitorPrototype` to
+  `TeetimeMonitorApp` — the one identifier in this codebase that actually
+  named the old status, rather than just describing it in prose.
+- **New bundle id**: `dev.ltdan88.teetimemonitor`, replacing the placeholder
+  `dev.local.teetime.prototype` every build before this one shipped. A
+  one-time identity change from macOS's own point of view — nothing this app
+  stores keys itself on the bundle id (state lives in
+  `~/.config/teetime-monitor`/`~/.local/share/teetime-monitor`, not
+  `~/Library/Containers/<bundle-id>/...`), and it requests no permission that
+  would need re-granting, so the only real effect is a fresh `TeetimeMonitor`
+  entry in Launchpad/Spotlight rather than the app being recognized as an
+  update to itself.
+- **Left alone, deliberately**: the historical narrative throughout the rest
+  of this file. A dated entry saying "this prototype ports directly" was true
+  the day it was written, the same way a changelog entry or a commit message
+  is — rewriting every one of those to match a label that only became
+  accurate today would blur exactly the history this file exists to keep.
 
 ## Browse before saving, crowd_estimates in search, and block-style vacation ranges (2026-09-25)
 
