@@ -141,6 +141,22 @@ enum Metrics {
     static let seatPip: CGFloat = 9
     // Day card
     static let chevron: CGFloat = 10
+    // Collapsed day-card header's own summary row -- direct report, 2026-09-26
+    // ("icons, temperatures, wind, sunrise/sunset times etc. are not always
+    // aligned between the different days"): every field here used to size to
+    // its own content, so one day's wider condition icon (a fog/rain glyph vs.
+    // a plain cloud, say) or a temperature/wind reading with more digits shoved
+    // everything after it sideways relative to the row above and below. Same
+    // fixed-column fix `SlotRow` already uses for its own time/temp/precip/wind
+    // cells, applied here for the same reason -- sized for the widest plausible
+    // value in German (the longer of the two languages this app ships), not
+    // just "wide enough" for today's real data.
+    static let dayWeekday: CGFloat = 96
+    static let dayCondition: CGFloat = 20
+    static let dayTemp: CGFloat = 64
+    static let dayRain: CGFloat = 46
+    static let dayWind: CGFloat = 36
+    static let daySun: CGFloat = 98
     static let heatBlockWidth: CGFloat = 13
     static let heatBlockHeight: CGFloat = 7
     static let freshnessDot: CGFloat = 6
