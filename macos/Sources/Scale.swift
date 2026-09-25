@@ -149,8 +149,6 @@ enum Metrics {
     // content so HeatStrip lands at the same x on every row; sized for the widest
     // real value ("HH:MM" plus the flag icon and its padding), not just "wide enough".
     static let bookingBadge: CGFloat = 74
-    // Toolbar
-    static let picker: CGFloat = 230
     // Heatmap grid
     static let heatCellWidth: CGFloat = 18
     static let heatCellHeight: CGFloat = 13

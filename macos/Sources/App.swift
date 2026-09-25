@@ -959,18 +959,25 @@ struct ContentView: View {
                     ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().pickerStyle(.menu).font(scaledFont(.body)).fontWeight(.semibold)
-                // `alignment: .leading` -- direct report, 2026-09-20 ("still a lot
-                // of unnecessary space between course label and course dropdown"):
-                // `.frame(width:)` centers its content within the given box by
-                // default, and Metrics.picker's 230pt is sized for the widest
-                // plausible course name, not this club's actual (often much
-                // shorter) selected one -- so the visible text was floating
-                // centered inside that box, reading as a gap right after "Platz"
-                // rather than the fixed width it actually is (kept so switching
-                // courses doesn't jump the row's width around).
-                .frame(width: scale.scaled(Metrics.picker), alignment: .leading)
+                // No `.frame(width:)`/`.frame(minWidth:)` here any more --
+                // direct report, 2026-09-26 ("dropdowns and buttons should be
+                // better aligned, like on a grid"): giving this Picker *any*
+                // width constraint (exact `width:` or even `minWidth:`, with
+                // `alignment: .leading`) silently made this whole row's own
+                // trailing Spacer stop expanding into the window's real width
+                // -- confirmed by toggling just this one modifier with
+                // everything else held constant, across several different
+                // outer-layout attempts (a plain Spacer, ZStack + `.overlay`,
+                // an explicitly `GeometryReader`-measured width + `.offset`),
+                // all still broken identically whenever this frame was
+                // present. Removing it entirely is what actually fixed the
+                // misalignment; the previously-intended "don't shrink below
+                // 230pt for a short course name" nicety is the one thing lost
+                // -- this Picker now sizes to its own selected course name,
+                // same as the Club picker beside it already does.
                 .onChange(of: model.course) { _, _ in model.reload() }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Grouped by what each action is *for* -- act on this course's data,
             // change how the app behaves -- rather than a row of equally-spaced
