@@ -1226,7 +1226,7 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
 
 
 def _compute_crowd_estimates(
-    schedules: list[Schedule], config: dict, club_id: str
+    schedules: list[Schedule], config: dict, club_id: str, db_path: Path | None = None
 ) -> dict[tuple[str, str, str], float]:
     """{(date, course, time): predicted occupancy 0-1} for every slot across
     `schedules` — the actual `analytics.crowd_heatmap()`/`predict_crowding()` work,
@@ -1249,15 +1249,23 @@ def _compute_crowd_estimates(
     keyed by. `_holidays_for_club()`'s own cache (see that function's docstring)
     is what actually makes calling this unconditionally, on every render, cheap —
     without it this would mean one live Nager.Date fetch per expanded day, every
-    time the table redraws (load, refresh, expand/collapse, resize)."""
+    time the table redraws (load, refresh, expand/collapse, resize).
+
+    `db_path` defaults to `_db_path(club_id)` — every existing caller here omits
+    it and gets exactly that, unchanged. Added 2026-09-25 for `search_cli.py`,
+    which already resolves its own `--db-path` (not necessarily this club's
+    canonical one, e.g. an isolated copy under test) and would otherwise have no
+    way to make this scan the same database its search results themselves come
+    from."""
     holidays = _holidays_for_club(config)
     vacation_ranges = _vacation_ranges_for_club(config)
+    resolved_db_path = db_path if db_path is not None else _db_path(club_id)
     heatmaps: dict[str, dict] = {}
     estimates: dict[tuple[str, str, str], float] = {}
     for schedule in schedules:
         if schedule.course not in heatmaps:
             heatmaps[schedule.course] = _cached_crowd_heatmap(
-                schedule.course, holidays, vacation_ranges, _db_path(club_id)
+                schedule.course, holidays, vacation_ranges, resolved_db_path
             )
         heatmap = heatmaps[schedule.course]
         day_type = calendar_context.classify_day(
@@ -1275,7 +1283,9 @@ def _compute_crowd_estimates(
     return estimates
 
 
-def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
+def _crowd_estimates(
+    schedules: list[Schedule], config: dict, club_id: str, db_path: Path | None = None
+) -> dict[tuple[str, str, str], float]:
     """{(date, course, time): predicted occupancy 0-1}, for biasing AI ranking only
     — entirely skipped (empty dict, no analytics/DB work at all) unless
     `ai_assist.avoid_predicted_crowd` is actually on, since nothing downstream does
@@ -1287,11 +1297,14 @@ def _crowd_estimates(schedules: list[Schedule], config: dict, club_id: str) -> d
 
     For the Overview's own visible per-slot marker, call
     `_compute_crowd_estimates()` directly instead — see that function's own
-    docstring for why this gate doesn't apply there."""
+    docstring for why this gate doesn't apply there.
+
+    `db_path` just threads through to `_compute_crowd_estimates()` — see its own
+    docstring for the one caller (`search_cli.py`) that actually needs it."""
     ai_config = config.get("ai_assist", {})
     if not ai_config.get("avoid_predicted_crowd", False):
         return {}
-    return _compute_crowd_estimates(schedules, config, club_id)
+    return _compute_crowd_estimates(schedules, config, club_id, db_path=db_path)
 
 
 def _availability_pipeline(

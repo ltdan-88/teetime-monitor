@@ -322,9 +322,15 @@ private let englishStrings: [String: String] = [
     "addclub.no_matches_title": "No matches",
     "addclub.no_matches_desc": "Nothing in the directory matches “{query}”.",
     "addclub.open_directly": "Open club {id} directly",
+    "addclub.open": "Open",
     "addclub.add": "Add",
     "addclub.added": "Added {name}.",
     "addclub.refreshed": "Refreshed — {n} clubs.",
+
+    "preview.banner": "Previewing — not saved yet",
+    "preview.add": "Add to Favorites",
+    "preview.close": "Close",
+    "preview.loading": "Loading this club's schedule…",
 
     // Heatmap
     "heatmap.title": "Crowd heatmap — {course}",
@@ -369,6 +375,9 @@ private let englishStrings: [String: String] = [
     "error.needs_a_club": "Type a club id above, or save a club first, to authenticate with.",
     "error.refresh_failed": "Couldn't refresh: {error}",
     "error.add_failed": "Couldn't save this club.",
+    "error.preview_missing": "teetime-monitor-preview-club not found — install it with Homebrew.",
+    "error.preview_no_tee_sheet": "This club doesn't publish an online tee sheet.",
+    "error.preview_fetch_failed": "Couldn't load this club's course list: {error}",
 
     // Login results
     "login.username_required": "Username is required.",
@@ -559,9 +568,15 @@ private let germanStrings: [String: String] = [
     "addclub.no_matches_title": "Keine Treffer",
     "addclub.no_matches_desc": "Im Verzeichnis passt nichts zu „{query}“.",
     "addclub.open_directly": "Club {id} direkt öffnen",
+    "addclub.open": "Öffnen",
     "addclub.add": "Hinzufügen",
     "addclub.added": "{name} hinzugefügt.",
     "addclub.refreshed": "Aktualisiert — {n} Clubs.",
+
+    "preview.banner": "Vorschau — noch nicht gespeichert",
+    "preview.add": "Zu Favoriten hinzufügen",
+    "preview.close": "Schließen",
+    "preview.loading": "Spielplan wird geladen…",
 
     // Heatmap
     "heatmap.title": "Auslastungs-Heatmap — {course}",
@@ -598,6 +613,9 @@ private let germanStrings: [String: String] = [
     "error.needs_a_club": "Gib oben eine Club-ID ein, oder speichere zuerst einen Club, um dich anzumelden.",
     "error.refresh_failed": "Aktualisieren fehlgeschlagen: {error}",
     "error.add_failed": "Dieser Club konnte nicht gespeichert werden.",
+    "error.preview_missing": "teetime-monitor-preview-club nicht gefunden — mit Homebrew installieren.",
+    "error.preview_no_tee_sheet": "Dieser Club veröffentlicht keinen Online-Spielplan.",
+    "error.preview_fetch_failed": "Die Platzliste konnte nicht geladen werden: {error}",
 
     // Login results
     "login.username_required": "Benutzername ist erforderlich.",

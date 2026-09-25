@@ -32,14 +32,19 @@ the TUI (club YAML `availability`/`preferences`/`ai_assist`/`round_duration_minu
 shallow-merged with global preferences) — reused directly, not re-derived, so this
 can never drift from what the TUI itself would compute for the same club.
 
-**Known, flagged gap (same "flagged rather than silently assumed" rule
-`recommend.py`'s own module docstring uses):** `crowd_estimates` is not computed
-here, unlike `SearchScreen._run_search()`'s own call — `analytics.crowd_heatmap()`
-needs a live public-holidays fetch this offline-by-design CLI doesn't make. AI
-ranking still runs when a club's `ai_assist.enabled` is on; it just can't factor in
-`avoid_predicted_crowd` bias yet. `ranked_matches()` already treats no
-crowd_estimates as "skip that one signal," not an error, so results are still real,
-just missing that one refinement.
+**`crowd_estimates` (real as of 2026-09-25, previously a flagged gap here):** this
+*is* a live network fetch (`analytics.crowd_heatmap()` needs a club's public
+holidays), but that's no obstacle for a script that's allowed to block — the
+"offline" framing that used to justify skipping it was really about not adding
+network I/O to a call site (`OverviewScreen`'s render path) that runs on every
+table redraw, not about this CLI specifically. `tui._crowd_estimates()` — the
+exact function `SearchScreen._run_search()` itself calls — is reused directly, so
+this can't drift from what the TUI computes for the same club; it already gates
+itself on `ai_assist.avoid_predicted_crowd`, same as there. Its `db_path` is
+passed through explicitly (rather than the default `_db_path(club_id)`, derived
+from `--db-path`'s own filename stem — this app's fixed `<club_id>.db` naming
+convention, see `paths.py`) so the heatmap scan always reads the exact same
+database `--db-path` itself points at, isolated test copies included.
 
 Result is a JSON array on stdout, one object per match, not translated text:
 
@@ -108,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     criteria = _criteria_from_payload(payload)
+    club_id = Path(db_path).stem
     config = tui_module._resolved_config(club_slug)
 
     start = date.fromisoformat(from_date)
@@ -118,7 +124,8 @@ def main(argv: list[str] | None = None) -> None:
         if schedule is not None:
             schedules.append(schedule)
 
-    matches = ranked_matches(schedules, criteria, config)
+    crowd_estimates = tui_module._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
+    matches = ranked_matches(schedules, criteria, config, crowd_estimates=crowd_estimates)
     print(json.dumps([
         {
             "date": match.date,

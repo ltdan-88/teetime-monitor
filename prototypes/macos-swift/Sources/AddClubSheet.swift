@@ -19,6 +19,7 @@ struct AddClubSheet: View {
     @StateObject private var fetchedAt = Box<String?>(nil)
     @StateObject private var isRefreshing = Box(false)
     @StateObject private var addingClubID = Box<String?>(nil)
+    @StateObject private var openingClubID = Box<String?>(nil)
     @StateObject private var status = Box<String?>(nil)
 
     private var trimmedQuery: String { query.value.trimmingCharacters(in: .whitespaces) }
@@ -65,13 +66,15 @@ struct AddClubSheet: View {
                 List {
                     if let id = directIDMatch {
                         AddClubRow(clubID: id, name: t("addclub.open_directly", ["id": id]),
-                                   isAdding: addingClubID.value == id) { add(clubID: id, name: "") }
+                                   isAdding: addingClubID.value == id, isOpening: openingClubID.value == id,
+                                   onAdd: { add(clubID: id, name: "") }, onOpen: { open(clubID: id, name: "") })
                     }
                     ForEach(searchResults) { entry in
                         AddClubRow(clubID: entry.clubID, name: entry.name,
-                                   isAdding: addingClubID.value == entry.clubID) {
-                            add(clubID: entry.clubID, name: entry.name)
-                        }
+                                   isAdding: addingClubID.value == entry.clubID,
+                                   isOpening: openingClubID.value == entry.clubID,
+                                   onAdd: { add(clubID: entry.clubID, name: entry.name) },
+                                   onOpen: { open(clubID: entry.clubID, name: entry.name) })
                     }
                 }
                 .listStyle(.plain)
@@ -140,6 +143,24 @@ struct AddClubSheet: View {
             }
         }
     }
+
+    /// "Open" -- the primary action `ClubBrowserScreen`'s own `enter` is, and the
+    /// one real gap this sheet didn't close until now: browsing a club's real,
+    /// live-scraped schedule with no clubs/*.yaml ever written. "Add" above is
+    /// the other, independent action (`f`, favoriting) -- either can be used
+    /// without the other, same as there.
+    private func open(clubID: String, name: String) {
+        openingClubID.value = clubID
+        status.value = nil
+        model.startPreview(clubID: clubID, name: name) { error in
+            openingClubID.value = nil
+            if let error {
+                status.value = error
+            } else {
+                dismiss()
+            }
+        }
+    }
 }
 
 private struct AddClubRow: View {
@@ -147,7 +168,9 @@ private struct AddClubRow: View {
     let clubID: String
     let name: String
     let isAdding: Bool
+    let isOpening: Bool
     let onAdd: () -> Void
+    let onOpen: () -> Void
 
     var body: some View {
         HStack {
@@ -156,8 +179,13 @@ private struct AddClubRow: View {
                 Text(clubID).font(scaledFont(.caption)).foregroundStyle(.secondary)
             }
             Spacer()
-            if isAdding { ProgressView().controlSize(.small) }
-            Button(t("addclub.add"), action: onAdd).disabled(isAdding)
+            if isAdding || isOpening { ProgressView().controlSize(.small) }
+            // "Open" first -- the primary action (browse the real schedule, no
+            // favoriting needed), same ordering convention ClubBrowserScreen's
+            // own footer uses (enter before f). "Add" stays independent, not a
+            // prerequisite for it.
+            Button(t("addclub.open"), action: onOpen).disabled(isAdding || isOpening)
+            Button(t("addclub.add"), action: onAdd).disabled(isAdding || isOpening)
         }
         .padding(.vertical, 2)
     }
