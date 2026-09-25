@@ -50,6 +50,9 @@ teetime-monitor-directory-refresh = "src.directory_cli:main"
 # Headless add-a-club (save as favorite + geocode) for the Swift prototype
 # (2026-09-18) -- see add_club_cli.py's own docstring for the contract.
 teetime-monitor-add-club = "src.add_club_cli:main"
+# Headless "browse before saving" preview scrape for the Swift prototype
+# (2026-09-25) -- see preview_club_cli.py's own docstring for the contract.
+teetime-monitor-preview-club = "src.preview_club_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -558,6 +558,11 @@ final class OverviewModel: ObservableObject {
     @Published var problem: String?
     @Published var lastScrape: Date?
     @Published var banners: [Banner] = []
+    /// Set only while browsing a club that has no `clubs/*.yaml` -- "browse
+    /// before saving," the one Tier 2 gap this prototype's own README flagged
+    /// as still open. See `startPreview()` below.
+    @Published var previewClub: (id: String, name: String)?
+    @Published var isPreviewLoading = false
 
     private var watcher: Timer?
     private var seenModification: Date?
@@ -593,8 +598,11 @@ final class OverviewModel: ObservableObject {
                  ["when": f.localizedString(for: lastScrape, relativeTo: now)])
     }
 
+    var isPreviewing: Bool { previewClub != nil }
+
     var clubName: String {
-        clubs.first { $0.path == clubPath }?.name ?? "teetime-monitor"
+        if let previewClub { return previewClub.name.isEmpty ? previewClub.id : previewClub.name }
+        return clubs.first { $0.path == clubPath }?.name ?? "teetime-monitor"
     }
 
     /// `days`, minus any day with no scraped tee-time slots at all -- direct
@@ -641,11 +649,78 @@ final class OverviewModel: ObservableObject {
         guard !isScraping else { return }
         isScraping = true
         problem = nil
+        // A previewed club has no clubs/*.yaml, so it's invisible to
+        // Scraper.run()'s own script (teetime-monitor-scrape iterates saved
+        // favorites only) -- the same script startPreview() itself already
+        // used to get that first scrape keeps working here for a repeat one.
+        if let previewClub {
+            PreviewClient.run(clubID: previewClub.id, clubName: previewClub.name) { [weak self] error in
+                guard let self else { return }
+                self.isScraping = false
+                self.problem = error
+                self.load()
+            }
+            return
+        }
         Scraper.run { [weak self] error in
             guard let self else { return }
             self.isScraping = false
             self.problem = error
             self.load()
+        }
+    }
+
+    /// Opens a live-scraped overview for `clubID` without saving it as a
+    /// favorite -- the GUI's own version of `ClubBrowserScreen`'s "enter just
+    /// opens it, `f` favorites separately" split. `PreviewClient` is the only
+    /// new piece this needs: `clubPath` pointed at `Store.dbPath(clubID:)` is
+    /// already a database every other reader here (`loadCourses()`/`reload()`,
+    /// Search, the heatmap, confirm/cancel) treats exactly like a favorited
+    /// club's, since none of them actually check `clubs/*.yaml` themselves.
+    func startPreview(clubID: String, name: String, done: @escaping (String?) -> Void) {
+        isPreviewLoading = true
+        problem = nil
+        PreviewClient.run(clubID: clubID, clubName: name) { [weak self] error in
+            guard let self else { return }
+            self.isPreviewLoading = false
+            if let error {
+                done(error)
+                return
+            }
+            self.previewClub = (id: clubID, name: name)
+            self.clubPath = Store.dbPath(clubID: clubID)
+            self.loadCourses()
+            done(nil)
+        }
+    }
+
+    /// Back to the favorites list -- clearing `clubPath` first is what makes
+    /// `load()` pick a real favorite (or none) instead of keeping the just-
+    /// closed preview's own path, which `load()` otherwise leaves alone
+    /// whenever it isn't already empty.
+    func closePreview() {
+        previewClub = nil
+        clubPath = ""
+        load()
+    }
+
+    /// Saves the currently previewed club as a real favorite (the same
+    /// `teetime-monitor-add-club` script `AddClubSheet`'s own "Add" button
+    /// uses) and folds it into the ordinary favorited-club state -- `clubPath`
+    /// already points at the right database, so nothing about what's on
+    /// screen needs to change, only that it now also appears in the toolbar's
+    /// own Club picker and survives a relaunch.
+    func favoritePreviewedClub(done: @escaping (String?) -> Void) {
+        guard let previewClub else { done(nil); return }
+        AddClubClient.add(clubID: previewClub.id, name: previewClub.name) { [weak self] slug, error in
+            guard let self else { return }
+            if slug != nil {
+                self.previewClub = nil
+                self.load()
+                done(nil)
+            } else {
+                done(error ?? t("error.generic"))
+            }
         }
     }
 
@@ -762,6 +837,7 @@ struct ContentView: View {
     @StateObject private var showingSearch = Box(false)
     @StateObject private var showingAddClub = Box(false)
     @StateObject private var showingHeatmap = Box(false)
+    @StateObject private var isFavoritingPreview = Box(false)
     // Observing the shared singleton (not creating a new one) is what makes a theme
     // change in SettingsSheet redraw this view immediately -- both hold the exact
     // same AppTheme instance, so its @Published change notification reaches here too.
@@ -805,6 +881,30 @@ struct ContentView: View {
                     }
                 }
             }
+            // "Browse before saving" -- picking a club from Add a Club opens it
+            // straight away, same as ClubBrowserScreen's own `enter`, with no
+            // clubs/*.yaml written. This is the one place that isn't true, so
+            // it says so plainly rather than leaving it to be assumed from the
+            // Club row's own name (which looks identical to a saved club's).
+            if model.isPreviewing {
+                HStack(spacing: 8) {
+                    Image(systemName: "eye").font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    Text(t("preview.banner")).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    Spacer()
+                    if isFavoritingPreview.value { ProgressView().controlSize(.small) }
+                    Button(t("preview.add")) {
+                        isFavoritingPreview.value = true
+                        model.favoritePreviewedClub { error in
+                            isFavoritingPreview.value = false
+                            if let error { model.problem = error }
+                        }
+                    }
+                    .disabled(isFavoritingPreview.value)
+                    Button(t("preview.close")) { model.closePreview() }
+                }
+                .padding(8)
+                .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            }
             // Two rows, not one. Six actions, two pickers and the club identity all
             // competing for a single row is what squeezed the title into wrapping
             // one word per line (fixed once with .lineLimit(1), but the real cause
@@ -823,12 +923,12 @@ struct ContentView: View {
             // label and every control, one line total instead of two.
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(t("overview.club")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                if model.clubs.isEmpty {
-                    // A Picker with nothing in it has no selection to display --
-                    // keep the plain fallback name (same "teetime-monitor"
-                    // model.clubName already fell back to) for a fresh install
-                    // with no club saved yet, rather than an empty-looking popup
-                    // button.
+                if model.isPreviewing || model.clubs.isEmpty {
+                    // A Picker lists favorited clubs only (see Store.clubs()'s
+                    // own docstring) -- a previewed club was deliberately never
+                    // added to that list, so it can't be one of this Picker's
+                    // own choices either. Same plain-label fallback a fresh
+                    // install with nothing saved yet already used.
                     Text(model.clubName).font(scaledFont(.body)).fontWeight(.semibold)
                         .lineLimit(1).truncationMode(.tail)
                 } else {
@@ -905,13 +1005,19 @@ struct ContentView: View {
                     .help(t("tip.settings"))
             }
 
-            if model.visibleDays.isEmpty {
+            if model.isPreviewLoading {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(t("preview.loading")).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.visibleDays.isEmpty {
                 // maxWidth: .infinity too -- same off-center bug as Search/Add a
                 // Club's own empty states (this VStack is alignment: .leading too).
                 ContentUnavailableView(
                     t("overview.empty_title"),
                     systemImage: "calendar.badge.exclamationmark",
-                    description: Text(model.clubs.isEmpty
+                    description: Text(model.clubs.isEmpty && !model.isPreviewing
                         ? t("overview.empty_no_clubs")
                         : t("overview.empty_pick_another")))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

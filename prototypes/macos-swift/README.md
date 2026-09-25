@@ -3,7 +3,11 @@
 A deliberately small SwiftUI prototype of the overview screen, built to answer one
 question: **what would a native macOS version feel like, and what would it cost?**
 
-Not a rewrite. Not shipped. Not wired into the Homebrew formula.
+Not a rewrite. Shipped as of v0.36.0, though: `brew install`/`upgrade` on macOS
+builds it straight into the Cellar alongside the TUI (see the root
+[`README.md`](../../README.md#a-macos-companion-app-macos-only)) — "prototype"
+describes how it's built and evolved (see "What building it actually taught us"
+below), not whether it reaches a real install.
 
 ## What it does
 
@@ -103,6 +107,64 @@ without snapshot-testing infrastructure this project doesn't have, and pulling
 `@main` into the test executable's own module risks an entry-point conflict
 for no real test value.
 
+## Browse before saving, crowd_estimates in search, and block-style vacation ranges (2026-09-25)
+
+Closed the last three known, flagged gaps this README carried against the TUI —
+one real feature gap left open since the round below, plus two smaller "not
+computed"/"not recognized" limitations flagged inline elsewhere in this file.
+
+**Browse before saving** — the feature gap. `ClubBrowserScreen`'s own `enter`
+takes any club id straight to a real, live-scraped overview with no
+`clubs/*.yaml` ever written; picking a club there is a completed action with
+something to look at, not a prerequisite gate behind favoriting first. Add a
+Club's own rows now do the same: each has an **Open** button (ordered first,
+same convention as that screen's own footer) alongside **Add**, either usable
+without the other. New `teetime-monitor-preview-club` console script wraps
+exactly two existing calls rather than reimplementing anything —
+`tui._resolved_config(club_slug=None, club_id, club_name)` and
+`scrape_once.scrape_due_for_club(slug=None, config, force=True)`, the same two
+calls `TeetimeApp._open_club()`/`_periodic_scrape()` already make for an
+unsaved club, `slug=None` already an ordinary, handled case throughout
+(`_sync_my_reservations()`'s own first line is `if not slug: return`). Scrapes
+straight into `<club_id>.db` — the same fixed-name database `Store.days()`/
+`Store.courses()` already read for *any* club file that exists, favorited or
+not — which is what makes the Swift side of this so thin: `OverviewModel.
+startPreview()` just points `clubPath` at `Store.dbPath(clubID:)` and every
+other view (day list, weather, Search, the heatmap, confirm/cancel) already
+works unchanged, no new rendering path of its own. A persistent banner ("Previewing
+— not saved yet") replaces the Club row's own favorites-only Picker while
+active, with **Add to Favorites** and **Close** actions; **Refresh** shells out
+to the same preview script instead of `teetime-monitor-scrape` while
+previewing, since that script only ever iterates saved favorites and would
+otherwise silently do nothing for an unsaved club.
+
+**`crowd_estimates` in ad hoc search** — previously a flagged gap in
+`search_cli.py`'s own docstring ("not computed here... `analytics.
+crowd_heatmap()` needs a live public-holidays fetch this offline-by-design CLI
+doesn't make"). That framing didn't actually hold up: nothing stops a script
+from making a live fetch, it was really about not adding one to a call site
+that runs on every table redraw (`OverviewScreen`'s own render path), which
+this CLI isn't. `tui._crowd_estimates()` — the exact function `SearchScreen.
+_run_search()` itself calls, gated the same way on `ai_assist.
+avoid_predicted_crowd` — is now reused directly, so AI ranking run from the
+Swift app's own Search sheet can no longer drift from what the TUI computes
+for the same club. `_compute_crowd_estimates()`/`_crowd_estimates()` both
+gained an optional `db_path` parameter for this (default `_db_path(club_id)`,
+every existing caller unaffected) since `search_cli.py` resolves its own
+`--db-path` directly rather than by club id.
+
+**Block-style `vacation_ranges`** — `CalendarContext.vacationRanges()`
+previously only recognized the one-line flow-style list item
+(`- { start: ..., end: ..., label: ... }`) `clubs/club.example.yaml` itself
+documents, explicitly flagging the block-style form (`- start: ...` with
+`end:`/`label:` indented on the lines under it) as a real, smaller scope limit
+`yaml.safe_load()` accepts but this scanner didn't. Closed by widening that
+same narrow, purpose-built scanner (not `YAML.swift`'s shared parser — see its
+own docstring for why that stays out of scope) to recognize both indentations
+`yaml.safe_load()` itself accepts for a block-style item — the dash lined up
+with `vacation_ranges:` itself, or indented under it — confirmed against real
+`yaml.safe_load()` output for both before writing this, not assumed.
+
 ## A long live-feedback round (2026-09-19–20): feature parity, a real data bug, and repeated layout fixes
 
 The single biggest round of direct feedback this prototype has had, working
@@ -125,9 +187,9 @@ structural gaps; two are closed now:
   map is *merged* into on save, not replaced wholesale, so a hand-set
   `ai_assist.model` (a real fallback `settings_screen.py` itself still honors,
   with no widget on either front end) can't be silently dropped.
-- The third gap found — browsing a club's schedule before saving it, the way
-  `ClubBrowserScreen` can — is still open; adding a club still means
-  favoriting it first.
+- **Browsing a club's schedule before saving it**, the way `ClubBrowserScreen`
+  can — closed 2026-09-25, see "Browse before saving" below. The third gap
+  found in this round stayed open the longest of the three.
 
 **A real, live data-correctness bug, not a UI one.** Reported as "umlauts seem
 to be broken," traced to a real saved `clubs/*.yaml` on the reporting machine

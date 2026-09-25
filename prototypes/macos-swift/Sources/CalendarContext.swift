@@ -67,12 +67,15 @@ enum CalendarContext {
     /// ```
     ///
     /// Confirmed against a real `yaml.safe_load()` of that exact shape before
-    /// writing this, not assumed. **Still a real, smaller scope limit**, stated
-    /// plainly rather than silently: a block-style list item (`- start: ...` on
-    /// its own line, `end:`/`label:` indented under it on the following lines) is
-    /// valid YAML `yaml.safe_load()` would also accept, and this scanner does not
-    /// -- it only recognizes the one-line `{ ... }` form the example file itself
-    /// documents as the way to fill this in.
+    /// writing this, not assumed. **Also recognizes block-style items** (`- start:
+    /// ...` on its own line, `end:`/`label:` indented on the lines under it, at
+    /// either of the two indents `yaml.safe_load()` itself accepts for this shape
+    /// -- the dash lined up with `vacation_ranges:` itself, or indented under it),
+    /// confirmed against real `yaml.safe_load()` output for both forms before
+    /// writing this rather than assumed. A one-line "unquote" pass handles a bare,
+    /// single-quoted, or double-quoted scalar; nothing more exotic (folded/literal
+    /// block scalars, flow sequences as a value) -- this scanner's whole scope is
+    /// this one field's own two documented shapes, not general YAML.
     static func vacationRanges(clubYAMLPath: String) -> [VacationRange] {
         guard let text = try? String(contentsOfFile: clubYAMLPath, encoding: .utf8) else { return [] }
         let lines = text.components(separatedBy: "\n")
@@ -80,30 +83,75 @@ enum CalendarContext {
             $0.trimmingCharacters(in: .whitespaces).hasPrefix("vacation_ranges:")
         }) else { return [] }
 
-        let itemPattern = try! NSRegularExpression(pattern: #"^\s*-\s*\{(.*)\}\s*$"#)
-        var ranges: [VacationRange] = []
-        for line in lines[(headerIndex + 1)...] {
+        let flowPattern = try! NSRegularExpression(pattern: #"^\s*-\s*\{(.*)\}\s*$"#)
+        let dashPattern = try! NSRegularExpression(pattern: #"^(\s*)-\s*(.*)$"#)
+        let fieldPattern = try! NSRegularExpression(pattern: #"^\s*([A-Za-z_]+):\s*(.*)$"#)
+
+        func unquote(_ raw: String) -> String {
+            var value = raw.trimmingCharacters(in: .whitespaces)
+            let quotes: [Character] = ["\"", "'"]
+            if let first = value.first, let last = value.last, first == last, quotes.contains(first),
+               value.count >= 2 {
+                value = String(value.dropFirst().dropLast())
+            }
+            return value
+        }
+
+        func field(_ line: Substring) -> (key: String, value: String)? {
+            let line = String(line)
             let searchRange = NSRange(line.startIndex..., in: line)
-            guard let match = itemPattern.firstMatch(in: line, range: searchRange),
-                  let innerRange = Range(match.range(at: 1), in: line) else {
-                // Not a `- { ... }` line -- either the list ended (dedented back
-                // to a sibling key) or it's a shape this scanner doesn't
-                // recognize (see the doc comment above). Either way, stop rather
-                // than guess.
+            guard let match = fieldPattern.firstMatch(in: line, range: searchRange),
+                  let keyRange = Range(match.range(at: 1), in: line),
+                  let valueRange = Range(match.range(at: 2), in: line) else { return nil }
+            return (String(line[keyRange]), unquote(String(line[valueRange])))
+        }
+
+        var ranges: [VacationRange] = []
+        var index = lines.index(after: headerIndex)
+        while index < lines.count {
+            let line = lines[index]
+            let searchRange = NSRange(line.startIndex..., in: line)
+
+            if let match = flowPattern.firstMatch(in: line, range: searchRange),
+               let innerRange = Range(match.range(at: 1), in: line) {
+                var fields: [String: String] = [:]
+                for pair in line[innerRange].split(separator: ",") {
+                    let parts = pair.split(separator: ":", maxSplits: 1)
+                    guard parts.count == 2 else { continue }
+                    fields[parts[0].trimmingCharacters(in: .whitespaces)] = unquote(String(parts[1]))
+                }
+                if let start = fields["start"], let end = fields["end"] {
+                    ranges.append(VacationRange(start: start, end: end, label: fields["label"] ?? ""))
+                }
+                index += 1
+                continue
+            }
+
+            guard let dashMatch = dashPattern.firstMatch(in: line, range: searchRange),
+                  let dashIndentRange = Range(dashMatch.range(at: 1), in: line),
+                  let afterDashRange = Range(dashMatch.range(at: 2), in: line) else {
+                // Not a `-`-led line at all -- either the list ended (dedented
+                // back to a sibling key) or it's a shape this scanner doesn't
+                // recognize. Either way, stop rather than guess.
                 break
             }
+            let dashIndent = line.distance(from: line.startIndex, to: dashIndentRange.upperBound)
             var fields: [String: String] = [:]
-            for pair in line[innerRange].split(separator: ",") {
-                let parts = pair.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                let key = parts[0].trimmingCharacters(in: .whitespaces)
-                var value = parts[1].trimmingCharacters(in: .whitespaces)
-                let quotes: [Character] = ["\"", "'"]
-                if let first = value.first, let last = value.last, first == last, quotes.contains(first),
-                   value.count >= 2 {
-                    value = String(value.dropFirst().dropLast())
-                }
+            let afterDash = line[afterDashRange]
+            if !afterDash.isEmpty, let (key, value) = field(afterDash) {
                 fields[key] = value
+            }
+            index += 1
+            // Sibling fields are indented past the dash itself -- e.g. "  - start:
+            // ..." (indent 2) then "    end: ..." (indent 4, past the dash at 2).
+            while index < lines.count {
+                let next = lines[index]
+                guard let leadIndex = next.firstIndex(where: { $0 != " " }) else { index += 1; continue }
+                let leadIndent = next.distance(from: next.startIndex, to: leadIndex)
+                guard leadIndent > dashIndent, next[leadIndex] != "-",
+                      let (key, value) = field(next[leadIndex...]) else { break }
+                fields[key] = value
+                index += 1
             }
             guard let start = fields["start"], let end = fields["end"] else { continue }
             ranges.append(VacationRange(start: start, end: end, label: fields["label"] ?? ""))

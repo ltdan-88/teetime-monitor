@@ -9,7 +9,27 @@ func runStoreTests() {
         testOccupancySampleTournamentFlag()
         testConfirmAndCancelBookingAreAppendOnly()
         testBannersAcknowledge()
+        testDbPathMirrorsTheFixedClubIDNamingConvention()
+        testDbPathHonorsDataDirEnvOverride()
     }
+}
+
+/// `dbPath(clubID:)` -- added for `OverviewModel.startPreview()`, which needs the
+/// exact same `<dataDir>/<clubID>.db` path `clubs()` already derives per favorited
+/// club, but for a club with no clubs/*.yaml to derive it from.
+private func testDbPathMirrorsTheFixedClubIDNamingConvention() {
+    let path = Store.dbPath(clubID: "0000001")
+    Harness.check("ends with the fixed <club_id>.db naming convention",
+                   path.hasSuffix("/0000001.db"))
+    Harness.check("lives under .local/share/teetime-monitor by default",
+                   path.contains(".local/share/teetime-monitor/0000001.db"))
+}
+
+private func testDbPathHonorsDataDirEnvOverride() {
+    setenv("TEETIME_MONITOR_DATA_DIR", "/tmp/tt-preview-test", 1)
+    defer { unsetenv("TEETIME_MONITOR_DATA_DIR") }
+    Harness.checkEqual("honors TEETIME_MONITOR_DATA_DIR, same as clubs()/cachePath()",
+                        Store.dbPath(clubID: "0000001"), "/tmp/tt-preview-test/0000001.db")
 }
 
 /// A hand-written schema matching `storage.SCHEMA` in `src/storage.py` exactly --

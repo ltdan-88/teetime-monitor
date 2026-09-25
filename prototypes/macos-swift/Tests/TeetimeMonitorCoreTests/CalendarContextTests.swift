@@ -8,6 +8,8 @@ func runCalendarContextTests() {
         testClassificationPriorityOrder()
         testVacationRangeMatching()
         testVacationRangesParsedFromYAML()
+        testVacationRangesBlockStyleIndentedUnderKey()
+        testVacationRangesBlockStyleDashAtKeyIndent()
         testVacationRangesEmptyListNoCrash()
         testCountryCodeFromYAML()
     }
@@ -102,6 +104,57 @@ private func testVacationRangesParsedFromYAML() {
     Harness.checkEqual("a date inside the parsed range classifies as vacation",
                         CalendarContext.classifyDay(date: "2026-08-01", holidays: [], vacationRanges: ranges, hasTournament: false),
                         "vacation")
+}
+
+/// The block-style shape `yaml.safe_load()` also accepts alongside the flow-style
+/// `{ ... }` form above -- the dash's own siblings indented on the lines under it.
+/// Verified against a real `yaml.safe_load()` of the identical fixture text before
+/// writing this: `[{'start': '2026-07-04', 'end': '2026-09-15', 'label': 'summer
+/// break'}, {'start': '2026-12-20', 'end': '2027-01-05'}]`.
+private func testVacationRangesBlockStyleIndentedUnderKey() {
+    let dir = TempDir()
+    let path = dir.file("club.yaml")
+    try! """
+    calendar:
+      country_code: DE
+      vacation_ranges:
+        - start: "2026-07-04"
+          end: "2026-09-15"
+          label: "summer break"
+        - start: "2026-12-20"
+          end: "2027-01-05"
+    overview_days: 5
+    """.write(toFile: path, atomically: true, encoding: .utf8)
+
+    let ranges = CalendarContext.vacationRanges(clubYAMLPath: path)
+    Harness.checkEqual("both block-style ranges parsed", ranges.count, 2)
+    Harness.checkEqual("first range start", ranges.first?.start, "2026-07-04")
+    Harness.checkEqual("first range end", ranges.first?.end, "2026-09-15")
+    Harness.checkEqual("first range label", ranges.first?.label, "summer break")
+    Harness.checkEqual("second range with no label defaults to empty, not a crash",
+                        ranges.last?.label, "")
+}
+
+/// The other legal indentation, per the same `yaml.safe_load()` check: the dash
+/// lined up with `vacation_ranges:` itself rather than indented under it. Verified
+/// against real `yaml.safe_load()` output: `[{'start': '2026-07-04', 'end':
+/// '2026-09-15', 'label': 'summer'}]`.
+private func testVacationRangesBlockStyleDashAtKeyIndent() {
+    let dir = TempDir()
+    let path = dir.file("club.yaml")
+    try! """
+    calendar:
+      vacation_ranges:
+      - start: "2026-07-04"
+        end: "2026-09-15"
+        label: summer
+    """.write(toFile: path, atomically: true, encoding: .utf8)
+
+    let ranges = CalendarContext.vacationRanges(clubYAMLPath: path)
+    Harness.checkEqual("range parsed with dash at the key's own indent", ranges.count, 1)
+    Harness.checkEqual("start", ranges.first?.start, "2026-07-04")
+    Harness.checkEqual("end", ranges.first?.end, "2026-09-15")
+    Harness.checkEqual("bare (unquoted) label", ranges.first?.label, "summer")
 }
 
 private func testVacationRangesEmptyListNoCrash() {

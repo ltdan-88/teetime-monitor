@@ -1060,6 +1060,41 @@ def test_compute_crowd_estimates_works_with_no_ai_assist_config_at_all(tmp_path,
     assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
 
 
+def test_compute_crowd_estimates_respects_an_explicit_db_path(tmp_path, monkeypatch):
+    # Points _db_path("0000001") somewhere with no schedule history at all, so this
+    # only passes if the explicit db_path below is actually what gets scanned --
+    # what search_cli.py needs, since its own --db-path isn't necessarily this
+    # club's canonical one (see that module's own docstring).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path / "not_used")
+    db_path = tmp_path / "isolated_copy.db"
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+            path=db_path,
+        )
+    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    estimates = tui._compute_crowd_estimates([candidate], {}, "0000001", db_path=db_path)
+
+    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
+
+
+def test_crowd_estimates_threads_db_path_through_to_compute(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path / "not_used")
+    db_path = tmp_path / "isolated_copy.db"
+    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
+        storage.save_schedule(
+            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
+            path=db_path,
+        )
+    config = {"ai_assist": {"avoid_predicted_crowd": True}}
+    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+
+    estimates = tui._crowd_estimates([candidate], config, "0000001", db_path=db_path)
+
+    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
+
+
 # _slot_crowd_marker() -- the small colored "■" block _compute_slot_rows()
 # appends to a slot's own occupancy cell.
 

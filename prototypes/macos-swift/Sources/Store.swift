@@ -247,6 +247,20 @@ enum Store {
         while sqlite3_step(stmt) == SQLITE_ROW { row(stmt) }
     }
 
+    /// `<dataDir>/<clubID>.db` -- the same fixed-name database every reader here
+    /// (`days()`, `courses()`, ...) already reads for *any* club file that
+    /// exists, favorited or not (only `clubs()` below cares about `clubs/*.yaml`
+    /// specifically). Exposed on its own for `OverviewModel.startPreview()`,
+    /// which needs this same path for a club that has no saved YAML to read it
+    /// back out of the way `clubs()` does for a favorited one.
+    static func dbPath(clubID: String) -> String {
+        let home = NSHomeDirectory() as NSString
+        let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_DATA_DIR"]
+        let dataDir = (env as NSString?)?.expandingTildeInPath
+            ?? home.appendingPathComponent(".local/share/teetime-monitor")
+        return "\(dataDir)/\(clubID).db"
+    }
+
     /// One entry per **saved** club, newest-scraped first.
     ///
     /// Driven by `~/.config/teetime-monitor/clubs/*.yaml` — the same favourites the TUI
