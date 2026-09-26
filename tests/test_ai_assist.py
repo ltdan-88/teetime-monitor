@@ -595,3 +595,38 @@ def test_verify_api_key_gemini_rejected(monkeypatch):
 
     assert ok is False
     assert error is None
+
+
+def test_verify_api_key_gemini_quota_exceeded_is_not_treated_as_a_bad_key(monkeypatch):
+    # Regression test (2026-09-27, found live against a real free-tier key): a 429
+    # RESOURCE_EXHAUSTED quota error is also a google.genai.errors.ClientError, same
+    # as a 401/403 rejected key -- treating the whole class as "bad key" used to
+    # mean a real quota error was reported identically to a wrong key, and (via
+    # _with_retry) never even retried despite the API's own response saying to.
+    def raise_quota_error():
+        raise ai_assist.genai.errors.ClientError(429, {"error": {"message": "quota exceeded"}})
+        yield  # pragma: no cover -- makes this a generator, matching the real pager shape
+
+    models = _Namespace(list=raise_quota_error)
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _Namespace(models=models))
+
+    ok, error = ai_assist.verify_api_key("gemini")
+
+    assert ok is False
+    assert error is not None  # reported as a real error, not silently "key rejected"
+
+
+def test_with_retry_retries_a_gemini_quota_error_not_just_503s(monkeypatch):
+    monkeypatch.setattr(ai_assist.time, "sleep", lambda seconds: None)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise ai_assist.genai.errors.ClientError(429, {"error": {"message": "quota exceeded"}})
+        return "ok"
+
+    result = ai_assist._with_retry("gemini", flaky)
+
+    assert result == "ok"
+    assert len(calls) == 2

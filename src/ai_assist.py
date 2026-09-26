@@ -222,20 +222,31 @@ def _model_for(provider: str, model: str | None) -> str:
 # Grok reuses openai's exception class since it's the same SDK. Resolved lazily inside
 # verify_api_key() itself (not at import time) since it needs whichever module(s)
 # _client_for() already imported for this provider.
-def _auth_error_classes(provider: str) -> tuple[type[Exception], ...]:
+#
+# Gemini is the one provider where this needs a status-code check, not just a class
+# check (2026-09-27 fix, found live): `google.genai.errors.ClientError` covers every
+# 4xx response, 401/403 (a genuinely bad key) and 429 (a rate limit / quota) alike --
+# unlike anthropic/openai, where `AuthenticationError` is already its own narrow class
+# distinct from `RateLimitError`. Treating the whole `ClientError` class as
+# "don't retry" was itself a bug: a real quota-exceeded 429 (confirmed live against a
+# free-tier Gemini key -- "Please retry in 31s") was being treated exactly like a
+# rejected key and never retried at all, even though the API's own response says
+# retrying is the right move.
+def _is_auth_failure(provider: str, exc: Exception) -> bool:
     if provider == "anthropic":
-        return (_anthropic_module().AuthenticationError,)
+        return isinstance(exc, _anthropic_module().AuthenticationError)
     if provider in ("openai", "grok"):
-        return (_openai_module().AuthenticationError,)
+        return isinstance(exc, _openai_module().AuthenticationError)
     if provider == "gemini":
-        return (_genai_module().errors.ClientError,)
+        client_error = _genai_module().errors.ClientError
+        return isinstance(exc, client_error) and getattr(exc, "code", None) in (401, 403)
     raise ValueError(f"unknown ai_assist provider: {provider!r}")
 
 
 def _with_retry(provider: str, call):
-    """Retry `call()` once, after a short pause, for anything except `provider`'s own
-    auth-error class -- added 2026-09-27, found live while building the GUI's
-    Overview pick feature: Gemini's free tier returned a real `503 UNAVAILABLE`
+    """Retry `call()` once, after a short pause, for anything except a genuine
+    auth failure for `provider` -- added 2026-09-27, found live while building the
+    GUI's Overview pick feature: Gemini's free tier returned a real `503 UNAVAILABLE`
     ("high demand") on roughly half of a real run of consecutive live calls, and
     this module had no retry anywhere, so one transient overload fell straight
     through to `recommend.ranked_matches()`'s own outer fallback (no reasons shown
@@ -243,12 +254,15 @@ def _with_retry(provider: str, call):
     bad key fails identically no matter how many times it's retried, so that one
     case is excluded -- everything else (a busy server, a rate limit, a network
     hiccup) gets exactly one more try before this module gives up and lets the
-    caller's own fallback take over."""
+    caller's own fallback take over. Note this can't help a genuinely exhausted
+    *daily* quota (confirmed live the same day: a free-tier Gemini key's 20-request
+    daily cap for one model) -- a 1.5s retry is only ever going to help a transient
+    or short-lived limit, not one that only resets tomorrow."""
     try:
         return call()
-    except _auth_error_classes(provider):
-        raise
-    except Exception:
+    except Exception as exc:
+        if _is_auth_failure(provider, exc):
+            raise
         time.sleep(1.5)
         return call()
 
@@ -326,9 +340,9 @@ def verify_api_key(provider: str) -> tuple[bool, str | None]:
             next(iter(client.models.list()), None)
         else:
             client.models.list()
-    except _auth_error_classes(provider):
-        return False, None
     except Exception as exc:  # noqa: BLE001 -- a network hiccup isn't proof the key is bad
+        if _is_auth_failure(provider, exc):
+            return False, None
         return False, str(exc)
     return True, None
 
