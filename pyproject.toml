@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.43.2"
+version = "0.44.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -65,6 +65,9 @@ teetime-monitor-preview-club = "src.preview_club_cli:main"
 # Headless AI-provider credential save+verify for the macOS GUI's AI credentials
 # section (2026-09-26) -- see ai_login_cli.py's own docstring for the contract.
 teetime-monitor-ai-login = "src.ai_login_cli:main"
+# Headless per-day recommended pick for the macOS GUI's Overview (2026-09-27) --
+# see picks_cli.py's own docstring for the contract.
+teetime-monitor-picks = "src.picks_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

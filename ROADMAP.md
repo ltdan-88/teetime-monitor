@@ -4824,6 +4824,61 @@ truncated/abbreviated -- the AI reasons cell was the one exception, so a
 clipped reason like "Low exposure to..." had no way to be read in full. Given
 the same `.help()` treatment.
 
+## The GUI's Overview never showed a recommended pick at all (2026-09-27)
+
+The TUI's Overview has shown a "★ HH:MM" recommended pick per day (best
+still-playable slot, AI-ranked with `reasons` once `ai_assist.enabled`) since
+2026-09-08 (`_day_pick_text()`/`_availability_pipeline()`). The GUI's Overview
+never had an equivalent at all -- only its ad hoc Search sheet went through
+`ai_assist.rank_slots()`. Surfaced by the user right after getting a real
+Gemini key working end to end: reasons showed up in Search, nothing changed
+in the Overview, and there was no reason it shouldn't.
+
+New `teetime-monitor-picks` console script (`src/picks_cli.py`) sits right next
+to `search_cli.py` and mirrors its Tier 2 shape closely, but calls
+`tui._availability_pipeline()` directly (the exact function `_day_pick_text()`
+itself calls) for each date in a window rather than reimplementing the
+selection -- the GUI's pick can never disagree with what the TUI would show
+for the same data. Output is one JSON object keyed by date
+(`{"2026-09-27": {"time": "09:10", "score": 85.0, "reasons": [...]}, "...": null}`)
+for O(1) GUI lookup; `null` covers every "nothing to show" case
+`_day_pick_text()` also collapses to a dash for, without needing to replicate
+its three distinct messages.
+
+New `macos/Sources/PicksClient.swift` mirrors `SearchClient.swift`'s shell-out
+shape. `OverviewModel.reload()` (`App.swift`) fires it off asynchronously,
+fire-and-forget, right after its own synchronous SQLite reload -- no new timer:
+this rides the exact cadence `reload()` already runs on (the 2-second DB-mtime
+watcher picking up the background scraper's writes, plus manual Refresh).
+`DayCardHeader`'s existing booking-flag badge slot (`trailingHeatAndBadge`)
+gained a second branch: no confirmed booking but a pick exists -> a "★ HH:MM"
+badge in the same fixed-width slot, same style, with the reasons (if any) in a
+`.help()` tooltip -- same tooltip pattern just added to `SearchSheet.swift`,
+same two-tier priority `_day_pick_text()` itself uses (confirmed beats pick).
+
+**A real reliability gap found live while testing this**: Gemini's free-tier
+`gemini-flash-latest` returned a genuine `503 UNAVAILABLE` ("high demand") on
+roughly half of a real run of consecutive live calls made while building this
+-- and `ai_assist.py` had no retry anywhere, so one transient overload fell
+straight through to `recommend.ranked_matches()`'s own outer fallback (silently
+no reasons at all) even though the very next attempt, moments later, usually
+succeeded. New `_with_retry()` retries once, after a short pause, for anything
+except the provider's own auth-error class (a bad key fails identically no
+matter how many times it's retried) -- applies to all four providers, not just
+Gemini, since a busy server/rate limit/network hiccup is exactly as plausible
+for any of them.
+
+841 tests passing (`pytest`), `ruff check` clean. `swift build`,
+`TeetimeMonitorCoreTests` (196 assertions) and `VisualRegressionRunner` all
+pass unchanged. Verified live against the user's real database: a real pick
+with real German-language AI reasons came back from `teetime-monitor-picks`
+directly, and the built `.app` launches cleanly with the new code path
+present. Full interactive confirmation of the badge actually rendering in the
+running app wasn't possible in this sandbox -- no native desktop computer-use
+tool was available, only Chrome-browser control, which doesn't reach a native
+`.app` -- so this stops at the CLI's real output plus a clean build+launch,
+disclosed as such rather than assumed.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

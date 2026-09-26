@@ -50,6 +50,7 @@ to.
 
 import json
 import os
+import time
 from typing import Literal
 
 from pydantic import BaseModel
@@ -215,57 +216,6 @@ def _model_for(provider: str, model: str | None) -> str:
         raise ValueError(f"unknown ai_assist provider: {provider!r}") from None
 
 
-def _structured(client, provider: str, model: str, prompt: str, schema_cls: type[BaseModel]):
-    """Provider-specific structured output, returning a validated `schema_cls`
-    instance (or `None` if the provider genuinely returned nothing parseable) -- see
-    module docstring for why OpenAI and Grok share one branch."""
-    if provider == "anthropic":
-        response = client.messages.parse(
-            model=model,
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-            output_format=schema_cls,
-        )
-        return response.parsed_output
-    if provider in ("openai", "grok"):
-        response = client.chat.completions.parse(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format=schema_cls,
-        )
-        return response.choices[0].message.parsed
-    if provider == "gemini":
-        genai = _genai_module()
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json", response_schema=schema_cls
-            ),
-        )
-        return response.parsed
-    raise ValueError(f"unknown ai_assist provider: {provider!r}")
-
-
-def _text(client, provider: str, model: str, prompt: str, max_tokens: int) -> str:
-    """Provider-specific open-ended text completion -- see module docstring for why
-    OpenAI and Grok share one branch."""
-    if provider == "anthropic":
-        response = client.messages.create(
-            model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
-        )
-        return "".join(block.text for block in response.content if block.type == "text")
-    if provider in ("openai", "grok"):
-        response = client.chat.completions.create(
-            model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message.content or ""
-    if provider == "gemini":
-        response = client.models.generate_content(model=model, contents=prompt)
-        return response.text or ""
-    raise ValueError(f"unknown ai_assist provider: {provider!r}")
-
-
 # Each SDK's own "the key itself was rejected" exception -- narrower than a bare
 # `except Exception`, same reasoning login_cli.py separates scraper.LoginError (wrong
 # credentials) from a generic network exception (transient, not proof the key is bad).
@@ -280,6 +230,86 @@ def _auth_error_classes(provider: str) -> tuple[type[Exception], ...]:
     if provider == "gemini":
         return (_genai_module().errors.ClientError,)
     raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+def _with_retry(provider: str, call):
+    """Retry `call()` once, after a short pause, for anything except `provider`'s own
+    auth-error class -- added 2026-09-27, found live while building the GUI's
+    Overview pick feature: Gemini's free tier returned a real `503 UNAVAILABLE`
+    ("high demand") on roughly half of a real run of consecutive live calls, and
+    this module had no retry anywhere, so one transient overload fell straight
+    through to `recommend.ranked_matches()`'s own outer fallback (no reasons shown
+    at all) even though the very next attempt, moments later, usually succeeded. A
+    bad key fails identically no matter how many times it's retried, so that one
+    case is excluded -- everything else (a busy server, a rate limit, a network
+    hiccup) gets exactly one more try before this module gives up and lets the
+    caller's own fallback take over."""
+    try:
+        return call()
+    except _auth_error_classes(provider):
+        raise
+    except Exception:
+        time.sleep(1.5)
+        return call()
+
+
+def _structured(client, provider: str, model: str, prompt: str, schema_cls: type[BaseModel]):
+    """Provider-specific structured output, returning a validated `schema_cls`
+    instance (or `None` if the provider genuinely returned nothing parseable) -- see
+    module docstring for why OpenAI and Grok share one branch."""
+
+    def call():
+        if provider == "anthropic":
+            response = client.messages.parse(
+                model=model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+                output_format=schema_cls,
+            )
+            return response.parsed_output
+        if provider in ("openai", "grok"):
+            response = client.chat.completions.parse(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format=schema_cls,
+            )
+            return response.choices[0].message.parsed
+        if provider == "gemini":
+            genai = _genai_module()
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    response_mime_type="application/json", response_schema=schema_cls
+                ),
+            )
+            return response.parsed
+        raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+    return _with_retry(provider, call)
+
+
+def _text(client, provider: str, model: str, prompt: str, max_tokens: int) -> str:
+    """Provider-specific open-ended text completion -- see module docstring for why
+    OpenAI and Grok share one branch."""
+
+    def call():
+        if provider == "anthropic":
+            response = client.messages.create(
+                model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+            )
+            return "".join(block.text for block in response.content if block.type == "text")
+        if provider in ("openai", "grok"):
+            response = client.chat.completions.create(
+                model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content or ""
+        if provider == "gemini":
+            response = client.models.generate_content(model=model, contents=prompt)
+            return response.text or ""
+        raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+    return _with_retry(provider, call)
 
 
 def verify_api_key(provider: str) -> tuple[bool, str | None]:

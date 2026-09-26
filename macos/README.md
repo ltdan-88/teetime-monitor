@@ -116,6 +116,37 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## The Overview never showed a recommended pick (2026-09-27)
+
+The TUI's Overview has shown a "★ HH:MM" recommended pick per day (AI-ranked
+once `ai_assist.enabled`) since 2026-09-08 -- the GUI's Overview never had an
+equivalent, only its ad hoc Search sheet did. Surfaced right after getting a
+real Gemini key working end to end: reasons showed up in Search, nothing
+changed in the Overview.
+
+New `teetime-monitor-picks` console script (`src/picks_cli.py`, sitting right
+next to `search_cli.py`) calls `tui._availability_pipeline()` directly for
+each date in a window -- the exact function the TUI's own Pick column calls --
+so the GUI's pick can never disagree with what the TUI shows for the same
+data. New `PicksClient.swift` mirrors `SearchClient.swift`'s shell-out shape;
+`OverviewModel.reload()` fires it fire-and-forget right after its own
+synchronous SQLite reload, riding the same 2-second DB-mtime-watcher cadence
+`reload()` already runs on -- no new timer. `DayCardHeader`'s existing
+booking-flag badge slot gained a second branch (no confirmed booking, but a
+pick exists) showing a "★ HH:MM" badge with reasons in a `.help()` tooltip,
+same two-tier priority the TUI's own Pick column uses.
+
+Found live while testing this: Gemini's free-tier `gemini-flash-latest`
+returned a real `503 UNAVAILABLE` ("high demand") on roughly half of a run of
+consecutive live calls, and `ai_assist.py` had no retry anywhere. New
+`_with_retry()` (all four providers, not just Gemini) retries once for
+anything except the provider's own auth-error class. Verified against the
+real database: a genuine pick with real German-language reasons came back
+from the CLI directly. Full interactive confirmation of the badge in the
+running app wasn't possible in this sandbox (no native desktop computer-use
+tool available, only Chrome-browser control) -- verification stopped at the
+CLI's real output plus a clean build+launch.
+
 ## Multi-provider AI credentials (2026-09-26)
 
 Direct follow-up to turning AI ranking on for the first time and noticing the GUI
