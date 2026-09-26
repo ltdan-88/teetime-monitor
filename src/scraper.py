@@ -640,13 +640,26 @@ def fetch_course_aliases(club_id: str) -> dict[str, str]:
     `NoTeeSheetError` for one that publishes no tee sheet at all. That last check
     lives here rather than in the pure parser because it needs the whole real page:
     a club can offer a course selector and still have no timetable behind it, which
-    would otherwise surface as a course you can pick that then shows nothing."""
+    would otherwise surface as a course you can pick that then shows nothing.
+
+    The `NoTeeSheetError` message carries the response's status code, body length and
+    final URL (2026-09-26) — a real club hit this intermittently (~37% of scheduled
+    passes) while a manual retry moments later always succeeded, which rules out a
+    permanent "this club has no tee sheet" state but leaves open whether it's a
+    transient upstream hiccup or something odd about the response itself (a
+    maintenance page, an unexpected redirect); a plain HTTP 200 with no `raise_for_status()`
+    trigger already told us it isn't a block/rate-limit (that would raise
+    `HTTPStatusError` first, a different, already-distinguishable exception) — these
+    three fields are what's needed to tell "short maintenance-page body" apart from
+    "normal-length page that's just missing the table" the next time this fires,
+    without having to reproduce it by hand again."""
     url = club_url(club_id, TEE_SHEET_CATEGORY)
     response = httpx.get(url, timeout=15, follow_redirects=True)
     response.raise_for_status()
     if BeautifulSoup(response.text, "html.parser").select_one("table.pcco-tt-timetable") is None:
         raise NoTeeSheetError(
-            f"Club {club_id} doesn't publish an online tee sheet on pc caddie."
+            f"Club {club_id} doesn't publish an online tee sheet on pc caddie "
+            f"(HTTP {response.status_code}, {len(response.content)} bytes, final url {response.url})."
         )
     return _parse_course_aliases_html(response.text)
 

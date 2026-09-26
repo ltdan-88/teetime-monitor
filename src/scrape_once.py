@@ -92,6 +92,16 @@ DEFAULT_SCRAPE_INTERVAL_MINUTES = 360  # 6 hours
 DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED = 60  # 1 hour, once a booking exists for the date
 
 
+def _log(message: str) -> None:
+    """`print()` for this module's own best-effort failure notices, with a wall-clock
+    timestamp prefixed. Added 2026-09-26: the launchd log (StandardOutPath, appended to
+    forever, never rotated) had no timestamps at all, which made an intermittent
+    failure (some passes fine, some not) impossible to correlate against time of day
+    or how often it actually happens -- every line just looked identical no matter
+    when it fired."""
+    print(f"[{datetime.now(UTC).isoformat(timespec='seconds')}] {message}")
+
+
 def _db_path(club_id: str) -> Path:
     """One SQLite file per club (see storage.py's module docstring for why) — keyed by
     the club's own pc caddie numeric id, not the local clubs/*.yaml filename slug, since
@@ -110,7 +120,7 @@ def _attach_weather(schedule, config: dict, club_id: str, course: str, date: str
         schedule.weather = weather_module.fetch_hourly_weather(lat, lon, date)
         schedule.sun_times = weather_module.fetch_sun_times(lat, lon, date)
     except Exception as exc:  # noqa: BLE001 — a weather hiccup shouldn't sink the scrape
-        print(f"[scrape_once] weather fetch failed for {club_id}/{course}/{date}: {exc}")
+        _log(f"[scrape_once] weather fetch failed for {club_id}/{course}/{date}: {exc}")
 
 
 def run(
@@ -258,7 +268,7 @@ def _sync_my_reservations(
     try:
         live_bookings = scrape_my_reservations(club_id, username, password, known_courses)
     except LoginError as exc:
-        print(f"[scrape_once] login failed for {club_id}: {exc}")
+        _log(f"[scrape_once] login failed for {club_id}: {exc}")
         _report_reservations_sync_failure("login", db_path)
         return
     except NotImplementedError:
@@ -449,7 +459,7 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     config = {**config, **global_preferences.load_preferences()}
     club_id = config.get("club_id")
     if not club_id:
-        print(f"[scrape_once] {slug}: no club_id set in its config, skipping")
+        _log(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
     # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
     # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
@@ -468,7 +478,7 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     try:
         courses = fetch_course_aliases(club_id)
     except Exception as exc:  # noqa: BLE001
-        print(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
+        _log(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
 
     _sync_my_reservations(club_id, slug, _db_path(club_id), list(courses) if courses else None)
 
@@ -490,7 +500,7 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     try:
         dates = fetch_available_dates(club_id)
     except Exception as exc:  # noqa: BLE001 — non-fatal, falls back to the config value
-        print(f"[scrape_once] {slug}: couldn't read its booking window ({exc}); using overview_days")
+        _log(f"[scrape_once] {slug}: couldn't read its booking window ({exc}); using overview_days")
     overview_days = config.get("overview_days", 5)
     if dates:
         target_dates = dates[:max(overview_days, MAX_OVERVIEW_DAYS)]
@@ -508,7 +518,7 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
             except Exception as exc:  # noqa: BLE001 — one bad course/date must not
                 # stop the rest of this club's window (or, from main(), every other
                 # saved club).
-                print(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+                _log(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
     return changes
 
 
@@ -532,7 +542,7 @@ def main(argv: list[str] | None = None) -> None:
     # having to notice -- and `needs_migration()` is false forever after.
     if paths.needs_migration():
         for item in paths.migrate_from():
-            print(f"[scrape_once] migrated to {paths.CONFIG_DIR}: {item}")
+            _log(f"[scrape_once] migrated to {paths.CONFIG_DIR}: {item}")
     paths.ensure_dirs()
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)

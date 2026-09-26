@@ -673,8 +673,11 @@ def test_parse_course_aliases_html_falls_back_to_one_implicit_course_without_a_s
 
 
 class _FakeGetResponse:
-    def __init__(self, text: str):
+    def __init__(self, text: str, status_code: int = 200, url: str = "https://www.pccaddie.net/fake"):
         self.text = text
+        self.content = text.encode()
+        self.status_code = status_code
+        self.url = url
 
     def raise_for_status(self):
         pass
@@ -708,6 +711,21 @@ def test_fetch_course_aliases_raises_no_tee_sheet_error_when_the_club_has_none(m
         lambda url, timeout, follow_redirects: _FakeGetResponse(_SONNENBERG_ALIASES_HTML),
     )
     with pytest.raises(scraper_module.NoTeeSheetError):
+        fetch_course_aliases("0499001")
+
+
+def test_no_tee_sheet_error_carries_status_length_and_url_for_diagnosing_intermittent_failures(monkeypatch):
+    # Added 2026-09-26: a real club hit this ~37% of scheduled passes while a manual
+    # retry moments later always succeeded -- these three fields are what's needed to
+    # tell a maintenance-page-shaped response apart from a normal one next time,
+    # without reproducing it by hand again (see fetch_course_aliases()'s own docstring).
+    monkeypatch.setattr(
+        scraper_module.httpx, "get",
+        lambda url, timeout, follow_redirects: _FakeGetResponse(
+            _SONNENBERG_ALIASES_HTML, status_code=200, url="https://www.pccaddie.net/clubs/0499001/app.php?cat=tt_timetable_course"
+        ),
+    )
+    with pytest.raises(scraper_module.NoTeeSheetError, match=r"HTTP 200.*bytes.*0499001"):
         fetch_course_aliases("0499001")
 
 

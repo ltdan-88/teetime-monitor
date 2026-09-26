@@ -4684,6 +4684,32 @@ matches the real row's own cells once scrolled past it (and hides again on
 collapse), the other asserts its column widths always match
 `#overview-table`'s own. 789 passing, `ruff check` clean.
 
+## `scrape_once`'s log had no timestamps, and its "no tee sheet" error hid the response (2026-09-26)
+
+Found while investigating a real user's launchd log
+(`~/Library/Logs/teetime-monitor.log`): `Club {id} doesn't publish an online
+tee sheet` was firing on ~37% of scheduled passes for a real club, but a
+manual retry moments later always succeeded — no `HTTPStatusError` anywhere in
+the log (which rules out a 403/429/block; that would raise a different,
+already-distinguishable exception), and both `curl` and the app's own `httpx`
+call succeeded on a fresh reproduction. Genuinely intermittent, not a
+permanent "this club has no tee sheet" state and not the club being blocked —
+but every occurrence of the message looked identical, with nothing to tell a
+maintenance-page-shaped response apart from a normal one, or correlate
+failures against time of day.
+
+Two small fixes, not a behavior change: `scrape_once.py`'s own `print()` calls
+(all 7 of them) now go through a `_log()` helper that prefixes an ISO
+timestamp — the log is appended to forever with no rotation, so future
+failures can finally be correlated against when they happen. `NoTeeSheetError`
+(`scraper.py`'s `fetch_course_aliases()`) now carries the response's status
+code, body length and final URL in its message, so the next occurrence
+carries enough evidence on its own instead of needing to be reproduced by
+hand again. `_FakeGetResponse` (`test_scraper.py`) gained matching
+`status_code`/`content`/`url` attributes (defaulted, so the two existing
+tests didn't need to change) plus one new test asserting the three diagnostic
+fields actually land in the message. 790 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
