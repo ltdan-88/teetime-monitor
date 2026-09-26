@@ -196,6 +196,7 @@ struct SlotRow: View {
             if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .help(t("tip.condition_at", ["time": slot.time]))
+                    .frame(width: scale.scaled(Metrics.slotCondition))
                 if let tempC = w.temperatureC {
                     Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
                         .font(scaledFont(.caption2)).foregroundStyle(.secondary)

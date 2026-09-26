@@ -138,6 +138,15 @@ enum Metrics {
     // and 34 was sized for the probability alone.
     static let slotPrecip: CGFloat = 56
     static let slotWind: CGFloat = 30
+    // A slot/search-result row's own per-time condition icon, before the
+    // temperature column -- direct audit, 2026-09-26, following the day-card
+    // header's identical bug (see Metrics.dayCondition): this icon had no
+    // fixed width either, so the temp/precip/wind columns after it drifted
+    // left/right by row depending on which weather glyph that specific time
+    // happened to show. Narrower than Metrics.dayCondition (20) since both
+    // real call sites (SlotRow, SearchResultRow) render this at .caption/
+    // .caption2 size, smaller than the day header's own unscaled icon.
+    static let slotCondition: CGFloat = 16
     static let seatPip: CGFloat = 9
     // Day card
     static let chevron: CGFloat = 10

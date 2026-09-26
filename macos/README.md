@@ -115,6 +115,75 @@ without snapshot-testing infrastructure this project doesn't have, and pulling
 `@main` into the test executable's own module risks an entry-point conflict
 for no real test value.
 
+## Grid alignment: three rounds, one recurring bug shape (2026-09-26)
+
+Direct feedback, in order: "make sure that the dropdowns and buttons are
+better aligned (e.g. like on a grid)" → fixed, then "icons, temperatures,
+wind, sunrise/sunset times etc. are not always aligned between the different
+days" → fixed, then a direct request to audit every other menu and the TUI
+for the same expectation. All three rounds turned out to be the same
+underlying mistake in different places: a SwiftUI view sized to its own
+content instead of a fixed column, so something *else* on the same row (a
+wider weather icon that day, an extra digit, a differently-selected course
+name) shifted everything after it sideways relative to the row above or
+below. Fixed the same way everywhere it was found — a `Metrics` constant
+sized for the widest plausible value, applied as a fixed-width `.frame()` —
+matching the column discipline `SlotRow` already had for its own time/temp/
+precip/wind cells before any of this started.
+
+**The Club/Platz row** (v0.40.2). The course dropdown's own right edge used
+to land well short of the action-button row's own right edge below it — the
+whole row was narrower than the window, not just one field misaligned within
+it. The real fix took three failed attempts to find: a plain trailing
+`Spacer`, `.frame(maxWidth: .infinity)` on the row, `.overlay(alignment:
+.trailing)`, and a `ZStack` with an explicitly `GeometryReader`-measured
+width all *looked* like they should work and didn't, because giving the
+course `Picker` any width constraint at all (`.frame(width:)`, even
+`.frame(minWidth:)`) silently broke every one of them regardless of how the
+surrounding layout was written. Removing that frame entirely -- the Picker
+now sizes to its own selected course name, same as the Club picker beside it
+already did -- is what actually fixed it. `Metrics.picker` is gone; nothing
+else used it.
+
+**The day-card header** (v0.40.3). `DayCardHeader`'s collapsed summary row --
+condition icon, temp, rain, wind, sunrise/sunset -- had never had fixed
+columns at all, each field sizing to its own content. New `Metrics.
+dayWeekday`/`dayCondition`/`dayTemp`/`dayRain`/`dayWind`/`daySun`, one per
+field, each wrapped in a `Group` even when its own value is `nil` so a day
+with no wind/rain/sun data for some field reserves that column's width
+instead of collapsing it and shifting everything after it -- the exact
+"reserves its own fixed-width slot regardless of content" rule
+`Metrics.bookingBadge` already established for the heat-strip/booking badge
+slot, just not yet applied to this row when it was first written.
+
+**The follow-up audit** (v0.40.4) went looking for the same shape elsewhere
+rather than assuming these two were the only two. Found it once more:
+`SlotRow`'s and `SearchResultRow`'s own per-slot condition icon (the same
+`icon(for:)` call the day header uses) had no fixed width either, so the
+temp/precip/wind cells after it -- despite each of *those* already being in
+their own fixed column -- still drifted by however much that specific
+weather glyph happened to render. New `Metrics.slotCondition` (16, smaller
+than the day header's own 20 since both real call sites render it at
+caption/caption2 size) closes it in both places. Checked and ruled out
+elsewhere: `HeatmapSheet`'s grid, every `Form`-based sheet (Preferences,
+Settings, Search's own criteria column, Add a Club's result list) --
+`Form`/`.formStyle(.grouped)` and `List` both already give every row the
+same real width to work with, which is exactly the ingredient a plain
+`VStack` row was missing above, so the manual `HStack { Text; Spacer;
+Control }` rows those forms use were never actually at risk the same way.
+
+**The TUI, checked the same day, needed no changes.** Its own day-list/search
+`DataTable`s compute each column's width as the max `_cell_visible_width()`
+across every row *before* rendering any of them (`tui.py`'s own
+`_render_table()`), and its Settings/Preferences screens set `.field-label`/
+`.field-input`/`.field-time-group` widths once, in CSS, applied to every
+field row by class rather than per instance -- both are structurally
+incapable of the SwiftUI bug above, and the label/field alignment there was
+already a direct fix from Phase 4 (2026-09-08). Confirmed by reading both
+mechanisms rather than a live screenshot -- launching a second terminal for
+one was blocked by this sandbox's own Automation permissions for
+`Terminal.app`, not by anything in the TUI itself.
+
 ## Promoted out of `prototypes/` (2026-09-25)
 
 Direct call, after closing the feature gaps below: "it isn't a prototype
