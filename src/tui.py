@@ -154,10 +154,11 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult, SystemCommand
 from textual.command import DiscoveryHit
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.system_commands import SystemCommandsProvider
 from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static
+from textual.widgets.data_table import RowDoesNotExist
 from textual.widgets.option_list import Option
 
 from . import (
@@ -2337,8 +2338,26 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     regardless of how many rows are expanded."""
 
     CSS = _SWITCHER_CSS + _AUTO_HIDE_CSS + """
+    #table-container {
+        height: 1fr;
+        layers: base overlay;
+    }
     #overview-table {
         height: 1fr;
+        layer: base;
+    }
+    /* One row, no header/cursor of its own -- see _update_sticky_header()'s
+       own docstring for what this shows and when. `dock: top` positions it
+       over #overview-table's own top rows (same #table-container, "overlay"
+       layer painted above "base") rather than pushing them down -- a docked
+       widget takes no flow space, so #overview-table itself never resizes
+       to make room for it. Hidden by default; shown only once scrolled past
+       the row it's standing in for. */
+    #sticky-header {
+        layer: overlay;
+        dock: top;
+        height: 1;
+        display: none;
     }
     """
 
@@ -2400,13 +2419,47 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # the network.
         self._cached_dates: list[str] = []
         self._cached_open_dates: set[str] = set()
+        # Every day-summary row's own cell tuple, keyed by date -- the exact
+        # `(day_cell, condition_cell, ..., pick_cell)` _render_table() itself
+        # just handed to add_row() for that date, kept around so
+        # _update_sticky_header() can redraw the same content standalone once
+        # the real row has scrolled out of view. Rebuilt every _render_table()
+        # call, from scratch (like _row_dates/_row_index above) -- a date can
+        # stop being displayed (the loaded window shifted) between one render
+        # and the next.
+        self._row_header_cells: dict[str, tuple[str, ...]] = {}
+        # This render's own final per-column widths (post Events/Pick cap),
+        # so the sticky row's columns can match #overview-table's real ones
+        # exactly rather than guessing. See _render_table()'s own docstring
+        # for why these can't be read back off the table itself until its
+        # next paint.
+        self._column_widths: list[int] = []
+        # Which date the sticky header is currently showing, if any -- lets
+        # _update_sticky_header() skip re-declaring columns/re-adding its one
+        # row on every single poll tick, only doing that work when the shown
+        # date actually changes. `None` means "not currently shown".
+        self._sticky_shown_date: str | None = None
+        # Sticky columns/content need rebuilding on the *next* poll tick
+        # regardless of whether _sticky_shown_date happens to already match --
+        # _render_table() sets this on every call, since _column_widths (and
+        # a date's own cell content) can change even when the specific date
+        # scrolled into stays the same across a resize/re-render.
+        self._sticky_dirty = True
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield from self._compose_switcher()
         yield _AutoHideStatic("", id="banners")
         yield _AutoHideStatic("", id="status")
-        yield DataTable(id="overview-table", header_height=2)
+        with Container(id="table-container"):
+            yield DataTable(id="overview-table", header_height=2)
+            # The sticky pinned-header row -- see _update_sticky_header()'s own
+            # docstring. No header (the real #overview-table already has one),
+            # no cursor (purely a display row, never focused/interacted with
+            # directly): show_cursor=False alone still leaves a cursor *style*
+            # applied to row 0 the moment it's added, cursor_type="none" is
+            # what actually turns that off.
+            yield DataTable(id="sticky-header", show_header=False, show_cursor=False, cursor_type="none")
         yield Static("", id="legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
@@ -2423,7 +2476,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def on_mount(self) -> None:
         self._render_legend()
         self.refresh_banners()
-        table = self.query_one(DataTable)
+        table = self.query_one("#overview-table", DataTable)
         table.cursor_type = "row"
         # Columns are declared inside _render_table() itself, not here --
         # see that method's own docstring for why (their widths depend on
@@ -2434,6 +2487,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # here -- no deferral needed (see _apply_switcher_layout()'s own
         # docstring for why it doesn't measure any live-rendered widget).
         self._apply_switcher_layout()
+        # See _update_sticky_header()'s own docstring for why this polls
+        # rather than reacting to a real scroll event.
+        self.set_interval(0.1, self._update_sticky_header)
 
     def on_resize(self, event: events.Resize) -> None:
         # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
@@ -2446,7 +2502,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # still fits beside the club dropdown at the new width. All three
         # reuse whatever's already cached/mounted rather than a fresh fetch.
         self._render_legend(event.size.width)
-        self._rerender_preserving_cursor(self.query_one(DataTable).cursor_row, event.size.width)
+        self._rerender_preserving_cursor(self.query_one("#overview-table", DataTable).cursor_row, event.size.width)
         self._apply_switcher_layout(event.size.width)
 
     def _render_legend(self, width: int | None = None) -> None:
@@ -2600,9 +2656,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         case 2026-09-16 ("can you make events/picks columns only wrap up,
         when window is too narrow?")."""
         units = config.get("units", units_module.DEFAULT_UNITS)
-        table = self.query_one(DataTable)
+        table = self.query_one("#overview-table", DataTable)
         self._row_dates = []
         self._row_index = []
+        self._row_header_cells = {}
+        self._sticky_dirty = True
 
         confirmed_by_date = {
             booking.date: booking
@@ -2645,6 +2703,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                     "[dim]—[/]",
                     f"[dim]{i18n.t('overview.not_open_yet')}[/]",
                 ))
+                self._row_header_cells[one_date] = pending_rows[-1]
                 continue
 
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
@@ -2691,6 +2750,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             pending_rows.append(
                 (day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, heat_cell, event_cell, pick_cell)
             )
+            self._row_header_cells[one_date] = pending_rows[-1]
 
             if can_expand and one_date in self._expanded_dates:
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
@@ -2744,6 +2804,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         if natural_total > available:
             for index in (self._EVENTS_COLUMN_INDEX, self._PICK_COLUMN_INDEX):
                 column_widths[index] = min(column_widths[index], _WRAP_CAP_WIDTH)
+        self._column_widths = column_widths
 
         table.clear(columns=True)
         # strict=True: column_widths is built from headers and must stay the same
@@ -2758,6 +2819,68 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             table.add_row(*row, height=None)
 
         return schedules
+
+    def _update_sticky_header(self) -> None:
+        """Pin the day-summary row for whichever expanded day you're currently
+        scrolled *into* at the top of `#overview-table`, so it never scrolls out
+        of view while its own slot rows do -- the GUI's own `DayCardHeader`
+        already does exactly this (`LazyVStack(pinnedViews: [.sectionHeaders])`),
+        and direct feedback, 2026-09-26, asked for the same thing here: "I like
+        the behavior in the GUI when uncollapsing and scrolling the days, can we
+        replicate that behavior in the TUI?"
+
+        `DataTable` itself has no notion of a "pinned section header" -- it's one
+        flat grid of rows, not nested groups the way the GUI's `Section`s are
+        (confirmed directly, not assumed: nothing named "sticky" anywhere in this
+        Textual version). This polls instead of reacting to a real scroll event:
+        `DataTable.scroll_y` is a plain `Reactive` on the *table*, not this
+        screen, and there's no public "scrolled" message to intercept at the
+        screen level the way `on_data_table_row_selected()` catches selection --
+        subclassing `DataTable` just to add one would be a bigger, riskier change
+        than a lightweight timer for a purely cosmetic effect. `set_interval` in
+        `on_mount()` calls this every 0.1s while this screen is active; a
+        keyboard-driven scroll is already quantized to whole keypresses, so a
+        10th-of-a-second of lag is never actually visible.
+
+        Uses `DataTable._y_offsets` (confirmed against this exact Textual
+        version's own source, not the public API -- see its own docstring: "a
+        2-tuple for each *line* [not row] of the table") to find which row is
+        currently at the very top of the visible viewport, then looks that row
+        index up in `self._row_index` (already built by `_render_table()` for
+        `on_data_table_row_selected()`'s own "which kind of row did enter land
+        on" check) to get `(date, slot_time)`. `slot_time is not None` is what
+        "scrolled into an expanded day's own slot rows, past its summary row"
+        actually means here -- a `None` means the real summary row is already
+        the top row, visible on its own, nothing to stand in for."""
+        table = self.query_one("#overview-table", DataTable)
+        sticky = self.query_one("#sticky-header", DataTable)
+        y_offsets = table._y_offsets
+        scroll_row = int(table.scroll_y)
+        if not (0 <= scroll_row < len(y_offsets)):
+            sticky.display = False
+            return
+        row_key, _ = y_offsets[scroll_row]
+        try:
+            row_index = table.get_row_index(row_key)
+        except RowDoesNotExist:
+            sticky.display = False
+            return
+        if not (0 <= row_index < len(self._row_index)):
+            sticky.display = False
+            return
+        date, slot_time = self._row_index[row_index]
+        cells = self._row_header_cells.get(date)
+        if slot_time is None or cells is None:
+            sticky.display = False
+            return
+        if self._sticky_dirty or date != self._sticky_shown_date:
+            sticky.clear(columns=True)
+            for width in self._column_widths:
+                sticky.add_column("", width=width)
+            sticky.add_row(*cells, height=1)
+            self._sticky_shown_date = date
+            self._sticky_dirty = False
+        sticky.display = True
 
     def load_overview(self, keep_cursor: bool = False) -> None:
         """Full reload: re-read the club's bookable-date window, rebuild the table,
@@ -2781,13 +2904,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         config = self._config()
         previous = None
         if keep_cursor and self._row_index:
-            cursor_row = self.query_one(DataTable).cursor_row
+            cursor_row = self.query_one("#overview-table", DataTable).cursor_row
             if 0 <= cursor_row < len(self._row_index):
                 previous = self._row_index[cursor_row]
         dates, open_dates = self._display_dates(config)
         self._cached_dates, self._cached_open_dates = dates, open_dates
         schedules = self._render_table(config, dates, open_dates)
-        table = self.query_one(DataTable)
+        table = self.query_one("#overview-table", DataTable)
 
         if keep_cursor:
             if previous is not None and previous in self._row_index:
@@ -2835,7 +2958,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         config = self._config()
         schedules = self._render_table(config, self._cached_dates, self._cached_open_dates, width)
         self._schedules = schedules
-        table = self.query_one(DataTable)
+        table = self.query_one("#overview-table", DataTable)
         if table.row_count:
             table.move_cursor(row=min(row, table.row_count - 1))
 
@@ -2914,7 +3037,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         conditional binding."""
         if not self._expanded_dates:
             return
-        row = self.query_one(DataTable).cursor_row
+        row = self.query_one("#overview-table", DataTable).cursor_row
         self._expanded_dates = set()
         self._rerender_preserving_cursor(row)
 

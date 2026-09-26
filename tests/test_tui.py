@@ -1308,7 +1308,7 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             assert table.row_count == 5  # club.example.yaml's overview_days default
 
     _run(scenario())
@@ -1430,7 +1430,7 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             headers = [str(col.label) for col in table.columns.values()]
             assert headers == [
                 "Date/Time", "Cond", "Temp\n(°C)", "Precip\n(%/mm)", "Wind\n(km/h)",
@@ -1472,7 +1472,7 @@ def test_overview_screen_events_column_uses_full_width_when_the_terminal_is_wide
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test(size=(300, 30)) as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
             natural_width = tui._cell_visible_width("📋 Vierer-Clubmeisterschaften")
             assert events_column.width == natural_width
@@ -1499,7 +1499,7 @@ def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_n
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test(size=(60, 24)) as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
             assert events_column.width == tui._WRAP_CAP_WIDTH
 
@@ -1567,7 +1567,7 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
             # Day/Condition/Temperature/Precipitation/Wind/Events/Heat/Pick
             assert "not open" in row[7]
@@ -1583,7 +1583,7 @@ def test_overview_screen_shows_no_data_placeholder_for_an_unscraped_open_day(tmp
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            row = app.screen.query_one(DataTable).get_row_at(0)
+            row = app.screen.query_one("#overview-table", DataTable).get_row_at(0)
             assert "…" in row[1]
 
     _run(scenario())
@@ -1610,7 +1610,7 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             collapsed_row_count = table.row_count
             assert app.screen._row_index[0] == (tui._TODAY(), None)
@@ -1650,7 +1650,7 @@ def test_overview_screen_collapse_all_key_collapses_every_expanded_day_at_once(t
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             collapsed_row_count = table.row_count
 
@@ -1668,6 +1668,97 @@ def test_overview_screen_collapse_all_key_collapses_every_expanded_day_at_once(t
     _run(scenario())
 
 
+# _update_sticky_header() -- direct request, 2026-09-26, right after the GUI's own
+# equivalent shipped: "I like the behavior in the GUI when uncollapsing and
+# scrolling the days, can we replicate that behavior in the TUI?" Pins an expanded
+# day's own summary row at the top of #overview-table once scrolling has carried it
+# out of view, same as the GUI's own pinned Section header.
+
+
+def test_sticky_header_appears_once_scrolled_past_the_expanded_days_own_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    db_path = scrape_once._db_path("0000001")
+    # Many slots, so the expanded day's own rows overflow a short terminal --
+    # real scrolling is the whole point of this test, not just a couple of rows
+    # that would already fit on screen at once.
+    slots = [Slot(time=f"{h:02d}:{m:02d}", booked=0, capacity=4) for h in range(7, 19) for m in (0, 30)]
+    storage.save_schedule(Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=slots), path=db_path)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(80, 15)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#overview-table", DataTable)
+            sticky = app.screen.query_one("#sticky-header", DataTable)
+            table.focus()
+
+            # Collapsed: nothing to pin, and no crash from there being no
+            # expanded day at all.
+            app.screen._update_sticky_header()
+            assert sticky.display is False
+
+            app.screen._toggle_expanded("2026-09-07", 0)
+            await pilot.pause()
+
+            # Scrolled to the very top -- the day's own summary row (row 0)
+            # is already the visible top row, so there's nothing to stand in
+            # for yet.
+            table.scroll_y = 0
+            app.screen._update_sticky_header()
+            assert sticky.display is False
+
+            # Scroll down into the day's own slot rows -- the real summary
+            # row has now scrolled above the viewport, so the sticky header
+            # should show its own copy of that exact row's cells.
+            table.scroll_y = 5
+            app.screen._update_sticky_header()
+            assert sticky.display is True
+            assert sticky.row_count == 1
+            expected = app.screen._row_header_cells["2026-09-07"]
+            assert tuple(sticky.get_row_at(0)) == expected
+
+            # Collapsing again hides it -- the real summary row (now the only
+            # row again) is back to being the visible top row.
+            app.screen._toggle_expanded("2026-09-07", 0)
+            await pilot.pause()
+            table.scroll_y = 0
+            app.screen._update_sticky_header()
+            assert sticky.display is False
+
+    _run(scenario())
+
+
+def test_sticky_header_matches_the_column_widths_overview_table_itself_uses(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    db_path = scrape_once._db_path("0000001")
+    slots = [Slot(time=f"{h:02d}:{m:02d}", booked=0, capacity=4) for h in range(7, 19) for m in (0, 30)]
+    storage.save_schedule(Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=slots), path=db_path)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(80, 15)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#overview-table", DataTable)
+            sticky = app.screen.query_one("#sticky-header", DataTable)
+            table.focus()
+            app.screen._toggle_expanded("2026-09-07", 0)
+            await pilot.pause()
+            table.scroll_y = 5
+            app.screen._update_sticky_header()
+
+            table_widths = [col.width for col in table.columns.values()]
+            sticky_widths = [col.width for col in sticky.columns.values()]
+            assert sticky_widths == table_widths == app.screen._column_widths
+
+    _run(scenario())
+
+
 def test_overview_screen_collapse_all_is_a_no_op_with_nothing_expanded(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
@@ -1676,7 +1767,7 @@ def test_overview_screen_collapse_all_is_a_no_op_with_nothing_expanded(tmp_path,
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             row_count = table.row_count
 
@@ -1720,7 +1811,7 @@ def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_c
         async with app.run_test() as pilot:
             await pilot.pause()
             assert "ai_assist" not in app.screen._config()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")
             await pilot.pause()
@@ -1746,7 +1837,7 @@ def test_overview_screen_enter_on_a_day_row_with_no_schedule_does_not_expand(tmp
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             collapsed_row_count = table.row_count
             await pilot.press("enter")
@@ -1773,7 +1864,7 @@ def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, mon
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")  # expand today's row
             await pilot.pause()
@@ -1800,7 +1891,7 @@ def test_overview_screen_enter_derives_holes_from_a_nine_hole_course(tmp_path, m
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "9 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")
             await pilot.pause()
@@ -1832,7 +1923,7 @@ def test_overview_screen_enter_on_an_already_confirmed_slot_offers_to_cancel_it(
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")  # expand today's row
             await pilot.pause()
@@ -1863,7 +1954,7 @@ def test_overview_screen_cancel_booking_screen_keep_dismisses_without_changing_a
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")
             await pilot.pause()
@@ -1900,7 +1991,7 @@ def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_se
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("enter")
             await pilot.pause()
@@ -1930,7 +2021,7 @@ def test_overview_screen_highlights_todays_row_when_today_still_has_upcoming_slo
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.screen.query_one(DataTable).cursor_row == 0
+            assert app.screen.query_one("#overview-table", DataTable).cursor_row == 0
 
     _run(scenario())
 
@@ -1960,7 +2051,7 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.screen.query_one(DataTable).cursor_row == 1  # tomorrow's row
+            assert app.screen.query_one("#overview-table", DataTable).cursor_row == 1  # tomorrow's row
 
     _run(scenario())
 
@@ -1984,7 +2075,7 @@ def test_overview_screen_drops_todays_row_once_past_the_cutoff(tmp_path, monkeyp
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             # Today's own row is gone entirely -- not just deprioritized -- so only
             # the remaining overview_days - 1 rows (tomorrow onward) show at all.
             assert tui._TODAY() not in app.screen._row_dates
@@ -2100,7 +2191,7 @@ def test_edit_settings_units_change_rebuilds_the_overviews_own_column_headers(tm
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             headers_before = [str(col.label) for col in table.columns.values()]
             assert "Temp\n(°C)" in headers_before
 
@@ -2118,7 +2209,7 @@ def test_edit_settings_units_change_rebuilds_the_overviews_own_column_headers(tm
             await pilot.pause()
 
             assert isinstance(app.screen, tui.OverviewScreen)
-            headers_after = [str(col.label) for col in app.screen.query_one(DataTable).columns.values()]
+            headers_after = [str(col.label) for col in app.screen.query_one("#overview-table", DataTable).columns.values()]
             assert "Temp\n(°F)" in headers_after
 
     _run(scenario())
@@ -2230,7 +2321,7 @@ def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp
         app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            row = app.screen.query_one(DataTable).get_row_at(0)
+            row = app.screen.query_one("#overview-table", DataTable).get_row_at(0)
             assert row[-1] == "[dim]—[/]"  # Pick column, no availability configured
 
     _run(scenario())
@@ -3916,7 +4007,7 @@ def test_app_switch_language_command_rebuilds_overview_screen_in_german(tmp_path
 
             assert i18n.get_language() == "de"
             assert isinstance(app.screen, tui.OverviewScreen)
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
                 "Datum/Zeit", "Wetter", "Temp\n(°C)", "Regen\n(%/mm)", "Wind\n(km/h)",
                 "Ausl.\n08–20", "Termine", "Empf.",
@@ -4773,7 +4864,7 @@ def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, mon
         async with app.run_test() as pilot:
             await _reach_overview(app, pilot)
             calls.clear()  # drop the automatic on-open pass (force=False)
-            table = app.screen.query_one(DataTable)
+            table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("r")
             for _ in range(20):
@@ -4813,7 +4904,7 @@ def test_background_refresh_keeps_the_cursor_where_the_user_left_it(tmp_path, mo
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
-            table = screen.query_one(DataTable)
+            table = screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("down")
             await pilot.press("down")
@@ -4839,7 +4930,7 @@ def test_a_fresh_open_still_places_the_cursor_on_today(tmp_path, monkeypatch):
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
-            table = screen.query_one(DataTable)
+            table = screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("down")
             await pilot.pause()
@@ -4863,7 +4954,7 @@ def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen = app.screen
-            table = screen.query_one(DataTable)
+            table = screen.query_one("#overview-table", DataTable)
             table.focus()
             await pilot.press("down")
             await pilot.press("down")
