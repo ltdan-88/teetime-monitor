@@ -22,3 +22,6 @@ uv.lock
 macos/TeetimeMonitor.app/
 # SPM build output for the macOS GUI's own test suite (swift run TeetimeMonitorCoreTests)
 macos/.build/
+# Actual/diff PNGs a failed `swift run VisualRegressionRunner` writes for inspection --
+# References/*.png (the golden images) are the only PNGs under Tests/ that ARE tracked.
+macos/Tests/VisualRegressionRunner/Failures/*.png
