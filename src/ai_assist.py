@@ -140,10 +140,20 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 # every vendor's own lineup -- `model=` stays an override on every public function
 # below (and `ai_assist.model` in preferences.yaml, same as always) for exactly the
 # case where one of these goes stale before this comment does.
+#
+# Gemini uses "gemini-flash-latest" (2026-09-27 fix), not a pinned dated model, after
+# a real user's first live test hit this directly: "gemini-2.5-flash" (this constant's
+# original value) returned a 404 -- "no longer available to new users" -- confirmed
+# against the real API the same day. A pinned snapshot name is exactly the kind of
+# thing this comment already warned would go stale; the "-latest" alias exists
+# specifically so this constant doesn't have to be hand-updated every time Google
+# retires one. Confirmed live: classify_booking_label(), rank_slots(), and
+# summarize_history() all returned real, valid results against a real (free-tier) key
+# with this model.
 _DEFAULT_MODELS = {
     "anthropic": DEFAULT_MODEL,
     "openai": "gpt-4.1-mini",
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-flash-latest",
     "grok": "grok-4-fast",
 }
 

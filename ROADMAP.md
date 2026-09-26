@@ -4779,7 +4779,29 @@ project), so GUI verification stopped at build+launch, not a live screenshot.
 
 827 tests passing (`pytest`), `ruff check` clean.
 
-## Considered and dropped
+## Gemini's default model went stale before this comment did (2026-09-27)
+
+Predicted in the previous entry's own comment ("model names move fast... for
+exactly the case where one of these goes stale before this comment does") --
+and it did, within a day. First real live test against a real (free-tier)
+Gemini key, right after the multi-provider work shipped: `verify_api_key()`
+succeeded (a `models.list()` call, which only checks the key, not any specific
+model), the toggle looked on, but no ranking ever showed up in the app. Traced
+directly: `rank_slots()`'s actual `generate_content()` call against
+`_DEFAULT_MODELS["gemini"]`'s pinned `"gemini-2.5-flash"` returned a real 404 --
+"This model ... is no longer available to new users" -- caught by
+`recommend.ranked_matches()`'s own best-effort fallback and silently swallowed,
+exactly the failure mode this whole credentials feature was built to make
+visible, just hitting a live example of it one layer up (a stale model name,
+not a missing/bad key).
+
+Fixed to `"gemini-flash-latest"` -- an alias Google's own API serves, not
+another pinned dated snapshot -- specifically so this doesn't need a human to
+notice and hand-fix again the next time Google retires a snapshot. Confirmed
+live, not just against a mock: `classify_booking_label()`, `rank_slots()`, and
+`summarize_history()` all returned real, valid results against the real key
+with this model (one transient `503 UNAVAILABLE` "high demand" mid-testing,
+gone on retry -- Google's own free-tier capacity, not a bug here).
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
 - **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a
