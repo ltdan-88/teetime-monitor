@@ -4802,6 +4802,29 @@ live, not just against a mock: `classify_booking_label()`, `rank_slots()`, and
 `summarize_history()` all returned real, valid results against the real key
 with this model (one transient `503 UNAVAILABLE` "high demand" mid-testing,
 gone on retry -- Google's own free-tier capacity, not a bug here).
+
+## AI reasons now answer in the UI's own language, and a truncated one is readable on hover (2026-09-27)
+
+Two more things found in that same first real end-to-end test, right after the
+model fix above. `ai_assist.py`'s three prompts were hardcoded English
+regardless of the running UI's own language (English/German) -- a German
+session got real, working AI reasons, just always in English, since nothing in
+the prompt ever said otherwise. New `_language_instruction(language)` appends
+one line ("Respond in German.") to `rank_slots()`/`summarize_history()`'s
+prompts (not `classify_booking_label()` -- its only outputs are a fixed English
+enum value and the verbatim input text, no prose a person reads); `recommend.py`
+threads `i18n.get_language()` straight into `ranked_matches()`'s own
+`ai_assist.rank_slots()` call, so this needs no new setting -- it just follows
+whatever language the app is already in. Confirmed live against the real
+Gemini key with the UI set to German: real German-language reasons back.
+
+Separately, the GUI's search results row (`SearchSheet.swift`) already gives
+every other cell a `.help()` hover tooltip for its full value once
+truncated/abbreviated -- the AI reasons cell was the one exception, so a
+clipped reason like "Low exposure to..." had no way to be read in full. Given
+the same `.help()` treatment.
+
+## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
 - **Jump-to-booking shortcut** (one key opens the real pc caddie booking page for a

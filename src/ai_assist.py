@@ -169,6 +169,25 @@ PROVIDER_ENV_VARS = {
 
 PROVIDERS = tuple(PROVIDER_ENV_VARS)  # ("anthropic", "openai", "gemini", "grok")
 
+# Names the model is asked to reply in -- kept separate from i18n.LANGUAGE_LABELS
+# (that dict names the *UI's own* language picker in whatever language is currently
+# selected, e.g. "Deutsch" while German is active, not a stable English name a prompt
+# can rely on) even though the *codes* are the same set this app already supports.
+_LANGUAGE_NAMES = {"en": "English", "de": "German"}
+
+
+def _language_instruction(language: str) -> str:
+    """One line appended to a prompt whose response is free-language prose shown
+    directly to the user (`rank_slots`'s `reasons`, `summarize_history`'s answer) --
+    added 2026-09-27, direct report right after AI ranking's first real end-to-end
+    test: the UI is bilingual (English/German) but every prompt was hardcoded English
+    with no instruction otherwise, so a German-language session still got English
+    reasons back, unconditionally, regardless of `i18n.get_language()`. Not applied to
+    `classify_booking_label()` -- its only outputs are a fixed English enum value and
+    the verbatim input text, neither of which is prose generated for a person to read."""
+    name = _LANGUAGE_NAMES.get(language, _LANGUAGE_NAMES["en"])
+    return f"\n\nRespond in {name}."
+
 
 def _client_for(provider: str):
     """Construct the right SDK client for `provider`. Grok is the `openai` package
@@ -383,6 +402,7 @@ def rank_slots(
     preferences: dict,
     provider: str = "anthropic",
     model: str | None = None,
+    language: str = "en",
 ) -> list[SlotMatch]:
     """Rank already-hard-filtered candidates (score/reasons not yet set by search.py)
     and return them sorted best-first with `reasons` filled in.
@@ -392,6 +412,9 @@ def rank_slots(
     exclude_unplayable() already filtered out anything unplayable, so this is purely
     about the nuanced trade-offs *between* candidates that all already passed that
     check (e.g. "slightly more rain but much emptier"), not a second playability pass.
+
+    `language` (2026-09-27) is an `i18n.py` language code -- see
+    `_language_instruction()`'s own docstring for why `reasons` needs this at all.
     """
     if not candidates:
         return []
@@ -400,7 +423,7 @@ def rank_slots(
     prompt = (
         "Rank these already-hard-filtered golf tee times, best first, for someone with "
         f"these preferences: {json.dumps(preferences)}. Give each a 0-100 score and 1-3 "
-        "short, plain-language reasons.\n\n" + descriptions
+        "short, plain-language reasons.\n\n" + descriptions + _language_instruction(language)
     )
 
     client = _client_for(provider)
@@ -438,17 +461,24 @@ def rank_slots(
 
 
 def summarize_history(
-    history_rows: list[dict], question: str, provider: str = "anthropic", model: str | None = None
+    history_rows: list[dict],
+    question: str,
+    provider: str = "anthropic",
+    model: str | None = None,
+    language: str = "en",
 ) -> str:
     """Open-ended interpretation over analytics.py's raw aggregated rows — crowd
-    prediction confidence for sparse day-types, or personal-stats commentary."""
+    prediction confidence for sparse day-types, or personal-stats commentary.
+
+    `language` (2026-09-27) is an `i18n.py` language code -- see
+    `_language_instruction()`'s own docstring for why this needs it."""
     if not history_rows:
         return "Not enough history yet to say."
 
     prompt = (
         "Given this aggregated golf tee-sheet history (as JSON rows), answer the "
         f"question in plain, friendly language, 2-3 sentences.\n\nQuestion: {question}"
-        f"\n\nHistory: {json.dumps(history_rows)}"
+        f"\n\nHistory: {json.dumps(history_rows)}" + _language_instruction(language)
     )
     client = _client_for(provider)
     return _text(client, provider, _model_for(provider, model), prompt, max_tokens=512)

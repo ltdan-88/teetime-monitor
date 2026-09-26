@@ -51,7 +51,7 @@ keys in its own YAML, but existing configs work unchanged. Worth the user's own
 sign-off on the actual numbers later; flagged rather than silently assumed.
 """
 
-from . import ai_assist, playability
+from . import ai_assist, i18n, playability
 from . import weather as weather_module
 from .models import Schedule, SlotMatch, TimeWindow
 from .scraper import _holes_from_course_label
@@ -278,6 +278,7 @@ def ranked_matches(
             preferences=preferences,
             provider=ai_config.get("provider", "anthropic"),
             model=ai_config.get("model"),
+            language=i18n.get_language(),
         )
     except Exception:
         return playable

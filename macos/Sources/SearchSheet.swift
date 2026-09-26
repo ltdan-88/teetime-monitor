@@ -270,8 +270,16 @@ private struct SearchResultRow: View {
                 .help(t("tip.open_spots"))
 
             if !match.reasons.isEmpty {
-                Text(match.reasons.joined(separator: ", "))
+                // Real AI-generated text, often longer than this cramped row has
+                // room for -- every other cell here already has a .help() tooltip
+                // for its full value once truncated/abbreviated (see the weather
+                // cells above); this one didn't, so a clipped reason like "Low
+                // exposure to..." had no way to be read in full. Added 2026-09-27,
+                // direct report right after AI ranking's first real end-to-end test.
+                let joined = match.reasons.joined(separator: ", ")
+                Text(joined)
                     .font(scaledFont(.caption2)).foregroundStyle(.tertiary).lineLimit(1)
+                    .help(joined)
             }
 
             Spacer()
