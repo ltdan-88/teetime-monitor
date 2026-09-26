@@ -464,6 +464,20 @@ struct DayCardHeader: View {
                         .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.accentColor)
+                } else if let pick = model.picks[day.date] {
+                    // The recommended pick, once there's no real booking to show
+                    // instead -- mirrors tui.py's own _day_pick_text() priority
+                    // exactly (confirmed booking beats the pick). Reasons (empty
+                    // unless AI ranking is on) go in a hover tooltip rather than
+                    // inline text, same "real AI text can be longer than a badge
+                    // has room for" reasoning just applied to SearchSheet's own
+                    // reasons cell -- there's no natural place for a multi-line
+                    // caption inside this fixed-height pinned header.
+                    Label(pick.time, systemImage: "star.fill")
+                        .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Color.yellow.opacity(0.15), in: Capsule())
+                        .foregroundStyle(Color.yellow)
+                        .help(pick.reasons.isEmpty ? t("tip.pick") : pick.reasons.joined(separator: ", "))
                 }
             }
             .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
@@ -589,6 +603,12 @@ final class OverviewModel: ObservableObject {
     /// as still open. See `startPreview()` below.
     @Published var previewClub: (id: String, name: String)?
     @Published var isPreviewLoading = false
+    /// Recommended pick per date, keyed the same way `Day.date` is -- see
+    /// `PicksClient.swift`'s own docstring. Fetched fire-and-forget at the end of
+    /// `reload()` below; starts (and on failure, stays) empty, same "the core
+    /// Overview must render correctly with or without this" stance
+    /// `_availability_pipeline()` itself takes.
+    @Published var picks: [String: DayPick] = [:]
 
     private var watcher: Timer?
     private var seenModification: Date?
@@ -766,13 +786,27 @@ final class OverviewModel: ObservableObject {
     }
 
     func reload() {
-        guard !clubPath.isEmpty, !course.isEmpty else { days = []; return }
+        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; return }
         let keepOpen = expanded          // a background refresh must not collapse what
         days = Store.days(dbPath: clubPath, course: course, from: today)
         expanded = keepOpen              // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
         lastScrape = Store.lastScrape(dbPath: clubPath)
         banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
+
+        // Fire-and-forget, async -- reload() itself stays synchronous/fast (plain
+        // SQLite reads, unchanged); this rides the exact same cadence reload()
+        // already runs on (the 2-second DB-mtime watcher picking up the background
+        // scraper's writes, plus manual Refresh), no new timer needed. A stale
+        // clubPath/course by the time this returns (the user switched club/course
+        // mid-fetch) is caught by the capture below rather than clobbering the new
+        // selection's own picks.
+        let requestPath = clubPath, requestCourse = course
+        let requestSlug = clubs.first { $0.path == clubPath }?.slug
+        PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today, days: 6) { [weak self] result in
+            guard let self, self.clubPath == requestPath, self.course == requestCourse else { return }
+            self.picks = result
+        }
     }
 
     func dismiss(_ banner: Banner) {

@@ -517,6 +517,72 @@ def test_verify_api_key_gemini_ok(monkeypatch):
     assert error is None
 
 
+# --- _with_retry -----------------------------------------------------------------
+
+
+def test_with_retry_succeeds_on_the_second_attempt_after_a_transient_error(monkeypatch):
+    monkeypatch.setattr(ai_assist.time, "sleep", lambda seconds: None)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise ai_assist.genai.errors.ServerError(503, {"error": {"message": "busy"}})
+        return "ok"
+
+    result = ai_assist._with_retry("gemini", flaky)
+
+    assert result == "ok"
+    assert len(calls) == 2
+
+
+def test_with_retry_does_not_retry_an_auth_error(monkeypatch):
+    module = ai_assist.openai
+    calls = []
+
+    def always_fails():
+        calls.append(1)
+        raise _fake_auth_error(module)
+
+    with pytest.raises(module.AuthenticationError):
+        ai_assist._with_retry("openai", always_fails)
+    assert len(calls) == 1  # no retry -- a bad key fails identically every time
+
+
+def test_with_retry_raises_after_the_second_attempt_also_fails(monkeypatch):
+    monkeypatch.setattr(ai_assist.time, "sleep", lambda seconds: None)
+    calls = []
+
+    def always_fails():
+        calls.append(1)
+        raise ai_assist.genai.errors.ServerError(503, {"error": {"message": "busy"}})
+
+    with pytest.raises(ai_assist.genai.errors.ServerError):
+        ai_assist._with_retry("gemini", always_fails)
+    assert len(calls) == 2  # one real attempt, one retry, then give up
+
+
+def test_rank_slots_recovers_from_one_transient_gemini_error(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=70, reasons=["ok"])])
+    calls = []
+
+    def flaky(**kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ai_assist.genai.errors.ServerError(503, {"error": {"message": "busy"}})
+        return _FakeGeminiResponse(parsed=ranking)
+
+    models = _Namespace(generate_content=flaky)
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _FakeGeminiClient(models))
+    monkeypatch.setattr(ai_assist.time, "sleep", lambda seconds: None)
+
+    result = rank_slots(candidates, {}, {}, provider="gemini")
+
+    assert result[0].score == 70
+    assert len(calls) == 2
+
+
 def test_verify_api_key_gemini_rejected(monkeypatch):
     def raise_client_error():
         raise ai_assist.genai.errors.ClientError(401, {"error": {"message": "bad key"}})
