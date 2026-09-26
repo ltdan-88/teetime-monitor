@@ -109,11 +109,56 @@ that at all), the scale reshuffle's own identity tier (`.small`, not
 `.medium`, is the "1.0x, fresh install looks unchanged" factor now), the
 config-file blank-line-growth bug, translation table parity (187 keys, both
 languages, matching `{placeholders}`), and the platform-directory search/
-club-id matching. Deliberately excludes SwiftUI view bodies (`App.swift`'s own
-`@main` plus the sheets) — layout isn't something an assertion can check
-without snapshot-testing infrastructure this project doesn't have, and pulling
-`@main` into the test executable's own module risks an entry-point conflict
-for no real test value.
+club-id matching. Deliberately excluded SwiftUI view bodies (`App.swift`'s own
+`@main` plus the sheets) as of this date — layout wasn't something an
+assertion could check without snapshot-testing infrastructure this project
+didn't have yet. It does now: see "Visual regression checks" below, added
+2026-09-26 once three real layout bugs in a row made the gap in this
+paragraph itself worth closing.
+
+## Visual regression checks (2026-09-26)
+
+Direct request, right after the third grid-alignment round below: every one
+of those three bugs was only ever found from a real screenshot, because
+nothing in `TeetimeMonitorCoreTests` renders a view at all -- column position
+isn't something a value-equality assertion sees. New `VisualRegressionRunner`
+target (`swift run VisualRegressionRunner`, or `--record` to write/update
+references) renders the actual `DayCardHeader`/`SlotRow` views off-screen via
+`ImageRenderer` -- confirmed directly that this works from a bare
+command-line executable with no real window or `NSApplication` run loop, not
+assumed -- and diffs the result against a reference PNG committed under
+`Tests/VisualRegressionRunner/References/`. Both fixtures deliberately stack
+several rows with genuinely different WMO weather codes (sun/cloud/rain/snow
+-- different SF Symbol glyph widths, not just different colors), so a
+regression that drops any of the `.frame()`s from the last two sections shows
+up as those rows no longer lining up -- verified directly by re-introducing
+the `SlotRow` condition-icon bug from below and confirming the runner both
+catches it (1.4% of pixels differ, comfortably past the 0.5% tolerance) and
+writes a diff image with the exact shifted region in red, before reverting it.
+
+Needed one real restructuring to make possible: `App.swift`'s own `@main`
+`WindowGroup`/menu-commands scene moved to a new `Main.swift`, the only file
+`TeetimeMonitorCore` still excludes, so the rest of `App.swift` (and, it turned
+out, all four sheets too -- `ContentView` references every one of them
+directly, so partially including this module doesn't compile) could join the
+library `VisualRegressionRunner` links against without a second `@main`
+conflicting with the existing test executables.
+
+**Tolerance, not exact-byte comparison** -- a pixel counts as different past a
+per-channel delta of 30/255, and a case only fails once more than 0.5% of the
+image differs that much, wide enough to absorb any font-hinting/anti-aliasing
+noise between the macOS version a reference was recorded on and whatever
+`swift-tests`' own `macos-latest` runner happens to be, narrow enough that a
+whole column shifting by even a few points still fails.
+
+**Scope, stated plainly rather than silently assumed**: only pure-SwiftUI
+views (`Text`/`Image`/`Label`) are covered so far. The Club/Platz row's own
+course `Picker` -- an `NSPopUpButton` under the hood -- is a real candidate
+for the same bug class, but whether `NSViewRepresentable` content reliably
+draws through `ImageRenderer` outside a real, on-screen window isn't
+confirmed either way yet. Extending coverage there means checking that
+first, not assuming `ImageRenderer` treats it the same as native SwiftUI
+content just because the two cases here worked.
 
 ## Grid alignment: three rounds, one recurring bug shape (2026-09-26)
 

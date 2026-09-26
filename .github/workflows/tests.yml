@@ -92,6 +92,22 @@ jobs:
       - run: swift run TeetimeMonitorCoreTests
         working-directory: macos
 
+      # Visual regression checks (added 2026-09-26) -- renders DayCardHeader/
+      # SlotRow off-screen and diffs against macos/Tests/VisualRegressionRunner/
+      # References/*.png, committed to the repo. See that target's own
+      # main.swift docstring for the tolerance/recording-mode contract. On a
+      # mismatch, upload the actual/diff PNGs it wrote so a failure here is
+      # something a reviewer can actually look at, not just a percentage in
+      # the log.
+      - run: swift run VisualRegressionRunner
+        working-directory: macos
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-regression-failures
+          path: macos/Tests/VisualRegressionRunner/Failures/*.png
+          if-no-files-found: ignore
+
       # The cross-language drift guard: Python generates ground truth from its own
       # real functions, CrossCheckRunner recomputes the Swift ports for the same
       # inputs and fails on disagreement -- see scripts/cross_language_reference.py
