@@ -664,8 +664,15 @@ def fetch_course_aliases(club_id: str) -> dict[str, str]:
     return _parse_course_aliases_html(response.text)
 
 
-def scrape_schedule(club_id: str, course: str, date: str, course_aliases: dict[str, str] | None = None) -> Schedule:
-    """Fetch the tee sheet (no login needed) and parse one day's full schedule.
+def scrape_schedule(
+    club_id: str,
+    course: str,
+    date: str,
+    course_aliases: dict[str, str] | None = None,
+    client: httpx.Client | None = None,
+) -> Schedule:
+    """Fetch the tee sheet and parse one day's full schedule. Anonymous (no login
+    needed) unless `client` is given.
 
     Implemented and verified 2026-09-06 against the real site (Musterhausen, club id
     0000001) — a plain `httpx.get()`, no Playwright/browser required for this call.
@@ -677,6 +684,17 @@ def scrape_schedule(club_id: str, course: str, date: str, course_aliases: dict[s
     assuming the hardcoded constant) should pass it through; omitting it triggers a
     live `fetch_course_aliases()` call here as a convenience default, at the cost of
     one extra request.
+
+    `client` (added 2026-09-27) is an already-authenticated `httpx.Client` (from
+    `login()`), reused across a whole `scrape_due_for_club()` pass rather than one
+    login per call — see that function's own docstring for why. Confirmed live the
+    same day: an anonymous fetch of this exact page only ever shows placeholder text
+    ("Namensanzeige nach dem Login"/"Belegt"), while the identical page fetched with a
+    real logged-in session shows real names for players who've opted into pc caddie's
+    own reciprocal name-sharing — `_parse_slot_row()`'s `authenticated` parameter
+    (present since this scraper was first built, never wired up until now — see its
+    own docstring) is what actually makes that distinction, once told which kind of
+    fetch this was.
     """
     if course_aliases is None:
         course_aliases = fetch_course_aliases(club_id)
@@ -684,9 +702,16 @@ def scrape_schedule(club_id: str, course: str, date: str, course_aliases: dict[s
     if alias is None:
         raise ValueError(f"Unknown course {course!r} for club {club_id} — expected one of {list(course_aliases)}")
     url = club_url(club_id, TEE_SHEET_CATEGORY, date=date, alias=alias)
-    response = httpx.get(url, timeout=15, follow_redirects=True)
+    getter = client.get if client is not None else httpx.get
+    response = getter(url, timeout=15, follow_redirects=True)
     response.raise_for_status()
-    return parse_schedule_html(response.text, date=date, course=course, available_courses=list(course_aliases))
+    return parse_schedule_html(
+        response.text,
+        date=date,
+        course=course,
+        available_courses=list(course_aliases),
+        authenticated=client is not None,
+    )
 
 
 def scrape_overview_areas(club_id: str, date: str) -> dict[str, tuple[int, int]]:

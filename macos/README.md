@@ -116,6 +116,27 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Authenticated scraping: real player names (2026-09-27)
+
+The user found, live, that logging into pc caddie's own site showed other
+players' real names once they opted into its reciprocal name-sharing — an
+anonymous fetch (everything this scraper had ever done) only ever shows
+placeholder text. The parsing side of this was already built years ago and
+never wired up (`scraper._parse_slot_row()`'s `authenticated` parameter,
+present since day one); `scraper.scrape_schedule()` now accepts an
+already-logged-in `httpx.Client`, and `scrape_once.py` builds one shared
+authenticated session per scrape pass (background scraper included, confirmed
+with the user first) rather than one login per date/course.
+
+Real names never reach any AI provider — `ai_assist._describe_candidate()`'s
+"friends already booked" line, which used to include every player in a slot
+unfiltered, was dropped entirely (confirmed with the user before building this:
+no existing "friends list" to filter to instead, so drop rather than
+half-fix). `Store.swift`'s `Slot` gained `players: [String]`;
+`SearchClient.swift`'s `SearchMatch.players` was already fully wired and just
+never rendered. Both `SlotRow` and `SearchResultRow` now show players when
+present, same tooltip treatment as AI reasons.
+
 ## The Overview never showed a recommended pick (2026-09-27)
 
 The TUI's Overview has shown a "★ HH:MM" recommended pick per day (AI-ranked

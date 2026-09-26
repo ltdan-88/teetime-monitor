@@ -4910,6 +4910,62 @@ a false "key rejected."
 843 tests passing (`pytest`, 2 new regression tests reproducing this exact
 429-vs-401 confusion), `ruff check` clean.
 
+## Authenticated scraping: real player names, confirmed and shipped (2026-09-27)
+
+The user changed a privacy setting in pc caddie's own app and could then see
+other players' real names when logged into the official site — confirmed live,
+twice, in this exact session: an anonymous fetch (everything this scraper had
+ever done) only ever shows placeholder text ("Namensanzeige nach dem
+Login"/"Belegt"); the identical page fetched with a real authenticated session
+shows real full names for the large majority of bookings, via pc caddie's own
+reciprocal name-sharing (share your name, see others').
+
+The parsing side of this was already built in anticipation, years of
+in-session-time ago, and never wired up: `_parse_slot_row()` has had an
+`authenticated` parameter since this scraper was first written, with a
+docstring literally saying "wiring an authenticated tee-sheet fetch through is
+what would make friend detection real" — this entry is that wiring, not new
+parsing logic. `storage.py`'s `slots.players` column already existed and
+round-tripped; the TUI already rendered `Slot.players` in both the Overview's
+expanded rows and the ad hoc Search screen's own "Players" column, always
+empty in practice only because nothing ever gave it real data.
+
+`scraper.scrape_schedule()` gained an optional `client: httpx.Client | None`
+— an already-logged-in session (from `login()`), used for the fetch instead of
+a bare `httpx.get()`, with `authenticated=True` passed through to
+`parse_schedule_html()`. `scrape_once.py`'s `scrape_due_for_club()` builds
+**one** authenticated client per pass (not one per course/date — same
+"up to a dozen logins" bug class already fixed once here for
+`_sync_my_reservations()`) and reuses it across the whole date/course loop,
+closing it when done; a login failure falls back to today's anonymous scrape,
+never fatal to the rest of the pass. Confirmed with the user before building
+any of this: the background scraper (launchd, every 15 minutes) authenticates
+too, on the same cadence occupancy data already uses — not just interactive
+sessions.
+
+**Real names never reach any AI provider.** `ai_assist._describe_candidate()`
+used to include every player in a slot, unfiltered, in the text sent to
+whichever provider is configured (Anthropic/OpenAI/Gemini/Grok) — confirmed
+with the user before building this feature that this line should be dropped
+entirely rather than half-fixed with a "friends list" filter that doesn't
+exist yet. `Slot.players` still flows to local storage and both front ends'
+own display; it just never leaves the machine through a ranking prompt.
+
+GUI: `Store.swift`'s `Slot` gained `players: [String]` (both `slots` SELECT
+queries now read the column, same JSON-array decode `events` already used);
+`SearchClient.swift`'s `SearchMatch.players` was already fully wired end to
+end and just never rendered. Both `SlotRow` (Overview) and `SearchResultRow`
+(Search sheet) now show players when present, same truncated-with-`.help()`-
+tooltip treatment just added for AI reasons in both those exact views.
+
+850 tests passing (`pytest`), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (196 assertions) and `VisualRegressionRunner` all
+pass unchanged. Full live end-to-end confirmation against the user's own
+database hit pc caddie's own maintenance window mid-verification ("This
+service is not available due to maintenance") — unrelated to this change, and
+already directly confirmed working via a live authenticated fetch earlier in
+this same investigation, before the site went down.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
@@ -4957,12 +5013,11 @@ a false "key rejected."
   yet reads identically to a genuinely full slot unless the scraper specifically checks
   for this label. Getting this wrong would quietly bias the crowd heatmap and
   recommendations toward avoiding perfectly good, simply-not-yet-bookable times.
-- **Still unconfirmed: what an actual friend's booking looks like.** See "Confirmed pc
-  caddie markup reference" — a systematic scan across every available day/course found
-  the anonymized pattern and several non-name system labels, but no real name, since
-  none of this account's friends had a booking during the walkthrough. The
-  classification approach (positively recognize a name, don't just flag "unfamiliar
-  text") should hold up, but is unverified against the actual case it exists for.
+- ~~Still unconfirmed: what an actual friend's booking looks like.~~ **Resolved
+  2026-09-27** — see the dated entry below. Confirmed live: a real name shows up
+  exactly as the classification approach already assumed (`_parse_slot_row()`'s
+  `authenticated` parameter, present since this module was first built), once the
+  fetch is actually authenticated instead of anonymous.
 - ~~The booking-date window (`overview_days`) is a fixed number in config.~~
   **Resolved 2026-09-07** by `scraper.fetch_available_dates()`, which reads the club's
   own "Date" `<select id="timetable_selection_date">` — the list of days it is actually

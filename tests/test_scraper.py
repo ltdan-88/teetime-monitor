@@ -20,6 +20,7 @@ from src.scraper import (
     parse_schedule_html,
     parse_seats_free,
     scrape_my_reservations,
+    scrape_schedule,
 )
 
 
@@ -145,11 +146,12 @@ def test_parse_slot_row_real_name_is_kept_as_player():
 
 
 def test_parse_slot_row_unknown_seat_text_is_a_note_not_a_player_when_anonymous():
-    # The same markup read anonymously -- which is the only way scrape_schedule()
-    # ever reads it. Logged out, pc caddie shows no real names at all, so unrecognized
-    # seat text is a club's own note ("Greenfee CHF 140.-", "Nur fuer Mitglieder"):
-    # recording it as a player fabricated ~50 fake names across the 2026-09-07
-    # cross-club sweep.
+    # The same markup read anonymously -- scrape_schedule()'s own default when no
+    # authenticated client is given (see its docstring for the 2026-09-27 addition
+    # that made the authenticated path real). Logged out, pc caddie shows no real
+    # names at all, so unrecognized seat text is a club's own note ("Greenfee CHF
+    # 140.-", "Nur fuer Mitglieder"): recording it as a player fabricated ~50 fake
+    # names across the 2026-09-07 cross-club sweep.
     row = _row(
         '<tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable" '
         'data-seat_bookable="3">'
@@ -699,6 +701,64 @@ def test_fetch_course_aliases_returns_this_clubs_own_options(monkeypatch):
     # Confirms this is genuinely per-club, not Musterhausen's own COURSE_ALIASES --
     # none of Sonnenberg's real names or codes match Musterhausen's at all.
     assert "18 Loch Tee 1" not in aliases
+
+
+_A_BOOKED_SLOT_HTML = (
+    '<table class="pcco-tt-timetable">'
+    '<tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable" data-seat_bookable="3">'
+    '<td class="seats-free-3 tt-grau"><time class="pcco-tt-timestamp">08:00</time></td>'
+    '<td><span class="tt-show-name tt-show-male">Max Mustermann</span></td>'
+    '<td colspan="3"><span class="tt-show-name"></span></td>'
+    "</tr></table>"
+)
+
+
+class _FakeAuthenticatedClient:
+    """Mimics the one `.get()` method `scrape_schedule()` actually calls on an
+    `httpx.Client` -- a real client (from `login()`) has cookies/session state this
+    test doesn't need to reproduce, since `scrape_schedule()` never inspects the
+    client itself, only calls `.get()` on it."""
+
+    def __init__(self, response):
+        self._response = response
+        self.calls = []
+
+    def get(self, url, timeout, follow_redirects):
+        self.calls.append(url)
+        return self._response
+
+
+def test_scrape_schedule_is_anonymous_by_default(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        scraper_module.httpx, "get",
+        lambda url, timeout, follow_redirects: (seen.append(url), _FakeGetResponse(_A_BOOKED_SLOT_HTML))[1],
+    )
+
+    schedule = scrape_schedule("0497758", "18 Loch Tee 1", "2026-09-27", course_aliases={"18 Loch Tee 1": "COUB"})
+
+    assert len(seen) == 1  # confirms the anonymous path was actually used
+    # No login -- real name text isn't trusted as a player, same as pc caddie itself
+    # never shows one to a logged-out reader (see _parse_slot_row()'s own docstring).
+    assert schedule.slots[0].players == []
+    assert schedule.slots[0].block_reason == "Max Mustermann"
+
+
+def test_scrape_schedule_with_an_authenticated_client_captures_real_names(monkeypatch):
+    client = _FakeAuthenticatedClient(_FakeGetResponse(_A_BOOKED_SLOT_HTML))
+    called_anonymous = []
+    monkeypatch.setattr(
+        scraper_module.httpx, "get", lambda *a, **k: called_anonymous.append(1) or _FakeGetResponse("")
+    )
+
+    schedule = scrape_schedule(
+        "0497758", "18 Loch Tee 1", "2026-09-27", course_aliases={"18 Loch Tee 1": "COUB"}, client=client
+    )
+
+    assert len(client.calls) == 1
+    assert not called_anonymous  # the anonymous path must not fire when a client is given
+    assert schedule.slots[0].players == ["Max Mustermann"]
+    assert schedule.slots[0].block_reason is None
 
 
 def test_fetch_course_aliases_raises_no_tee_sheet_error_when_the_club_has_none(monkeypatch):

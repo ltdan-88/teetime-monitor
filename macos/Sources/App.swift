@@ -173,6 +173,18 @@ struct SlotRow: View {
                 Text(t("overview.free", ["n": "\(slot.capacity - slot.booked)"]))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .help(t("tip.open_spots"))
+                if !slot.players.isEmpty {
+                    // Only ever non-empty from an authenticated scrape (2026-09-27) --
+                    // pc caddie shows real names only to a logged-in member who's
+                    // opted into its own reciprocal name-sharing. Never sent to any
+                    // AI provider (see ai_assist.py's `_describe_candidate()`), local
+                    // display only, same truncated-with-tooltip treatment as
+                    // SearchSheet's own players cell.
+                    let names = slot.players.joined(separator: ", ")
+                    Text(names)
+                        .font(scaledFont(.caption2)).foregroundStyle(.secondary).lineLimit(1)
+                        .help(names)
+                }
             }
 
             Spacer()

@@ -49,10 +49,10 @@ private let multiDayFixtures: [Day] = [
 private let multiSlotDay = Day(
     date: "2026-09-26",
     slots: [
-        Slot(time: "09:00", booked: 2, capacity: 4, blockReason: nil),
-        Slot(time: "10:00", booked: 4, capacity: 4, blockReason: nil),
-        Slot(time: "11:00", booked: 1, capacity: 4, blockReason: nil),
-        Slot(time: "12:00", booked: 0, capacity: 4, blockReason: nil),
+        Slot(time: "09:00", booked: 2, capacity: 4, blockReason: nil, players: []),
+        Slot(time: "10:00", booked: 4, capacity: 4, blockReason: nil, players: []),
+        Slot(time: "11:00", booked: 1, capacity: 4, blockReason: nil, players: []),
+        Slot(time: "12:00", booked: 0, capacity: 4, blockReason: nil, players: []),
     ],
     weather: [
         WeatherPoint(time: "09:00", precipitationProbability: 5, precipitationMM: nil,
