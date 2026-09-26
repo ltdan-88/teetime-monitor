@@ -4625,6 +4625,65 @@ something rather than explaining the silence afterwards.
 
 2 new tests. 735 passing, `ruff check` clean.
 
+## A sticky day header for the overview table (2026-09-26)
+
+Direct request, right after the macOS GUI's own equivalent shipped: "I like the
+behavior in the GUI when uncollapsing and scrolling the days, can we replicate
+that behavior in the TUI?" The GUI's day list pins an expanded day's own header
+in place while its slots scroll underneath (`LazyVStack(pinnedViews:
+[.sectionHeaders])`, `macos/README.md`'s "Overview: `c` collapses" entry and the
+day-card-header work around it) — the TUI's own `OverviewScreen` had never done
+the equivalent: a long expanded day's own summary row (weekday, condition, temp,
+wind, heat strip) just scrolled away with everything else the moment you
+scrolled its slot rows, the same complaint that prompted the GUI fix in the
+first place.
+
+`DataTable` has no built-in notion of a pinned section header at all — it's one
+flat grid, not nested groups the way the GUI's own `Section`s are (checked
+directly against this exact Textual version's own source: nothing named
+"sticky" anywhere in it). Built as a second, tiny `DataTable` (`#sticky-header`,
+no header row/cursor of its own — a purely decorative display row) `dock`ed to
+the top of a new `layers: base overlay` container wrapping `#overview-table`,
+so it paints over that table's own top rows without pushing them down or
+adding a second, competing scrollable region. `_update_sticky_header()`
+computes which day's own slot rows the current scroll position has landed
+inside of using `DataTable._y_offsets` (private API, confirmed directly against
+this Textual version rather than assumed — its own docstring: "a 2-tuple for
+each *line* [not row] of the table") plus `self._row_index` (already built by
+`_render_table()` for `on_data_table_row_selected()`'s own "which kind of row"
+check), and shows that day's exact summary-row cells (reused verbatim from
+`_render_table()`, now also cached in `self._row_header_cells` keyed by date)
+whenever the real row has scrolled out of view — hidden again once it hasn't
+(the real row is already visible, nothing to stand in for) or nothing's
+expanded at all.
+
+Polls on a 0.1s timer (`set_interval` in `on_mount()`) rather than reacting to
+a real scroll event: `DataTable.scroll_y` is a plain `Reactive` on the *table*
+widget, not this screen, and `DataTable` posts no public "scrolled" message the
+screen could intercept the way `on_data_table_row_selected()` already catches
+selection — subclassing `DataTable` just to add one would be a bigger, riskier
+change for a purely cosmetic effect. A keyboard-driven scroll is already
+quantized to whole keypresses, so a 10th-of-a-second of poll lag is never
+actually visible; confirmed this doesn't need a real scroll *event* either way,
+since Textual's own cursor-follow behavior (`_scroll_cursor_into_view()`)
+already moves `scroll_y` on plain arrow-key navigation, not just mouse-wheel
+scrolling, and the poll picks up either the same way.
+
+One real fix needed along the way, not just the new feature: every one of the
+seven existing `self.query_one(DataTable)` call sites in this screen (and 27
+more across its own tests) had been unambiguous only because there was ever
+just one `DataTable` on screen — confirmed directly that `query_one()` doesn't
+raise on multiple matches at all, it silently returns whichever one a
+breadth-first walk reaches first (not documented behavior worth relying on).
+All now say `query_one("#overview-table", DataTable)` explicitly.
+
+2 new tests (`test_tui.py`) drive real scroll positions against a real
+expanded day with enough slots to overflow a short terminal, not just check
+the sticky table doesn't crash: one asserts it's hidden at the top and exactly
+matches the real row's own cells once scrolled past it (and hides again on
+collapse), the other asserts its column widths always match
+`#overview-table`'s own. 789 passing, `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
