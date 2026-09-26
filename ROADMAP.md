@@ -4879,6 +4879,37 @@ tool was available, only Chrome-browser control, which doesn't reach a native
 `.app` -- so this stops at the CLI's real output plus a clean build+launch,
 disclosed as such rather than assumed.
 
+## `_with_retry()`'s own auth-error check had the exact bug it was meant to prevent (2026-09-27)
+
+Found within hours of shipping the retry: the badge worked, but its tooltip
+kept showing the plain "Recommended pick" fallback instead of real reasons.
+Live investigation found `ai_assist.rank_slots()` raising
+`google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED` — a real free-tier
+daily quota (20 requests/day for the specific model `gemini-flash-latest`
+currently resolves to) fully exhausted by this session's own live testing.
+
+That's a real, separate limit no amount of retrying fixes today — but chasing
+it down surfaced an actual bug in the retry logic itself:
+`_auth_error_classes()` treated Gemini's whole `google.genai.errors.ClientError`
+class as "don't bother retrying," and that class covers *every* 4xx response —
+401/403 (a genuinely bad key) and 429 (a rate limit/quota) alike. Unlike
+anthropic/openai, where `AuthenticationError` is already its own class distinct
+from `RateLimitError`, Gemini has no separate exception type for "the key is
+wrong" versus "you're being rate-limited" — so the retry added the previous
+entry was silently never firing for the *one* provider (and the *one* error
+shape) it was built to catch, and `verify_api_key()` was reporting a real quota
+error identically to "your key is rejected."
+
+Replaced `_auth_error_classes()` with `_is_auth_failure(provider, exc)`, which
+checks Gemini's own `exc.code` and only treats 401/403 as non-retryable — a 429
+now gets the same one retry every other transient failure already does (still
+can't help a fully exhausted *daily* quota, only a short-lived one), and
+`verify_api_key()` now reports a quota error as a real error message instead of
+a false "key rejected."
+
+843 tests passing (`pytest`, 2 new regression tests reproducing this exact
+429-vs-401 confusion), `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
