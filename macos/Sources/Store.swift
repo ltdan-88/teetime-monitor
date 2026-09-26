@@ -7,12 +7,27 @@ import SQLite3
 private let SQLITE_TRANSIENT = unsafeBitCast(
     -1, to: (@convention(c) (UnsafeMutableRawPointer?) -> Void).self)
 
+/// `storage.py` JSON-encodes both `scrapes.events` and `slots.players` as a plain
+/// `list[str]` -- one shared decoder for both, same as the two call sites below
+/// already shared their (until now, inlined-per-call-site) events decode.
+private func decodeStringArray(_ json: String?) -> [String] {
+    guard let json, let data = json.data(using: .utf8),
+          let parsed = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+    return parsed
+}
+
 struct Slot: Identifiable {
     var id: String { time }
     let time: String
     let booked: Int
     let capacity: Int
     let blockReason: String?
+    /// Real names, only ever non-empty when scrape_once.py's own authenticated fetch
+    /// was used (2026-09-27) -- pc caddie shows real names only to a logged-in member
+    /// whose own privacy setting opts into reciprocal name-sharing; an anonymous
+    /// fetch (the only kind before this) never sees one. Deliberately never sent to
+    /// any AI provider -- see ai_assist.py's own `_describe_candidate()` docstring.
+    let players: [String]
     var isBlocked: Bool { blockReason != nil }
     var fill: Double { capacity > 0 ? Double(booked) / Double(capacity) : 0 }
 }
@@ -382,9 +397,10 @@ enum Store {
         guard scrapeID >= 0 else { return nil }
         var slots: [Slot] = []
         query(db,
-              "SELECT time, booked, capacity, block_reason FROM slots WHERE scrape_id = \(scrapeID) ORDER BY time") { s in
+              "SELECT time, booked, capacity, block_reason, players FROM slots WHERE scrape_id = \(scrapeID) ORDER BY time") { s in
             slots.append(Slot(time: column(s, 0) ?? "", booked: Int(sqlite3_column_int(s, 1)),
-                               capacity: Int(sqlite3_column_int(s, 2)), blockReason: column(s, 3)))
+                               capacity: Int(sqlite3_column_int(s, 2)), blockReason: column(s, 3),
+                               players: decodeStringArray(column(s, 4))))
         }
         var hasTournament = false
         if let json = eventsJSON, let data = json.data(using: .utf8),
@@ -470,11 +486,12 @@ enum Store {
 
             var slots: [Slot] = []
             query(db,
-                  "SELECT time, booked, capacity, block_reason FROM slots WHERE scrape_id = \(scrapeID) ORDER BY time") { s in
+                  "SELECT time, booked, capacity, block_reason, players FROM slots WHERE scrape_id = \(scrapeID) ORDER BY time") { s in
                 slots.append(Slot(time: column(s, 0) ?? "",
                                   booked: Int(sqlite3_column_int(s, 1)),
                                   capacity: Int(sqlite3_column_int(s, 2)),
-                                  blockReason: column(s, 3)))
+                                  blockReason: column(s, 3),
+                                  players: decodeStringArray(column(s, 4))))
             }
 
             // Mirrors the Python read path (storage.load_latest_schedule, v0.30.1): when

@@ -67,6 +67,8 @@ from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from pathlib import Path
 
+import httpx
+
 from . import booking_watch, club_config, global_preferences, paths, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking
@@ -74,6 +76,7 @@ from .scraper import (
     LoginError,
     fetch_available_dates,
     fetch_course_aliases,
+    login,
     scrape_my_reservations,
     scrape_schedule,
 )
@@ -124,7 +127,12 @@ def _attach_weather(schedule, config: dict, club_id: str, course: str, date: str
 
 
 def run(
-    club_id: str, course: str, date: str, config: dict | None = None, slug: str | None = None
+    club_id: str,
+    course: str,
+    date: str,
+    config: dict | None = None,
+    slug: str | None = None,
+    client: httpx.Client | None = None,
 ) -> list[booking_watch.BookingChange]:
     """Scrape one club/course/date's schedule (plus its weather overlay) and persist
     it, then check any confirmed booking for that date against what changed since the
@@ -134,6 +142,12 @@ def run(
     a separate process from the interactive TUI, so a detected change needs to survive
     somewhere for the TUI's home screen to read on next open, not just exist as an
     in-memory return value nothing else reads.
+
+    `client` (added 2026-09-27) is an optional already-authenticated session, passed
+    straight through to `scrape_schedule()` — see `scrape_due_for_club()`'s own
+    docstring for why this is built once per pass there rather than once per call
+    here, and `scrape_schedule()`'s own docstring for what it actually changes
+    (real player names instead of anonymized placeholders).
 
     Does *not* sync "My Reservations" itself any more (moved to the caller,
     `scrape_due_for_club()`, once per pass rather than once per course/date — see
@@ -169,7 +183,7 @@ def run(
     # function's own docstring and storage.first_confirmed_at()'s for why.
     baseline_scraped_at = storage.last_scraped_at(course, date, path=db_path)
 
-    latest = scrape_schedule(club_id, course, date)
+    latest = scrape_schedule(club_id, course, date, client=client)
     _attach_weather(latest, config, club_id, course, date)
     storage.save_schedule(latest, path=db_path)
 
@@ -508,17 +522,40 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
         today = date_cls.today()
         target_dates = [(today + timedelta(days=offset)).isoformat() for offset in range(overview_days)]
 
+    # One authenticated session for the *whole* date/course loop below (2026-09-27),
+    # not one login per call -- same "up to a dozen logins in one pass" bug class
+    # already fixed once here for _sync_my_reservations() above, just for the
+    # schedule scrape instead of the reservations sync. Confirmed live the same day:
+    # an authenticated fetch of the ordinary tee sheet shows real player names for
+    # anyone who's opted into pc caddie's own reciprocal name-sharing, where an
+    # anonymous fetch (what every scrape_schedule() call used before this) only ever
+    # shows placeholder text -- see that function's own docstring. A second, separate
+    # login from _sync_my_reservations()'s own scrape_my_reservations() call above is
+    # accepted here rather than reworking that function's own established signature
+    # for a marginal saving.
+    client = None
+    username, password = club_config.resolve_credentials(slug) if slug else ("", "")
+    if username and password:
+        try:
+            client = login(club_id, username, password)
+        except LoginError as exc:
+            _log(f"[scrape_once] {slug}: couldn't log in for the schedule scrape, falling back to anonymous: {exc}")
+
     changes: list[booking_watch.BookingChange] = []
-    for target_date in target_dates:
-        for course in courses:
-            if not force and not _should_scrape(club_id, course, target_date, config):
-                continue
-            try:
-                changes.extend(run(club_id, course, target_date, config, slug))
-            except Exception as exc:  # noqa: BLE001 — one bad course/date must not
-                # stop the rest of this club's window (or, from main(), every other
-                # saved club).
-                _log(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+    try:
+        for target_date in target_dates:
+            for course in courses:
+                if not force and not _should_scrape(club_id, course, target_date, config):
+                    continue
+                try:
+                    changes.extend(run(club_id, course, target_date, config, slug, client=client))
+                except Exception as exc:  # noqa: BLE001 — one bad course/date must not
+                    # stop the rest of this club's window (or, from main(), every other
+                    # saved club).
+                    _log(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+    finally:
+        if client is not None:
+            client.close()
     return changes
 
 

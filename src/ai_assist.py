@@ -410,13 +410,18 @@ class _SlotRanking(BaseModel):
 
 
 def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
+    # `slot.players` is deliberately never read here (2026-09-27) -- since real
+    # authenticated scraping (scraper.py's `scrape_schedule(..., client=...)`) can
+    # populate it with other members' actual names (opted into pc caddie's own
+    # reciprocal name-sharing, confirmed live), sending it to whichever AI provider is
+    # configured would mean a real third party's name leaving this machine without
+    # their knowledge. There's no existing "these specific names are my friends" list
+    # to filter down to instead, so this line is dropped entirely rather than
+    # half-fixed with one -- `Slot.players` still flows to local storage and the
+    # TUI/GUI's own display, just not into this prompt.
     slot = candidate.slot
     open_spots = slot.capacity - slot.booked
-    friends = ", ".join(slot.players) if slot.players else "none"
-    line = (
-        f"[{index}] {candidate.date} {candidate.course} at {slot.time} — "
-        f"{open_spots} open spot(s) of {slot.capacity}, friends already booked: {friends}"
-    )
+    line = f"[{index}] {candidate.date} {candidate.course} at {slot.time} — {open_spots} open spot(s) of {slot.capacity}"
 
     schedule = context.get("schedules", {}).get((candidate.date, candidate.course))
     if schedule is not None:

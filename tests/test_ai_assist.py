@@ -211,6 +211,25 @@ def test_rank_slots_includes_weather_when_schedule_context_given(monkeypatch):
     assert "rain up to 80%" in prompt
 
 
+def test_rank_slots_never_sends_player_names_to_the_ai_provider(monkeypatch):
+    # Regression test (2026-09-27): scraper.py can now populate Slot.players with
+    # real, authenticated-scrape names of other club members -- confirmed live the
+    # same day. Sending that to whichever AI provider is configured would mean a real
+    # third party's name leaving this machine without their knowledge, so
+    # _describe_candidate() must never read slot.players into the prompt text.
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00", players=["Erika Mustermann", "Max Mustermann"])]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "Erika Mustermann" not in prompt
+    assert "Max Mustermann" not in prompt
+    assert "friends" not in prompt.lower()
+
+
 def test_rank_slots_omits_weather_without_schedule_context(monkeypatch):
     candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
     ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])

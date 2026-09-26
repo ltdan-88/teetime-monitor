@@ -269,6 +269,19 @@ private struct SearchResultRow: View {
                 .padding(.leading, 6)
                 .help(t("tip.open_spots"))
 
+            if !match.players.isEmpty {
+                // Only ever non-empty from an authenticated scrape (2026-09-27) --
+                // pc caddie shows real names only to a logged-in member who's opted
+                // into its own reciprocal name-sharing; an anonymous fetch never
+                // sees one. Never sent to any AI provider (see ai_assist.py's own
+                // `_describe_candidate()`), shown here for local reading only, same
+                // truncated-with-tooltip treatment as the reasons cell below.
+                let names = match.players.joined(separator: ", ")
+                Text(names)
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary).lineLimit(1)
+                    .help(names)
+            }
+
             if !match.reasons.isEmpty {
                 // Real AI-generated text, often longer than this cramped row has
                 // room for -- every other cell here already has a .help() tooltip
