@@ -294,6 +294,15 @@ private let englishStrings: [String: String] = [
     "settings.field.scrape_interval_booked": "Scrape interval — once booked (minutes)",
     "settings.group.ai": "AI ranking",
     "settings.field.ai_assist_enabled": "AI-ranked recommendations",
+    "settings.section.ai_provider": "AI provider",
+    "settings.ai_provider_label": "Provider",
+    "settings.ai_key": "API key",
+    "settings.ai_key_unchanged": "(unchanged)",
+    "settings.save_ai_key": "Save",
+    "ai_provider.anthropic": "Anthropic (Claude)",
+    "ai_provider.openai": "OpenAI (ChatGPT)",
+    "ai_provider.gemini": "Google (Gemini)",
+    "ai_provider.grok": "xAI (Grok)",
     "settings.field.avoid_predicted_crowd": "Avoid predicted crowds",
 
     // Search
@@ -387,6 +396,13 @@ private let englishStrings: [String: String] = [
     "login.rejected": "Saved, but pc caddie rejected these credentials.",
     "login.unverified": "Saved — couldn't verify right now (network issue).",
     "login.saved": "Saved.",
+    "error.ai_login_missing": "teetime-monitor-ai-login not found — install it with Homebrew.",
+    "ai_login.api_key_required": "An API key is required.",
+    "ai_login.save_failed": "Couldn't save — check the fields and try again.",
+    "ai_login.verified": "Saved and verified — the key works.",
+    "ai_login.rejected": "Saved, but the key was rejected.",
+    "ai_login.unverified": "Saved — couldn't verify right now (network issue).",
+    "ai_login.saved": "Saved.",
 ]
 
 // MARK: - Deutsch
@@ -540,6 +556,15 @@ private let germanStrings: [String: String] = [
     "settings.field.scrape_interval_booked": "Abrufintervall — nach Buchung (Minuten)",
     "settings.group.ai": "KI-Bewertung",
     "settings.field.ai_assist_enabled": "KI-bewertete Empfehlungen",
+    "settings.section.ai_provider": "KI-Anbieter",
+    "settings.ai_provider_label": "Anbieter",
+    "settings.ai_key": "API-Schlüssel",
+    "settings.ai_key_unchanged": "(unverändert)",
+    "settings.save_ai_key": "Speichern",
+    "ai_provider.anthropic": "Anthropic (Claude)",
+    "ai_provider.openai": "OpenAI (ChatGPT)",
+    "ai_provider.gemini": "Google (Gemini)",
+    "ai_provider.grok": "xAI (Grok)",
     "settings.field.avoid_predicted_crowd": "Vorhergesagten Andrang vermeiden",
 
     // Search
@@ -625,4 +650,11 @@ private let germanStrings: [String: String] = [
     "login.rejected": "Gespeichert, aber pc caddie hat diese Zugangsdaten abgelehnt.",
     "login.unverified": "Gespeichert — konnte gerade nicht geprüft werden (Netzwerkproblem).",
     "login.saved": "Gespeichert.",
+    "error.ai_login_missing": "teetime-monitor-ai-login nicht gefunden — mit Homebrew installieren.",
+    "ai_login.api_key_required": "Ein API-Schlüssel ist erforderlich.",
+    "ai_login.save_failed": "Speichern fehlgeschlagen — prüfe die Felder und versuche es erneut.",
+    "ai_login.verified": "Gespeichert und geprüft — der Schlüssel funktioniert.",
+    "ai_login.rejected": "Gespeichert, aber der Schlüssel wurde abgelehnt.",
+    "ai_login.unverified": "Gespeichert — konnte gerade nicht geprüft werden (Netzwerkproblem).",
+    "ai_login.saved": "Gespeichert.",
 ]

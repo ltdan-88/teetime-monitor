@@ -1,4 +1,4 @@
-"""Claude API calls for the steps that are genuine judgment rather than exact logic
+"""AI-provider calls for the steps that are genuine judgment rather than exact logic
 (see ROADMAP.md's "AI placement" note, and Phases 1/3/4/5).
 
 Three entry points, one per kind of judgment call:
@@ -18,21 +18,38 @@ Three entry points, one per kind of judgment call:
   and open-ended personal-stats commentary, over analytics.py's raw aggregated rows.
 
 Every call here costs money and sends data (tee-sheet contents, preferences, aggregated
-history) to Anthropic's API — see ROADMAP.md "Known risks". `model` remains a parameter
-on each function (a caller can still hand it a different model), but `DEFAULT_MODEL`
-is no longer meant to imply "the safe, general-purpose choice" — see its own comment
-below for why `rank_slots()`'s actual task doesn't call for more than that.
+history) to whichever provider is configured — see ROADMAP.md "Known risks". `model`
+remains a parameter on each function (a caller can still hand it a different model),
+but each provider's entry in `_DEFAULT_MODELS` is no longer meant to imply "the safe,
+general-purpose choice" — see `DEFAULT_MODEL`'s own comment below for why
+`rank_slots()`'s actual task doesn't call for more than that.
 
-Implemented 2026-09-06, tested against a mocked `anthropic.Anthropic` client (no real
-API calls in the test suite — this genuinely costs money and needs a real key, neither
-of which a unit test should depend on). `classify_booking_label()` and `rank_slots()`
-use `client.messages.parse()` with a Pydantic `output_format`, validated structured
-output with no hand-written response parsing; `summarize_history()` is open-ended text,
-so it uses plain `client.messages.create()` instead — there's no fixed schema to hold
-open-ended commentary to.
+**Multi-provider (2026-09-26)** — direct follow-up to shipping the credentials screen
+(see `ai_credentials_screen.py`/`ai_login_cli.py`): originally Anthropic-only, since
+that's what this whole app is built with, but a user setting up the credentials screen
+naturally wants a real choice, not just a key field for one vendor. `provider` is now a
+parameter on all three public functions, defaulting to `"anthropic"` so every existing
+caller/test keeps working unchanged. Structured output (`classify_booking_label`,
+`rank_slots`) and open-ended text (`summarize_history`) are each implemented once per
+*provider shape*, not once per function: OpenAI and Grok share the exact same code path
+(`_openai_compatible_structured`/`_openai_compatible_text`) since xAI's API is
+OpenAI-compatible — Grok needs no SDK of its own, just the `openai` package pointed at
+`base_url="https://api.x.ai/v1"` with its own `XAI_API_KEY`.
+
+Implemented 2026-09-06 (Anthropic-only), tested against a mocked `anthropic.Anthropic`
+client (no real API calls in the test suite — this genuinely costs money and needs a
+real key, neither of which a unit test should depend on); extended 2026-09-26 to mock
+`openai.OpenAI`/`google.genai.Client` the same way. `classify_booking_label()` and
+`rank_slots()` use each provider's own structured-output mechanism (Anthropic:
+`client.messages.parse()`; OpenAI/Grok: `client.chat.completions.parse()`; Gemini:
+`client.models.generate_content()` with a `response_schema`) with no hand-written
+response parsing; `summarize_history()` is open-ended text, so it uses each provider's
+plain completion call instead — there's no fixed schema to hold open-ended commentary
+to.
 """
 
 import json
+import os
 from typing import Literal
 
 from pydantic import BaseModel
@@ -52,8 +69,11 @@ def _anthropic_module():
     full for a library never called once.
 
     Deferring it means a default launch never imports `anthropic` at all, while the
-    first actual `rank_slots()`/`summarize_history()` call pays the import once and
-    caches the module in this module's own globals for every call after it.
+    first actual call that needs it pays the import once and caches the module in this
+    module's own globals for every call after it. `_openai_module()`/`_genai_module()`
+    below (2026-09-26) follow the exact same shape for the same reason — three heavy
+    SDKs now, not one, and a default launch (AI off, or AI on with Anthropic, the
+    original and still most common case) shouldn't pay for the other two at all.
 
     A module-level `__getattr__` (below) keeps `ai_assist.anthropic` working as an
     attribute for anything that reaches for it that way — the test suite patches
@@ -65,12 +85,35 @@ def _anthropic_module():
     return anthropic
 
 
+def _openai_module():
+    """The `openai` package — see `_anthropic_module()`'s docstring for why this is
+    deferred the same way. Also backs Grok (`_client_for("grok")` below): xAI's API is
+    OpenAI-compatible, so there's no separate xAI SDK to import."""
+    global openai
+    if "openai" not in globals():
+        import openai  # noqa: PLC0415 -- deliberately deferred, see _anthropic_module()
+    return openai
+
+
+def _genai_module():
+    """The `google.genai` package (Gemini) — see `_anthropic_module()`'s docstring for
+    why this is deferred the same way."""
+    global genai
+    if "genai" not in globals():
+        from google import genai  # noqa: PLC0415 -- deliberately deferred
+    return genai
+
+
 def __getattr__(name):
-    """PEP 562 module-level attribute hook — see `_anthropic_module()` for why
-    `anthropic` isn't a plain module-level import any more. Only ever fires for a name
+    """PEP 562 module-level attribute hook — see `_anthropic_module()` for why none of
+    the three provider SDKs are plain module-level imports. Only ever fires for a name
     this module doesn't already define, so it costs nothing on the normal path."""
     if name == "anthropic":
         return _anthropic_module()
+    if name == "openai":
+        return _openai_module()
+    if name == "genai":
+        return _genai_module()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -88,8 +131,147 @@ def __getattr__(name):
 # options, since they seem overkill" -- so settings_screen.py no longer exposes a
 # model choice at all (see that module's own docstring for what was removed); `model`
 # stays a parameter here for a caller that really wants something else, but nothing
-# in this app hands it anything but this default any more.
+# in this app hands it anything but each provider's own default any more.
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+# One cheap/fast default per provider (2026-09-26) -- same "small, low-stakes task"
+# reasoning as DEFAULT_MODEL above, just picked once per vendor rather than assuming
+# everyone wants Anthropic. Model names move fast and this project has no way to track
+# every vendor's own lineup -- `model=` stays an override on every public function
+# below (and `ai_assist.model` in preferences.yaml, same as always) for exactly the
+# case where one of these goes stale before this comment does.
+_DEFAULT_MODELS = {
+    "anthropic": DEFAULT_MODEL,
+    "openai": "gpt-4.1-mini",
+    "gemini": "gemini-2.5-flash",
+    "grok": "grok-4-fast",
+}
+
+# Which .env key each provider's credential lives under -- see ai_login_cli.py and
+# ai_credentials_screen.py, both of which import this rather than hardcoding the
+# mapping a second time.
+PROVIDER_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "grok": "XAI_API_KEY",
+}
+
+PROVIDERS = tuple(PROVIDER_ENV_VARS)  # ("anthropic", "openai", "gemini", "grok")
+
+
+def _client_for(provider: str):
+    """Construct the right SDK client for `provider`. Grok is the `openai` package
+    pointed at xAI's OpenAI-compatible endpoint with its own key -- not a separate SDK
+    (see module docstring)."""
+    if provider == "anthropic":
+        return _anthropic_module().Anthropic()
+    if provider == "openai":
+        return _openai_module().OpenAI()
+    if provider == "grok":
+        return _openai_module().OpenAI(
+            api_key=os.environ.get("XAI_API_KEY"), base_url="https://api.x.ai/v1"
+        )
+    if provider == "gemini":
+        return _genai_module().Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+def _model_for(provider: str, model: str | None) -> str:
+    if model is not None:
+        return model
+    try:
+        return _DEFAULT_MODELS[provider]
+    except KeyError:
+        raise ValueError(f"unknown ai_assist provider: {provider!r}") from None
+
+
+def _structured(client, provider: str, model: str, prompt: str, schema_cls: type[BaseModel]):
+    """Provider-specific structured output, returning a validated `schema_cls`
+    instance (or `None` if the provider genuinely returned nothing parseable) -- see
+    module docstring for why OpenAI and Grok share one branch."""
+    if provider == "anthropic":
+        response = client.messages.parse(
+            model=model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=schema_cls,
+        )
+        return response.parsed_output
+    if provider in ("openai", "grok"):
+        response = client.chat.completions.parse(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format=schema_cls,
+        )
+        return response.choices[0].message.parsed
+    if provider == "gemini":
+        genai = _genai_module()
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json", response_schema=schema_cls
+            ),
+        )
+        return response.parsed
+    raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+def _text(client, provider: str, model: str, prompt: str, max_tokens: int) -> str:
+    """Provider-specific open-ended text completion -- see module docstring for why
+    OpenAI and Grok share one branch."""
+    if provider == "anthropic":
+        response = client.messages.create(
+            model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+        )
+        return "".join(block.text for block in response.content if block.type == "text")
+    if provider in ("openai", "grok"):
+        response = client.chat.completions.create(
+            model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content or ""
+    if provider == "gemini":
+        response = client.models.generate_content(model=model, contents=prompt)
+        return response.text or ""
+    raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+# Each SDK's own "the key itself was rejected" exception -- narrower than a bare
+# `except Exception`, same reasoning login_cli.py separates scraper.LoginError (wrong
+# credentials) from a generic network exception (transient, not proof the key is bad).
+# Grok reuses openai's exception class since it's the same SDK. Resolved lazily inside
+# verify_api_key() itself (not at import time) since it needs whichever module(s)
+# _client_for() already imported for this provider.
+def _auth_error_classes(provider: str) -> tuple[type[Exception], ...]:
+    if provider == "anthropic":
+        return (_anthropic_module().AuthenticationError,)
+    if provider in ("openai", "grok"):
+        return (_openai_module().AuthenticationError,)
+    if provider == "gemini":
+        return (_genai_module().errors.ClientError,)
+    raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+def verify_api_key(provider: str) -> tuple[bool, str | None]:
+    """Validate `provider`'s currently-saved key with a live but free call --
+    `models.list()` (Gemini: the same, just a lazy pager that needs one item pulled to
+    actually hit the network) rather than a generation call, so saving a key on the
+    credentials screen never itself costs money. Returns `(True, None)` on success,
+    `(False, None)` if the key was rejected, or `(False, error)` for anything else
+    (network hiccup, etc.) -- mirrors `login_cli.py`'s own three-way
+    verified/rejected/network_error split."""
+    try:
+        client = _client_for(provider)
+        if provider == "gemini":
+            next(iter(client.models.list()), None)
+        else:
+            client.models.list()
+    except _auth_error_classes(provider):
+        return False, None
+    except Exception as exc:  # noqa: BLE001 -- a network hiccup isn't proof the key is bad
+        return False, str(exc)
+    return True, None
 
 
 class BookingLabelClassification(BaseModel):
@@ -125,31 +307,25 @@ _CLASSIFY_PROMPT = """You classify one short text label taken from a golf club's
 Classify this label: {text!r}"""
 
 
-def classify_booking_label(text: str, model: str = DEFAULT_MODEL) -> BookingLabelClassification:
+def classify_booking_label(text: str, provider: str = "anthropic", model: str | None = None) -> BookingLabelClassification:
     """Classify one tee-sheet booking-cell label (see the module docstring).
 
     Only reached as a fallback for a genuinely novel label — see scraper.py's
     KNOWN_ANONYMIZED_LABELS and STATUS_* constants for the deterministic path that
     covers everything observed live so far.
     """
-    client = _anthropic_module().Anthropic()
-    response = client.messages.parse(
-        model=model,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": _CLASSIFY_PROMPT.format(text=text)}],
-        output_format=BookingLabelClassification,
-    )
-    parsed = response.parsed_output
+    client = _client_for(provider)
+    parsed = _structured(client, provider, _model_for(provider, model), _CLASSIFY_PROMPT.format(text=text), BookingLabelClassification)
     if parsed is None:
-        raise ValueError(f"Claude did not return a parseable classification for {text!r}")
-    # raw_text is set from the actual input, not whatever Claude echoed back --
-    # exact fidelity matters more here than trusting the model to reproduce it verbatim.
+        raise ValueError(f"{provider} did not return a parseable classification for {text!r}")
+    # raw_text is set from the actual input, not whatever the model echoed back --
+    # exact fidelity matters more here than trusting it to reproduce it verbatim.
     return BookingLabelClassification(label=parsed.label, raw_text=text)
 
 
 class _RankedSlot(BaseModel):
     """One ranked candidate, keyed back to its position in the input list — simpler
-    and more robust than asking Claude to echo the date/course/time exactly."""
+    and more robust than asking the model to echo the date/course/time exactly."""
 
     index: int
     score: float  # 0-100, higher is better
@@ -192,13 +368,17 @@ def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
 
 
 def rank_slots(
-    candidates: list[SlotMatch], context: dict, preferences: dict, model: str = DEFAULT_MODEL
+    candidates: list[SlotMatch],
+    context: dict,
+    preferences: dict,
+    provider: str = "anthropic",
+    model: str | None = None,
 ) -> list[SlotMatch]:
     """Rank already-hard-filtered candidates (score/reasons not yet set by search.py)
     and return them sorted best-first with `reasons` filled in.
 
     `context` may optionally carry `schedules` (a `{(date, course): Schedule}` dict)
-    and `round_duration_minutes` to describe weather to Claude — recommend.py's
+    and `round_duration_minutes` to describe weather to the model — recommend.py's
     exclude_unplayable() already filtered out anything unplayable, so this is purely
     about the nuanced trade-offs *between* candidates that all already passed that
     check (e.g. "slightly more rain but much emptier"), not a second playability pass.
@@ -213,14 +393,8 @@ def rank_slots(
         "short, plain-language reasons.\n\n" + descriptions
     )
 
-    client = _anthropic_module().Anthropic()
-    response = client.messages.parse(
-        model=model,
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-        output_format=_SlotRanking,
-    )
-    ranking = response.parsed_output
+    client = _client_for(provider)
+    ranking = _structured(client, provider, _model_for(provider, model), prompt, _SlotRanking)
     if ranking is None:
         return candidates  # fall back to the unranked order rather than losing results
 
@@ -228,7 +402,7 @@ def rank_slots(
     seen_indices: set[int] = set()
     for ranked_slot in sorted(ranking.ranked, key=lambda r: r.score, reverse=True):
         # Out-of-range and duplicate indices are both possible, real model mistakes --
-        # a structured-output schema doesn't stop Claude from mentioning the same
+        # a structured-output schema doesn't stop the model from mentioning the same
         # index twice, or one that doesn't exist. Both are just skipped here rather
         # than raising or letting a duplicate reference into the result twice.
         if 0 <= ranked_slot.index < len(candidates) and ranked_slot.index not in seen_indices:
@@ -238,13 +412,13 @@ def rank_slots(
             ranked.append(candidate)
             seen_indices.add(ranked_slot.index)
 
-    # Any candidate Claude's response simply never mentioned -- found live 2026-09-10,
-    # a dedicated bug hunt: an incomplete ranking (plausible once the candidate list is
-    # long enough to brush against max_tokens, or just an ordinary model omission) used
-    # to make that candidate vanish from the result entirely, even though it already
-    # passed every hard filter (party size, time window, weather, daylight) before
-    # ever reaching this function. Appended here instead, unranked (score 0.0, no
-    # reasons) but still visible -- matches recommend.exclude_unplayable()'s own
+    # Any candidate the response simply never mentioned -- found live 2026-09-10, a
+    # dedicated bug hunt: an incomplete ranking (plausible once the candidate list is
+    # long enough to brush against a token limit, or just an ordinary model omission)
+    # used to make that candidate vanish from the result entirely, even though it
+    # already passed every hard filter (party size, time window, weather, daylight)
+    # before ever reaching this function. Appended here instead, unranked (score 0.0,
+    # no reasons) but still visible -- matches recommend.exclude_unplayable()'s own
     # stated stance: silently dropping a candidate is a worse failure mode than
     # showing an unranked one.
     for index, candidate in enumerate(candidates):
@@ -253,7 +427,9 @@ def rank_slots(
     return ranked
 
 
-def summarize_history(history_rows: list[dict], question: str, model: str = DEFAULT_MODEL) -> str:
+def summarize_history(
+    history_rows: list[dict], question: str, provider: str = "anthropic", model: str | None = None
+) -> str:
     """Open-ended interpretation over analytics.py's raw aggregated rows — crowd
     prediction confidence for sparse day-types, or personal-stats commentary."""
     if not history_rows:
@@ -264,10 +440,5 @@ def summarize_history(history_rows: list[dict], question: str, model: str = DEFA
         f"question in plain, friendly language, 2-3 sentences.\n\nQuestion: {question}"
         f"\n\nHistory: {json.dumps(history_rows)}"
     )
-    client = _anthropic_module().Anthropic()
-    response = client.messages.create(
-        model=model,
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text")
+    client = _client_for(provider)
+    return _text(client, provider, _model_for(provider, model), prompt, max_tokens=512)

@@ -359,8 +359,8 @@ def test_weekly_picks_uses_ai_assist_rank_slots_when_enabled(monkeypatch):
 
     calls = []
 
-    def fake_rank_slots(candidates, context, preferences, model):
-        calls.append({"candidates": candidates, "context": context, "model": model})
+    def fake_rank_slots(candidates, context, preferences, provider, model):
+        calls.append({"candidates": candidates, "context": context, "provider": provider, "model": model})
         for candidate in candidates:
             candidate.score = 99.0
             candidate.reasons = ["dry and empty"]
@@ -374,9 +374,32 @@ def test_weekly_picks_uses_ai_assist_rank_slots_when_enabled(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0]["model"] == "claude-haiku-4-5"
+    assert calls[0]["provider"] == "anthropic"  # default when config["ai_assist"] sets no provider
     assert ("2026-09-07", "18 Loch Tee 1") in calls[0]["context"]["schedules"]
     assert picks[0].score == 99.0
     assert picks[0].reasons == ["dry and empty"]
+
+
+def test_weekly_picks_threads_a_configured_provider_through_to_rank_slots(monkeypatch):
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "ai_assist": {"enabled": True, "provider": "gemini"},
+    }
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, provider, model):
+        calls.append(provider)
+        return candidates
+
+    import src.recommend as recommend_module
+
+    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
+
+    weekly_picks([schedule], config)
+
+    assert calls == ["gemini"]
 
 
 def test_ranked_matches_merges_avoid_predicted_crowd_into_preferences(monkeypatch):
@@ -394,7 +417,7 @@ def test_ranked_matches_merges_avoid_predicted_crowd_into_preferences(monkeypatc
 
     calls = []
 
-    def fake_rank_slots(candidates, context, preferences, model):
+    def fake_rank_slots(candidates, context, preferences, provider, model):
         calls.append(preferences)
         return candidates
 
@@ -414,7 +437,7 @@ def test_ranked_matches_threads_crowd_estimates_into_context(monkeypatch):
 
     calls = []
 
-    def fake_rank_slots(candidates, context, preferences, model):
+    def fake_rank_slots(candidates, context, preferences, provider, model):
         calls.append(context)
         return candidates
 
@@ -435,7 +458,7 @@ def test_ranked_matches_omits_crowd_estimates_from_context_when_none_given(monke
 
     calls = []
 
-    def fake_rank_slots(candidates, context, preferences, model):
+    def fake_rank_slots(candidates, context, preferences, provider, model):
         calls.append(context)
         return candidates
 

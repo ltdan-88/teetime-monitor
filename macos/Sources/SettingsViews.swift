@@ -310,6 +310,16 @@ struct SettingsSheet: View {
     @StateObject private var isLoggingIn = Box(false)
     @StateObject private var loginStatus = Box<String?>(nil)
 
+    // AI provider credentials (2026-09-26) -- same shape as the login fields above,
+    // just one combined provider-picker-plus-key-field action instead of two fixed
+    // fields, since there are four providers to choose from (see
+    // AICredentialsClient.swift/ai_login_cli.py). Saving a key for a provider makes
+    // it the active one -- there's no separate "which provider" toggle anywhere else.
+    @StateObject private var aiProvider = Box(AICredentialsStore.activeProvider())
+    @StateObject private var aiAPIKey = Box("")
+    @StateObject private var isSavingAIKey = Box(false)
+    @StateObject private var aiKeyStatus = Box<String?>(nil)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("settings.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
@@ -462,6 +472,42 @@ struct SettingsSheet: View {
                     }
                 } header: {
                     Text(t("settings.group.ai"))
+                }
+                Section {
+                    Picker(t("settings.ai_provider_label"), selection: $aiProvider.value) {
+                        ForEach(AICredentialsStore.providers, id: \.self) { provider in
+                            Text(t(AICredentialsStore.providerLabelKey(provider))).tag(provider)
+                        }
+                    }
+                    .onChange(of: aiProvider.value) { _, _ in aiKeyStatus.value = nil }
+                    SecureField(
+                        AICredentialsStore.hasSavedKey(aiProvider.value)
+                            ? "\(t("settings.ai_key")) \(t("settings.ai_key_unchanged"))" : t("settings.ai_key"),
+                        text: $aiAPIKey.value
+                    )
+                    HStack {
+                        if let aiKeyStatus = aiKeyStatus.value {
+                            Text(aiKeyStatus).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if isSavingAIKey.value { ProgressView().controlSize(.small) }
+                        Button(t("settings.save_ai_key")) {
+                            isSavingAIKey.value = true
+                            aiKeyStatus.value = nil
+                            AICredentialsClient.run(provider: aiProvider.value, apiKey: aiAPIKey.value) { result, error in
+                                isSavingAIKey.value = false
+                                if let result {
+                                    aiKeyStatus.value = result.statusText
+                                    if result.saved { aiAPIKey.value = "" }
+                                } else {
+                                    aiKeyStatus.value = error ?? t("error.generic")
+                                }
+                            }
+                        }
+                        .disabled(isSavingAIKey.value)
+                    }
+                } header: {
+                    Text(t("settings.section.ai_provider"))
                 }
             }
             .formStyle(.grouped)

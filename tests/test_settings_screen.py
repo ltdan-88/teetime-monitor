@@ -900,14 +900,18 @@ def test_language_and_theme_save_outside_the_preferences_file(tmp_path, monkeypa
     assert not [key for key in saved if key.startswith("__")]
 
 
-def test_login_button_is_the_only_action_field(tmp_path):
+def test_action_fields_have_no_value_to_round_trip(tmp_path):
     # An "action" field has no value to round-trip -- it must be skipped by both
     # config_to_widget_values() and widget_values_to_config() rather than KeyError-ing.
+    # Two of these now (2026-09-26: login and the new AI credentials field), not just
+    # login -- checked generically rather than assuming there's exactly one.
     from src.settings_screen import config_to_widget_values, widget_values_to_config
 
-    login = next(f for f in FIELDS if f.kind == "action")
-    assert login.label_key == "settings.field.login"
+    action_fields = [f for f in FIELDS if f.kind == "action"]
+    assert {f.label_key for f in action_fields} == {"settings.field.login", "settings.field.ai_credentials"}
+    for field in action_fields:
+        assert field.open_screen is not None
 
-    values = config_to_widget_values({}, [login])
+    values = config_to_widget_values({}, action_fields)
     assert values == {}
-    assert widget_values_to_config({"units": "metric"}, {}, [login]) == {"units": "metric"}
+    assert widget_values_to_config({"units": "metric"}, {}, action_fields) == {"units": "metric"}
