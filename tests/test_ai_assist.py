@@ -255,6 +255,40 @@ def test_rank_slots_omits_crowd_estimate_without_one(monkeypatch):
 # --- summarize_history ---------------------------------------------------------------
 
 
+def test_rank_slots_asks_for_the_requested_language_in_the_prompt(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {}, {}, language="de")
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "Respond in German." in prompt
+
+
+def test_rank_slots_defaults_to_english_when_no_language_given(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "Respond in English." in prompt
+
+
+def test_summarize_history_asks_for_the_requested_language_in_the_prompt(monkeypatch):
+    messages = _FakeMessages(create_result=_FakeCreateResponse("Ruhig an Wochentagvormittagen."))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    summarize_history([{"day_type": "workday"}], "wann ist es am leersten?", language="de")
+
+    prompt = messages.create_calls[0]["messages"][0]["content"]
+    assert "Respond in German." in prompt
+
+
 def test_summarize_history_returns_early_message_without_rows():
     assert summarize_history([], "when's it emptiest?") == "Not enough history yet to say."
 

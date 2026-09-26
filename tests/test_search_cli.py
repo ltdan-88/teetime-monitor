@@ -141,7 +141,7 @@ def test_crowd_estimates_reach_ai_ranking_same_as_the_tui(tmp_path, monkeypatch,
 
     captured_context = {}
 
-    def spy_rank_slots(candidates, context, preferences, provider, model):
+    def spy_rank_slots(candidates, context, preferences, provider, model, language):
         captured_context.update(context)
         return candidates
 
@@ -179,7 +179,7 @@ def test_crowd_estimates_skipped_when_avoid_predicted_crowd_is_off(tmp_path, mon
 
     captured_context = {}
 
-    def spy_rank_slots(candidates, context, preferences, provider, model):
+    def spy_rank_slots(candidates, context, preferences, provider, model, language):
         captured_context.update(context)
         return candidates
 
