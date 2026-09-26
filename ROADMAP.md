@@ -4710,6 +4710,75 @@ hand again. `_FakeGetResponse` (`test_scraper.py`) gained matching
 tests didn't need to change) plus one new test asserting the three diagnostic
 fields actually land in the message. 790 passing, `ruff check` clean.
 
+## Multi-provider AI credentials: Anthropic, OpenAI, Gemini, Grok (2026-09-26)
+
+Direct follow-up to enabling AI ranking in the GUI for the first time and
+noticing it never asked for an Anthropic API key: `ai_assist.enabled`'s toggle
+had no credentials UI anywhere, unlike pc caddie login, and silently relied on
+`ANTHROPIC_API_KEY` already sitting in `.env` — if it were missing, the toggle
+looked on but did nothing (`recommend.ranked_matches()`'s own best-effort
+fallback swallows the failure with no user-facing sign of it). Widened while
+there, direct follow-up: not every user has an Anthropic account, so this
+became a real choice of four providers, not just a key field for one vendor —
+confirmed via two scoping questions before starting: full per-provider dispatch
+(not just per-provider key storage) for Anthropic/OpenAI/Gemini/Grok, and the
+saved key verified with a live call before being accepted.
+
+`ai_assist.py`'s three entry points (`classify_booking_label`, `rank_slots`,
+`summarize_history`) now take a `provider` parameter (default `"anthropic"`,
+every existing caller unaffected). Structured output and open-ended text are
+each implemented once per *provider shape*, not once per function — OpenAI and
+Grok share one code path (`_structured`/`_text`'s `"openai"`/`"grok"` branch)
+since xAI's API is OpenAI-compatible: Grok needs no SDK of its own, just the
+`openai` package pointed at `base_url="https://api.x.ai/v1"` with its own
+`XAI_API_KEY`. Gemini uses `google-genai`'s own `response_schema` structured
+output. New `verify_api_key(provider)` validates a key with each provider's
+`models.list()` — a free call, not a generation call, so saving a key on the
+credentials screen never itself costs money — catching each SDK's own
+`AuthenticationError`/`ClientError` narrowly rather than a bare `except
+Exception`, so a real network hiccup reads as "couldn't verify," not "bad key."
+
+New `src/ai_login_cli.py` (`teetime-monitor-ai-login` console script) mirrors
+`login_cli.py`'s exact save-then-verify contract for the GUI: stdin JSON
+`{"provider", "api_key"}` in, one JSON object out
+(`{"saved", "verified", "reason"?, "error"?}`), key never touching argv or an
+inherited environment variable. New `src/ai_credentials_screen.py`
+(`AICredentialsScreen`) is the TUI's counterpart — one combined
+provider-picker-plus-key-field screen, not "pick a provider in Settings, then a
+separate screen for the key," reached via `SettingsScreen`'s new "AI provider"
+row. That row finally wires up `Field.open_screen` (declared on the dataclass
+since the screens were split, 2026-09-17, but never actually read until now —
+`on_button_pressed()` was still hardcoded to always push `CredentialsScreen`,
+the only "action" field that existed yet); both it and the login row now name
+their own screen via `open_screen=`, and the handler dispatches generically.
+
+Blank-key-means-keep is the same convention `CredentialsScreen`/`login_cli.py`
+already use for `PCC_PASS`, extended here to "switch to a provider you've
+already configured before, without retyping its key": selecting a provider
+that already has a saved key and leaving the field blank still makes it active
+and still re-verifies, it just doesn't rewrite the key.
+
+`openai`/`google-genai` joined `anthropic` as core (not optional)
+`pyproject.toml` dependencies — same placement precedent: all three are
+imported lazily on first actual use of that provider (`ai_assist.py`'s
+`_anthropic_module()`/`_openai_module()`/`_genai_module()`, same pattern,
+same ~200ms-import reasoning as the original Anthropic-only version), so a
+default launch (AI off, or AI on with Anthropic, still the common case) never
+pays for the other two.
+
+GUI: `SettingsViews.swift`'s existing "AI" section gained a `Picker` +
+`SecureField` + Save button, same shape as the Login section directly above
+it. New `AICredentialsClient.swift` mirrors `LoginClient.swift` exactly
+(shells out to `teetime-monitor-ai-login`, same stdin-JSON contract). Verified:
+`swift build`, `TeetimeMonitorCoreTests` (196 assertions) and
+`VisualRegressionRunner` unchanged and passing, and the real built `.app`
+launches cleanly with the new section present — full interactive click-through
+of the new controls wasn't possible in this sandbox (Automation permissions
+block `Terminal.app`/System Events, same limitation noted earlier this
+project), so GUI verification stopped at build+launch, not a live screenshot.
+
+827 tests passing (`pytest`), `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -276,7 +276,8 @@ def ranked_matches(
             playable,
             context=context,
             preferences=preferences,
-            model=ai_config.get("model", ai_assist.DEFAULT_MODEL),
+            provider=ai_config.get("provider", "anthropic"),
+            model=ai_config.get("model"),
         )
     except Exception:
         return playable

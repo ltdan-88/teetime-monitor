@@ -1206,7 +1206,7 @@ def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
         slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
     )
 
-    def fake_rank_slots(candidates, context, preferences, model):
+    def fake_rank_slots(candidates, context, preferences, provider, model):
         # Reverse the order -- the later slot ranks first.
         return list(reversed(candidates))
 
@@ -1231,7 +1231,7 @@ def test_day_pick_text_appends_ai_reasons_to_the_starred_cell(monkeypatch):
         slots=[Slot(time="09:00", booked=0, capacity=4)],
     )
 
-    def fake_rank_slots(candidates, context, preferences, model):
+    def fake_rank_slots(candidates, context, preferences, provider, model):
         candidates[0].reasons = ["dry", "calm"]
         return candidates
 

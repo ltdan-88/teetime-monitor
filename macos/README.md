@@ -116,6 +116,49 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Multi-provider AI credentials (2026-09-26)
+
+Direct follow-up to turning AI ranking on for the first time and noticing the GUI
+never asked for an Anthropic API key at all: `ai_assist.enabled`'s toggle in
+Settings had no credentials UI anywhere, unlike pc caddie login, and silently
+relied on `ANTHROPIC_API_KEY` already sitting in `.env` — if it were missing, the
+toggle looked on but did nothing (`recommend.ranked_matches()`'s own best-effort
+fallback swallows the failure). Widened while there: not everyone has an
+Anthropic account, so this became a real choice of four providers (Anthropic,
+OpenAI, Gemini, Grok), not just a key field for one vendor.
+
+Settings now has an "AI provider" section, mirroring the existing Login
+section's shape exactly: a `Picker` for the provider and a `SecureField` for its
+key, one Save button. New `teetime-monitor-ai-login` console script
+(`src/ai_login_cli.py`) wraps `ai_assist.py`'s own `verify_api_key()` — a
+`models.list()` call per provider, not a generation call, so saving a key never
+itself costs money — and `AICredentialsClient.swift` shells out to it the same
+way `LoginClient.swift` already does for pc caddie, same stdin-JSON-in,
+stdout-JSON-out contract, same reasoning (never argv, never an inherited
+environment variable, so a key never shows up in `ps`). Saving a key for a
+provider makes it the active one; a blank key when that provider already has one
+saved just switches to it without retyping — same blank-means-keep convention
+`LoginClient` already uses for `PCC_PASS`.
+
+`ai_assist.py` itself gained a real per-provider dispatch, not just per-provider
+key storage: OpenAI and Grok share one code path since xAI's API is
+OpenAI-compatible (`openai.OpenAI(base_url="https://api.x.ai/v1")`, its own
+`XAI_API_KEY` — no separate SDK needed), Gemini uses `google-genai`'s own
+`response_schema` structured output. `openai`/`google-genai` joined `anthropic`
+as core (not optional) dependencies, same placement reasoning: all three are
+lazily imported on first actual use, so a default launch (AI off, or AI on with
+Anthropic, still the common case) never pays for the other two.
+
+Verified: `swift build`, the hand-rolled `TeetimeMonitorCoreTests` (196
+assertions) and `VisualRegressionRunner` both still pass unchanged, and the real
+built `.app` launches cleanly with the new section present. Full interactive
+click-through of the new picker/field (as opposed to a build-and-launch check)
+wasn't possible in this sandbox — the same Automation-permissions limitation
+noted further down under "Grid alignment" (`Terminal.app`/System Events
+automation blocked outright) — so this was verified via `swift build`
+succeeding, the pure-logic test suites above, and a real launch, not a live
+screenshot of the new controls themselves.
+
 ## Visual regression checks (2026-09-26)
 
 Direct request, right after the third grid-alignment round below: every one

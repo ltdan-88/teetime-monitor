@@ -179,6 +179,7 @@ from textual.widgets import Button, Collapsible, Header, Input, Label, Select, S
 
 from . import club_config, global_preferences, i18n, units
 from . import theme as theme_module
+from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
@@ -515,6 +516,20 @@ FIELDS: list[Field] = [
         "settings.group.ai",
         False,
     ),
+    # Same "action" kind and open_screen mechanism as settings.field.login above --
+    # added 2026-09-26, direct request for a credentials screen for the AI provider
+    # itself (Anthropic/OpenAI/Gemini/Grok), since turning ai_assist_enabled on had no
+    # way at all to enter a key: ai_assist.py just read ANTHROPIC_API_KEY from the
+    # environment silently, and if it were ever missing the toggle would look on but
+    # do nothing (recommend.ranked_matches()'s own best-effort fallback swallows the
+    # failure). See ai_credentials_screen.py's own docstring.
+    Field(
+        "settings.field.ai_credentials",
+        ("__ai_credentials__",),
+        "action",
+        "settings.group.ai",
+        open_screen=lambda: AICredentialsScreen(),
+    ),
     # Moved here from "Priorities" (2026-09-10, direct follow-up after finding it had
     # zero actual effect: "make avoid crowds a child of AI option") -- it only ever
     # does anything through ai_assist.rank_slots() (see that function's own docstring
@@ -591,6 +606,7 @@ FIELDS: list[Field] = [
         ("__login__",),
         "action",
         "settings.group.account",
+        open_screen=lambda: CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
     ),
     Field(
         "settings.field.language",
@@ -1032,7 +1048,10 @@ class SettingsScreen(Screen[dict | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         for field in self.fields_shown:
             if field.kind == "action" and event.button.id == _field_id(field):
-                self.app.push_screen(CredentialsScreen(verify_against_club_id=_any_favorite_club_id()))
+                # Generic as of 2026-09-26 (was hardcoded to CredentialsScreen, the
+                # only "action" field that existed yet) -- open_screen is what each
+                # such field's own FIELDS entry supplies, see Field's own docstring.
+                self.app.push_screen(field.open_screen())
                 return
         if event.button.id == "cancel":
             self.action_cancel()

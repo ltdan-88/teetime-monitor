@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.42.1"
+version = "0.43.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,15 @@ dependencies = [
     "python-dotenv>=1.0",
     "httpx>=0.27",
     "anthropic>=0.40",
+    # openai and google-genai (2026-09-26, multi-provider ai_assist) follow the same
+    # placement anthropic already has: a core dependency even though every one of the
+    # three is only ever imported lazily, on first actual use of that provider (see
+    # ai_assist.py's own _anthropic_module()/_openai_module()/_genai_module() docstrings)
+    # -- ai_assist.enabled defaults to off, so the common case still never pays for any
+    # of them. Grok needs no SDK of its own: xAI's API is OpenAI-compatible, so it's the
+    # openai package pointed at a different base_url with its own key.
+    "openai>=1.50",
+    "google-genai>=0.3",
     "pydantic>=2.0",
     "beautifulsoup4>=4.12",
 ]
@@ -53,6 +62,9 @@ teetime-monitor-add-club = "src.add_club_cli:main"
 # Headless "browse before saving" preview scrape for the Swift prototype
 # (2026-09-25) -- see preview_club_cli.py's own docstring for the contract.
 teetime-monitor-preview-club = "src.preview_club_cli:main"
+# Headless AI-provider credential save+verify for the macOS GUI's AI credentials
+# section (2026-09-26) -- see ai_login_cli.py's own docstring for the contract.
+teetime-monitor-ai-login = "src.ai_login_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

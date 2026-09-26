@@ -266,3 +266,232 @@ def test_summarize_history_returns_claude_text(monkeypatch):
     result = summarize_history([{"day_type": "workday", "avg_occupancy": 0.2}], "when's it emptiest?")
 
     assert result == "Looks quietest on weekday mornings."
+
+
+# --- multi-provider (2026-09-26) -----------------------------------------------------
+# OpenAI and Grok share one code path (_structured/_text's "openai"/"grok" branch --
+# Grok is just the openai package pointed at xAI's OpenAI-compatible endpoint), so one
+# parametrized fake client covers both rather than duplicating every case per provider.
+
+
+class _FakeParsedMessage:
+    def __init__(self, parsed):
+        self.parsed = parsed
+        self.content = None
+
+
+class _FakeChoice:
+    def __init__(self, message):
+        self.message = message
+
+
+class _FakeChatCompletionResponse:
+    def __init__(self, message):
+        self.choices = [_FakeChoice(message)]
+
+
+class _FakeChatCompletions:
+    def __init__(self, parse_result=None, create_content=None):
+        self._parse_result = parse_result
+        self._create_content = create_content
+        self.parse_calls = []
+        self.create_calls = []
+
+    def parse(self, **kwargs):
+        self.parse_calls.append(kwargs)
+        return _FakeChatCompletionResponse(_FakeParsedMessage(self._parse_result))
+
+    def create(self, **kwargs):
+        self.create_calls.append(kwargs)
+        message = _FakeParsedMessage(None)
+        message.content = self._create_content
+        return _FakeChatCompletionResponse(message)
+
+
+class _FakeOpenAIClient:
+    def __init__(self, chat):
+        self.chat = _Namespace(completions=chat)
+
+
+class _Namespace:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class _FakeGeminiResponse:
+    def __init__(self, parsed=None, text=None):
+        self.parsed = parsed
+        self.text = text
+
+
+class _FakeGeminiModels:
+    def __init__(self, generate_result=None):
+        self._generate_result = generate_result
+        self.generate_calls = []
+
+    def generate_content(self, **kwargs):
+        self.generate_calls.append(kwargs)
+        return self._generate_result
+
+
+class _FakeGeminiClient:
+    def __init__(self, models):
+        self.models = models
+
+
+@pytest.mark.parametrize("provider", ["openai", "grok"])
+def test_classify_booking_label_openai_compatible_providers(monkeypatch, provider):
+    fake_parsed = BookingLabelClassification(label="anonymized", raw_text="something else")
+    chat = _FakeChatCompletions(parse_result=fake_parsed)
+    monkeypatch.setattr(ai_assist.openai, "OpenAI", lambda **kwargs: _FakeOpenAIClient(chat))
+
+    result = classify_booking_label("Belegt", provider=provider)
+
+    assert result.label == "anonymized"
+    assert result.raw_text == "Belegt"
+
+
+def test_classify_booking_label_gemini(monkeypatch):
+    fake_parsed = BookingLabelClassification(label="friend_name", raw_text="x")
+    models = _FakeGeminiModels(generate_result=_FakeGeminiResponse(parsed=fake_parsed))
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _FakeGeminiClient(models))
+
+    result = classify_booking_label("Max Mustermann", provider="gemini")
+
+    assert result.label == "friend_name"
+    assert result.raw_text == "Max Mustermann"
+
+
+@pytest.mark.parametrize("provider", ["openai", "grok"])
+def test_rank_slots_openai_compatible_providers(monkeypatch, provider):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=90, reasons=["dry"])])
+    chat = _FakeChatCompletions(parse_result=ranking)
+    monkeypatch.setattr(ai_assist.openai, "OpenAI", lambda **kwargs: _FakeOpenAIClient(chat))
+
+    result = rank_slots(candidates, {}, {}, provider=provider)
+
+    assert result[0].score == 90
+    assert result[0].reasons == ["dry"]
+
+
+def test_rank_slots_gemini(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=70, reasons=["ok"])])
+    models = _FakeGeminiModels(generate_result=_FakeGeminiResponse(parsed=ranking))
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _FakeGeminiClient(models))
+
+    result = rank_slots(candidates, {}, {}, provider="gemini")
+
+    assert result[0].score == 70
+
+
+@pytest.mark.parametrize("provider", ["openai", "grok"])
+def test_summarize_history_openai_compatible_providers(monkeypatch, provider):
+    chat = _FakeChatCompletions(create_content="Quiet on weekday mornings.")
+    monkeypatch.setattr(ai_assist.openai, "OpenAI", lambda **kwargs: _FakeOpenAIClient(chat))
+
+    result = summarize_history([{"day_type": "workday"}], "when's it emptiest?", provider=provider)
+
+    assert result == "Quiet on weekday mornings."
+
+
+def test_summarize_history_gemini(monkeypatch):
+    models = _FakeGeminiModels(generate_result=_FakeGeminiResponse(text="Quiet on weekday mornings."))
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _FakeGeminiClient(models))
+
+    result = summarize_history([{"day_type": "workday"}], "when's it emptiest?", provider="gemini")
+
+    assert result == "Quiet on weekday mornings."
+
+
+def test_model_for_unknown_provider_raises(monkeypatch):
+    with pytest.raises(ValueError):
+        ai_assist._model_for("bing", None)
+
+
+# --- verify_api_key -------------------------------------------------------------------
+
+
+class _FakeModelsListOK:
+    def list(self):
+        return ["a-model"]
+
+
+class _FakeModelsListRaises:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def list(self):
+        raise self._exc
+
+
+@pytest.mark.parametrize("provider,attr", [("anthropic", "anthropic"), ("openai", "openai"), ("grok", "openai")])
+def test_verify_api_key_ok(monkeypatch, provider, attr):
+    fake_client = _Namespace(models=_FakeModelsListOK())
+    module = getattr(ai_assist, attr)
+    ctor = "Anthropic" if attr == "anthropic" else "OpenAI"
+    monkeypatch.setattr(module, ctor, lambda **kwargs: fake_client)
+
+    ok, error = ai_assist.verify_api_key(provider)
+
+    assert ok is True
+    assert error is None
+
+
+def _fake_auth_error(module):
+    # Both anthropic.AuthenticationError and openai.AuthenticationError are real
+    # httpx-status-code-carrying exceptions, not plain str-message ones -- need a real
+    # (fake) httpx.Response to construct one at all.
+    import httpx
+
+    request = httpx.Request("GET", "https://example.com")
+    response = httpx.Response(401, request=request)
+    return module.AuthenticationError("nope", response=response, body=None)
+
+
+@pytest.mark.parametrize("provider,attr", [("anthropic", "anthropic"), ("openai", "openai"), ("grok", "openai")])
+def test_verify_api_key_rejected(monkeypatch, provider, attr):
+    module = getattr(ai_assist, attr)
+    fake_client = _Namespace(models=_FakeModelsListRaises(_fake_auth_error(module)))
+    ctor = "Anthropic" if attr == "anthropic" else "OpenAI"
+    monkeypatch.setattr(module, ctor, lambda **kwargs: fake_client)
+
+    ok, error = ai_assist.verify_api_key(provider)
+
+    assert ok is False
+    assert error is None
+
+
+def test_verify_api_key_network_error_is_not_treated_as_a_bad_key(monkeypatch):
+    fake_client = _Namespace(models=_FakeModelsListRaises(ConnectionError("timed out")))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda **kwargs: fake_client)
+
+    ok, error = ai_assist.verify_api_key("anthropic")
+
+    assert ok is False
+    assert error == "timed out"
+
+
+def test_verify_api_key_gemini_ok(monkeypatch):
+    models = _Namespace(list=lambda: iter(["a-model"]))
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _Namespace(models=models))
+
+    ok, error = ai_assist.verify_api_key("gemini")
+
+    assert ok is True
+    assert error is None
+
+
+def test_verify_api_key_gemini_rejected(monkeypatch):
+    def raise_client_error():
+        raise ai_assist.genai.errors.ClientError(401, {"error": {"message": "bad key"}})
+        yield  # pragma: no cover -- makes this a generator, matching the real pager shape
+
+    models = _Namespace(list=raise_client_error)
+    monkeypatch.setattr(ai_assist.genai, "Client", lambda **kwargs: _Namespace(models=models))
+
+    ok, error = ai_assist.verify_api_key("gemini")
+
+    assert ok is False
+    assert error is None
