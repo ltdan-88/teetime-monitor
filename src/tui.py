@@ -1346,7 +1346,8 @@ def _availability_pipeline(
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
     crowd_estimates = _crowd_estimates([schedule], config, club_id)
-    playable = recommend.ranked_matches([schedule], criteria, config, crowd_estimates)
+    friend_names = storage.load_friend_names(path=_db_path(club_id))
+    playable = recommend.ranked_matches([schedule], criteria, config, crowd_estimates, friend_names)
     result = (candidates, playable)
     if cache is not None:
         cache[key] = result
@@ -3326,7 +3327,8 @@ class SearchScreen(Screen[None]):
     def _run_search(self) -> None:
         criteria = self._build_criteria()
         crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
-        matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates)
+        friend_names = storage.load_friend_names(path=_db_path(self.club_id))
+        matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates, friend_names)
         table = self.query_one("#search-results", DataTable)
         table.clear()
         self._row_matches = []

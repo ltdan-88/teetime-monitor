@@ -330,6 +330,85 @@ def test_ranked_matches_uses_the_given_criteria_not_the_configs_own_availability
     assert [m.slot.time for m in matches] == ["09:00"]
 
 
+# --- prioritize_friends deterministic boost (2026-09-27) ---------------------------
+
+
+def test_ranked_matches_sorts_a_friends_slot_first_when_prioritize_friends_is_on():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["A Stranger"]),
+            Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+        ],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"prioritize_friends": True},
+    }
+
+    matches = ranked_matches([schedule], default_criteria_from_config(config), config, friend_names={"Erika Mustermann"})
+
+    assert [m.slot.time for m in matches] == ["18:00", "09:00"]
+
+
+def test_ranked_matches_does_not_sort_when_prioritize_friends_is_off():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["A Stranger"]),
+            Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+        ],
+    )
+    config = {"availability": {"weekday_window": {"after": "08:00"}}}  # prioritize_friends unset
+
+    matches = ranked_matches([schedule], default_criteria_from_config(config), config, friend_names={"Erika Mustermann"})
+
+    assert [m.slot.time for m in matches] == ["09:00", "18:00"]  # original, chronological order
+
+
+def test_ranked_matches_does_not_sort_without_any_friend_names_given():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["A Stranger"]),
+            Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+        ],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"prioritize_friends": True},
+    }
+
+    matches = ranked_matches([schedule], default_criteria_from_config(config), config, friend_names=None)
+
+    assert [m.slot.time for m in matches] == ["09:00", "18:00"]
+
+
+def test_ranked_matches_friend_sort_is_stable_among_non_friend_slots():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="08:00", booked=1, capacity=4, players=["Stranger A"]),
+            Slot(time="09:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+            Slot(time="10:00", booked=1, capacity=4, players=["Stranger B"]),
+        ],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "07:00"}},
+        "preferences": {"prioritize_friends": True},
+    }
+
+    matches = ranked_matches([schedule], default_criteria_from_config(config), config, friend_names={"Erika Mustermann"})
+
+    # The friend's slot moves to the front; the two non-friend slots keep their
+    # original relative order behind it (stable sort), rather than an arbitrary one.
+    assert [m.slot.time for m in matches] == ["09:00", "08:00", "10:00"]
+
+
 def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
     # No "ai_assist" block at all -- defaults to disabled, so this must never call
     # ai_assist.rank_slots() (which would otherwise need a real API key).

@@ -9,13 +9,17 @@ from src.storage import (
     last_scraped_at,
     load_all_confirmed_bookings,
     load_confirmed_booking,
+    load_friend_names,
+    load_known_players,
     load_latest_schedule,
     load_location,
     load_unacknowledged_booking_changes,
+    record_seen_players,
     save_booking_change,
     save_confirmed_booking,
     save_location,
     save_schedule,
+    set_player_friend,
 )
 
 
@@ -669,3 +673,92 @@ def test_load_latest_schedule_without_any_weather_ever_is_still_fine(tmp_path):
 
     assert loaded.weather == []
     assert loaded.slots[0].time == "09:00"
+
+
+# --- known_players (2026-09-27) -------------------------------------------------------
+
+
+def test_record_seen_players_creates_new_rows(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Max Mustermann", "Erika Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+
+    players = {p.name: p for p in load_known_players(path=path)}
+    assert set(players) == {"Max Mustermann", "Erika Mustermann"}
+    assert players["Max Mustermann"].first_seen == "2026-09-27T10:00:00+00:00"
+    assert players["Max Mustermann"].last_seen == "2026-09-27T10:00:00+00:00"
+    assert players["Max Mustermann"].is_friend is False
+
+
+def test_record_seen_players_with_no_names_is_a_no_op(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players([], "2026-09-27T10:00:00+00:00", path=path)
+
+    assert load_known_players(path=path) == []
+
+
+def test_record_seen_players_bumps_last_seen_without_touching_first_seen(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players(["Max Mustermann"], "2026-09-28T10:00:00+00:00", path=path)
+
+    players = load_known_players(path=path)
+    assert len(players) == 1
+    assert players[0].first_seen == "2026-09-27T10:00:00+00:00"
+    assert players[0].last_seen == "2026-09-28T10:00:00+00:00"
+
+
+def test_record_seen_players_never_resets_an_existing_friend_flag(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+    set_player_friend("Max Mustermann", True, path=path)
+
+    record_seen_players(["Max Mustermann"], "2026-09-28T10:00:00+00:00", path=path)
+
+    players = load_known_players(path=path)
+    assert players[0].is_friend is True
+
+
+def test_set_player_friend_toggles_on_and_off(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+
+    set_player_friend("Max Mustermann", True, path=path)
+    assert load_known_players(path=path)[0].is_friend is True
+
+    set_player_friend("Max Mustermann", False, path=path)
+    assert load_known_players(path=path)[0].is_friend is False
+
+
+def test_set_player_friend_is_a_no_op_for_a_name_never_seen(tmp_path):
+    path = tmp_path / "club.db"
+    set_player_friend("Nobody Real", True, path=path)
+
+    assert load_known_players(path=path) == []
+
+
+def test_load_known_players_orders_friends_first_then_most_recently_seen(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Old Friend"], "2026-09-25T10:00:00+00:00", path=path)
+    record_seen_players(["New Stranger"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players(["New Friend"], "2026-09-26T10:00:00+00:00", path=path)
+    set_player_friend("Old Friend", True, path=path)
+    set_player_friend("New Friend", True, path=path)
+
+    names = [p.name for p in load_known_players(path=path)]
+    assert names == ["New Friend", "Old Friend", "New Stranger"]
+
+
+def test_load_known_players_with_no_club_db_yet_returns_empty(tmp_path):
+    assert load_known_players(path=tmp_path / "never-created.db") == []
+
+
+def test_load_friend_names_returns_only_the_marked_ones(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(["Friend One", "Not A Friend"], "2026-09-27T10:00:00+00:00", path=path)
+    set_player_friend("Friend One", True, path=path)
+
+    assert load_friend_names(path=path) == {"Friend One"}
+
+
+def test_load_friend_names_with_no_club_db_yet_returns_empty_set(tmp_path):
+    assert load_friend_names(path=tmp_path / "never-created.db") == set()

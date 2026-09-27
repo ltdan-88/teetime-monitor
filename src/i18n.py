@@ -258,6 +258,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.verified": "Saved and key verified — you're all set.",
         "ai_credentials.rejected": "Saved, but the key was rejected — double check it.",
         "ai_credentials.unverified": "Saved, but couldn't verify the key right now ({error}) — it'll be used as-is.",
+        "players.title": "Player directory",
+        "players.intro": (
+            "Every real name your own scrapes have seen (only possible once logged in — "
+            "see Settings). Select a row to mark or unmark a friend."
+        ),
+        "players.no_club": "No club selected yet — add or open a club first.",
+        "players.column.name": "Name",
+        "players.column.last_seen": "Last seen",
+        "players.column.friend": "Friend",
+        "settings.field.player_directory": "Player directory",
         "binding.heatmap": "Heatmap",
         "heatmap.title": "Crowd heatmap — {course}",
         "heatmap.readiness_title": "Data readiness — {course}",
@@ -522,6 +532,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.verified": "Gespeichert und Schlüssel bestätigt — alles bereit.",
         "ai_credentials.rejected": "Gespeichert, aber der Schlüssel wurde abgelehnt — bitte prüfen.",
         "ai_credentials.unverified": "Gespeichert, aber Schlüssel konnte gerade nicht geprüft werden ({error}) — wird trotzdem verwendet.",
+        "players.title": "Spielerverzeichnis",
+        "players.intro": (
+            "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — "
+            "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen."
+        ),
+        "players.no_club": "Noch kein Club ausgewählt — zuerst einen Club hinzufügen oder öffnen.",
+        "players.column.name": "Name",
+        "players.column.last_seen": "Zuletzt gesehen",
+        "players.column.friend": "Freund/in",
+        "settings.field.player_directory": "Spielerverzeichnis",
         "binding.heatmap": "Auslastung",
         "heatmap.title": "Auslastungs-Heatmap — {course}",
         "heatmap.readiness_title": "Datenbereitschaft — {course}",

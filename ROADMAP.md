@@ -4966,6 +4966,53 @@ service is not available due to maintenance") — unrelated to this change, and
 already directly confirmed working via a live authenticated fetch earlier in
 this same investigation, before the site went down.
 
+## Player directory + real "prioritize friends" (2026-09-27)
+
+Real names now flow in from authenticated scraping, but only ever visible
+per-slot, buried in whichever day happened to record them. Direct follow-up:
+a browsable directory of every name ever seen, with the ability to mark some
+as friends — and for `prioritize_friends` (a preference that's existed since
+early on but has always been a no-op, since no friends list ever existed to
+check a slot's players against) to finally do something real.
+
+New `known_players` table (`storage.py`) — `name`, `first_seen`, `last_seen`,
+`is_friend` — populated incrementally: `scrape_once.run()` calls the new
+`storage.record_seen_players()` right after every scrape, piggybacking on a
+fetch that's already happening rather than a separate pass over the database.
+`is_friend` is never touched on a re-sighting, only via the directory
+screen's own selection action, so a friend stays marked through a stretch
+with no bookings.
+
+Confirmed with the user before building this: `prioritize_friends` gets
+**both** effects, not one or the other. `recommend.ranked_matches()` gained
+`friend_names: set[str] | None` (same "caller already has it, hand it in"
+convention `crowd_estimates` already follows): a stable sort moves a match
+whose slot has a marked friend ahead of the rest, deterministically, whether
+or not `ai_assist.enabled` is on — that's the half that works even with AI
+off. When AI ranking also runs, the same names feed a friend *count* into
+`ai_assist._describe_candidate()`'s prompt instead of nothing — never a name,
+matching the "AI prompts stay name-free" stance from the previous entry. Four
+call sites (`tui.py`'s `_availability_pipeline()` and `SearchScreen`,
+`search_cli.py`) load `storage.load_friend_names()` and pass it through;
+`picks_cli.py` gets this for free by already calling `_availability_pipeline()`
+directly.
+
+New `src/known_players_screen.py` (TUI) reuses `settings_screen.py`'s
+`open_screen` mechanism — the "Player directory" row sits right next to
+`prioritize_friends`'s own toggle in the Priorities group. New
+`PlayerDirectorySheet` (GUI, `macos/Sources/PlayerDirectorySheet.swift`) needed
+no new CLI script at all: `Store.swift` already writes directly to SQLite for
+simple reads/writes (`confirmBooking()`/`cancelBooking()`'s own pattern), so
+`Store.knownPlayers()`/`setPlayerFriend()` just follow that same shape.
+
+873 tests passing (`pytest`), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (196 assertions) and `VisualRegressionRunner` all
+pass unchanged. Verified live, end to end, against the user's real database:
+a real scrape (373 real names captured in one pass), a real name marked a
+friend, a real `ranked_matches()` call sorting that friend's real slot first,
+and the built AI prompt confirmed to contain only `"1 friend(s) already
+booked"` — never the name.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

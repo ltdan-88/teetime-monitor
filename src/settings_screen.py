@@ -181,6 +181,7 @@ from . import club_config, global_preferences, i18n, units
 from . import theme as theme_module
 from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
+from .known_players_screen import KnownPlayersScreen
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
@@ -494,6 +495,19 @@ FIELDS: list[Field] = [
         "bool",
         "settings.group.priorities",
         False,
+    ),
+    # Same "action" kind and open_screen mechanism as settings.field.login/
+    # ai_credentials above -- added 2026-09-27, direct follow-up to authenticated
+    # scraping making real names possible at all: prioritize_friends has been a
+    # no-op preference since it was first added, since no friends list ever existed
+    # to check a slot's players against. This is where that list is actually
+    # browsed/edited, right next to the toggle it finally gives real effect to.
+    Field(
+        "settings.field.player_directory",
+        ("__player_directory__",),
+        "action",
+        "settings.group.priorities",
+        open_screen=lambda: KnownPlayersScreen(_any_favorite_club_id()),
     ),
     # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
     # be an option in the settings menu" -- ai_assist was originally kept per-club

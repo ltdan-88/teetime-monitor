@@ -1231,7 +1231,7 @@ struct ContentView: View {
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
         }
-        .sheet(isPresented: $showingPreferences.value) { PreferencesSheet() }
+        .sheet(isPresented: $showingPreferences.value) { PreferencesSheet(dbPath: model.clubPath) }
         .sheet(isPresented: $showingSettings.value) {
             SettingsSheet(verifyClubID: model.clubs.first { $0.path == model.clubPath }?.id, model: model)
         }

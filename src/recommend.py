@@ -229,6 +229,7 @@ def ranked_matches(
     criteria: SearchCriteria,
     config: dict,
     crowd_estimates: dict[tuple[str, str, str], float] | None = None,
+    friend_names: set[str] | None = None,
 ) -> list[SlotMatch]:
     """Search + exclude_unplayable + (best-effort) AI ranking for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on
@@ -253,9 +254,23 @@ def ranked_matches(
     actually on -- see that setting's own docstring in settings_screen.py for why it
     moved under "AI ranking" rather than living in "Priorities": it only ever does
     anything through this exact path.
+
+    `friend_names` (2026-09-27, `storage.load_friend_names()`) is the same
+    "caller already has it, hand it in" convention `crowd_estimates` already
+    follows. When `preferences.prioritize_friends` is on and any names were given,
+    a stable sort moves a match whose slot has a marked friend ahead of the rest,
+    preserving relative order otherwise -- this is the *deterministic* half, and it
+    runs whether or not `ai_assist.enabled` is on, unlike everything below this
+    point. When AI ranking also runs, the same names feed a friend *count* (never a
+    name -- see `ai_assist._describe_candidate()`'s own docstring) into its prompt
+    instead.
     """
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
+
+    preferences_for_sort = config.get("preferences", {})
+    if preferences_for_sort.get("prioritize_friends") and friend_names:
+        playable = sorted(playable, key=lambda match: 0 if set(match.slot.players) & friend_names else 1)
 
     ai_config = config.get("ai_assist", {})
     if not ai_config.get("enabled", False):
@@ -267,6 +282,8 @@ def ranked_matches(
     }
     if crowd_estimates:
         context["crowd_estimates"] = crowd_estimates
+    if friend_names:
+        context["friend_names"] = friend_names
     preferences = {
         **config.get("preferences", {}),
         "avoid_predicted_crowd": ai_config.get("avoid_predicted_crowd", False),
