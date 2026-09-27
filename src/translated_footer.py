@@ -41,6 +41,12 @@ class TranslatedFooter(Static):
         super().__init__()
         self._key_bindings = bindings
 
+    def set_bindings(self, bindings: list[tuple[str, str]]) -> None:
+        """Swap in a new set of (key, label) pairs and redraw -- for a screen whose
+        own footer only lists keys that currently do something."""
+        self._key_bindings = bindings
+        self.refresh()
+
     def render(self) -> str:
         parts = [f"[b]{key}[/b] {i18n.t(label_key)}" for key, label_key in self._key_bindings]
         return "  ".join(parts)

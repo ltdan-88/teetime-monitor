@@ -2582,6 +2582,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         layer: overlay;
         dock: top;
         height: 1;
+        /* Below #overview-table's own two-line column header, not over it
+           (2026-09-27, bundle D): docked at the very top it hid the first line
+           of every column title ("Datum/Zeit", "Belegung", ...) the moment it
+           appeared -- visible in the user's own screenshot. Matches
+           `header_height=2` in compose(). */
+        margin-top: 2;
         display: none;
     }
     /* Off until `?` -- see action_toggle_legend(). */
@@ -2593,8 +2599,19 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     }
     """
 
+    # Direct keys for the four main actions, back beside the Actions palette
+    # (2026-09-27, bundle D of the TUI/GUI consistency audit -- a deliberate,
+    # user-chosen reversal of 2026-09-16's palette-only design): the GUI has
+    # always had each of these as a visible toolbar button plus a menu entry,
+    # while here they were only reachable one level down, behind `t`. The
+    # palette stays exactly as it was; these are a faster route, and the footer
+    # names them so they're found, not memorized.
     BINDINGS = [
         ("r", "refresh", "Refresh"),
+        ("slash", "search(False)", "Search"),
+        ("h", "heatmap(False)", "Heatmap"),
+        ("p", "player_directory(False)", "Players"),
+        ("comma", "edit_preferences(False)", "Preferences"),
         ("c", "collapse_all", "Collapse all"),
         ("x", "dismiss_banners", "Dismiss banners"),
         ("question_mark", "toggle_legend", "Legend"),
@@ -2603,6 +2620,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     ]
     _FOOTER_BINDINGS = [
         ("enter", "binding.expand_or_confirm"),
+        ("/", "binding.search"),
+        ("h", "binding.heatmap"),
+        ("p", "binding.players_short"),
+        (",", "binding.preferences"),
         ("r", "binding.refresh"),
         ("c", "binding.collapse_all"),
         ("x", "binding.dismiss_banners"),
@@ -2688,6 +2709,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # highlighted row. Rebuilt every _render_table() call, in step with
         # _row_index.
         self._row_full_text: list[str] = []
+        # Whether #banners has anything in it -- _refresh_footer() lists `x` only then.
+        self._has_banners = False
         # Which date the sticky header is currently showing, if any -- lets
         # _update_sticky_header() skip re-declaring columns/re-adding its one
         # row on every single poll tick, only doing that work when the shown
@@ -2808,6 +2831,23 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         change was about; here it does (`include_date=True`)."""
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
         self.query_one("#banners", Static).update(_render_banner_lines(changes, include_date=True))
+        self._has_banners = bool(changes)
+        self._refresh_footer()
+
+    def _refresh_footer(self) -> None:
+        """Only list `c`/`x` while they'd actually do something -- something
+        expanded, a banner showing (2026-09-27, bundle D of the TUI/GUI
+        consistency audit): with the four main actions' direct keys added, the
+        full list no longer fit one line even at 120 columns, and those two are
+        the ones with nothing to act on most of the time. The keys themselves
+        stay bound either way."""
+        hidden = set()
+        if not self._expanded_dates:
+            hidden.add("c")
+        if not self._has_banners:
+            hidden.add("x")
+        footer = self.query_one(TranslatedFooter)
+        footer.set_bindings([(key, label) for key, label in self._FOOTER_BINDINGS if key not in hidden])
 
     def action_dismiss_banners(self) -> None:
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
@@ -3188,6 +3228,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             cells = [_one_line(cell, width) for cell, width in zip(row, column_widths, strict=True)]
             self._row_full_text.append(self._row_lost_text(full_row, column_widths))
             table.add_row(*cells, height=1)
+        self._refresh_footer()
 
         return schedules
 
@@ -3508,32 +3549,29 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._expanded_dates = set()
         self._rerender_preserving_cursor(row)
 
-    def action_search(self) -> None:
+    def action_search(self, via_palette: bool = True) -> None:
         # Callback (not push_screen_wait()) since this itself isn't a worker
         # context -- see action_switch()'s own comment on that requirement.
-        # Reopens the Actions menu once SearchScreen backs out, since it's
-        # only ever reached via that menu now -- see
-        # TeetimeApp._reopen_actions_menu()'s own docstring.
-        self.app.push_screen(
-            SearchScreen(self._schedules, self._config(), self.club_id),
-            lambda _result: self.app._reopen_actions_menu(),
-        )
+        self._open(SearchScreen(self._schedules, self._config(), self.club_id), via_palette)
 
-    def action_heatmap(self) -> None:
-        self.app.push_screen(
-            HeatmapScreen(self.club_id, self.course, self._config()),
-            lambda _result: self.app._reopen_actions_menu(),
-        )
+    def action_heatmap(self, via_palette: bool = True) -> None:
+        self._open(HeatmapScreen(self.club_id, self.course, self._config()), via_palette)
 
-    def action_player_directory(self) -> None:
+    def action_player_directory(self, via_palette: bool = True) -> None:
         # Added 2026-09-27, direct request: previously only reachable via
         # Settings -> Preferences -> Priorities, several menus away from the
-        # Overview it's actually useful from -- same Actions-menu placement as
-        # Search/Heatmap beside it.
-        self.app.push_screen(
-            KnownPlayersScreen(self.club_id),
-            lambda _result: self.app._reopen_actions_menu(),
-        )
+        # Overview it's actually useful from.
+        self._open(KnownPlayersScreen(self.club_id), via_palette)
+
+    def _open(self, screen: Screen, via_palette: bool) -> None:
+        """Push `screen`; backing out of it reopens the Actions menu only when that's
+        where it was opened from (2026-09-16, "can you make ESC return to actions
+        screen when accessing entries from actions screen?" -- see
+        TeetimeApp._reopen_actions_menu()'s own docstring). Opened by its own direct
+        key instead (`via_palette=False`, bundle D of the 2026-09-27 TUI/GUI
+        consistency audit), escape goes straight back to the overview -- nothing
+        else was open in between."""
+        self.app.push_screen(screen, (lambda _result: self.app._reopen_actions_menu()) if via_palette else None)
 
     def action_switch(self) -> None:
         # Delegated rather than handled here — push_screen_wait()
@@ -3546,12 +3584,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # TeetimeApp.action_edit_settings()'s own docstring.
         self.app.action_edit_settings()
 
-    def action_edit_preferences(self) -> None:
+    def action_edit_preferences(self, via_palette: bool = True) -> None:
         # Delegates to the App for the same reason action_edit_settings does above.
         # Login is no longer its own Actions entry (2026-09-17) -- it lives in
         # Settings under "Account" now; CredentialsScreen is still reachable
         # directly from ClubBrowserScreen's `l` and from the first-launch flow.
-        self.app.action_edit_preferences()
+        self.app.action_edit_preferences(via_palette)
 
     def action_command_palette(self) -> None:
         self.app.action_command_palette()
@@ -4851,14 +4889,16 @@ class TeetimeApp(App[None]):
         regardless of which club is active, or even whether one is favorited at all."""
         self.run_worker(self._do_edit_settings(AppSettingsScreen), exclusive=True, group="settings")
 
-    def action_edit_preferences(self) -> None:
+    def action_edit_preferences(self, via_palette: bool = True) -> None:
         """Open `PreferencesScreen` — the golf half of what used to be one settings
         form (2026-09-17, direct request: "we should separate preferences from
         settings"). Same worker requirement and same post-save rebuild as
         `action_edit_settings()` above; see `_do_edit_settings()` for both."""
-        self.run_worker(self._do_edit_settings(PreferencesScreen), exclusive=True, group="settings")
+        self.run_worker(
+            self._do_edit_settings(PreferencesScreen, via_palette), exclusive=True, group="settings"
+        )
 
-    async def _do_edit_settings(self, screen_class=AppSettingsScreen) -> None:
+    async def _do_edit_settings(self, screen_class=AppSettingsScreen, via_palette: bool = True) -> None:
         await self.push_screen_wait(screen_class())
         # Theme and language are saved by the settings form itself, but saving only
         # *persists* them -- `theme.save_theme()` writes the file and nothing more, so
@@ -4883,8 +4923,10 @@ class TeetimeApp(App[None]):
         # place without closing the screen -- see its own on_button_pressed())
         # so this always means "done here," never "just saved, show me the
         # result immediately" -- reopening the Actions menu doesn't interrupt
-        # anything. See _reopen_actions_menu()'s own docstring.
-        self._reopen_actions_menu()
+        # anything. See _reopen_actions_menu()'s own docstring. Not when it was
+        # opened by its own direct key (`,` -- see OverviewScreen._open()).
+        if via_palette:
+            self._reopen_actions_menu()
 
     def _periodic_scrape(self, force: bool = False) -> None:
         """Best-effort background scrape of this club's whole overview window — direct
