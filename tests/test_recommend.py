@@ -1,3 +1,4 @@
+from src import recommend
 from src.models import Schedule, Slot, SlotMatch, SunTimes, TimeWindow, WeatherPoint
 from src.recommend import (
     _round_duration_minutes,
@@ -639,3 +640,39 @@ def test_diversify_by_day_preserves_input_order():
 
 def test_diversify_by_day_empty_input():
     assert diversify_by_day([], max_count=5) == []
+
+
+# --- window_for_date / latest_start / window_too_late_hint (2026-09-27, bundle C) ---
+
+
+def _sunny_schedule(day: str, sunset: str = "19:10") -> Schedule:
+    return Schedule(
+        date=day, course="18 Loch Tee 1",
+        slots=[Slot(time="16:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="07:20", sunset=sunset),
+    )
+
+
+def test_window_for_date_picks_the_weekday_or_weekend_window():
+    config = {"availability": {"weekday_window": {"after": "16:00"}, "weekend_window": {"after": "10:00"}}}
+    assert recommend.window_for_date("2026-09-28", config).after == "16:00"  # Monday
+    assert recommend.window_for_date("2026-09-27", config).after == "10:00"  # Sunday
+    assert recommend.window_for_date("2026-09-28", {}) is None
+
+
+def test_latest_start_is_sunset_minus_round_and_buffer():
+    config = {"daylight_buffer_minutes": 30}
+    assert recommend.latest_start(_sunny_schedule("2026-09-28"), config) == "14:40"  # 19:10 - 4h - 30min
+    assert recommend.latest_start(Schedule(date="2026-09-28", course="18 Loch Tee 1"), config) is None
+
+
+def test_window_too_late_hint_needs_two_days_whose_window_opens_after_the_latest_start():
+    config = {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30}
+    one_day = [_sunny_schedule("2026-09-28")]
+    assert recommend.window_too_late_hint(one_day, config) is None  # one odd day isn't a pattern
+    two_days = [_sunny_schedule("2026-09-28"), _sunny_schedule("2026-09-29", sunset="19:08")]
+    assert recommend.window_too_late_hint(two_days, config) == {
+        "window_after": "16:00", "latest_start": "14:40", "sunset": "19:10", "round_minutes": 240, "days": 2,
+    }
+    early = {"availability": {"weekday_window": {"after": "13:00"}}, "daylight_buffer_minutes": 30}
+    assert recommend.window_too_late_hint(two_days, early) is None  # the window still fits

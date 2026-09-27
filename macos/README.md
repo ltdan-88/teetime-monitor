@@ -116,6 +116,19 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Why no pick, your window, and jumping to it -- same as the TUI (2026-09-27)
+
+Bundle C of a TUI/GUI consistency audit (see ROADMAP.md). `picks_cli.py` now
+returns each day's own window and, with no pick, why; `PicksClient.parse()`
+turns that into `DayVerdict`s plus an optional `WindowHint`. A no-pick day
+shows a 🌙/🌧 capsule in the badge's fixed column (sentence on hover),
+out-of-window slots dim, an expanded day scrolls to its ★ pick or where your
+window opens (`OverviewModel.focusTime`, `ScrollViewReader`), and a hint row
+explains -- with a Preferences button -- when your window opens too late to
+finish before dark. `Day.visibleSlots` (sunrise row through sunset row) replaces
+this app's own old 07:00-19:30 clip, matching the TUI. All decided in Python,
+none of it re-derived here.
+
 ## Numbers now match the TUI exactly; occupancy counts free seats in both (2026-09-27)
 
 Found comparing real renders of both apps from the same database (bundle A of

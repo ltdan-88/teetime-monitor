@@ -44,7 +44,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import storage
+from . import recommend, storage
 from . import tui as tui_module
 
 
@@ -76,6 +76,7 @@ def main(argv: list[str] | None = None) -> None:
 
     start = date.fromisoformat(from_date)
     picks: dict[str, dict | None] = {}
+    schedules = []
     for offset in range(days):
         one_date = (start + timedelta(days=offset)).isoformat()
         if not has_availability:
@@ -85,13 +86,33 @@ def main(argv: list[str] | None = None) -> None:
         if schedule is None:
             picks[one_date] = None
             continue
-        _candidates, playable = tui_module._availability_pipeline(schedule, config, club_id)
-        if not playable:
-            picks[one_date] = None
-            continue
-        top = playable[0]
-        picks[one_date] = {"time": top.slot.time, "score": top.score, "reasons": top.reasons}
+        schedules.append(schedule)
+        candidates, playable = tui_module._availability_pipeline(schedule, config, club_id)
+        # Every day with a schedule gets an object now, pick or not (2026-09-27,
+        # bundle C of the TUI/GUI consistency audit): `window` is what the GUI
+        # dims out-of-window slots and scrolls to on expand with -- decided here
+        # by recommend.window_for_date(), not re-derived in Swift -- and
+        # `unplayable` is why there's no pick, so the GUI can say "too dark to
+        # finish" where the TUI always has instead of staying silent. `time` is
+        # null without a pick; older GUI builds already skip such rows.
+        window = recommend.window_for_date(one_date, config)
+        entry: dict = {
+            "time": None,
+            "window": {"after": window.after, "before": window.before} if window is not None else None,
+        }
+        if playable:
+            top = playable[0]
+            entry.update({"time": top.slot.time, "score": top.score, "reasons": top.reasons})
+        elif candidates:
+            entry["unplayable"] = sorted(recommend.unplayable_reasons(candidates, [schedule], config))
+        picks[one_date] = entry
 
+    # Not a date -- the GUI's own parsing only reads keys whose value has a
+    # "time", so a reserved key here can't be mistaken for one. See
+    # recommend.window_too_late_hint() for its own shape.
+    hint = recommend.window_too_late_hint(schedules, config) if has_availability else None
+    if hint is not None:
+        picks["_hint"] = hint
     print(json.dumps(picks))
 
 

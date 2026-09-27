@@ -150,6 +150,21 @@ struct Day: Identifiable {
     }
     var sunriseRowTime: String? { closestSlotTime(to: sunrise) }
     var sunsetRowTime: String? { closestSlotTime(to: sunset) }
+
+    /// The slots an expanded day shows: from the sunrise row through the sunset
+    /// row, both kept since they carry the sunrise/sunset notes -- the same rule
+    /// as `tui._compute_slot_rows()` (2026-09-27, bundle C of the TUI/GUI
+    /// consistency audit). Replaces a fixed 07:00-19:30 clip that only this app
+    /// had, while the TUI listed every slot from 06:00: a tee time in the dark
+    /// isn't one anyone books, whatever the season. Every slot without sun
+    /// times to measure against.
+    var visibleSlots: [Slot] {
+        slots.filter { slot in
+            if let first = sunriseRowTime, slot.time < first { return false }
+            if let last = sunsetRowTime, slot.time > last { return false }
+            return true
+        }
+    }
 }
 
 /// One unacknowledged notice from `booking_changes` -- a friend joined your flight,

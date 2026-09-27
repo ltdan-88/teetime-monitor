@@ -16,5 +16,6 @@ runScaleTests()
 runLoginClientTests()
 runSearchClientTests()
 runFormattingTests()
+runPicksClientTests()
 
 Harness.summarizeAndExit()
