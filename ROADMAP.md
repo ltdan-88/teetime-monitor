@@ -5214,6 +5214,54 @@ halves directly: a resize makes zero additional `ai_assist.rank_slots()`
 calls, and a genuinely fresh `load_overview()` still makes real ones. 883
 tests passing (`pytest`), `ruff check` clean.
 
+## TUI: names wrapping in the Players column despite real free space (2026-09-27)
+
+Direct follow-up, with a screenshot: "can you please apply our lessons
+regarding layout from your memory also in the TUI (e.g. why do names wrap
+up?)" — the same principle a prior GUI fix already established (compute a
+column's real width from its real content and the real available space,
+verify against an actual render, don't eyeball a constant) had a genuine TUI
+counterpart nobody had gone back to apply.
+
+Root cause: `OverviewScreen`'s Events and Pick columns (the latter reused for
+a slot row's own player list once expanded — see `_render_table()`'s own
+header-remap note) share one constant, `_WRAP_CAP_WIDTH = 18`, picked
+2026-09-15 for short day-level text ("★ 14:00", a tournament name) on an
+iPad-portrait-sized terminal. The moment the *pair's* combined natural width
+didn't fit, **both got chopped to that same flat 18** regardless of which one
+actually needed the room — so once player names arrived (added well after
+this constant was picked), a single busy slot's full name list (60-100+
+characters for four people) was essentially guaranteed to trigger the cap on
+any normal terminal, wrapping onto three or four lines, while Events sat at
+a one-character "—" and real terminal width went visibly unused beside it —
+exactly the screenshot. `SearchScreen`'s Players/Notes pair shared the
+identical constant, applied even more bluntly: a flat `width=_WRAP_CAP_WIDTH`
+declared once at `on_mount()`, before any real result (or real window width)
+was ever known.
+
+Fixed with `_split_two_open_ended_columns()`: once the pair doesn't fit, a
+column whose own natural want already fits inside an even half of what's
+left keeps its full want, and whatever that frees up goes to the other
+column instead of sitting unused — fifty-fifty only when *both* genuinely
+want more than half. `_WRAP_CAP_WIDTH` is now a floor (never below it,
+preserving the original narrow-terminal grace), not the default outcome.
+`SearchScreen` needed a real restructure to benefit from this at all --
+`_declare_result_columns()` now runs from `_run_search()` once real matches
+(and real cell content) exist, not once at `on_mount()` with nothing to
+measure yet.
+
+Live-verified against the real club: at a 140-column terminal, the Pick/
+Players column grew from a flat 18 to 51 (Events, needing almost nothing,
+still got its own natural 30); a real 72-character four-person name list
+that used to wrap onto ~4 lines now wraps onto 2. At 190 columns the same
+row needs zero wrapping at all — the column gets its full natural width.
+
+Two new tests per screen (`test_overview_screen_pick_column_gets_free_space_events_does_not_need`,
+`test_search_screen_players_column_gets_free_space_notes_does_not_need`, plus
+updated coverage confirming genuine capping/wrapping still happens once
+content is long enough to need it). 885 tests passing (`pytest`), `ruff
+check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

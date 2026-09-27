@@ -1482,15 +1482,22 @@ def test_overview_screen_events_column_uses_full_width_when_the_terminal_is_wide
 
 
 def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_narrow(tmp_path, monkeypatch):
+    # A long enough event name that its own natural width alone exceeds the
+    # combined Events/Pick floor (2 * _WRAP_CAP_WIDTH) -- see
+    # _split_two_open_ended_columns()'s own docstring for why a short name
+    # (this test's own original 27-char one) no longer gets capped at all
+    # once Pick has nothing to say for the day (2026-09-27 fix: real free
+    # space now goes to whichever of the two actually wants it).
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    long_event_name = "Vierer-Clubmeisterschaften 2026 Runde 1 Qualifikation Herren und Damen"
     storage.save_schedule(
         Schedule(
             date=tui._TODAY(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
-            events=["Vierer-Clubmeisterschaften"],
+            events=[long_event_name],
         ),
         path=scrape_once._db_path("0000001"),
     )
@@ -1501,7 +1508,51 @@ def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_n
             await pilot.pause()
             table = app.screen.query_one("#overview-table", DataTable)
             events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
-            assert events_column.width == tui._WRAP_CAP_WIDTH
+            natural_width = tui._cell_visible_width(f"📋 {long_event_name}")
+            assert events_column.width < natural_width  # still genuinely capped
+            assert events_column.width >= tui._WRAP_CAP_WIDTH  # never below the floor
+
+    _run(scenario())
+
+
+def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_path, monkeypatch):
+    """Direct report, 2026-09-27, with a screenshot: "why do names wrap up?"
+    Root cause: a busy slot's own player-name list can run 60+ characters, and
+    the Events/Pick pair used to be chopped to one flat 18-character cap the
+    moment the pair didn't fit -- regardless of whether Events (often just a
+    single-character "—") needed anywhere near its own half. Real content,
+    real available space: once Events doesn't need the room, Pick/Players
+    should get it instead of sitting capped at 18 with real free space
+    visibly unused beside it."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=4, capacity=4, players=many_players)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {tui._TODAY()}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            table = screen.query_one("#overview-table", DataTable)
+            pick_column = list(table.columns.values())[tui.OverviewScreen._PICK_COLUMN_INDEX]
+            natural_width = tui._cell_visible_width(", ".join(many_players))
+            # The old flat cap would have chopped this to exactly 18 regardless
+            # of how much of it Events actually needed (here, nothing at all --
+            # no events configured for the day).
+            assert pick_column.width > tui._WRAP_CAP_WIDTH
+            assert pick_column.width <= natural_width
 
     _run(scenario())
 
@@ -2476,6 +2527,43 @@ def test_search_screen_runs_search_and_shows_results():
             assert row[6] == "10%"
             assert row[7] == "8"
             assert "18 Loch Tee 1" in app.screen.title
+
+    _run(scenario())
+
+
+def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_path, monkeypatch):
+    """Same fix as OverviewScreen's identical test, applied to Search's own
+    Players/Notes pair -- these two columns share the exact same
+    `_WRAP_CAP_WIDTH` constant and used to be chopped to it unconditionally at
+    `on_mount()`, before any real result (or real window width) was even
+    known. 2026-09-27, direct report with a screenshot: "why do names wrap
+    up?" """
+    many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        # capacity 5 (not the usual 4) so one seat stays open -- min_open_spots
+        # (default 1) would otherwise filter this slot out of the results
+        # entirely, and the point here is a real *match* with a long players
+        # list, not an empty result.
+        slots=[Slot(time="09:00", booked=4, capacity=5, players=many_players)],
+    )
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            players_column = list(table.columns.values())[tui.SearchScreen._PLAYERS_COLUMN_INDEX]
+            natural_width = tui._cell_visible_width(", ".join(many_players))
+            # No reasons/notes configured for this match, so Notes needs almost
+            # nothing -- the old flat cap would still have chopped Players to
+            # exactly 18 regardless.
+            assert players_column.width > tui._WRAP_CAP_WIDTH
+            assert players_column.width <= natural_width
 
     _run(scenario())
 
