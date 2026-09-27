@@ -90,6 +90,9 @@ runGroup("looks_like_club_id") { args in
 runGroup("family_name") { args in
     familyName(args["name"] as! String)
 }
+runGroup("whole_number") { args in
+    wholeNumber(args["value"] as! Double)
+}
 
 print("")
 if failed == 0 {
