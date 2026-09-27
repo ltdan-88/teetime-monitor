@@ -4970,6 +4970,57 @@ def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears
     _run(scenario())
 
 
+def test_resize_reuses_the_pick_cache_instead_of_re_ranking(tmp_path, monkeypatch):
+    """Direct follow-up report, 2026-09-27: "the TUI is still very
+    unresponsive... when changing window size." Root cause: with
+    ai_assist.enabled, _availability_pipeline() makes a real network call per
+    day, and _render_table() used to be handed a throwaway dict, fresh on
+    every single call -- including the one on_resize() makes for a pure
+    re-layout, not a new dataset. self._pick_cache (see its own __init__
+    docstring) now persists across a screen's lifetime, so a resize should hit
+    it rather than re-ranking every displayed day all over again."""
+    _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18"])
+
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, provider, model, language):
+        calls.append(1)
+        return candidates
+
+    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
+    monkeypatch.setattr(
+        tui.OverviewScreen,
+        "_config",
+        lambda self: {
+            "availability": {"weekday_window": {"after": "08:00"}},
+            "ai_assist": {"enabled": True},
+        },
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            after_load = len(calls)
+            assert after_load > 0  # the fresh load itself did real ranking
+
+            # A resize -- on_resize()'s own call chain -- must not re-rank.
+            table = screen.query_one("#overview-table", DataTable)
+            screen._rerender_preserving_cursor(table.cursor_row, 100)
+            screen._rerender_preserving_cursor(table.cursor_row, 90)
+            await pilot.pause()
+            assert len(calls) == after_load
+
+            # A genuinely fresh load, on the other hand, must re-rank -- the
+            # cache is meant to skip redundant work, not go permanently stale.
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            assert len(calls) > after_load
+
+    _run(scenario())
+
+
 def test_screenshot_is_not_offered_in_the_actions_menu(tmp_path, monkeypatch):
     # Direct request 2026-09-17: "We don't need the save screenshot feature."
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)

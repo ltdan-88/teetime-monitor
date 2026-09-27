@@ -1332,14 +1332,26 @@ def _availability_pipeline(
     time, which is exactly 16:00 every day once a saved window starts at 16:00 and
     that slot happens to be open, regardless of how good the rest of the window is.
 
-    `cache` is an optional per-render memo, keyed by (date, course). Measured
-    2026-09-17: `_render_table()` reaches this twice for every expanded day with
-    identical arguments — once via `_day_pick_text()` for the Pick column, once via
-    `_recommended_times_for()` for the ★ markers on the expanded slot rows — and it was
-    the single most expensive thing left in a render after the heatmap cache. The memo
-    is created fresh inside each `_render_table()` call and thrown away at the end of
-    it, so it cannot go stale across renders: a refresh, a settings change or a new
-    scrape all start from an empty one."""
+    `cache` is an optional memo, keyed by (date, course). Measured 2026-09-17:
+    `_render_table()` reaches this twice for every expanded day with identical
+    arguments — once via `_day_pick_text()` for the Pick column, once via
+    `_recommended_times_for()` for the ★ markers on the expanded slot rows — and it
+    was the single most expensive thing left in a render after the heatmap cache.
+
+    Was per-render (a fresh dict inside `_render_table()`, thrown away at the end)
+    until 2026-09-27, direct follow-up: "the TUI is still very unresponsive...
+    when changing window size." With `ai_assist.enabled`, this call makes a real
+    network round trip (a live ranking call per day) — a fresh cache on every call
+    meant a resize/expand/collapse (`_rerender_preserving_cursor()`, redrawing the
+    exact *same* schedules) re-ran that live call for every displayed day, every
+    time (confirmed live: ~1.9s for one resize on the real club, almost entirely
+    that I/O). `OverviewScreen._pick_cache` (see its own `__init__` docstring) is
+    now what callers actually pass — it persists across a screen's whole
+    lifetime, cleared by `load_overview()` on every genuinely-new-dataset call
+    (a fresh open, a periodic/forced refresh), never by a pure re-layout. A
+    settings change gets a fresh one for free a different way —
+    `_rebuild_current_screen()` replaces the whole `OverviewScreen` instance, and
+    `__init__` starts this empty."""
     key = (schedule.date, schedule.course)
     if cache is not None and key in cache:
         return cache[key]
@@ -2433,6 +2445,17 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # the network.
         self._cached_dates: list[str] = []
         self._cached_open_dates: set[str] = set()
+        # _availability_pipeline()'s own memo, kept here instead of created fresh
+        # inside every _render_table() call (2026-09-27, direct follow-up report:
+        # "the TUI is still very unresponsive... when changing window size") -- the
+        # exact same lag class _cached_dates above was already fixed for once,
+        # left uncaught here: with ai_assist.enabled, this memo being thrown away
+        # on every render meant every resize/expand/collapse re-ran a *live AI
+        # ranking call per displayed day* (confirmed live: ~1.9s for a single
+        # resize event on the real club, almost entirely genai/httpx I/O).
+        # Cleared only by load_overview() -- a genuinely fresh dataset -- never by
+        # _rerender_preserving_cursor(), which redraws the exact same schedules.
+        self._pick_cache: dict[tuple[str, str], tuple[list, list]] = {}
         # Every day-summary row's own cell tuple, keyed by date -- the exact
         # `(day_cell, condition_cell, ..., pick_cell)` _render_table() itself
         # just handed to add_row() for that date, kept around so
@@ -2619,6 +2642,42 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             return dates, set(dates)
         return (dates, open_dates) if open_dates else (dates, set(dates))
 
+    async def _prewarm_pick_cache(self, config: dict, dates: list[str], open_dates: set[str]) -> None:
+        """Fills `self._pick_cache` off-thread, for every date `_render_table()` is
+        about to want a Pick column for, *before* that synchronous call reaches
+        `_availability_pipeline()` itself. Added 2026-09-27, same report as
+        `_display_dates()`'s own docstring: with `ai_assist.enabled`,
+        `_availability_pipeline()` makes a real network round trip per day, and
+        `_render_table()` is a plain synchronous method (it builds `DataTable` rows
+        directly) — a genuinely fresh `load_overview()` call still froze the event
+        loop for that live AI work even after `self._pick_cache` started persisting
+        across pure re-layouts (see that attribute's own docstring in `__init__`).
+
+        Deliberately over-inclusive rather than exactly mirroring every one of
+        `_render_table()`'s own skip conditions (confirmed-booking days, days
+        without a saved config's `availability` block) — the couple of cases where
+        this warms an entry `_render_table()` never actually reads back cost one
+        cheap local `load_latest_schedule()` and, at most, a redundant cache
+        entry, not a second network call. It does still skip the two cases
+        genuinely worth skipping, since those are exactly the same-cost `storage`
+        checks `_render_table()` itself does first: a date outside `open_dates`
+        (no schedule to check) and today past `TODAY_HIDDEN_AFTER_HHMM` (the row
+        won't even show)."""
+        if not config.get("availability"):
+            return
+        for one_date in dates:
+            if one_date not in open_dates:
+                continue
+            if one_date == _TODAY() and _NOW_HHMM() > TODAY_HIDDEN_AFTER_HHMM:
+                continue
+            key = (one_date, self.course)
+            if key in self._pick_cache:
+                continue
+            schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
+            if schedule is None or not schedule.slots:
+                continue
+            await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, self._pick_cache)
+
     def _render_table(
         self, config: dict, dates: list[str], open_dates: set[str], width: int | None = None
     ) -> list[Schedule]:
@@ -2706,9 +2765,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         schedules: list[Schedule] = []
         pending_rows: list[tuple[str, str, str, str, str, str, str, str]] = []
-        # Per-render memo for _availability_pipeline() -- see its own docstring. Created
-        # here and discarded when this call returns, so it can never outlive one render.
-        pipeline_cache: dict[tuple[str, str], tuple[list, list]] = {}
+        # Memo for _availability_pipeline() -- self._pick_cache (see its own
+        # docstring in __init__), not a fresh dict per call: a resize/expand/
+        # collapse calls this method again for the exact same schedules, and
+        # with ai_assist.enabled a fresh cache meant a live AI call per day, every
+        # time. load_overview() clears self._pick_cache before reaching here on
+        # any call that's a genuinely new dataset.
+        pipeline_cache = self._pick_cache
         for one_date in dates:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             # No year (2026-09-15, fitting the whole app on an iPad portrait
@@ -2939,7 +3002,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         looked up again in the rebuilt `_row_index` -- not by row number, because the
         row count genuinely changes across a reload (a newly bookable day appears at
         the end, today's row disappears after TODAY_HIDDEN_AFTER_HHMM). Falls back to
-        the same row number, clamped, if that exact entry is gone."""
+        the same row number, clamped, if that exact entry is gone.
+
+        Clears `self._pick_cache` (2026-09-27) -- a genuinely new dataset (a
+        fresh open, a periodic/forced refresh) is exactly the "start from an
+        empty one" case `_availability_pipeline()`'s own docstring already
+        describes; `_rerender_preserving_cursor()` deliberately does *not* do
+        this, since it redraws the same schedules this call just loaded."""
+        self._pick_cache = {}
         config = self._config()
         previous = None
         if keep_cursor and self._row_index:
@@ -2948,6 +3018,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 previous = self._row_index[cursor_row]
         dates, open_dates = await self._display_dates(config)
         self._cached_dates, self._cached_open_dates = dates, open_dates
+        # Warms self._pick_cache off-thread *before* the synchronous _render_table()
+        # call below reaches it -- otherwise a genuinely fresh load (this call) still
+        # blocks the event loop on every day's own live AI ranking call, same "one
+        # more spot with the identical bug" reasoning _display_dates() already got
+        # fixed for. See this method's own docstring for the report.
+        await self._prewarm_pick_cache(config, dates, open_dates)
         schedules = self._render_table(config, dates, open_dates)
         table = self.query_one("#overview-table", DataTable)
 

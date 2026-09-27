@@ -5160,6 +5160,60 @@ check` clean. GUI unaffected — it shells out to Python CLI scripts
 out-of-process for anything network-bound, so this specific event-loop-
 blocking failure mode doesn't apply there.
 
+## TUI: the real freeze was AI ranking re-running on every resize (2026-09-27)
+
+Same-day direct follow-up: "the TUI is still very unresponsive e.g. when
+changing window size" — the fix above was real (launch/periodic-refresh no
+longer block), but resizing a terminal window doesn't touch either of those
+code paths at all. Profiled `on_resize()`'s own call chain directly against
+the real club rather than re-guessing: one single resize took **~1.9
+seconds**, almost entirely a live Gemini API call.
+
+Root cause, found in `_availability_pipeline()`'s own memo: `_render_table()`
+— called by *both* `load_overview()` (a real new dataset) and
+`_rerender_preserving_cursor()` (`on_resize()`'s own handler, plus every row
+expand/collapse and confirm/cancel — none of them a new dataset, all of them
+redrawing the exact same schedules) — used to hand it a **fresh, empty dict**
+on every single call. With `ai_assist.enabled`, that memo is what makes a
+live AI ranking call per displayed day; throwing it away every render meant
+every resize (and every expand/collapse) re-ran that live call for every
+day on screen, all over again, from scratch. A 2026-09-14 entry had already
+fixed the identical bug shape for the date-window fetch
+(`self._cached_dates`) — this was the one twin left uncaught.
+
+Fixed by promoting the memo to `OverviewScreen._pick_cache`, a real attribute
+that persists for the screen's whole lifetime instead of one render's. It's
+cleared only where a fresh dataset genuinely exists — `load_overview()`
+(a real open, a periodic/forced refresh) — never by
+`_rerender_preserving_cursor()`. A settings change still gets a clean one for
+free, a different way: `_rebuild_current_screen()` already replaces the whole
+`OverviewScreen` instance, and `__init__` starts empty.
+
+That alone doesn't fully close the loop, though: `load_overview()` itself
+still called the now-persistent-but-currently-empty cache's owner,
+`_render_table()`, *synchronously* — so a genuinely fresh load (every launch,
+every 15-minute refresh) still blocked the event loop on that same live AI
+work, just no longer on every resize in between. New
+`OverviewScreen._prewarm_pick_cache()`, awaited from `load_overview()` right
+before the (unavoidably synchronous) `_render_table()` call, walks the same
+dates `_render_table()` is about to want a Pick column for and warms
+`self._pick_cache` via `asyncio.to_thread(_availability_pipeline, ...)` first
+— so by the time the synchronous render actually runs, every lookup is a
+cache hit.
+
+Measured, before/after, against the real club: a resize dropped from ~1.9s to
+~22ms (kept unchanged across eight consecutive resizes — genuinely showing
+cache reuse, not measurement noise). A deliberately-forced fresh reload still
+takes its real ~3.4s wall-clock (the AI call itself is still real work that
+has to happen once for new data), but a concurrent heartbeat task confirmed
+the event loop keeps ticking throughout that window instead of freezing —
+proven the same synthetic way the launch-blocking fix above was.
+
+New `test_resize_reuses_the_pick_cache_instead_of_re_ranking` asserts both
+halves directly: a resize makes zero additional `ai_assist.rank_slots()`
+calls, and a genuinely fresh `load_overview()` still makes real ones. 883
+tests passing (`pytest`), `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
