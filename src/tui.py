@@ -1649,6 +1649,32 @@ def _day_pick_text(
 _WRAP_CAP_WIDTH = 18
 
 
+# Narrowest the Pick column ever gets: "★ 11:00" plus the "…" margin.
+_MIN_PICK_WIDTH = 8
+# Below this an Events column shows nothing but "📋…" -- not worth its space.
+_MIN_EVENTS_WIDTH = 6
+
+
+def _fit_pick_and_events(pick_natural: int, events_natural: int, budget: int) -> tuple[int, int | None]:
+    """(pick width, events width -- or None to drop Events entirely) for
+    `OverviewScreen`'s two open-ended columns, sharing `budget`. Replaces an even
+    `_split_two_open_ended_columns()` split there (2026-09-27, bundle B of the
+    TUI/GUI consistency audit): the two aren't equals. Pick holds the verdict
+    (or a slot's player list), Events a note -- so Events gets at most a third
+    until Pick has what it needs, then whatever Pick leaves over; and on a
+    terminal too narrow to give Events a useful width at all, it's dropped (its
+    text still reaches #row-detail) rather than pushing the table past the
+    viewport. Dropping it also frees its own two-cell gutter for Pick."""
+    if pick_natural + events_natural <= budget:
+        return pick_natural, events_natural
+    events = min(events_natural, max(budget // 3, 0))
+    pick = min(pick_natural, budget - events)
+    events = min(events_natural, budget - pick)
+    if events < _MIN_EVENTS_WIDTH:
+        return max(min(pick_natural, budget + 2), _MIN_PICK_WIDTH), None
+    return max(pick, _MIN_PICK_WIDTH), events
+
+
 def _split_two_open_ended_columns(natural_a: int, natural_b: int, budget: int, floor: int) -> tuple[int, int]:
     """How much of `budget` each of two open-ended columns (Overview's Events/
     Pick, Search's Players/Notes) actually gets, once their combined natural
@@ -2054,9 +2080,27 @@ _SWITCHER_CSS = """
     width: auto;
     max-width: 60;
 }
-#club-row-fields {
+#club-row {
+    height: auto;
+}
+#club-row-fields, #club-pair, #course-pair {
     width: auto;
     height: 1;
+}
+/* Beside the club picker, the course label only needs its own text plus a
+   gap -- the fixed .switcher-label width is for aligning stacked rows. */
+#course-label {
+    width: auto;
+    padding: 0 1 0 3;
+}
+/* Too narrow for both pickers on one line: back to two aligned rows. */
+#club-row-fields.two-lines {
+    layout: vertical;
+    height: auto;
+}
+#club-row-fields.two-lines #course-label {
+    width: 10;
+    padding: 0 2 0 0;
 }
 /* _apply_switcher_layout()'s own "stacked" class -- the club label/dropdown
    (#club-row-fields) and the refresh-status readout share `#club-row` (a
@@ -2083,8 +2127,11 @@ _SWITCHER_CSS = """
 # with in compose(); see _AutoHideStatic's own docstring for why this lives in
 # CSS rather than a per-widget default and why update() is what flips it back.
 _AUTO_HIDE_CSS = """
-#banners, #status {
+#banners, #status, #row-detail {
     display: none;
+}
+#row-detail {
+    padding: 0 1;
 }
 """
 
@@ -2139,24 +2186,31 @@ class _ClubCourseSwitcher:
             # row's own layout (horizontal/vertical) without needing to move
             # any widget between containers -- see that method's own
             # docstring and `#club-row.stacked`'s CSS above.
+            # Club and course share one row (2026-09-27, bundle B of the TUI/GUI
+            # consistency audit -- the GUI has always had both pickers on one
+            # line; two rows plus their spacer lines cost this screen four rows
+            # of table). _apply_switcher_layout() drops the course pair onto its
+            # own aligned line only when the terminal is too narrow for both.
             with Horizontal(classes="switcher-row", id="club-row"):
                 with Horizontal(id="club-row-fields"):
-                    yield Label(i18n.t("switcher.club_label"), classes="switcher-label")
-                    yield Select(
-                        self._club_select_options(), value=self.club_id, allow_blank=False,
-                        compact=True, id="club-select",
-                    )
+                    with Horizontal(id="club-pair"):
+                        yield Label(i18n.t("switcher.club_label"), classes="switcher-label")
+                        yield Select(
+                            self._club_select_options(), value=self.club_id, allow_blank=False,
+                            compact=True, id="club-select",
+                        )
+                    with Horizontal(id="course-pair"):
+                        yield Label(i18n.t("switcher.course_label"), classes="switcher-label", id="course-label")
+                        # Just the current course at first -- the club's full list
+                        # needs a live fetch (fetch_course_aliases()), kicked off
+                        # from on_mount() instead so compose() itself never blocks
+                        # on the network, same rule every other screen here
+                        # already follows.
+                        yield Select(
+                            [(self.course, self.course)], value=self.course, allow_blank=False,
+                            compact=True, id="course-select",
+                        )
                 yield _RefreshStatus()
-            with Horizontal(classes="switcher-row"):
-                yield Label(i18n.t("switcher.course_label"), classes="switcher-label")
-                # Just the current course at first -- the club's full list needs a
-                # live fetch (fetch_course_aliases()), kicked off from on_mount()
-                # instead so compose() itself never blocks on the network, same
-                # rule every other screen here already follows.
-                yield Select(
-                    [(self.course, self.course)], value=self.course, allow_blank=False,
-                    compact=True, id="course-select",
-                )
 
     # How much room the refresh-status readout itself needs to read
     # comfortably ("Updated 59m ago" plus a little slack) -- below this,
@@ -2170,6 +2224,8 @@ class _ClubCourseSwitcher:
     # docstring for why live-measuring the widget itself was dropped).
     _SELECT_CHROME_WIDTH = 4
     _SELECT_MAX_WIDTH = 60
+    # #switcher's own horizontal padding (`padding: 1 2 0 2`).
+    _SWITCHER_PADDING = 4
 
     def _apply_switcher_layout(self, width: int | None = None) -> None:
         """Moves the refresh-status readout onto its own line once the club
@@ -2198,13 +2254,35 @@ class _ClubCourseSwitcher:
         not-stacked case squeezed `_RefreshStatus`'s own `1fr` down to
         nothing beside it even with plenty of real room -- an explicit width
         here is what actually leaves `_RefreshStatus` its fair share."""
-        w = width if width is not None else self.size.width
+        w = (width if width is not None else self.size.width) - self._SWITCHER_PADDING
         club_label_text = self.club_name or self.club_slug or self.club_id
-        select_width = min(_cell_visible_width(club_label_text) + self._SELECT_CHROME_WIDTH, self._SELECT_MAX_WIDTH)
-        fields_width = self._SWITCHER_LABEL_WIDTH + select_width
+        club_select_width = min(
+            _cell_visible_width(club_label_text) + self._SELECT_CHROME_WIDTH, self._SELECT_MAX_WIDTH
+        )
+        # Sized for the longest course the dropdown can show, not just the
+        # selected one -- the list itself is what the dropdown's width has to
+        # fit once opened (2026-09-27, one-row switcher; see _compose_switcher()).
+        course_select_width = min(
+            max(_cell_visible_width(course) for course in self._known_courses) + self._SELECT_CHROME_WIDTH,
+            self._SELECT_MAX_WIDTH,
+        )
+        club_pair_width = self._SWITCHER_LABEL_WIDTH + club_select_width
+        inline_course_label_width = _cell_visible_width(i18n.t("switcher.course_label")) + 4
+        one_row_width = club_pair_width + inline_course_label_width + course_select_width
+        two_lines = one_row_width > w
+        course_pair_width = (
+            self._SWITCHER_LABEL_WIDTH if two_lines else inline_course_label_width
+        ) + course_select_width
+        fields_width = max(club_pair_width, course_pair_width) if two_lines else one_row_width
         stacked = (w - fields_width) < self._STATUS_MIN_WIDTH
         self.query_one("#club-row").set_class(stacked, "stacked")
-        self.query_one("#club-row-fields").styles.width = fields_width
+        fields = self.query_one("#club-row-fields")
+        fields.set_class(two_lines, "two-lines")
+        fields.styles.width = fields_width
+        self.query_one("#club-pair").styles.width = club_pair_width
+        self.query_one("#course-pair").styles.width = course_pair_width
+        self.query_one("#club-select").styles.width = club_select_width
+        self.query_one("#course-select").styles.width = course_select_width
 
     async def _refresh_course_options(self) -> None:
         """Fills the course selector in with the active club's *real* course list,
@@ -2249,6 +2327,8 @@ class _ClubCourseSwitcher:
         courses = [self.course, *(c for c in courses if c != self.course)]
         select = self.query_one("#course-select", Select)
         select.set_options((course, course) for course in courses)
+        self._known_courses = courses
+        self._apply_switcher_layout()
         select.value = self.course
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -2290,6 +2370,7 @@ class _ClubCourseSwitcher:
         self.course = course
         course_select = self.query_one("#course-select", Select)
         course_select.set_options((c, c) for c in courses)
+        self._known_courses = list(courses)
         course_select.value = course
         await self._reload()
         # A switch to a club whose name is a very different length can flip
@@ -2465,12 +2546,20 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         height: 1;
         display: none;
     }
+    /* Off until `?` -- see action_toggle_legend(). */
+    #legend {
+        display: none;
+    }
+    #legend.shown {
+        display: block;
+    }
     """
 
     BINDINGS = [
         ("r", "refresh", "Refresh"),
         ("c", "collapse_all", "Collapse all"),
         ("x", "dismiss_banners", "Dismiss banners"),
+        ("question_mark", "toggle_legend", "Legend"),
         ("t", "command_palette", "Actions"),
         ("q", "quit", "Quit"),
     ]
@@ -2479,6 +2568,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ("r", "binding.refresh"),
         ("c", "binding.collapse_all"),
         ("x", "binding.dismiss_banners"),
+        ("?", "binding.legend"),
         ("t", "binding.commands"),
         ("q", "binding.quit"),
     ]
@@ -2495,6 +2585,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self.club_slug = club_slug
         self.club_name = club_name
         self.course = course
+        # Every course the course dropdown can currently show -- what
+        # _apply_switcher_layout() sizes it for. Just the current one until
+        # _refresh_course_options()'s own live fetch lands.
+        self._known_courses: list[str] = [course]
         # One entry per day-summary row, in display order -- unaffected by
         # expansion (see _row_index below), kept purely for _initial_date()'s own
         # cursor-placement lookup, which only ever runs right after a fresh,
@@ -2551,6 +2645,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # for why these can't be read back off the table itself until its
         # next paint.
         self._column_widths: list[int] = []
+        # Per physical table row, the full Pick/Events text that row's own "…"
+        # cut off (empty when nothing was cut) -- what #row-detail shows for the
+        # highlighted row. Rebuilt every _render_table() call, in step with
+        # _row_index.
+        self._row_full_text: list[str] = []
         # Which date the sticky header is currently showing, if any -- lets
         # _update_sticky_header() skip re-declaring columns/re-adding its one
         # row on every single poll tick, only doing that work when the shown
@@ -2577,18 +2676,18 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             # applied to row 0 the moment it's added, cursor_type="none" is
             # what actually turns that off.
             yield DataTable(id="sticky-header", show_header=False, show_cursor=False, cursor_type="none")
+        yield _AutoHideStatic("", id="row-detail")
         yield Static("", id="legend")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
-    # Indices into _render_table()'s own fixed 8-column order (Day/Time,
-    # Condition, Temperature, Precipitation, Wind, Occupancy, Events, Pick --
-    # see that method's own docstring for the Events/Occupancy ordering).
-    # Events and Pick are both capped at the module-level _WRAP_CAP_WIDTH and
-    # wrap (`height=None`) rather than force a wide column, since both carry
-    # genuinely open-ended text (event/tournament names and unplayable-
-    # reason sentences/AI reasons, respectively).
-    _EVENTS_COLUMN_INDEX = 6
-    _PICK_COLUMN_INDEX = 7
+    # Indices into the *displayed* column order (see _DISPLAY_ORDER below):
+    # Day/Time, Occupancy, Pick, Condition, Temperature, Precipitation, Wind,
+    # Events. Events and Pick are the two open-ended columns (event/tournament
+    # names; unplayable-reason sentences, AI reasons, or a slot's player list)
+    # sized by _split_two_open_ended_columns() and cut to one line with "…".
+    _OCCUPANCY_COLUMN_INDEX = 1
+    _EVENTS_COLUMN_INDEX = 7
+    _PICK_COLUMN_INDEX = 2
 
     async def on_mount(self) -> None:
         self._render_legend()
@@ -2649,6 +2748,15 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             for label_key, entries in OVERVIEW_LEGEND_CATEGORIES
         ]
         self.query_one("#legend", Static).update("\n".join(blocks))
+
+    def action_toggle_legend(self) -> None:
+        """The icon legend, on demand rather than always on screen (2026-09-27,
+        bundle B of the TUI/GUI consistency audit): it took 8 of 40 rows at a
+        normal terminal and 8 of 24 at the 80x24 default -- a third of the
+        screen re-explaining icons on every single glance, while only two of
+        five day rows fit above it. `?` in the footer is what keeps it
+        discoverable."""
+        self.query_one("#legend", Static).toggle_class("shown")
 
     def refresh_banners(self) -> None:
         """Ported from `DayDetailScreen` 2026-09-15 (direct follow-up: "why
@@ -2957,6 +3065,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             i18n.t("table.events"),
             i18n.t("table.pick"),
         ]
+        # Everything above is built in one fixed *logical* order; this is where it
+        # becomes the displayed one -- see _DISPLAY_ORDER's own comment.
+        headers = self._in_display_order(headers)
+        pending_rows = [self._in_display_order(row) for row in pending_rows]
+        self._row_header_cells = {
+            day: self._in_display_order(cells) for day, cells in self._row_header_cells.items()
+        }
         column_widths = [_cell_visible_width(header) for header in headers]
         for row in pending_rows:
             for index, cell in enumerate(row):
@@ -2987,19 +3102,33 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # that function's own docstring.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
         available = _table_width_budget(table, width if width is not None else self.size.width)
+        events_shown = True
         if natural_total > available:
             other_columns_total = (
                 sum(column_widths) - column_widths[self._EVENTS_COLUMN_INDEX] - column_widths[self._PICK_COLUMN_INDEX]
             )
-            budget = max(available - other_columns_total - _table_overhead(len(headers)), _WRAP_CAP_WIDTH * 2)
-            column_widths[self._EVENTS_COLUMN_INDEX], column_widths[self._PICK_COLUMN_INDEX] = (
-                _split_two_open_ended_columns(
-                    column_widths[self._EVENTS_COLUMN_INDEX],
-                    column_widths[self._PICK_COLUMN_INDEX],
-                    budget,
-                    _WRAP_CAP_WIDTH,
-                )
+            budget = available - other_columns_total - _table_overhead(len(headers))
+            pick_width, events_width = _fit_pick_and_events(
+                column_widths[self._PICK_COLUMN_INDEX], column_widths[self._EVENTS_COLUMN_INDEX], budget
             )
+            column_widths[self._PICK_COLUMN_INDEX] = pick_width
+            if events_width is None:
+                events_shown = False
+            else:
+                column_widths[self._EVENTS_COLUMN_INDEX] = events_width
+        if not events_shown:
+            # Too narrow for a useful Events column at all -- dropped rather than
+            # left to overflow the viewport. Whatever it held for a row still
+            # reaches #row-detail below (see _row_lost_text()).
+            full_rows = pending_rows
+            headers = headers[: self._EVENTS_COLUMN_INDEX]
+            column_widths = column_widths[: self._EVENTS_COLUMN_INDEX]
+            pending_rows = [row[: self._EVENTS_COLUMN_INDEX] for row in pending_rows]
+            self._row_header_cells = {
+                day: cells[: self._EVENTS_COLUMN_INDEX] for day, cells in self._row_header_cells.items()
+            }
+        else:
+            full_rows = pending_rows
         self._column_widths = column_widths
 
         table.clear(columns=True)
@@ -3007,14 +3136,62 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # length -- a mismatch should be loud, not a silently dropped column.
         for header, width in zip(headers, column_widths, strict=True):
             table.add_column(header, width=width)
-        for row in pending_rows:
-            # height=None -- auto-detect the wrapped height instead of a
-            # fixed single line, so a capped Events/Pick cell (or a narrow
-            # terminal squeezing every column) wraps onto more lines rather
-            # than clipping (same feedback as the cap above).
-            table.add_row(*row, height=None)
+        # One line per row, every row -- a capped Events/Pick cell ends in "…"
+        # rather than wrapping (2026-09-27, bundle B of the TUI/GUI consistency
+        # audit): wrapped rows came in every height from one line to four, so
+        # the grid stopped reading as a grid at exactly the busy slots worth
+        # scanning. The GUI's own rows have always been one line with the full
+        # text on hover; here it's the highlighted row's own #row-detail line
+        # instead (see _show_row_detail()), kept only for rows that actually
+        # lost something to the "…".
+        self._row_full_text = []
+        for row, full_row in zip(pending_rows, full_rows, strict=True):
+            cells = [_one_line(cell, width) for cell, width in zip(row, column_widths, strict=True)]
+            self._row_full_text.append(self._row_lost_text(full_row, column_widths))
+            table.add_row(*cells, height=1)
 
         return schedules
+
+    # Display order, as indices into _render_table()'s own build order (Day/Time,
+    # Condition, Temperature, Precipitation, Wind, Occupancy, Events, Pick). The
+    # verdict (Pick -- or, on an expanded slot row, its Players) sits right after
+    # the occupancy and before the weather, not last (2026-09-27, bundle B of the
+    # TUI/GUI consistency audit): last was the first column a narrower terminal
+    # cut off -- at 80x24 only "E" of its header was left -- while the GUI has
+    # always put the ★ pick right beside the date. Occupancy/Pick/weather now also
+    # read in the same order as the GUI's own slot rows ("2 frei", names, then
+    # conditions). Events (least decision-relevant) moves to the end instead.
+    _DISPLAY_ORDER = (0, 5, 7, 1, 2, 3, 4, 6)
+
+    @classmethod
+    def _in_display_order(cls, cells):
+        return tuple(cells[index] for index in cls._DISPLAY_ORDER)
+
+    def _row_lost_text(self, full_row: tuple[str, ...], column_widths: list[int]) -> str:
+        """Whatever of this row's Pick/Events text didn't make it onto screen --
+        cut short by "…", or (Events) not shown at all on a narrow terminal --
+        for #row-detail. A bare dash (nothing to say) is never worth repeating."""
+        lost = []
+        for index in (self._PICK_COLUMN_INDEX, self._EVENTS_COLUMN_INDEX):
+            text = full_row[index]
+            if Text.from_markup(text).plain.strip() in ("", "—"):
+                continue
+            shown_width = column_widths[index] if index < len(column_widths) else 0
+            if _cell_visible_width(text.replace("\n", " ")) > shown_width:
+                lost.append(text)
+        return " · ".join(lost)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.data_table.id == "overview-table":
+            self._show_row_detail(event.cursor_row)
+
+    def _show_row_detail(self, row: int) -> None:
+        """The highlighted row's full Pick/Events text, on one dim line under the
+        table -- but only when that row's own cells actually lost something to
+        "…" (see _render_table()'s own one-line-rows note). The TUI's stand-in
+        for the GUI's hover tooltip on a truncated player list."""
+        full = self._row_full_text[row] if 0 <= row < len(self._row_full_text) else ""
+        self.query_one("#row-detail", _AutoHideStatic).update(f"[dim]▸ {full}[/]" if full else "")
 
     def _update_sticky_header(self) -> None:
         """Pin the day-summary row for whichever expanded day you're currently

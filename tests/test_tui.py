@@ -1430,23 +1430,26 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
-        async with app.run_test() as pilot:
+        async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
             table = app.screen.query_one("#overview-table", DataTable)
             headers = [str(col.label) for col in table.columns.values()]
+            # Occupancy and the verdict right after the date, Events last
+            # (2026-09-27, bundle B of the TUI/GUI consistency audit -- see
+            # OverviewScreen._DISPLAY_ORDER's own comment).
             assert headers == [
-                "Date/Time", "Cond", "Temp\n(°C)", "Precip\n(%/mm)", "Wind\n(km/h)",
-                "Occ\n08–20", "Events", "Pick",
+                "Date/Time", "Crowd\n08–20", "Pick /\nPlayers", "Cond", "Temp\n(°C)",
+                "Precip\n(%/mm)", "Wind\n(km/h)", "Events",
             ]
-            row = table.get_row_at(0)  # today, Day/Condition/Temperature/Precipitation/Wind/Occupancy/Events/Pick
+            row = [str(cell) for cell in table.get_row_at(0)]
             # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
             # direct follow-up: "since the units are now in the headers, we
             # don't need the units in the rows, right?").
-            assert row[1] == "🌤️"  # weather_code=1 -> mainly clear icon
-            assert row[2] == "20/20"  # real temperature, not the event
-            assert "5%" in row[3]
-            assert "40" in row[4]
-            assert row[6] == "📋 Herbstturnier"  # the event, in its own column
+            assert row[3] == "🌤️"  # weather_code=1 -> mainly clear icon
+            assert row[4] == "20/20"  # real temperature, not the event
+            assert "5%" in row[5]
+            assert "40" in row[6]
+            assert row[7] == "📋 Herbstturnier"  # the event, in its own column
 
     _run(scenario())
 
@@ -1506,13 +1509,50 @@ def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_n
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
-        async with app.run_test(size=(60, 24)) as pilot:
+        async with app.run_test(size=(100, 24)) as pilot:
             await pilot.pause()
             table = app.screen.query_one("#overview-table", DataTable)
             events_column = list(table.columns.values())[tui.OverviewScreen._EVENTS_COLUMN_INDEX]
             natural_width = tui._cell_visible_width(f"📋 {long_event_name}")
             assert events_column.width < natural_width  # still genuinely capped
-            assert events_column.width >= tui._WRAP_CAP_WIDTH  # never below the floor
+            assert events_column.width >= tui._MIN_EVENTS_WIDTH
+            # One line, ending in "…", with the full name on #row-detail.
+            assert str(table.get_row_at(0)[tui.OverviewScreen._EVENTS_COLUMN_INDEX]).endswith("…")
+            assert long_event_name in app.screen._row_full_text[0]
+
+    _run(scenario())
+
+
+def test_overview_screen_drops_events_on_a_terminal_too_narrow_for_it(tmp_path, monkeypatch):
+    """Rather than overflow the viewport (2026-09-27, bundle B): at 70 columns
+    the fixed columns leave Events no useful width, so it's dropped -- and the
+    highlighted row's event still reaches #row-detail. (Below ~70 the fixed
+    columns plus Pick's own minimum no longer fit at all.)"""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=0, capacity=4)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+            events=["Herbstturnier"],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(70, 24)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#overview-table", DataTable)
+            assert len(table.columns) == 7
+            visible = table.content_region.width - table.styles.scrollbar_size_vertical
+            assert table.virtual_size.width <= visible
+            table.move_cursor(row=0)
+            app.screen._show_row_detail(0)
+            await pilot.pause()
+            assert "Herbstturnier" in str(app.screen.query_one("#row-detail").content)
 
     _run(scenario())
 
@@ -1579,6 +1619,102 @@ def test_overview_screen_expanded_day_never_runs_wider_than_its_viewport(tmp_pat
     _run(scenario())
 
 
+def test_fit_pick_and_events_gives_pick_priority_and_drops_a_useless_events_column():
+    # Both fit: untouched.
+    assert tui._fit_pick_and_events(20, 10, 40) == (20, 10)
+    # Tight: Events gets at most a third until Pick has what it needs.
+    assert tui._fit_pick_and_events(72, 29, 60) == (40, 20)
+    # Pick doesn't need much -- Events gets the rest.
+    assert tui._fit_pick_and_events(10, 50, 40) == (10, 30)
+    # Too narrow for a useful Events column: dropped, its gutter handed to Pick.
+    assert tui._fit_pick_and_events(72, 29, 12) == (14, None)
+    # Never below Pick's own minimum, even on a nonsensical budget.
+    assert tui._fit_pick_and_events(72, 29, -5) == (tui._MIN_PICK_WIDTH, None)
+
+
+def test_overview_screen_legend_is_hidden_until_question_mark(tmp_path, monkeypatch):
+    """2026-09-27, bundle B: the always-on legend took 8 of 24 rows at 80x24."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            legend = app.screen.query_one("#legend", Static)
+            assert legend.display is False
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert legend.display is True
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert legend.display is False
+
+    _run(scenario())
+
+
+def test_overview_screen_switcher_puts_club_and_course_on_one_row_when_it_fits(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1", club_name="Musterhausen"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            fields = app.screen.query_one("#club-row-fields")
+            assert not fields.has_class("two-lines")
+            club = app.screen.query_one("#club-select")
+            course = app.screen.query_one("#course-select")
+            assert club.region.y == course.region.y
+        async with _HostApp(tui.OverviewScreen(
+            "0000001", "musterhausen", "18 Loch Tee 1", club_name="A Very Long Golf Club Name e.V. Musterhausen"
+        )).run_test(size=(70, 30)) as pilot:
+            await pilot.pause()
+            screen = pilot.app.screen
+            assert screen.query_one("#club-row-fields").has_class("two-lines")
+            assert screen.query_one("#course-select").region.y > screen.query_one("#club-select").region.y
+
+    _run(scenario())
+
+
+def test_overview_screen_rows_stay_one_line_with_the_full_text_on_row_detail(tmp_path, monkeypatch):
+    """2026-09-27, bundle B: wrapped rows came in every height from one line to
+    four; now every row is one line, cut with "…", and the highlighted row's own
+    full text shows on #row-detail -- the TUI's version of the GUI's tooltip."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=4, capacity=4, players=many_players)],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {tui._TODAY()}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            table = screen.query_one("#overview-table", DataTable)
+            players_cell = table.get_row_at(1)[tui.OverviewScreen._PICK_COLUMN_INDEX]
+            assert players_cell.plain.endswith("…")
+            assert all(row.height == 1 for row in table.rows.values())
+            table.focus()
+            table.move_cursor(row=1)
+            await pilot.pause()
+            detail = str(screen.query_one("#row-detail").content)
+            assert ", ".join(many_players) in detail
+
+    _run(scenario())
+
+
 def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_path, monkeypatch):
     """Direct report, 2026-09-27, with a screenshot: "why do names wrap up?"
     Root cause: a busy slot's own player-name list can run 60+ characters, and
@@ -1603,7 +1739,7 @@ def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_pa
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
-        async with app.run_test(size=(80, 24)) as pilot:
+        async with app.run_test(size=(100, 24)) as pilot:
             await pilot.pause()
             screen = app.screen
             screen._expanded_dates = {tui._TODAY()}
@@ -1684,8 +1820,7 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
             await pilot.pause()
             table = app.screen.query_one("#overview-table", DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
-            # Day/Condition/Temperature/Precipitation/Wind/Events/Heat/Pick
-            assert "not open" in row[7]
+            assert "not open" in str(row[tui.OverviewScreen._PICK_COLUMN_INDEX])
 
     _run(scenario())
 
@@ -1936,9 +2071,10 @@ def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_c
             await pilot.press("enter")
             await pilot.pause()
             row = table.get_row_at(1)  # the expanded 09:00 slot row
-            occupancy_cell = str(row[5])  # Occupancy column, see _render_table()'s own mapping
-            assert "4 free" in occupancy_cell
-            assert "[yellow]■[/]" in occupancy_cell
+            occupancy_cell = row[tui.OverviewScreen._OCCUPANCY_COLUMN_INDEX]
+            assert "4 free" in occupancy_cell.plain
+            assert "■" in occupancy_cell.plain
+            assert any("yellow" in str(span.style) for span in occupancy_cell.spans)
 
     _run(scenario())
 
@@ -2417,10 +2553,11 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
         async with app.run_test() as pilot:
             await pilot.pause()
             text = app.screen.query_one(tui.TranslatedFooter).render()
-            assert "enter" in text and "Expand day / confirm tee time" in text
+            assert "enter" in text and "Open / book" in text
             assert "r" in text and "Refresh" in text
-            assert "c" in text and "Collapse all" in text
-            assert "x" in text and "Dismiss banners" in text
+            assert "c" in text and "Collapse" in text
+            assert "x" in text and "Dismiss" in text
+            assert "?" in text and "Legend" in text
             assert "t" in text and "Actions" in text
             assert "Settings" not in text
             assert "Search" not in text
@@ -2442,7 +2579,7 @@ def test_overview_screen_club_visited_not_saved_has_no_availability_computed(tmp
         async with app.run_test() as pilot:
             await pilot.pause()
             row = app.screen.query_one("#overview-table", DataTable).get_row_at(0)
-            assert row[-1] == "[dim]—[/]"  # Pick column, no availability configured
+            assert str(row[tui.OverviewScreen._PICK_COLUMN_INDEX]) == "—"  # no availability configured
 
     _run(scenario())
 
@@ -4166,8 +4303,8 @@ def test_app_switch_language_command_rebuilds_overview_screen_in_german(tmp_path
             assert isinstance(app.screen, tui.OverviewScreen)
             table = app.screen.query_one("#overview-table", DataTable)
             assert [str(col.label) for col in table.columns.values()] == [
-                "Datum/Zeit", "Wetter", "Temp\n(°C)", "Regen\n(%/mm)", "Wind\n(km/h)",
-                "Ausl.\n08–20", "Termine", "Empf.",
+                "Datum/Zeit", "Belegung\n08–20", "Empfehlung /\nSpieler", "Wetter", "Temp\n(°C)",
+                "Regen\n(%/mm)", "Wind\n(km/h)", "Termine",
             ]
 
     _run(scenario())

@@ -5307,6 +5307,40 @@ Buchungen konnten nicht geprüft werden -- pc caddie hat seine Seite geändert"
 banner in both apps means the My-Reservations scraper itself is currently
 broken against the live site.
 
+## TUI/GUI consistency audit, bundle B: TUI hierarchy and space (2026-09-27)
+
+Second of four bundles from the real-render audit (see bundle A above). The
+TUI at the 80x24 default showed 2 of 5 days, spent 17 of 24 rows on chrome,
+and pushed its most important column (the recommendation) off-screen -- only
+"E" of its header was left.
+
+- **The verdict moved forward.** Columns now read Date/Time, Crowd ("Belegung"),
+  Pick/Players, Condition, Temperature, Rain, Wind, Events
+  (`OverviewScreen._DISPLAY_ORDER` -- everything is still built in the old
+  logical order and permuted once, so no cell-building code moved). The GUI has
+  always put the ★ pick beside the date; slot rows now read in the GUI's own
+  order too (free seats, names, then conditions).
+- **One line per row.** Pick/Events cells end in "…" instead of wrapping to
+  anywhere from one to four lines; the highlighted row's full text shows on a
+  new dim `#row-detail` line under the table (the TUI's stand-in for the GUI's
+  hover tooltip), only when something was actually cut.
+- **Pick gets priority over Events.** New `_fit_pick_and_events()` replaces the
+  even split for the overview: Events gets at most a third until Pick has what
+  it needs, and on a terminal too narrow for a useful Events column it's
+  dropped outright (its text still reaches `#row-detail`) rather than pushing
+  the table past the viewport. No horizontal overflow from 70 columns up,
+  collapsed or expanded, measured on the real club.
+- **Legend on demand.** `?` toggles it (shown in the footer); it used to take 8
+  rows on every screen.
+- **Club and course on one row** (the GUI's own layout), stacking back into
+  two aligned rows only when the terminal is too narrow for both.
+- **Clearer, shorter labels.** "Ausl." became "Belegung", "Empf." became
+  "Empfehlung / Spieler" (the column genuinely holds both); footer labels
+  shortened so it fits one line at 120 columns.
+
+Result at 80x24: all five days visible, the recommendation on screen, no
+horizontal scrollbar. 892 tests passing (`pytest`, 5 new), `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
