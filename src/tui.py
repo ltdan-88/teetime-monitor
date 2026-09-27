@@ -142,6 +142,7 @@ short of force-quitting, per direct feedback: "how do I quit from club/course
 picker or return to the schedule?"
 """
 
+import asyncio
 import importlib.metadata
 import sys
 from datetime import UTC, datetime, timedelta
@@ -2144,7 +2145,13 @@ class _ClubCourseSwitcher:
         — the momentary state during the rebuild is already correct, so there's
         nothing spurious left to guard against."""
         try:
-            courses = list(fetch_course_aliases(self.club_id))
+            # asyncio.to_thread (2026-09-27, see _display_dates()'s own docstring
+            # for the report this and every other fetch_course_aliases() call site
+            # below got the identical fix for): a plain call here blocked the whole
+            # event loop for the live round trip, despite this coroutine already
+            # running inside a run_worker() -- a worker without thread=True still
+            # executes on the same event loop, it doesn't parallelize on its own.
+            courses = list(await asyncio.to_thread(fetch_course_aliases, self.club_id))
         except Exception:  # noqa: BLE001 — see docstring
             return
         courses = [self.course, *(c for c in courses if c != self.course)]
@@ -2158,7 +2165,7 @@ class _ClubCourseSwitcher:
         if event.select.id == "club-select" and event.value != self.club_id:
             self.run_worker(self._switch_club(event.value), exclusive=True, group="switch")
         elif event.select.id == "course-select" and event.value != self.course:
-            self._switch_course(event.value)
+            self.run_worker(self._switch_course(event.value), exclusive=True, group="switch")
 
     async def _switch_club(self, club_id: str) -> None:
         """The inline club selector's own version of `TeetimeApp._open_club()` --
@@ -2171,7 +2178,9 @@ class _ClubCourseSwitcher:
         config = club_config.load_club_config(slug) if slug else {}
         name = dict(_favorite_clubs()).get(club_id, "")
         try:
-            courses = list(fetch_course_aliases(club_id))
+            # See _refresh_course_options()'s own comment for why asyncio.to_thread,
+            # not a plain call, is needed here too.
+            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
         except NoTeeSheetError:
             self.query_one("#status", Static).update(i18n.t("app.no_tee_sheet", club_id=club_id))
             self.query_one("#club-select", Select).value = self.club_id  # revert the dropdown
@@ -2190,7 +2199,7 @@ class _ClubCourseSwitcher:
         course_select = self.query_one("#course-select", Select)
         course_select.set_options((c, c) for c in courses)
         course_select.value = course
-        self._reload()
+        await self._reload()
         # A switch to a club whose name is a very different length can flip
         # whether the refresh-status readout still fits beside it.
         # self.club_name is already updated above by the time this runs.
@@ -2204,12 +2213,15 @@ class _ClubCourseSwitcher:
         # pickers -- see global_preferences.load_last_active_club()'s own docstring.
         global_preferences.save_last_active_club(club_id, slug, course)
 
-    def _switch_course(self, course: str) -> None:
+    async def _switch_course(self, course: str) -> None:
         """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
         already scrapes every one of a club's courses regardless of which one is
-        showing here, so only this screen's own state needs to change."""
+        showing here, so only this screen's own state needs to change.
+
+        `async` (2026-09-27) purely because `_reload()` -> `load_overview()` now is
+        -- this method's own body still touches no network at all."""
         self.course = course
-        self._reload()
+        await self._reload()
         global_preferences.save_last_active_club(self.club_id, self.club_slug, course)
 
 
@@ -2475,7 +2487,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     _EVENTS_COLUMN_INDEX = 6
     _PICK_COLUMN_INDEX = 7
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self._render_legend()
         self.refresh_banners()
         table = self.query_one("#overview-table", DataTable)
@@ -2483,7 +2495,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # Columns are declared inside _render_table() itself, not here --
         # see that method's own docstring for why (their widths depend on
         # the real cell content load_overview() is about to compute).
-        self.load_overview()
+        #
+        # `async` + `await` (2026-09-27, direct report: "the TUI is very slow to
+        # launch and very unresponsive") -- load_overview() itself now offloads its
+        # one blocking network call to a thread (see its own docstring), so
+        # awaiting it here no longer freezes the event loop the way calling it as
+        # a plain synchronous function used to.
+        await self.load_overview()
         self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
         # Computed straight from self.club_name/self.size, both already known
         # here -- no deferral needed (see _apply_switcher_layout()'s own
@@ -2556,14 +2574,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         delegate for their own App-level machinery."""
         self.app.action_force_refresh()
 
-    def _reload(self) -> None:
+    async def _reload(self) -> None:
         """The `_ClubCourseSwitcher` mixin's own hook -- what "reload after a
         club/course switch" means on this particular screen. A genuinely
         different dataset, so any expanded day rows collapse too -- nothing
         expanded from the old club/course would mean anything against the new
         one's dates."""
         self._expanded_dates = set()
-        self.load_overview()
+        await self.load_overview()
 
     @property
     def db_path(self):
@@ -2572,18 +2590,31 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def _config(self) -> dict:
         return _resolved_config(self.club_slug, self.club_id, self.club_name)
 
-    def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
+    async def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
         """(every date to attempt a row for, the subset of those actually open for
         booking). `overview_days` (config, default 5) is how many day-rows to
         attempt, not a promise that all of them are bookable — a real fetch failure,
         or a club whose page has no date selector at all, means "assume every
         attempted date is open" (the old, pre-2026-09-07 behavior) rather than
-        greying out a window this call simply couldn't determine."""
+        greying out a window this call simply couldn't determine.
+
+        `async` + `asyncio.to_thread()` (2026-09-27, direct report: "the TUI is
+        very slow to launch and very unresponsive") — `fetch_available_dates()` is
+        a genuinely blocking `httpx.get()` (confirmed live against the real site:
+        over a second, some days much longer, per this module's own "up to minutes
+        if requests hit their 15s timeouts" note elsewhere), and this used to call
+        it directly from a plain `def`. Every caller up the chain
+        (`load_overview()` -> `OverviewScreen.on_mount()`) was itself synchronous
+        too, so that one call froze Textual's entire single-threaded event loop —
+        no rendering, no keypresses — for the whole round trip, on *every* screen
+        mount. `asyncio.to_thread` offloads just the blocking call to a worker
+        thread and awaits its result, the same fix `scrape_due_for_club()` already
+        needed and got (`run_worker(..., thread=True)`) for the identical reason."""
         display_days = config.get("overview_days", 5)
         today = date_cls.fromisoformat(_TODAY())
         dates = [(today + timedelta(days=offset)).isoformat() for offset in range(display_days)]
         try:
-            open_dates = set(fetch_available_dates(self.club_id))
+            open_dates = set(await asyncio.to_thread(fetch_available_dates, self.club_id))
         except Exception:  # noqa: BLE001 — see docstring: assume everything attempted is open
             return dates, set(dates)
         return (dates, open_dates) if open_dates else (dates, set(dates))
@@ -2884,7 +2915,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._sticky_dirty = False
         sticky.display = True
 
-    def load_overview(self, keep_cursor: bool = False) -> None:
+    async def load_overview(self, keep_cursor: bool = False) -> None:
         """Full reload: re-read the club's bookable-date window, rebuild the table,
         and place the cursor.
 
@@ -2898,6 +2929,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         refresh pass for a 3-course club measures ~19s, and up to minutes if requests
         hit their 15s timeouts.
 
+        `async` (2026-09-27, same report as `_display_dates()`'s own docstring) --
+        this awaits that method's now-threaded date fetch instead of blocking on it.
+        Every caller now either awaits this directly from its own `async def` or
+        schedules it via `run_worker()`, matching the convention every other
+        network-touching call in this screen already follows.
+
         The cursor is restored by *identity* -- the (date, slot_time) entry it was on,
         looked up again in the rebuilt `_row_index` -- not by row number, because the
         row count genuinely changes across a reload (a newly bookable day appears at
@@ -2909,7 +2946,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             cursor_row = self.query_one("#overview-table", DataTable).cursor_row
             if 0 <= cursor_row < len(self._row_index):
                 previous = self._row_index[cursor_row]
-        dates, open_dates = self._display_dates(config)
+        dates, open_dates = await self._display_dates(config)
         self._cached_dates, self._cached_open_dates = dates, open_dates
         schedules = self._render_table(config, dates, open_dates)
         table = self.query_one("#overview-table", DataTable)
@@ -4083,7 +4120,9 @@ class TeetimeApp(App[None]):
         if isinstance(self.screen, OverviewScreen):
             status = self.screen.query_one("#status", Static)
         try:
-            courses = list(fetch_course_aliases(club_id))
+            # See OverviewScreen._refresh_course_options()'s own comment for why
+            # asyncio.to_thread, not a plain call, is needed here too.
+            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
         except NoTeeSheetError:
             message = i18n.t("app.no_tee_sheet", club_id=club_id)
             if status is not None:
@@ -4255,7 +4294,12 @@ class TeetimeApp(App[None]):
         except FileNotFoundError:
             config = {}
         try:
-            courses = list(fetch_course_aliases(club_id))
+            # See OverviewScreen._refresh_course_options()'s own comment for why
+            # asyncio.to_thread, not a plain call, is needed here too -- this is
+            # the one that ran on *every* launch that resumes a remembered club
+            # (the default path since 2026-09-10), so it was the single biggest
+            # contributor to "slow to launch."
+            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
         except Exception:  # noqa: BLE001 — any live-fetch failure just means "ask instead"
             return False
         if course not in courses:
@@ -4441,8 +4485,12 @@ class TeetimeApp(App[None]):
         screen = self.screen
         if isinstance(screen, OverviewScreen):
             # keep_cursor: a refresh landing while you're reading row 4 must not throw
-            # you back to today -- see load_overview()'s own docstring.
-            screen.load_overview(keep_cursor=True)
+            # you back to today -- see load_overview()'s own docstring. run_worker(),
+            # not a bare call, since load_overview() is now a coroutine (2026-09-27)
+            # and this callback itself runs synchronously (scheduled via
+            # call_from_thread() above) -- same pattern the _refresh_course_options()
+            # call two lines down already used.
+            screen.run_worker(screen.load_overview(keep_cursor=True), exclusive=True)
             screen.refresh_banners()
             screen.query_one(_RefreshStatus).finish_refreshing()
             # Retries the course dropdown's own fetch too, not just on the initial

@@ -5115,6 +5115,51 @@ the user's real database: a real scrape recorded gender/status/handicap for
 111 of 374 known players (the rest predate this change and fill in on their
 next sighting), and the directory loaded sorted correctly by family name.
 
+## TUI: a real network call froze the whole app, on every launch and every 15 minutes (2026-09-27)
+
+Direct report: "The TUI is very slow to launch and very unresponsive."
+Investigated rather than guessed — timed the actual blocking calls against
+the real site (`fetch_course_aliases()` ~1.2s, `fetch_available_dates()`
+~1.3s right now; both are plain `httpx.get()` calls, and this module's own
+docs elsewhere already note "up to minutes if requests hit their 15s
+timeouts" on a bad day) — then found four call sites where one of those ran
+directly inside code Textual's single-threaded event loop depends on, with
+no thread offload: `OverviewScreen._display_dates()` (called from
+`load_overview()`, itself called straight from `on_mount()` — so *every*
+club/course open), `OverviewScreen._refresh_course_options()` (also every
+mount, and again every `AUTO_REFRESH_INTERVAL_SECONDS` = 15 minutes
+thereafter), `_ClubCourseSwitcher._switch_club()`, `TeetimeApp._pick_course()`,
+and — the single biggest contributor, since it's the default launch path
+since 2026-09-10 — `TeetimeApp._resume_last_active()`.
+
+The bug: each of these already ran inside a Textual "worker"
+(`run_worker(...)`), which looks like the right pattern (`scrape_due_for_club()`
+elsewhere in this same file correctly uses `run_worker(..., thread=True)` for
+exactly this reason) — but a worker without `thread=True` just schedules its
+coroutine on the *same* event loop, it doesn't parallelize anything on its
+own. A plain blocking call inside it still freezes every keypress and every
+redraw for the full round trip. Confirmed synthetically before touching
+anything: a simulated 1s blocking call inside a bare `async def` produces
+zero UI "heartbeat" ticks during that second; the identical call wrapped in
+`asyncio.to_thread()` keeps ticking normally throughout.
+
+Fix: `asyncio.to_thread()` at all five sites, threading `async`/`await`
+through the methods between them and their callers
+(`_display_dates()`/`load_overview()`/`_reload()`/`_switch_course()` all
+became `async def`; `on_select_changed()`'s course-switch branch now goes
+through `run_worker()` the same way the club-switch branch already did).
+`TeetimeApp._finish_periodic_scrape()`'s own `screen.load_overview(...)` call
+(itself running from a `call_from_thread()` callback, not directly awaitable)
+now wraps it in `run_worker()` too, the same way its neighboring
+`_refresh_course_options()` call already did.
+
+882 tests passing (`pytest`, including the existing
+`test_finish_periodic_scrape_also_retries_course_options`, which exercises
+this exact new code path through Textual's own real pilot harness), `ruff
+check` clean. GUI unaffected — it shells out to Python CLI scripts
+out-of-process for anything network-bound, so this specific event-loop-
+blocking failure mode doesn't apply there.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

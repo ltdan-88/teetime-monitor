@@ -4912,7 +4912,7 @@ def test_background_refresh_keeps_the_cursor_where_the_user_left_it(tmp_path, mo
             before = screen._row_index[table.cursor_row]
             assert before[0] == "2026-09-19"  # genuinely moved off today first
 
-            screen.load_overview(keep_cursor=True)
+            await screen.load_overview(keep_cursor=True)
             await pilot.pause()
 
             assert screen._row_index[table.cursor_row] == before
@@ -4936,7 +4936,7 @@ def test_a_fresh_open_still_places_the_cursor_on_today(tmp_path, monkeypatch):
             await pilot.pause()
             assert screen._row_index[table.cursor_row][0] == "2026-09-18"
 
-            screen.load_overview()  # no keep_cursor
+            await screen.load_overview()  # no keep_cursor
             await pilot.pause()
 
             assert screen._row_index[table.cursor_row][0] == "2026-09-17"
@@ -4962,7 +4962,7 @@ def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears
 
             # The window shrinks under the cursor -- the day it was on is gone.
             monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-19")
-            screen.load_overview(keep_cursor=True)
+            await screen.load_overview(keep_cursor=True)
             await pilot.pause()
 
             assert 0 <= table.cursor_row < table.row_count  # clamped, not raised
