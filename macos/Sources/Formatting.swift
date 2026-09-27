@@ -36,11 +36,22 @@ func fillColor(_ ratio: Double) -> Color {
 /// previously showed only the probability, dropping the actual amount TUI's
 /// own table has always carried.
 func precipitationCellText(probability: Double, mm: Double?, units: String) -> String {
-    guard let mm, mm != 0 else { return "\(Int(probability))%" }
+    guard let mm, mm != 0 else { return "\(wholeNumber(probability))%" }
     let amount = Units.precipitationMM(mm, units)
     let decimals = units == Units.imperial ? 2 : 1
-    return "\(Int(probability))%/" + String(format: "%.\(decimals)f", amount) + Units.precipitationAmountLabel(units)
+    return "\(wholeNumber(probability))%/" + String(format: "%.\(decimals)f", amount) + Units.precipitationAmountLabel(units)
 }
+
+/// A whole-number display of a measured value (temperature, wind, rain %) --
+/// exactly what Python's own `f"{x:.0f}"` produces, which is what every TUI cell
+/// uses. Replaces `Int(x)` everywhere a number is *shown* (2026-09-27, found
+/// comparing real renders of both apps from the same database): `Int()`
+/// truncates, so a daily low of 11.6° read 11° here and 12° in the TUI, and a
+/// 10.7 km/h peak read 10 vs. 11 -- the same data disagreeing across the two
+/// front ends. `%.0f` rounds the same way Python's formatting does (round-half-
+/// to-even on the exact binary value); `CrossCheckRunner`'s `whole_number`
+/// group pins that equivalence rather than assuming it.
+func wholeNumber(_ value: Double) -> String { String(format: "%.0f", value) }
 
 func weekday(_ iso: String) -> String {
     let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"

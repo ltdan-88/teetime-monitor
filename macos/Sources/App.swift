@@ -232,7 +232,7 @@ struct SlotRow: View {
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
                         if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }
-                        Text("\(Int(Units.windSpeed(wd, units.value)))")
+                        Text(wholeNumber(Units.windSpeed(wd, units.value)))
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)
                     // The >= 30 test stays on the raw km/h value: it mirrors
@@ -422,8 +422,8 @@ struct DayCardHeader: View {
                 .frame(width: scale.scaled(Metrics.dayCondition))
             Group {
                 if let (hi, lo) = day.tempHighLow {
-                    Label("\(Int(Units.temperature(hi, units.value)))°/"
-                          + "\(Int(Units.temperature(lo, units.value)))°",
+                    Label("\(wholeNumber(Units.temperature(hi, units.value)))°/"
+                          + "\(wholeNumber(Units.temperature(lo, units.value)))°",
                           systemImage: "thermometer.medium")
                         .font(scaledFont(.subheadline, design: .monospaced))
                         .help(t("tip.temp_day", ["unit": Units.temperatureSymbol(units.value)]))
@@ -432,7 +432,7 @@ struct DayCardHeader: View {
             .frame(width: scale.scaled(Metrics.dayTemp), alignment: .leading)
             Group {
                 if let p = day.precipAvg {
-                    Label("\(Int(p))%", systemImage: "drop.fill")
+                    Label("\(wholeNumber(p))%", systemImage: "drop.fill")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
                         .help(t("tip.rain_day"))
                 }
@@ -440,7 +440,7 @@ struct DayCardHeader: View {
             .frame(width: scale.scaled(Metrics.dayRain), alignment: .leading)
             Group {
                 if let wd = day.windPeak {
-                    Label("\(Int(Units.windSpeed(wd, units.value)))", systemImage: "wind")
+                    Label(wholeNumber(Units.windSpeed(wd, units.value)), systemImage: "wind")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
                         .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
                 }

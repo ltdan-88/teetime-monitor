@@ -270,6 +270,13 @@ def _initial_date(club_id: str, course: str) -> str:
     return today
 
 
+def _free_seats(slot: Slot) -> int:
+    """Open seats in `slot`, never negative -- what both front ends show as
+    "N frei" (see `_compute_slot_rows()`'s own note on why this replaced
+    "booked/capacity")."""
+    return max(slot.capacity - slot.booked, 0)
+
+
 def _fill_style(booked: int, capacity: int) -> str:
     """Rich markup style name for a slot's occupancy — colored by fill ratio, per the
     already-agreed mockup design (see the clubhouse-terminal artifact from the design
@@ -1535,7 +1542,13 @@ def _compute_slot_rows(
             )
             continue
         style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(slot.booked, slot.capacity)
-        occupancy = f"[{style}]{slot.booked}/{slot.capacity}[/]"
+        # Free seats, not "booked/capacity" (2026-09-27, found comparing real renders
+        # of both apps): the GUI has always said "2 frei" for the very slot this
+        # used to render as "2/4" -- same number, opposite meaning, depending on
+        # which app you looked at. "Is there room for me?" is the question this
+        # cell answers, so both now count what's free; colour still follows how
+        # full the slot is (_fill_style()), unchanged.
+        occupancy = f"[{style}]{i18n.t('overview.free', n=_free_seats(slot))}[/]"
         if not is_past:
             crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
             if crowd_marker:
@@ -1665,15 +1678,45 @@ def _split_two_open_ended_columns(natural_a: int, natural_b: int, budget: int, f
     return max(half, floor), max(budget - half, floor)
 
 
+def _one_line(markup_text: str, width: int) -> Text:
+    """`markup_text` rendered to a single line of at most `width` cells, ending in
+    "…" if anything had to go -- style (colour, dim, italic) kept intact, since
+    Rich truncates the parsed `Text` rather than the markup string itself."""
+    text = Text.from_markup(markup_text.replace("\n", " "))
+    text.truncate(width, overflow="ellipsis")
+    return text
+
+
+def _table_width_budget(table: DataTable, width: int) -> int:
+    """How much of `width` (the screen's own) a `DataTable`'s columns can actually
+    use: minus its own horizontal margin and, always, its vertical scrollbar's
+    gutter. Added 2026-09-27 -- found rendering the real app at 120 columns with
+    one day expanded: v0.48.3's own `_split_two_open_ended_columns()` budget used
+    the raw screen width, so once the expanded rows made the vertical scrollbar
+    appear, the table ran ~3 columns wider than its visible viewport, cutting the
+    last column's names mid-word ("Heinz Berwia") behind a horizontal scrollbar.
+    Reserved unconditionally rather than only when the scrollbar is currently
+    showing: whether it shows depends on the very rows this budget is about to
+    lay out (expanding a day adds dozens), so a conditional reservation would be
+    wrong exactly on the render that first needs it."""
+    return width - table.styles.margin.left - table.styles.margin.right - table.styles.scrollbar_size_vertical
+
+
 def _table_overhead(num_columns: int) -> int:
     """How many extra columns of width `DataTable` itself consumes for
     per-column gutter/padding, on top of every column's own declared
-    `width=` -- confirmed empirically (two differently-sized tables: 8
-    columns needed 15 reserved, 3 columns needed 5), not documented anywhere
-    in Textual itself. `_render_table()` uses this to decide whether Events/
-    Pick's own natural width will actually fit a given screen width before
-    falling back to `_WRAP_CAP_WIDTH`."""
-    return 1 + (num_columns - 1) * 2
+    `width=` -- one cell of padding on each side of every column. Not
+    documented anywhere in Textual itself. `_render_table()` uses this to
+    decide whether Events/Pick's own natural width will actually fit a given
+    screen width.
+
+    Was `1 + (n - 1) * 2` -- one column short -- until 2026-09-27, measured
+    directly against a real `DataTable`'s own `virtual_size` (3/8/9 columns of
+    width 10 came to exactly 36/96/108). Harmless while Events/Pick were
+    always chopped well short of the budget; once
+    `_split_two_open_ended_columns()` started filling the budget exactly, that
+    one missing column was enough to push the table one past its viewport."""
+    return 2 * num_columns
 
 
 def _cell_visible_width(markup_text: str) -> int:
@@ -2943,7 +2986,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # sitting at "—" and real free space still unused to the right. See
         # that function's own docstring.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
-        available = width if width is not None else self.size.width
+        available = _table_width_budget(table, width if width is not None else self.size.width)
         if natural_total > available:
             other_columns_total = (
                 sum(column_widths) - column_widths[self._EVENTS_COLUMN_INDEX] - column_widths[self._PICK_COLUMN_INDEX]
@@ -3030,7 +3073,17 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             sticky.clear(columns=True)
             for width in self._column_widths:
                 sticky.add_column("", width=width)
-            sticky.add_row(*cells, height=1)
+            # One line by design (it's pinned over the table, and a multi-line
+            # pinned header would hide that many more real rows) -- but a cell
+            # that wraps in the real table (a capped Events/Pick cell) used to
+            # just get cut off here, mid-word with no sign anything was missing
+            # ("zu dunkel zum Fert" -- direct report, 2026-09-27, screenshot).
+            # An ellipsis at least says "there's more"; the full text is one
+            # scroll up, on the real row.
+            sticky.add_row(
+                *(_one_line(cell, width) for cell, width in zip(cells, self._column_widths, strict=True)),
+                height=1,
+            )
             self._sticky_shown_date = date
             self._sticky_dirty = False
         sticky.display = True
@@ -3506,7 +3559,7 @@ class SearchScreen(Screen[None]):
         # identical reasoning, just this table's own Players/Notes pair instead
         # of Events/Pick.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
-        available = self.size.width
+        available = _table_width_budget(self.query_one("#search-results", DataTable), self.size.width)
         if natural_total > available:
             other_columns_total = (
                 sum(column_widths)
@@ -3573,7 +3626,7 @@ class SearchScreen(Screen[None]):
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(match.date).weekday()}")
             schedule = schedule_by_key.get((match.date, match.course))
             weather = schedule.weather if schedule is not None else []
-            occupancy = f"{match.slot.booked}/{match.slot.capacity}"
+            occupancy = i18n.t("overview.free", n=_free_seats(match.slot))
             players = ", ".join(match.slot.players) if match.slot.players else ""
             pending_rows.append((
                 f"{weekday} {match.date}",

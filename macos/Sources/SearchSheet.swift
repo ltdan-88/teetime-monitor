@@ -230,7 +230,7 @@ private struct SearchResultRow: View {
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
                         if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }
-                        Text("\(Int(Units.windSpeed(wd, units.value)))")
+                        Text(wholeNumber(Units.windSpeed(wd, units.value)))
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .frame(width: scale.scaled(Metrics.slotWind), alignment: .trailing)

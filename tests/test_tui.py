@@ -400,8 +400,10 @@ def test_compute_slot_rows_occupancy_players_and_block_reason():
         ],
     )
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
-    assert rows[0].time_cell == "06:00" and "0/4" in rows[0].occupancy_cell
-    assert rows[1].time_cell == "08:00" and "1/4" in rows[1].occupancy_cell and rows[1].players_cell == "Max Mustermann"
+    # Free seats ("4 free"), not "booked/capacity" -- the same number the GUI shows
+    # (2026-09-27; the two apps used to show opposite counts for one slot).
+    assert rows[0].time_cell == "06:00" and "4 free" in rows[0].occupancy_cell
+    assert rows[1].time_cell == "08:00" and "3 free" in rows[1].occupancy_cell and rows[1].players_cell == "Max Mustermann"
     # The reason lives in its own events_cell, not occupancy -- a blocked row is
     # never real occupancy.
     assert rows[2].time_cell == "15:30" and "—" in rows[2].occupancy_cell
@@ -477,7 +479,7 @@ def test_compute_slot_rows_appends_the_crowd_marker_to_occupancy(monkeypatch):
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None, crowd_estimates)
 
     assert "[bold red]■[/]" in rows[0].occupancy_cell
-    assert "0/4" in rows[0].occupancy_cell  # the real count is still there too
+    assert "4 free" in rows[0].occupancy_cell  # the real count is still there too
 
 
 def test_compute_slot_rows_omits_the_crowd_marker_for_a_past_slot(monkeypatch):
@@ -1515,6 +1517,68 @@ def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_n
     _run(scenario())
 
 
+def test_table_overhead_matches_a_real_data_tables_own_gutter():
+    """Measured against Textual itself rather than asserted from memory -- the
+    old `1 + (n - 1) * 2` was one column short, which only surfaced once
+    _split_two_open_ended_columns() started filling the width budget exactly
+    (2026-09-27)."""
+
+    class _Bare(App):
+        def compose(self):
+            yield DataTable()
+
+    async def scenario():
+        for num_columns in (3, 8):
+            app = _Bare()
+            async with app.run_test(size=(200, 20)) as pilot:
+                table = app.query_one(DataTable)
+                for i in range(num_columns):
+                    table.add_column(f"c{i}", width=10)
+                table.add_row(*["x" * 10] * num_columns)
+                await pilot.pause()
+                assert table.virtual_size.width == 10 * num_columns + tui._table_overhead(num_columns)
+
+    _run(scenario())
+
+
+def test_overview_screen_expanded_day_never_runs_wider_than_its_viewport(tmp_path, monkeypatch):
+    """Found rendering the real app at 120 columns (2026-09-27): once an expanded
+    day made the vertical scrollbar appear, the table ran ~3 columns past its
+    visible width and cut the last column's names mid-word behind a horizontal
+    scrollbar. See _table_width_budget()'s own docstring."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
+    storage.save_schedule(
+        Schedule(
+            date=tui._TODAY(),
+            course="18 Loch Tee 1",
+            slots=[
+                Slot(time=f"{hour:02d}:{minute:02d}", booked=4, capacity=4, players=many_players)
+                for hour in range(8, 18)
+                for minute in (0, 30)
+            ],
+            weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 24)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {tui._TODAY()}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            table = screen.query_one("#overview-table", DataTable)
+            assert table.show_vertical_scrollbar  # the case that used to overflow
+            visible = table.content_region.width - table.styles.scrollbar_size_vertical
+            assert table.virtual_size.width <= visible
+
+    _run(scenario())
+
+
 def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_path, monkeypatch):
     """Direct report, 2026-09-27, with a screenshot: "why do names wrap up?"
     Root cause: a busy slot's own player-name list can run 60+ characters, and
@@ -1769,7 +1833,12 @@ def test_sticky_header_appears_once_scrolled_past_the_expanded_days_own_row(tmp_
             assert sticky.display is True
             assert sticky.row_count == 1
             expected = app.screen._row_header_cells["2026-09-07"]
-            assert tuple(sticky.get_row_at(0)) == expected
+            # Same cells, flattened to one line each (plain text -- see
+            # _update_sticky_header()'s own note on the "…" truncation).
+            assert [cell.plain for cell in sticky.get_row_at(0)] == [
+                tui._one_line(cell, width).plain
+                for cell, width in zip(expected, app.screen._column_widths, strict=True)
+            ]
 
             # Collapsing again hides it -- the real summary row (now the only
             # row again) is back to being the visible top row.
@@ -1868,7 +1937,7 @@ def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_c
             await pilot.pause()
             row = table.get_row_at(1)  # the expanded 09:00 slot row
             occupancy_cell = str(row[5])  # Occupancy column, see _render_table()'s own mapping
-            assert "0/4" in occupancy_cell
+            assert "4 free" in occupancy_cell
             assert "[yellow]■[/]" in occupancy_cell
 
     _run(scenario())
@@ -2511,14 +2580,14 @@ def test_search_screen_runs_search_and_shows_results():
             # like icons for when it is sunny, overcast, foggy, snowing etc.")
             # added after Time, matching the since-retired day-detail screen's placement.
             assert [str(col.label) for col in table.columns.values()] == [
-                "Date", "Time", "Cond", "Occ", "Players", "Temp\n(°C)", "Precip\n(%/mm)",
+                "Date", "Time", "Cond", "Free", "Players", "Temp\n(°C)", "Precip\n(%/mm)",
                 "Wind\n(km/h)", "Notes",
             ]
             assert table.row_count == 1
             row = table.get_row_at(0)
             assert row[1] == "09:00"
             assert row[2] == "⛈️"  # weather_code=95 -> thunderstorm icon
-            assert row[3] == "1/4"
+            assert row[3] == "3 free"
             assert row[4] == "Max Mustermann"
             # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
             # direct follow-up: "since the units are now in the headers, we

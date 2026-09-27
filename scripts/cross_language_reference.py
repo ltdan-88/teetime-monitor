@@ -151,8 +151,26 @@ def _family_name_cases() -> dict:
     }
 
 
+def _whole_number_cases() -> dict:
+    # Every TUI weather cell formats a measured value with `f"{x:.0f}"` inline
+    # rather than through one named function -- this pins that exact expression
+    # against the GUI's `wholeNumber()` (2026-09-27: the GUI used to truncate
+    # with `Int()`, so the same database showed a low of 12° in the TUI and 11°
+    # in the GUI). Halves on both sides of even/odd, a value just under a half,
+    # and a small negative (a winter low) are the cases where truncation,
+    # half-up and half-to-even rounding genuinely disagree.
+    values = [11.6, 11.4, 11.5, 12.5, 0.5, 1.5, 10.7, 16.66, 99.9, -0.4, -2.5, -3.6, 0.0]
+    return {"whole_number": [{"args": {"value": v}, "expected": f"{v:.0f}"} for v in values]}
+
+
 def main() -> None:
-    reference = {**_units_cases(), **_classify_day_cases(), **_directory_cases(), **_family_name_cases()}
+    reference = {
+        **_units_cases(),
+        **_classify_day_cases(),
+        **_directory_cases(),
+        **_family_name_cases(),
+        **_whole_number_cases(),
+    }
     json.dump(reference, sys.stdout, indent=2, sort_keys=True)
     print()
 

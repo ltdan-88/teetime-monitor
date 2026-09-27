@@ -116,6 +116,18 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Numbers now match the TUI exactly; occupancy counts free seats in both (2026-09-27)
+
+Found comparing real renders of both apps from the same database (bundle A of
+a TUI/GUI consistency audit -- see ROADMAP.md): the day header showed a low of
+11° where the TUI showed 12°, wind 10 vs. 11. Same data, same aggregation --
+this app truncated with `Int(x)`, the TUI rounds. New `wholeNumber()`
+(Formatting.swift) replaces every truncating display site, and
+`CrossCheckRunner`'s `whole_number` group pins it to Python's own `f"{x:.0f}"`
+(halves and negatives included). The TUI also switched its slot occupancy
+from "2/4" (booked) to "2 frei" -- the same free-seat count this app has
+always shown, so one number no longer means opposite things across the two.
+
 ## Player directory: sortable/searchable, wider sheet, gender/HCP/status columns (2026-09-27)
 
 Direct follow-up on the entry below: the sheet needed to fit its own content

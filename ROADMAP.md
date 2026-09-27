@@ -5262,6 +5262,51 @@ updated coverage confirming genuine capping/wrapping still happens once
 content is long enough to need it). 885 tests passing (`pytest`), `ruff
 check` clean.
 
+## TUI/GUI consistency audit, bundle A: correctness (2026-09-27)
+
+Direct request: "make an assessment regarding layout and UI between the TUI and
+GUI... expand your assessment regarding usability, discoverability and world
+class layout design." Done from real renders of both apps against the user's
+own database (TUI via Textual's own screenshot export at 80x24 and 120x40; GUI
+by compiling the app's real sources with a scratch entry point and rendering
+its real views through `ImageRenderer`), not from reading code. The user chose
+all four resulting bundles, shipped as separate releases in order -- this is
+the first: things that were simply wrong or inconsistent.
+
+- **Occupancy meant opposite things in the two apps.** For one slot the TUI said
+  "2/4" (seats booked) and the GUI "2 frei" (seats free). Both now show free
+  seats (`tui._free_seats()`, `overview.free`) -- the question the cell answers
+  is "is there room for me?". Search's column header follows ("Free"/"Frei").
+- **Daily weather numbers disagreed from the same database** (a low of 12° in
+  the TUI vs. 11° in the GUI, wind 11 vs. 10, rain 17% vs. 16%). Same window
+  and same aggregation on both sides; the GUI truncated with `Int(x)` where the
+  TUI rounds with `f"{x:.0f}"`. New `wholeNumber()` replaces every truncating
+  display site in Swift, and `CrossCheckRunner`'s new `whole_number` group pins
+  it to Python's exact formatting (halves, negatives included -- 79/79).
+- **A regression from v0.48.3.** With a day expanded, the table ran ~3 columns
+  past its viewport, cutting the last column's names mid-word behind a
+  horizontal scrollbar. Two causes, both measured rather than guessed: the
+  width budget ignored the vertical scrollbar's gutter (new
+  `_table_width_budget()`, reserved unconditionally), and `_table_overhead()`
+  was one column short in every case (`2 * n`, checked against a real
+  `DataTable`'s own `virtual_size`). An empirical sweep on the real club now
+  fits exactly at 100/120/140/190 columns, collapsed and expanded. 80 columns
+  still overflows -- the fixed columns alone exceed it; bundle B's job.
+- **The pinned day header cut text mid-word** ("zu dunkel zum Fert", from the
+  user's own screenshot). It stays one line by design; cells now end in "…"
+  (`_one_line()`) instead of silently stopping.
+
+Two new tests pin the overflow fix (`test_table_overhead_matches_a_real_data_tables_own_gutter`,
+`test_overview_screen_expanded_day_never_runs_wider_than_its_viewport`). 887
+tests passing (`pytest`), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (196), `VisualRegressionRunner` (3) and
+`CrossCheckRunner` (79) all pass.
+
+Not layout, but surfaced by the same renders and still open: the "Deine
+Buchungen konnten nicht geprüft werden -- pc caddie hat seine Seite geändert"
+banner in both apps means the My-Reservations scraper itself is currently
+broken against the live site.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
