@@ -201,35 +201,6 @@ enum SheetSize {
     /// A form plus a result list, stacked: Add a Club (the list is the thing
     /// being searched *for*, so it takes the full width once results appear).
     static let browser = CGSize(width: 520, height: 640)
-    /// Criteria on the left, results on the right: Search only. Added
-    /// 2026-09-19, direct follow-up on the sheet-width trim above ("would it
-    /// make sense to place search results on the right instead? ... the
-    /// results don't need that much width") -- unlike Add a Club, here the
-    /// list is a *comparison* against the criteria beside it, and each result
-    /// row is genuinely narrow (a time, a weather icon, an open-spot count,
-    /// a chevron), so it doesn't need Add a Club's full-width list treatment.
-    ///
-    /// 760, widened from a first attempt at 680 that shipped broken: with the
-    /// criteria column pinned to a hardcoded 340 (a guess at Form's own real
-    /// per-row overhead, not measured), its longest German row didn't fit and
-    /// `Form`'s grouped style clipped each label's own *leading* characters
-    /// rather than wrapping or truncating -- reported live with a screenshot.
-    /// The criteria column now sizes itself to its own natural content width
-    /// instead (see SearchSheet's own `.fixedSize` comment), so this number
-    /// only has to be wide enough to comfortably fit that natural width *plus*
-    /// a real results column with room to spare -- generous on purpose, since
-    /// guessing too narrow is what broke it the first time and this
-    /// environment can't self-verify rendered layout to catch a repeat.
-    ///
-    /// Height trimmed from 640 to 540, direct report, 2026-09-19 ("search
-    /// screen has too much height"): the criteria column's own natural height
-    /// (five form rows plus the Search button) is well under 640, and the
-    /// results List's own `.frame(maxHeight: .infinity)` was stretching to
-    /// fill that leftover space rather than shrinking to it -- kept a bit
-    /// taller than the heatmap sheet below on purpose, since unlike a fixed
-    /// grid, more results genuinely benefit from more visible rows before
-    /// scrolling.
-    static let split = CGSize(width: 760, height: 540)
     /// Wide data display: the heatmap's two grids, side by side (2026-09-19 on)
     /// with a fixed-footer legend rather than stacked.
     ///

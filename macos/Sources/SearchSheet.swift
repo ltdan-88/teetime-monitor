@@ -55,75 +55,60 @@ struct SearchSheet: View {
             Text(t("search.prefill_note"))
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 2)
 
-            // Criteria on the left, results on the right -- direct follow-up,
-            // 2026-09-19, on top of this same sheet's own width already having
-            // just been trimmed ("would it make sense to place search results
-            // on the right instead? ... the results don't need that much
-            // width"): each result row really is narrow, and stacking meant
-            // results were only ever visible after scrolling past the whole
-            // criteria form -- keeping both on screen at once means adjusting
-            // a criterion and re-running the search doesn't lose sight of
-            // what's being compared against.
-            //
-            // The criteria column has *no* explicit width here -- a first cut
-            // hardcoded one (340, "measured" from the longest German label plus
-            // its control), and shipped broken: reported live with a
-            // screenshot showing every label in that column missing its own
-            // *leading* characters ("Kriterien" -> "erien", "Abstand zur
-            // Gruppe davor..." -> "and zur Gruppe davor..."), values and
-            // controls unaffected. That's `Form`'s own grouped style favoring
-            // a row's trailing content when the row doesn't fit the width it's
-            // given, not a simple wrap/truncate -- 340 was a razor-thin,
-            // wrong-by-a-few-points guess at Form's real per-row overhead
-            // (indentation, grouped-style insets) on top of the label/control
-            // measurements themselves. Letting the Form size itself to its own
-            // natural content width removes that guess entirely: it always
-            // requests exactly what its longest un-wrapped row needs. The
-            // results column's own `.frame(maxWidth: .infinity)` still soaks
-            // up whatever's left.
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Form {
-                        Section(t("search.section.criteria")) {
-                            HStack {
-                                Text(t("prefs.min_open_spots_label"))
-                                Spacer()
-                                IntChoicePicker(choices: [1, 2, 3, 4], value: $criteria.value.minOpenSpots)
-                            }
-                            TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
-                                          before: $criteria.value.weekdayBefore)
-                            TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
-                                          before: $criteria.value.weekendBefore)
-                            HStack {
-                                Text(t("prefs.buffer_before_label"))
-                                Spacer()
-                                IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferBeforeMinutes, suffix: " min")
-                            }
-                            HStack {
-                                Text(t("prefs.buffer_after_label"))
-                                Spacer()
-                                IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
-                            }
+            // Criteria on top, results below -- reversed 2026-09-27, direct request,
+            // once real player names (2026-09-25/27) made the results column's own
+            // truncation a real problem: names were already down to a hover tooltip
+            // rather than visible text (see SearchResultRow's own `.help()`), and a
+            // side-by-side layout structurally caps how much width results can ever
+            // have, no matter how the rest of this sheet is trimmed. Was originally
+            // side-by-side (2026-09-19, direct follow-up the reverse direction: "the
+            // results don't need that much width... would it make sense to place
+            // search results on the right instead?") specifically so adjusting a
+            // criterion and re-running didn't require scrolling past a now-taller
+            // results list to see it again -- stacked here keeps that same property
+            // by keeping the criteria form and its own Search button at a fixed
+            // height up top, never inside the results' own scroll area, so neither
+            // list can push the other out of view.
+            VStack(alignment: .leading, spacing: 0) {
+                Form {
+                    Section(t("search.section.criteria")) {
+                        HStack {
+                            Text(t("prefs.min_open_spots_label"))
+                            Spacer()
+                            IntChoicePicker(choices: [1, 2, 3, 4], value: $criteria.value.minOpenSpots)
                         }
-                    }
-                    .formStyle(.grouped)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let status = status.value {
-                            Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                        TimeWindowRow(label: t("prefs.weekday"), after: $criteria.value.weekdayAfter,
+                                      before: $criteria.value.weekdayBefore)
+                        TimeWindowRow(label: t("prefs.weekend"), after: $criteria.value.weekendAfter,
+                                      before: $criteria.value.weekendBefore)
+                        HStack {
+                            Text(t("prefs.buffer_before_label"))
+                            Spacer()
+                            IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferBeforeMinutes, suffix: " min")
                         }
                         HStack {
-                            if isSearching.value { ProgressView().controlSize(.small) }
-                            Button(t("search.button")) { runSearch() }
-                                .keyboardShortcut(.defaultAction)
-                                .disabled(isSearching.value)
+                            Text(t("prefs.buffer_after_label"))
+                            Spacer()
+                            IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
                         }
                     }
-                    .padding(.horizontal, 16).padding(.top, 4)
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .formStyle(.grouped)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Divider()
+                HStack {
+                    if let status = status.value {
+                        Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if isSearching.value { ProgressView().controlSize(.small) }
+                    Button(t("search.button")) { runSearch() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(isSearching.value)
+                }
+                .padding(.horizontal, 16).padding(.top, 4)
+
+                Divider().padding(.top, 8)
 
                 if results.value.isEmpty {
                     // maxWidth: .infinity too -- see AddClubSheet's identical fix
@@ -154,7 +139,7 @@ struct SearchSheet: View {
             }
             .padding(16)
         }
-        .sheetFrame(SheetSize.split)
+        .sheetFrame(SheetSize.browser)
         // Same interaction as SlotRow -- a confirming dialog, not a silent write on
         // tap, since this marks a local record of what you booked, not a real
         // pc caddie action.
@@ -208,9 +193,8 @@ private struct SearchResultRow: View {
                 Text(weekday(match.date)).font(scaledFont(.caption)).bold()
                 Text(match.time).font(scaledFont(.caption, design: .monospaced)).foregroundStyle(.secondary)
             }
-            // Trimmed from 100 -- this row now lives in Search's own narrower
-            // results column (see SheetSize.split), and every real weekday
-            // label this shows ("Sa. 19 Sept.") fits comfortably under 90.
+            // Trimmed from 100 -- every real weekday label this shows
+            // ("Sa. 19 Sept.") fits comfortably under 90.
             .frame(width: 90, alignment: .leading)
 
             if let w = weather?.weather(at: match.time) {
