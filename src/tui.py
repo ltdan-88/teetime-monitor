@@ -1619,13 +1619,50 @@ def _day_pick_text(
     return f"[dim italic]{i18n.t(message_key)}[/]"
 
 
-# Shared cap for every genuinely open-ended text column across both results
-# tables (OverviewScreen's Events/Pick, SearchScreen's Players/Notes) --
-# direct feedback 2026-09-15, fitting the whole app on an iPad portrait
-# terminal (~50 columns): "Events and picks can for sure wrap up." One shared
-# constant rather than a per-column value so all these columns read
-# consistently at a glance, regardless of screen.
+# Floor for either open-ended column below (OverviewScreen's Events/Pick,
+# SearchScreen's Players/Notes) once they genuinely can't both fit -- direct
+# feedback 2026-09-15, fitting the whole app on an iPad portrait terminal
+# (~50 columns): "Events and picks can for sure wrap up." Originally *the*
+# cap both columns were chopped to unconditionally the moment the pair
+# didn't fit — revisited 2026-09-27 (direct report, with a screenshot: "why
+# do names wrap up?") once player names (added well after this constant was
+# picked, sized for short day-level text like "★ 14:00") made that the
+# common case on any real terminal: a single busy slot's full name list can
+# run 60-100+ characters, so the *pair's* combined natural width almost
+# always exceeds a normal terminal's, even though the table's actual unused
+# space (Events is usually just "—") was never anywhere near this small.
+# `_split_two_open_ended_columns()` below is what actually decides each
+# column's width now; this only bounds how small either can go.
 _WRAP_CAP_WIDTH = 18
+
+
+def _split_two_open_ended_columns(natural_a: int, natural_b: int, budget: int, floor: int) -> tuple[int, int]:
+    """How much of `budget` each of two open-ended columns (Overview's Events/
+    Pick, Search's Players/Notes) actually gets, once their combined natural
+    width doesn't fit. Real content, real available space -- not a shared
+    constant both get chopped to regardless of what the *other* one needed
+    (see `_WRAP_CAP_WIDTH`'s own docstring for the bug this replaced, 2026-09-27:
+    a long player-name list could get capped to 18 characters and wrap onto
+    several lines while the terminal sat mostly empty, because Events — often
+    just a one-character "—" — was "using" half of a cap that was never the
+    real constraint in the first place).
+
+    A column whose own natural want already fits inside an even half of the
+    budget keeps its full want; whatever that frees up goes to the other
+    column instead of sitting unused. Only when *both* genuinely want more
+    than half does the split actually become fifty-fifty. Never returns
+    below `floor` for either column, even on a budget too small to give both
+    their fair share — the same grace `_WRAP_CAP_WIDTH` always provided for a
+    truly narrow terminal, just no longer the default outcome on an
+    ordinary one."""
+    if natural_a + natural_b <= budget:
+        return natural_a, natural_b
+    half = budget // 2
+    if natural_a <= half:
+        return natural_a, max(budget - natural_a, floor)
+    if natural_b <= half:
+        return max(budget - natural_b, floor), natural_b
+    return max(half, floor), max(budget - half, floor)
 
 
 def _table_overhead(num_columns: int) -> int:
@@ -2883,11 +2920,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 column_widths[index] = max(column_widths[index], _cell_visible_width(cell))
 
         # Events/Pick content is genuinely open-ended (event/tournament names,
-        # unplayable-reason sentences, AI reasons) -- only capped (wrapping
-        # onto more lines via `height=None` below) once the table's own
-        # *natural*, uncapped width wouldn't actually fit. Direct follow-up
-        # 2026-09-16 on the original "wrap up" fix: "can you make events/
-        # picks columns only wrap up, when window is too narrow?" -- the
+        # unplayable-reason sentences, AI reasons, and — once a day's own slot
+        # rows are expanded — a comma-joined player-name list in this same
+        # column, see this method's own docstring on the header remap) -- only
+        # capped (wrapping onto more lines via `height=None` below) once the
+        # table's own *natural*, uncapped width wouldn't actually fit. Direct
+        # follow-up 2026-09-16 on the original "wrap up" fix: "can you make
+        # events/picks columns only wrap up, when window is too narrow?" -- the
         # original fix (2026-09-15, "Events and picks can for sure wrap up")
         # capped both unconditionally, at any width, which then itself drew a
         # complaint once seen on a wide desktop terminal ("why is the event
@@ -2895,11 +2934,29 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # it either). Reserves `_TABLE_OVERHEAD` columns of `DataTable`'s own
         # per-column gutter/padding, empirically confirmed elsewhere in this
         # file not to be reflected in any column's own declared width.
+        #
+        # `_split_two_open_ended_columns()`, not a shared flat `_WRAP_CAP_WIDTH`
+        # for both (2026-09-27, direct report with a screenshot: "why do names
+        # wrap up?") -- a busy slot's full player-name list easily wants 60+
+        # characters, which alone was usually enough to push the *pair's*
+        # combined natural width over a normal terminal's, even with Events
+        # sitting at "—" and real free space still unused to the right. See
+        # that function's own docstring.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
         available = width if width is not None else self.size.width
         if natural_total > available:
-            for index in (self._EVENTS_COLUMN_INDEX, self._PICK_COLUMN_INDEX):
-                column_widths[index] = min(column_widths[index], _WRAP_CAP_WIDTH)
+            other_columns_total = (
+                sum(column_widths) - column_widths[self._EVENTS_COLUMN_INDEX] - column_widths[self._PICK_COLUMN_INDEX]
+            )
+            budget = max(available - other_columns_total - _table_overhead(len(headers)), _WRAP_CAP_WIDTH * 2)
+            column_widths[self._EVENTS_COLUMN_INDEX], column_widths[self._PICK_COLUMN_INDEX] = (
+                _split_two_open_ended_columns(
+                    column_widths[self._EVENTS_COLUMN_INDEX],
+                    column_widths[self._PICK_COLUMN_INDEX],
+                    budget,
+                    _WRAP_CAP_WIDTH,
+                )
+            )
         self._column_widths = column_widths
 
         table.clear(columns=True)
@@ -3409,22 +3466,66 @@ class SearchScreen(Screen[None]):
         if self.schedules:
             title = f"{title} — {self.schedules[0].course}"
         self.title = title
+        self._declare_result_columns([])
+
+    # Indices into _declare_result_columns()'s own fixed 9-column order.
+    _PLAYERS_COLUMN_INDEX = 4
+    _NOTES_COLUMN_INDEX = 8
+
+    def _declare_result_columns(self, pending_rows: list[tuple[str, ...]]) -> None:
+        """(Re)declares `#search-results`'s columns, sized from `pending_rows`'
+        own real cell content -- same approach as `OverviewScreen._render_table()`
+        (see that method's own docstring), not the flat `width=_WRAP_CAP_WIDTH`
+        Players/Notes used to get unconditionally (2026-09-27, direct report with
+        a screenshot: "why do names wrap up?" -- found live in Overview first,
+        the identical bug here too: capped to 18 characters regardless of real
+        free space, since a real player-name list can run 60+ characters and
+        Notes/reasons text is usually short).
+
+        Called from `on_mount()` with no rows yet (so the empty table still
+        shows real headers, sized to their own natural width -- nothing to cap
+        with zero rows) and from `_run_search()` once real matches are known,
+        via `table.clear(columns=True)` there."""
         units = self.config.get("units", units_module.DEFAULT_UNITS)
+        headers = [
+            i18n.t("search.table.date"),
+            i18n.t("table.time"),
+            i18n.t("table.condition"),
+            i18n.t("table.occupancy"),
+            i18n.t("table.players"),
+            _column_header("table.temperature", "temperature", units),
+            _column_header("table.precipitation", "precipitation", units),
+            _column_header("table.wind", "wind", units),
+            i18n.t("search.table.notes"),
+        ]
+        column_widths = [_cell_visible_width(header) for header in headers]
+        for row in pending_rows:
+            for index, cell in enumerate(row):
+                column_widths[index] = max(column_widths[index], _cell_visible_width(cell))
+        # See OverviewScreen._render_table()'s own comment on this same split --
+        # identical reasoning, just this table's own Players/Notes pair instead
+        # of Events/Pick.
+        natural_total = sum(column_widths) + _table_overhead(len(headers))
+        available = self.size.width
+        if natural_total > available:
+            other_columns_total = (
+                sum(column_widths)
+                - column_widths[self._PLAYERS_COLUMN_INDEX]
+                - column_widths[self._NOTES_COLUMN_INDEX]
+            )
+            budget = max(available - other_columns_total - _table_overhead(len(headers)), _WRAP_CAP_WIDTH * 2)
+            column_widths[self._PLAYERS_COLUMN_INDEX], column_widths[self._NOTES_COLUMN_INDEX] = (
+                _split_two_open_ended_columns(
+                    column_widths[self._PLAYERS_COLUMN_INDEX],
+                    column_widths[self._NOTES_COLUMN_INDEX],
+                    budget,
+                    _WRAP_CAP_WIDTH,
+                )
+            )
         table = self.query_one("#search-results", DataTable)
-        table.add_column(i18n.t("search.table.date"))
-        table.add_column(i18n.t("table.time"))
-        table.add_column(i18n.t("table.condition"))
-        table.add_column(i18n.t("table.occupancy"))
-        # Capped and left to wrap (`height=None` in _run_search()'s own
-        # add_row()) rather than sized to full natural content -- same
-        # reasoning and same shared cap as OverviewScreen's Events/Pick
-        # (direct feedback 2026-09-15,
-        # fitting the whole app on an iPad portrait terminal, ~50 columns).
-        table.add_column(i18n.t("table.players"), width=_WRAP_CAP_WIDTH)
-        table.add_column(_column_header("table.temperature", "temperature", units))
-        table.add_column(_column_header("table.precipitation", "precipitation", units))
-        table.add_column(_column_header("table.wind", "wind", units))
-        table.add_column(i18n.t("search.table.notes"), width=_WRAP_CAP_WIDTH)
+        table.clear(columns=True)
+        for header, column_width in zip(headers, column_widths, strict=True):
+            table.add_column(header, width=column_width)
 
     def _time_value(self, base_id: str) -> str | None:
         hh = self.query_one(f"#{base_id}-hh").value
@@ -3453,11 +3554,10 @@ class SearchScreen(Screen[None]):
         crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
         friend_names = storage.load_friend_names(path=_db_path(self.club_id))
         matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates, friend_names)
-        table = self.query_one("#search-results", DataTable)
-        table.clear()
         self._row_matches = []
         status = self.query_one("#search-status", Static)
         if not matches:
+            self._declare_result_columns([])
             status.update(i18n.t("search.no_matches"))
             return
         status.update("")
@@ -3467,6 +3567,7 @@ class SearchScreen(Screen[None]):
         # in-memory match against self.schedules instead, since this screen never
         # re-fetches anything.
         schedule_by_key = {(schedule.date, schedule.course): schedule for schedule in self.schedules}
+        pending_rows: list[tuple[str, ...]] = []
         for match in matches:
             self._row_matches.append(match)
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(match.date).weekday()}")
@@ -3474,7 +3575,7 @@ class SearchScreen(Screen[None]):
             weather = schedule.weather if schedule is not None else []
             occupancy = f"{match.slot.booked}/{match.slot.capacity}"
             players = ", ".join(match.slot.players) if match.slot.players else ""
-            table.add_row(
+            pending_rows.append((
                 f"{weekday} {match.date}",
                 match.slot.time,
                 _slot_condition_cell(weather, match.slot.time),
@@ -3484,8 +3585,14 @@ class SearchScreen(Screen[None]):
                 _slot_precipitation_cell(weather, match.slot.time, units),
                 _slot_wind_cell(weather, match.slot.time, units),
                 ", ".join(match.reasons),
-                height=None,  # wrap Players/Notes instead of clipping -- see their capped width above
-            )
+            ))
+        # Declared from these same rows' own real content -- see this method's
+        # own docstring on _declare_result_columns() for why, not from the flat
+        # cap the table used to get regardless of it.
+        self._declare_result_columns(pending_rows)
+        table = self.query_one("#search-results", DataTable)
+        for row in pending_rows:
+            table.add_row(*row, height=None)  # wrap Players/Notes instead of clipping
 
     def action_confirm(self) -> None:
         table = self.query_one("#search-results", DataTable)
