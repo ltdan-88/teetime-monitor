@@ -32,14 +32,32 @@ struct Slot: Identifiable {
     var fill: Double { capacity > 0 ? Double(booked) / Double(capacity) : 0 }
 }
 
+/// The last whitespace-separated token of `name` -- a free function (not a
+/// `KnownPlayer` property) so `CrossCheckRunner` can call it directly against
+/// `models.family_name()`'s own reference cases. Same heuristic, same acknowledged
+/// gap on nobility particles -- see that function's own docstring.
+func familyName(_ name: String) -> String {
+    let trimmed = name.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return name }
+    return trimmed.split(separator: " ").last.map(String.init) ?? trimmed
+}
+
 /// Mirrors `models.KnownPlayer` -- a real name seen in some `Slot.players` list
 /// (2026-09-27, only possible from an authenticated scrape), browsable in the
 /// directory sheet with `isFriend` the one field a person actually edits.
+///
+/// `gender`/`memberStatus`/`handicap` (2026-09-27, direct follow-up: "are there any
+/// further scrapable information... worth to display?" -- checked live against the
+/// real authenticated tee sheet HTML) are each the most recently seen value, any of
+/// which can be `nil` -- see `models.PlayerSighting`'s own docstring.
 struct KnownPlayer: Identifiable {
     var id: String { name }
     let name: String
     let lastSeen: String
     let isFriend: Bool
+    let gender: String?
+    let memberStatus: String?
+    let handicap: Double?
 }
 
 struct WeatherPoint {
@@ -194,25 +212,34 @@ enum Store {
               [course, date, isoNow()])
     }
 
-    /// Every real name this club's own scrapes have ever seen (2026-09-27), friends
-    /// first then most recently seen -- mirrors `storage.load_known_players()`'s own
-    /// ordering exactly, same reasoning: friends are what a person actually came here
-    /// to look at. Silently empty (not an error) for a database that predates this
-    /// feature -- `known_players` won't exist yet, and `query()`'s own guard already
-    /// degrades a failed prepare to "no rows" rather than crashing.
+    /// Every real name this club's own scrapes have ever seen, sorted alphabetically
+    /// by family name (2026-09-27, direct request; "better: make the player directory
+    /// sortable and searchable" -- this is just the default order the sheet loads
+    /// with, before any in-sheet re-sort) -- mirrors `storage.load_known_players()`'s
+    /// own default order exactly. Sorted here in Swift, not SQL, for the same reason
+    /// that function sorts in Python: `familyName`'s last-whitespace-token rule isn't
+    /// a plain `ORDER BY`. Silently empty (not an error) for a database that predates
+    /// this feature -- `known_players` won't exist yet, and `query()`'s own guard
+    /// already degrades a failed prepare to "no rows" rather than crashing.
     static func knownPlayers(dbPath: String) -> [KnownPlayer] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
         defer { sqlite3_close(db) }
         var players: [KnownPlayer] = []
-        query(db, "SELECT name, last_seen, is_friend FROM known_players ORDER BY is_friend DESC, last_seen DESC") { s in
+        query(db, "SELECT name, last_seen, is_friend, gender, member_status, handicap FROM known_players") { s in
             players.append(KnownPlayer(
                 name: column(s, 0) ?? "",
                 lastSeen: column(s, 1) ?? "",
-                isFriend: sqlite3_column_int(s, 2) != 0
+                isFriend: sqlite3_column_int(s, 2) != 0,
+                gender: column(s, 3),
+                memberStatus: column(s, 4),
+                handicap: sqlite3_column_type(s, 5) == SQLITE_NULL ? nil : sqlite3_column_double(s, 5)
             ))
         }
-        return players
+        return players.sorted {
+            (familyName($0.name).lowercased(), $0.name.lowercased())
+                < (familyName($1.name).lowercased(), $1.name.lowercased())
+        }
     }
 
     /// Marks (or unmarks) one known name as a friend -- the directory sheet's own

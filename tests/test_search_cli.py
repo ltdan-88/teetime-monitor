@@ -225,8 +225,13 @@ def test_marked_friend_sorts_first_when_prioritize_friends_is_on(tmp_path, monke
         Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
     ]), path=db)
     from src import storage
+    from src.models import PlayerSighting
 
-    storage.record_seen_players(["A Stranger", "Erika Mustermann"], "2026-09-20T10:00:00+00:00", path=db)
+    storage.record_seen_players(
+        [PlayerSighting(name="A Stranger"), PlayerSighting(name="Erika Mustermann")],
+        "2026-09-20T10:00:00+00:00",
+        path=db,
+    )
     storage.set_player_friend("Erika Mustermann", True, path=db)
 
     result, code = _run(

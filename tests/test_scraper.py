@@ -143,6 +143,50 @@ def test_parse_slot_row_real_name_is_kept_as_player():
     assert slot.booked == 1
     assert slot.players == ["Max Mustermann"]
     assert slot.block_reason is None
+    assert len(slot.player_details) == 1
+    detail = slot.player_details[0]
+    assert detail.name == "Max Mustermann"
+    assert detail.gender == "male"
+    assert detail.handicap == 12.4
+
+
+def test_parse_slot_row_reads_member_status_and_german_decimal_comma_handicap():
+    # Found live 2026-09-27 against the real authenticated tee sheet: "Mitglied"/
+    # "Gast" plus a comma-decimal handicap ("(25,1)"), not the period this module's
+    # own docs example used -- see _parse_hcp_span()'s own docstring.
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="07:30" data-status="bookable" '
+        'data-seat_bookable="2">'
+        '<td class="seats-free-2 tt-grau"><time class="pcco-tt-timestamp">07:30</time></td>'
+        '<td><span class="tt-show-name tt-show-female">Gabriele Ullmann</span>'
+        '<span class="tt-show-hcp">Mitglied (25,1)</span></td>'
+        '<td><span class="tt-show-name tt-show-male">Klaus Gast</span>'
+        '<span class="tt-show-hcp">Gast</span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row, authenticated=True)
+    member, guest = slot.player_details
+    assert member.gender == "female"
+    assert member.member_status == "member"
+    assert member.handicap == 25.1
+    assert guest.gender == "male"
+    assert guest.member_status == "guest"
+    assert guest.handicap is None
+
+
+def test_parse_slot_row_never_populates_player_details_when_anonymous():
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-time="08:00" data-status="bookable" '
+        'data-seat_bookable="3">'
+        '<td class="seats-free-3 tt-grau"><time class="pcco-tt-timestamp">08:00</time></td>'
+        '<td><span class="tt-show-name tt-show-male">Max Mustermann</span>'
+        '<span class="tt-show-hcp">Mitglied (12,4)</span></td>'
+        '<td colspan="2"><span class="tt-show-name"></span></td>'
+        "</tr>"
+    )
+    slot = _parse_slot_row(row, authenticated=False)
+    assert slot.players == []
+    assert slot.player_details == []
 
 
 def test_parse_slot_row_unknown_seat_text_is_a_note_not_a_player_when_anonymous():

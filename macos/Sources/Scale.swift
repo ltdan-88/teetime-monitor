@@ -180,6 +180,21 @@ enum Metrics {
     static let heatHourLabel: CGFloat = 40
     static let legendSwatchWidth: CGFloat = 14
     static let legendSwatchHeight: CGFloat = 11
+    // Player directory row (2026-09-27, direct request: "make the layout fit all
+    // contents at a glance"). Each sized for the widest plausible real value, not
+    // just today's data -- same reasoning as the day-card-header columns above. Name
+    // is by far the widest: "Bettina Brauch-Hasenmaier"/"Dr. med. Philipp Dalheimer"
+    // (this club's own real directory, checked directly) both comfortably fit in
+    // 260, with real margin for a longer one still. Gender/member-status are sized
+    // for German ("Unbekannt"/"Mitglied"), the longer of the two languages this app
+    // ships, matching every other fixed column's own stated convention. The trailing
+    // friend button is deliberately *not* fixed-width here -- nothing follows it on
+    // the row, so a per-row/per-language width difference there can't misalign
+    // anything the way a mid-row column's own width would.
+    static let playerName: CGFloat = 260
+    static let playerGender: CGFloat = 70
+    static let playerMemberStatus: CGFloat = 70
+    static let playerHandicap: CGFloat = 46
 }
 
 /// One standard size per sheet *kind*, rather than the five different hand-picked
@@ -212,6 +227,15 @@ enum SheetSize {
     /// roughly 350pt total including both header rows and padding), and nothing
     /// was resizing the ScrollView above the fixed footer down to match.
     static let wide = CGSize(width: 560, height: 500)
+    /// The player directory (2026-09-27, direct request: "make the layout fit all
+    /// contents at a glance (make screen wider if no other option)") -- wider than
+    /// every other sheet on purpose: it's the one screen in this app with a fixed
+    /// name/gender/status/handicap/friend-button row, and `.browser`'s 520 wasn't
+    /// picked with that row in mind. Sized as the sum of `Metrics.playerName` +
+    /// `.playerGender` + `.playerMemberStatus` + `.playerHandicap` plus inter-column
+    /// spacing, padding, and room for the trailing friend button's own longest real
+    /// label ("Als Freund/in markieren") -- not a round number chosen by eye.
+    static let directory = CGSize(width: 700, height: 640)
 }
 
 extension View {

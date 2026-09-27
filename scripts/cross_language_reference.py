@@ -34,7 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import calendar_context, club_directory, units
-from src.models import DateRange
+from src.models import DateRange, family_name
 
 
 def _units_cases() -> dict:
@@ -132,8 +132,27 @@ def _directory_cases() -> dict:
     }
 
 
+def _family_name_cases() -> dict:
+    # Real names from this project's own player directory (2026-09-27) -- covers the
+    # cases that actually justified the "last whitespace token" rule: a hyphenated
+    # surname, a middle initial, a leading title, and the one acknowledged gap (a
+    # nobility particle, "von Bank" sorting under "Bank" alone).
+    names = [
+        "Max Mustermann",
+        "Bettina Brauch-Hasenmaier",
+        "Aindrias T. Wall",
+        "Dr. med. Philipp Dalheimer",
+        "Dietrich von Bank",
+        "Annette MERKLINGER",
+        "",
+    ]
+    return {
+        "family_name": [{"args": {"name": n}, "expected": family_name(n)} for n in names],
+    }
+
+
 def main() -> None:
-    reference = {**_units_cases(), **_classify_day_cases(), **_directory_cases()}
+    reference = {**_units_cases(), **_classify_day_cases(), **_directory_cases(), **_family_name_cases()}
     json.dump(reference, sys.stdout, indent=2, sort_keys=True)
     print()
 

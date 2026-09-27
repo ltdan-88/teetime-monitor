@@ -5036,6 +5036,85 @@ reachable via the Actions command palette (`t`), pushing the same
 `TeetimeMonitorCoreTests` (196 assertions) and `VisualRegressionRunner` both
 fixtures pass unchanged.
 
+## Player directory: sortable/searchable, sorted by family name, gender/HCP/status columns (2026-09-27)
+
+Direct follow-up feedback on the directory shipped two entries up: 1) the GUI
+sheet needed to fit its own content at a glance rather than truncating (widen
+the window if that's what it takes), and 2) the directory needed to be sorted
+alphabetically by family name and — "better" — sortable and searchable
+outright, with the "first seen"/"last seen" dates dropped from the display
+since nobody needs them.
+
+Also answered a genuine open question from the same message ("are there any
+further scrapable information... worth to display?") by inspecting the real
+authenticated tee sheet HTML directly rather than guessing: each player cell
+carries a gender marker (`tt-show-male`/`female`/`unknown` on the same span as
+the name), a membership status ("Mitglied"/"Gast"), and a live handicap
+("(25,1)", German decimal-comma) — none of it previously read. Confirmed with
+the user (all three wanted) before building it.
+
+**Scraper**: new `models.PlayerSighting` (name + gender/member_status/
+handicap), parallel to the existing plain `Slot.players: list[str]` rather
+than replacing it — `Slot.player_details: list[PlayerSighting]`, populated
+only on an authenticated fetch. `scraper._gender_from_classes()`/
+`_parse_hcp_span()` do the actual parsing; verified directly against the
+user's own live site (real member and guest rows, both genders, comma- and
+period-decimal handicaps).
+
+**Storage**: `known_players` gains `gender`/`member_status`/`handicap`
+columns (`ALTER TABLE` migration, same pattern every prior schema change
+here uses). `record_seen_players()` now takes `list[PlayerSighting]`; its
+upsert uses `COALESCE(excluded.x, known_players.x)` per field rather than a
+flat overwrite, so a sighting that happens to omit a value (a guest's cell
+sometimes has no handicap span at all) never erases one already recorded.
+
+**Family-name sort**: new `models.family_name()` — the last whitespace-
+separated token of a name. Checked directly against this club's own 373 real
+names before picking it: a hyphenated surname is already one token, a middle
+initial ("Aindrias T. Wall") still leaves the real surname last, a leading
+title ("Dr. med. ...") never lands at the end. One acknowledged gap: a
+nobility particle ("Dietrich von Bank") sorts under "Bank" alone, not a
+combined "von Bank" — simpler, and not worth a particle list for data pc
+caddie doesn't structure enough to need it. `load_known_players()`'s default
+order is now this (ascending, both front ends) instead of the old "friends
+first, most recent" order.
+
+**TUI** (`known_players_screen.py`): a search `Input` filters by substring on
+name; every column header is clickable (`DataTable.HeaderSelected`) and
+re-sorts by that field, toggling direction on a second click of the same one
+— name/gender/member-status/handicap/friend, mirroring the same five fields
+as the GUI's own sort picker. New Gender/Status/HCP columns; "Last seen" is
+gone from the table (still recorded in storage, just not shown).
+
+**GUI**: `PlayerDirectorySheet` gained a search `TextField`, a sort `Picker`
+plus an ascending/descending toggle button (`PlayerSortField`, a direct
+Swift mirror of the TUI's own `_SORT_KEYS`), and three new fixed-width
+columns (`Metrics.playerGender`/`.playerMemberStatus`/`.playerHandicap`,
+sized for the longer of the two languages this app ships, same convention
+every other fixed-column row here already follows). New `SheetSize.directory`
+(700×640) replaces `.browser` for this one sheet — picked as the actual sum
+of its own columns' widths, not a round number, so the widest real name
+("Bettina Brauch-Hasenmaier") never needs truncating. A new
+`player-row-multi` `VisualRegressionRunner` fixture (four players spanning
+long/short names and present/missing gender/status/handicap) locks the
+column alignment in going forward — deliberately built from
+`PlayerRowColumns` alone, not the full row, since a native `Button`'s own
+off-screen rendering is outside that harness's documented scope (see its own
+"Scope, stated plainly" section).
+
+`family_name()`/`familyName()` are also the first addition to
+`CrossCheckRunner` since the directory-search/classify-day functions —
+`scripts/cross_language_reference.py`'s new `_family_name_cases()` reuses
+this club's own real edge-case names (hyphenated, middle-initialed, titled,
+a particle) as the shared fixture both languages are checked against.
+
+882 tests passing (`pytest`), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (196 assertions), `VisualRegressionRunner` (3
+fixtures) and `CrossCheckRunner` (66 cases) all pass. Verified live against
+the user's real database: a real scrape recorded gender/status/handicap for
+111 of 374 known players (the rest predate this change and fill in on their
+next sighting), and the directory loaded sorted correctly by family name.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

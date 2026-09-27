@@ -129,7 +129,7 @@ from datetime import UTC, datetime
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from .models import ConfirmedBooking, Schedule, Slot
+from .models import ConfirmedBooking, PlayerSighting, Schedule, Slot
 
 # Confirmed 2026-09-05 by inspecting the real site — these are real values, not guesses.
 COURSE_ALIASES: dict[str, str] = {
@@ -216,6 +216,57 @@ def parse_seats_free(time_cell_class: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _gender_from_classes(name_span: Tag) -> str | None:
+    """The `.tt-show-name` span's own gender marker — found live 2026-09-27
+    inspecting the real authenticated tee sheet HTML (direct follow-up question:
+    "are there any further scrapable information... worth to display?"): pc caddie
+    adds `tt-show-male`/`tt-show-female`/`tt-show-unknown` alongside `tt-show-name`
+    on the same span, one real class per player, not a separate field. `None` when
+    none of the three is present (an empty/merged cell's own bare `tt-show-name`,
+    or a class scheme this club doesn't use) — distinct from `"unknown"`, which is
+    the site's *own* explicit "not recorded" marker, not this parser's fallback."""
+    classes = set(name_span.get("class", []))
+    for gender in ("male", "female", "unknown"):
+        if f"tt-show-{gender}" in classes:
+            return gender
+    return None
+
+
+_HCP_RE = re.compile(r"\(([\d,.]+)\)")
+
+
+def _parse_hcp_span(cell: Tag) -> tuple[str | None, float | None]:
+    """`.tt-show-hcp`'s own sibling text in the same seat `<td>` — "Mitglied
+    (25,1)" for a member, "Gast" alone or "Gast (54,0)" for a guest (found live
+    2026-09-27, same sweep as `_gender_from_classes()`). Returns (member_status,
+    handicap); either half can be missing independent of the other — a guest's
+    handicap is often just not shown at all, and status without a number is common
+    enough on its own to not treat as a parse failure.
+
+    German decimal-comma ("25,1", the real site's own format) converted to a plain
+    float — this app's other numeric displays (temperature, wind) are already
+    period-formatted regardless of UI language, so storing this as a period-decimal
+    `float` matches that, not the source markup's own locale. A plain period passes
+    through `.replace(",", ".")` unchanged, so a period-decimal value parses too."""
+    span = cell.select_one(".tt-show-hcp")
+    if span is None:
+        return None, None
+    text = span.get_text(" ", strip=True)
+    status: str | None = None
+    if text.startswith("Mitglied"):
+        status = "member"
+    elif text.startswith("Gast"):
+        status = "guest"
+    handicap: float | None = None
+    match = _HCP_RE.search(text)
+    if match:
+        try:
+            handicap = float(match.group(1).replace(",", "."))
+        except ValueError:
+            handicap = None
+    return status, handicap
+
+
 def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: bool = False) -> Slot:
     """Parse one <tr class="pcco-tt-time-person"> into a Slot. Pure function over an
     already-parsed row — no I/O — so it's tested directly against fixture HTML.
@@ -271,6 +322,7 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
         return Slot(time=time, booked=booked, capacity=capacity, block_reason=reason)
 
     players: list[str] = []
+    player_details: list[PlayerSighting] = []
     note: str | None = None
     for cell in row.find_all("td"):
         span = cell.select_one(".tt-show-name")
@@ -287,6 +339,15 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
             continue  # anonymized member booking — already counted in `booked`
         if authenticated:
             players.append(text)  # a friend's real name — only ever visible logged in
+            member_status, handicap = _parse_hcp_span(cell)
+            player_details.append(
+                PlayerSighting(
+                    name=text,
+                    gender=_gender_from_classes(span),
+                    member_status=member_status,
+                    handicap=handicap,
+                )
+            )
         else:
             # A real seat cell whose text isn't a known placeholder, read anonymously.
             # pc caddie only ever reveals real names to a logged-in friend (confirmed
@@ -299,7 +360,14 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
             # lose: `scrape_schedule()` doesn't log in.
             note = text
 
-    return Slot(time=time, booked=booked, capacity=capacity, players=players, block_reason=note)
+    return Slot(
+        time=time,
+        booked=booked,
+        capacity=capacity,
+        players=players,
+        player_details=player_details,
+        block_reason=note,
+    )
 
 
 _SEAT_HEADER_RE = re.compile(r"^-\s*\d+\s*-$")
