@@ -188,13 +188,14 @@ def run(
     storage.save_schedule(latest, path=db_path)
 
     # Piggybacks on this same scrape rather than a separate pass over the whole
-    # database -- see storage.record_seen_players()'s own docstring. A plain set
-    # comprehension is enough: duplicate names across slots (e.g. the same person in
-    # two different flights that day) collapse for free, and record_seen_players()
-    # itself no-ops on an empty list, so an anonymous scrape (no client) just does
+    # database -- see storage.record_seen_players()'s own docstring. A dict keyed by
+    # name collapses duplicates across slots (e.g. the same person in two different
+    # flights that day) the same way the old set comprehension did, just keeping each
+    # name's own PlayerSighting instead of the bare string -- and record_seen_players()
+    # itself still no-ops on an empty list, so an anonymous scrape (no client) does
     # nothing extra here.
-    seen_players = sorted({name for slot in latest.slots for name in slot.players})
-    storage.record_seen_players(seen_players, datetime.now(UTC).isoformat(), path=db_path)
+    seen_players = {p.name: p for slot in latest.slots for p in slot.player_details}
+    storage.record_seen_players(list(seen_players.values()), datetime.now(UTC).isoformat(), path=db_path)
 
     # _sync_my_reservations() is *not* called here any more (moved to
     # scrape_due_for_club(), once per pass rather than once per course/date --

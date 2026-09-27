@@ -1,6 +1,6 @@
 import sqlite3
 
-from src.models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
+from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
     distinct_scraped_dates,
@@ -678,9 +678,16 @@ def test_load_latest_schedule_without_any_weather_ever_is_still_fine(tmp_path):
 # --- known_players (2026-09-27) -------------------------------------------------------
 
 
+def _sighting(name: str, gender: str | None = None, member_status: str | None = None,
+              handicap: float | None = None) -> PlayerSighting:
+    return PlayerSighting(name=name, gender=gender, member_status=member_status, handicap=handicap)
+
+
 def test_record_seen_players_creates_new_rows(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Max Mustermann", "Erika Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players(
+        [_sighting("Max Mustermann"), _sighting("Erika Mustermann")], "2026-09-27T10:00:00+00:00", path=path
+    )
 
     players = {p.name: p for p in load_known_players(path=path)}
     assert set(players) == {"Max Mustermann", "Erika Mustermann"}
@@ -698,8 +705,8 @@ def test_record_seen_players_with_no_names_is_a_no_op(tmp_path):
 
 def test_record_seen_players_bumps_last_seen_without_touching_first_seen(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
-    record_seen_players(["Max Mustermann"], "2026-09-28T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-28T10:00:00+00:00", path=path)
 
     players = load_known_players(path=path)
     assert len(players) == 1
@@ -709,18 +716,50 @@ def test_record_seen_players_bumps_last_seen_without_touching_first_seen(tmp_pat
 
 def test_record_seen_players_never_resets_an_existing_friend_flag(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-27T10:00:00+00:00", path=path)
     set_player_friend("Max Mustermann", True, path=path)
 
-    record_seen_players(["Max Mustermann"], "2026-09-28T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-28T10:00:00+00:00", path=path)
 
     players = load_known_players(path=path)
     assert players[0].is_friend is True
 
 
+def test_record_seen_players_stores_gender_member_status_and_handicap(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(
+        [_sighting("Max Mustermann", gender="male", member_status="member", handicap=25.1)],
+        "2026-09-27T10:00:00+00:00",
+        path=path,
+    )
+
+    player = load_known_players(path=path)[0]
+    assert player.gender == "male"
+    assert player.member_status == "member"
+    assert player.handicap == 25.1
+
+
+def test_record_seen_players_keeps_a_prior_value_when_a_later_sighting_omits_it(tmp_path):
+    """A guest's cell sometimes has no handicap span at all -- see
+    scraper._parse_hcp_span()'s own docstring. A later sighting with None shouldn't
+    erase a real value an earlier one already recorded."""
+    path = tmp_path / "club.db"
+    record_seen_players(
+        [_sighting("Max Mustermann", gender="male", member_status="member", handicap=25.1)],
+        "2026-09-27T10:00:00+00:00",
+        path=path,
+    )
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-28T10:00:00+00:00", path=path)
+
+    player = load_known_players(path=path)[0]
+    assert player.gender == "male"
+    assert player.member_status == "member"
+    assert player.handicap == 25.1
+
+
 def test_set_player_friend_toggles_on_and_off(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Max Mustermann"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Max Mustermann")], "2026-09-27T10:00:00+00:00", path=path)
 
     set_player_friend("Max Mustermann", True, path=path)
     assert load_known_players(path=path)[0].is_friend is True
@@ -736,16 +775,17 @@ def test_set_player_friend_is_a_no_op_for_a_name_never_seen(tmp_path):
     assert load_known_players(path=path) == []
 
 
-def test_load_known_players_orders_friends_first_then_most_recently_seen(tmp_path):
+def test_load_known_players_sorts_alphabetically_by_family_name(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Old Friend"], "2026-09-25T10:00:00+00:00", path=path)
-    record_seen_players(["New Stranger"], "2026-09-27T10:00:00+00:00", path=path)
-    record_seen_players(["New Friend"], "2026-09-26T10:00:00+00:00", path=path)
-    set_player_friend("Old Friend", True, path=path)
-    set_player_friend("New Friend", True, path=path)
+    # Inserted out of both first-seen and first-name order -- only the family name
+    # (last token) should determine the result.
+    record_seen_players([_sighting("Bernd Adler")], "2026-09-25T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Anna Zeller")], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Claus Bauer")], "2026-09-26T10:00:00+00:00", path=path)
+    set_player_friend("Anna Zeller", True, path=path)  # friend status no longer affects order
 
     names = [p.name for p in load_known_players(path=path)]
-    assert names == ["New Friend", "Old Friend", "New Stranger"]
+    assert names == ["Bernd Adler", "Claus Bauer", "Anna Zeller"]
 
 
 def test_load_known_players_with_no_club_db_yet_returns_empty(tmp_path):
@@ -754,7 +794,7 @@ def test_load_known_players_with_no_club_db_yet_returns_empty(tmp_path):
 
 def test_load_friend_names_returns_only_the_marked_ones(tmp_path):
     path = tmp_path / "club.db"
-    record_seen_players(["Friend One", "Not A Friend"], "2026-09-27T10:00:00+00:00", path=path)
+    record_seen_players([_sighting("Friend One"), _sighting("Not A Friend")], "2026-09-27T10:00:00+00:00", path=path)
     set_player_friend("Friend One", True, path=path)
 
     assert load_friend_names(path=path) == {"Friend One"}

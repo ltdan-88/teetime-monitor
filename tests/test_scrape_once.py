@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src import booking_watch, scrape_once
-from src.models import ConfirmedBooking, Schedule, Slot
+from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot
 
 
 @pytest.fixture(autouse=True)
@@ -65,16 +65,28 @@ def test_run_records_any_players_seen_in_the_scraped_schedule(tmp_path, monkeypa
         date="2026-09-06",
         course="18 Loch Tee 1",
         slots=[
-            Slot(time="06:00", booked=1, capacity=4, players=["Max Mustermann"]),
-            Slot(time="07:00", booked=2, capacity=4, players=["Max Mustermann", "Erika Mustermann"]),
+            Slot(
+                time="06:00", booked=1, capacity=4, players=["Max Mustermann"],
+                player_details=[PlayerSighting(name="Max Mustermann", gender="male", handicap=12.3)],
+            ),
+            Slot(
+                time="07:00", booked=2, capacity=4, players=["Max Mustermann", "Erika Mustermann"],
+                player_details=[
+                    PlayerSighting(name="Max Mustermann", gender="male", handicap=12.3),
+                    PlayerSighting(name="Erika Mustermann", gender="female", member_status="guest"),
+                ],
+            ),
         ],
     )
     monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: fake_schedule)
 
     scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
 
-    known = scrape_once.storage.load_known_players(path=scrape_once._db_path("0000001"))
-    assert {p.name for p in known} == {"Max Mustermann", "Erika Mustermann"}
+    known = {p.name: p for p in scrape_once.storage.load_known_players(path=scrape_once._db_path("0000001"))}
+    assert set(known) == {"Max Mustermann", "Erika Mustermann"}
+    assert known["Max Mustermann"].gender == "male"
+    assert known["Max Mustermann"].handicap == 12.3
+    assert known["Erika Mustermann"].member_status == "guest"
 
 
 def test_run_uses_global_preferences_buffer_for_booking_watch(tmp_path, monkeypatch):

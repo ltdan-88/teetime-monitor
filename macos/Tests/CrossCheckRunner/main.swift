@@ -87,6 +87,9 @@ runGroup("directory_search") { args in
 runGroup("looks_like_club_id") { args in
     ClubDirectoryStore.looksLikeClubID(args["query"] as! String) as Any
 }
+runGroup("family_name") { args in
+    familyName(args["name"] as! String)
+}
 
 print("")
 if failed == 0 {

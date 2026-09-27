@@ -60,7 +60,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import ConfirmedBooking, KnownPlayer, Schedule, Slot, SunTimes, WeatherPoint
+from .models import ConfirmedBooking, KnownPlayer, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint, family_name
 
 DEFAULT_DB_PATH = Path("teetime.db")
 
@@ -128,7 +128,11 @@ CREATE TABLE IF NOT EXISTS known_players (
     name TEXT PRIMARY KEY,
     first_seen TEXT NOT NULL,  -- ISO 8601 timestamp
     last_seen TEXT NOT NULL,   -- ISO 8601 timestamp
-    is_friend INTEGER NOT NULL DEFAULT 0
+    is_friend INTEGER NOT NULL DEFAULT 0,
+    gender TEXT,               -- "male" / "female" / "unknown" / NULL -- see
+                                -- models.PlayerSighting
+    member_status TEXT,        -- "member" / "guest" / NULL
+    handicap REAL              -- most recently seen value, NULL if never shown
 );
 """
 
@@ -168,6 +172,15 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
         existing_weather_columns = {row[1] for row in conn.execute("PRAGMA table_info(weather_points)")}
         if "weather_code" not in existing_weather_columns:
             conn.execute("ALTER TABLE weather_points ADD COLUMN weather_code INTEGER")
+        # 2026-09-27, same reasoning: `known_players` predates gender/member_status/
+        # handicap (added once the directory's own "further scrapable information?"
+        # question got checked directly against the live authenticated tee sheet) --
+        # every name already recorded (this club's real directory: 373 of them) just
+        # reads back with all three NULL until its next sighting fills them in.
+        existing_player_columns = {row[1] for row in conn.execute("PRAGMA table_info(known_players)")}
+        for column, column_type in (("gender", "TEXT"), ("member_status", "TEXT"), ("handicap", "REAL")):
+            if column not in existing_player_columns:
+                conn.execute(f"ALTER TABLE known_players ADD COLUMN {column} {column_type}")
 
 
 def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
@@ -524,42 +537,70 @@ def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
     return json.loads(row[0]) if row else None
 
 
-def record_seen_players(names: list[str], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
-    """Upsert each name into `known_players` -- a new row (both timestamps set to
-    `seen_at`) the first time a name is ever seen, or just `last_seen` bumped on every
-    later sighting. `is_friend` is never touched here, on purpose: it's the one field
-    a person actually sets (via the directory screen), and a later scrape re-seeing an
-    already-marked friend must not silently reset it back to false.
+def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert each sighting into `known_players` -- a new row (both timestamps set to
+    `seen_at`) the first time a name is ever seen, or just `last_seen` bumped (plus
+    gender/member_status/handicap refreshed) on every later sighting. `is_friend` is
+    never touched here, on purpose: it's the one field a person actually sets (via the
+    directory screen), and a later scrape re-seeing an already-marked friend must not
+    silently reset it back to false.
+
+    `gender`/`member_status`/`handicap` use `COALESCE(excluded.x, known_players.x)` on
+    conflict rather than a flat overwrite -- a guest's cell sometimes omits the
+    handicap span entirely (see `scraper._parse_hcp_span()`), and a `None` from *that*
+    sighting shouldn't erase a real value an earlier one already recorded.
 
     Called once per scrape (`scrape_once.run()`, right after `save_schedule()`) with
-    that scrape's own distinct player names -- piggybacks on a fetch that's already
-    happening rather than a separate pass over the whole database."""
-    if not names:
+    that scrape's own distinct players (by name -- last one wins for any duplicate
+    within the same scrape, which never differs in practice) -- piggybacks on a fetch
+    that's already happening rather than a separate pass over the whole database."""
+    if not sightings:
         return
     init_db(path)
     with sqlite3.connect(path) as conn:
         conn.executemany(
-            "INSERT INTO known_players (name, first_seen, last_seen) VALUES (?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET last_seen = excluded.last_seen",
-            [(name, seen_at, seen_at) for name in names],
+            "INSERT INTO known_players (name, first_seen, last_seen, gender, member_status, handicap) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET "
+            "last_seen = excluded.last_seen, "
+            "gender = COALESCE(excluded.gender, known_players.gender), "
+            "member_status = COALESCE(excluded.member_status, known_players.member_status), "
+            "handicap = COALESCE(excluded.handicap, known_players.handicap)",
+            [
+                (sighting.name, seen_at, seen_at, sighting.gender, sighting.member_status, sighting.handicap)
+                for sighting in sightings
+            ],
         )
 
 
 def load_known_players(path: Path = DEFAULT_DB_PATH) -> list[KnownPlayer]:
-    """Every name ever seen in this club's own scrapes, friends first then most
-    recently seen -- the directory screen's own listing (both front ends)."""
+    """Every name ever seen in this club's own scrapes, sorted alphabetically by
+    family name (2026-09-27, direct request; "better: make the player directory
+    sortable and searchable" -- this is just the default order both front ends load
+    with, before any in-screen re-sort) -- the directory screen's own listing (both
+    front ends). Sorted in Python, not SQL: `family_name()`'s own last-whitespace-
+    token rule isn't expressible as a plain `ORDER BY`."""
     if not path.exists():
         return []
     init_db(path)
     with sqlite3.connect(path) as conn:
         rows = conn.execute(
-            "SELECT name, first_seen, last_seen, is_friend FROM known_players "
-            "ORDER BY is_friend DESC, last_seen DESC"
+            "SELECT name, first_seen, last_seen, is_friend, gender, member_status, handicap FROM known_players"
         ).fetchall()
-    return [
-        KnownPlayer(name=name, first_seen=first_seen, last_seen=last_seen, is_friend=bool(is_friend))
-        for name, first_seen, last_seen, is_friend in rows
+    players = [
+        KnownPlayer(
+            name=name,
+            first_seen=first_seen,
+            last_seen=last_seen,
+            is_friend=bool(is_friend),
+            gender=gender,
+            member_status=member_status,
+            handicap=handicap,
+        )
+        for name, first_seen, last_seen, is_friend, gender, member_status, handicap in rows
     ]
+    players.sort(key=lambda p: (family_name(p.name).casefold(), p.name.casefold()))
+    return players
 
 
 def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:

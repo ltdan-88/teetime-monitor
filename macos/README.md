@@ -116,6 +116,47 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Player directory: sortable/searchable, wider sheet, gender/HCP/status columns (2026-09-27)
+
+Direct follow-up on the entry below: the sheet needed to fit its own content
+at a glance rather than truncating a long name, and the directory needed to
+be sorted alphabetically by family name and -- "better" -- sortable and
+searchable outright. Also answered a genuine open question in the same
+message ("further scrapable information... worth to display?") by checking
+the real authenticated tee sheet HTML directly: each player cell also
+carries a gender marker, membership status ("Mitglied"/"Gast"), and a live
+handicap -- confirmed with the user (wanted all three) before building it.
+
+`PlayerDirectorySheet` gained a search `TextField`, a sort `Picker` plus an
+ascending/descending toggle (`PlayerSortField`, mirroring
+`known_players_screen.py`'s own `_SORT_KEYS` field-for-field), and three new
+fixed-width columns (`Metrics.playerGender`/`.playerMemberStatus`/
+`.playerHandicap`, sized for the longer of the two languages this app ships
+-- same convention every other fixed-column row already follows). New
+`SheetSize.directory` (700×640) replaces `.browser` for this one sheet,
+sized as the actual sum of its own columns' widths so the widest real name
+("Bettina Brauch-Hasenmaier") never needs truncating. `KnownPlayer` gained a
+`familyName` sort key (last whitespace token -- same heuristic as
+`models.family_name()`, checked directly against this club's own 373 real
+names, including a hyphenated surname, a middle initial, and a leading
+title) -- now the directory's own default order in both front ends, and now
+cross-checked against Python (`CrossCheckRunner`'s new `family_name` group).
+
+A new `player-row-multi` `VisualRegressionRunner` fixture (four players
+spanning long/short names and present/missing gender/status/handicap) locks
+the new columns' alignment going forward -- deliberately rendering
+`PlayerRowColumns` alone rather than the full row, since a native `Button`'s
+own off-screen rendering falls outside that harness's documented scope (see
+its own "Scope, stated plainly" section) -- an early attempt that included
+the trailing friend button rendered it as an unrelated placeholder glyph,
+confirming that exclusion is real, not just theoretical.
+
+Verified via `swift build`, `TeetimeMonitorCoreTests` (196 assertions),
+`VisualRegressionRunner` (3 fixtures) and `CrossCheckRunner` (66 cases) --
+all pass. Live against the user's real database: a real scrape recorded
+gender/status/handicap for 111 of 374 known players, sorted correctly by
+family name.
+
 ## Search reflowed top/bottom; player directory reachable from Overview (2026-09-27)
 
 Direct follow-up feedback on the two entries below. Real names run longer than

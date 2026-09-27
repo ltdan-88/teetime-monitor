@@ -8,6 +8,44 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class PlayerSighting:
+    """One real name plus whatever else pc caddie's own authenticated tee-sheet
+    markup carries alongside it in the same cell (2026-09-27, direct follow-up to
+    authenticated scraping) — a gender marker (`.tt-show-name`'s own
+    `tt-show-male`/`tt-show-female`/`tt-show-unknown` class), member-vs-guest status,
+    and a live handicap, all read off `.tt-show-hcp`'s sibling span
+    ("Mitglied (25,1)"/"Gast"). Any field can be `None` — a guest's cell sometimes
+    omits the handicap entirely, and a name with no recognized gender class at all
+    just isn't recorded (`scraper._gender_from_classes()`'s own docstring). This is
+    `Slot.player_details`'s own element type — kept separate from `Slot.players`
+    (`list[str]`, unchanged) rather than replacing it, so every existing consumer of
+    a slot's plain name list (GUI display, `storage.slots`'s own JSON column) is
+    untouched; only `storage.record_seen_players()` reads this richer shape."""
+
+    name: str
+    gender: str | None = None  # "male" / "female" / "unknown" / None (not recorded)
+    member_status: str | None = None  # "member" / "guest" / None
+    handicap: float | None = None
+
+
+def family_name(full_name: str) -> str:
+    """The last whitespace-separated token of a name — used as the sort key
+    everywhere the player directory sorts "alphabetically by family name" (2026-09-27,
+    direct request). A real heuristic, not a parsed structured name: pc caddie only
+    ever gives a single free-text string, and this club's own 373 real names (checked
+    directly against the live directory before picking this rule) never needs more —
+    a hyphenated surname ("Brauch-Hasenmaier") is one token already, a middle initial
+    ("Aindrias T. Wall") leaves the real surname as the last token regardless, and a
+    leading title ("Dr.", "Prof.", "Dr. med.") never lands at the *end* of a name, so
+    it never fools this. The one acknowledged gap: a nobility/prefix particle
+    ("Dietrich von Bank") sorts under the following word ("Bank"), not folded into a
+    combined "von Bank" the way some formal German cataloguing conventions would —
+    simpler, and not worth a particle list for what pc caddie's own data actually
+    contains."""
+    return full_name.rsplit(maxsplit=1)[-1] if full_name.strip() else full_name
+
+
+@dataclass
 class Slot:
     time: str  # e.g. "09:10"
     booked: int
@@ -15,6 +53,10 @@ class Slot:
     players: list[str] = field(default_factory=list)  # real names only (pc caddie
     # friends); anonymized "Occupied" placeholders are counted in `booked`, not stored
     # here as fake player names — see ROADMAP.md "Confirmed pc caddie markup reference"
+    player_details: list[PlayerSighting] = field(default_factory=list)  # parallel to
+    # `players` (2026-09-27) — same names, plus whatever gender/member-status/handicap
+    # pc caddie's markup carried alongside them. Only ever non-empty when `players`
+    # is (an authenticated fetch) — see PlayerSighting's own docstring.
     block_reason: str | None = None  # None = genuine member occupancy (or fully open).
     # Otherwise the label pc caddie showed: an event/lesson/guest/sponsor name, or an
     # advance-booking-window notice. The latter isn't real occupancy at all — just "not
@@ -103,13 +145,27 @@ class KnownPlayer:
     `first_seen`/`last_seen` are ISO 8601 timestamps of when this name was recorded,
     not necessarily when it last had a real booking — a name already known stays
     known even through a stretch with no bookings, same "history isn't rewritten"
-    stance the rest of storage.py takes.
+    stance the rest of storage.py takes. Neither is shown in the directory UI
+    (2026-09-27, direct feedback: "i dont need the date when players have been
+    added") — kept in storage regardless, since `record_seen_players()`'s own upsert
+    needs `first_seen` to not get clobbered on a later sighting.
+
+    `gender`/`member_status`/`handicap` (2026-09-27, direct follow-up: "are there any
+    further scrapable information... that would be worth to display?" — checked
+    directly against the live authenticated tee sheet HTML, see
+    `PlayerSighting`'s own docstring) are each the *most recently seen* non-null
+    value for this name — `storage.record_seen_players()`'s own upsert keeps a prior
+    value rather than clearing it if one particular sighting happened to omit it
+    (a guest's cell sometimes has no handicap span at all).
     """
 
     name: str
     first_seen: str
     last_seen: str
     is_friend: bool = False
+    gender: str | None = None
+    member_status: str | None = None
+    handicap: float | None = None
 
 
 @dataclass

@@ -67,6 +67,25 @@ private let multiSlotDay = Day(
     sunrise: "07:16", sunset: "19:14", events: [], bookedTime: "10:00"
 )
 
+/// Four players spanning every real gap this row's fixed columns need to survive:
+/// a long name against a short one, present vs. missing gender/status/handicap, and
+/// a marked vs. unmarked friend (different button label -- see `Metrics.playerName`/
+/// `.playerGender`/`.playerMemberStatus`/`.playerHandicap`'s own docstring for why
+/// only the trailing button is allowed to vary in width at all). This is the fixture
+/// that would have caught a `PlayerDirectorySheet` column-width regression directly:
+/// dropping any of `PlayerRow`'s own `.frame()`s shows up as the gender/status/HCP
+/// cells no longer lining up between these four rows.
+private let multiPlayers: [KnownPlayer] = [
+    KnownPlayer(name: "Bettina Brauch-Hasenmaier", lastSeen: "2026-09-27T10:00:00+00:00",
+                isFriend: false, gender: "female", memberStatus: "member", handicap: 36.6),
+    KnownPlayer(name: "Al Yu", lastSeen: "2026-09-26T10:00:00+00:00",
+                isFriend: true, gender: "male", memberStatus: "guest", handicap: 12.3),
+    KnownPlayer(name: "Dr. med. Philipp Dalheimer", lastSeen: "2026-09-25T10:00:00+00:00",
+                isFriend: false, gender: nil, memberStatus: nil, handicap: nil),
+    KnownPlayer(name: "Erika Mustermann", lastSeen: "2026-09-24T10:00:00+00:00",
+                isFriend: false, gender: "unknown", memberStatus: "member", handicap: 5.0),
+]
+
 let allCases: [VisualRegressionCase] = [
     // Wide enough that leadingSummary's own natural content and the trailing
     // heat-strip/badge overlay (anchored to leadingSummary's *resolved* frame,
@@ -90,6 +109,16 @@ let allCases: [VisualRegressionCase] = [
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(multiSlotDay.slots) { slot in
                     SlotRow(slot: slot, day: multiSlotDay, model: model)
+                }
+            }
+            .padding(8)
+        )
+    },
+    VisualRegressionCase(name: "player-row-multi", size: CGSize(width: 500, height: 170)) {
+        AnyView(
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(multiPlayers) { player in
+                    HStack { PlayerRowColumns(player: player) }
                 }
             }
             .padding(8)
