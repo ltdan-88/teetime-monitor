@@ -13,7 +13,7 @@ separation (e.g. `data/<club_slug>.db`, one per `clubs/*.yaml`), matching how
 club_config.py already treats each club as its own file. Keeps every function's
 signature here identical to what a single-club tool would need.
 
-Four tables:
+Five tables:
 - `scrapes` — one row per scrape *event* (course/date/timestamp) — a batch header.
 - `slots` and `weather_points` — the actual per-time-slot data for one scrape, each row
   pointing back at its `scrapes.id`. Split out (rather than one wide flat table) because
@@ -40,6 +40,12 @@ Four tables:
   represent; `i18n.render_booking_change()` uses `kind` + `params` to show the change
   in whatever language is current when the TUI actually displays it, not whatever was
   current hours or days earlier when the scheduled scrape ran.
+- `known_players` — added 2026-09-27, once authenticated scraping made real names
+  possible at all (see `scraper.scrape_schedule()`'s own `client` parameter): every
+  name ever seen in a `Slot.players` list, so it's browsable as a directory rather
+  than buried in whichever day's scrape happened to record it, with `is_friend` the
+  one field a person actually edits (via the TUI/GUI's own directory screen) — see
+  `models.KnownPlayer`.
 
 Implemented and tested 2026-09-06. Not yet covered here: a lookup for a *specific*
 historical scrape (e.g. "the schedule as of when this booking was confirmed") — only
@@ -54,7 +60,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import ConfirmedBooking, Schedule, Slot, SunTimes, WeatherPoint
+from .models import ConfirmedBooking, KnownPlayer, Schedule, Slot, SunTimes, WeatherPoint
 
 DEFAULT_DB_PATH = Path("teetime.db")
 
@@ -116,6 +122,13 @@ CREATE TABLE IF NOT EXISTS booking_changes (
 CREATE TABLE IF NOT EXISTS club_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL        -- JSON-encoded
+);
+
+CREATE TABLE IF NOT EXISTS known_players (
+    name TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL,  -- ISO 8601 timestamp
+    last_seen TEXT NOT NULL,   -- ISO 8601 timestamp
+    is_friend INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -509,3 +522,61 @@ def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
     with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT value FROM club_meta WHERE key = 'location'").fetchone()
     return json.loads(row[0]) if row else None
+
+
+def record_seen_players(names: list[str], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
+    """Upsert each name into `known_players` -- a new row (both timestamps set to
+    `seen_at`) the first time a name is ever seen, or just `last_seen` bumped on every
+    later sighting. `is_friend` is never touched here, on purpose: it's the one field
+    a person actually sets (via the directory screen), and a later scrape re-seeing an
+    already-marked friend must not silently reset it back to false.
+
+    Called once per scrape (`scrape_once.run()`, right after `save_schedule()`) with
+    that scrape's own distinct player names -- piggybacks on a fetch that's already
+    happening rather than a separate pass over the whole database."""
+    if not names:
+        return
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.executemany(
+            "INSERT INTO known_players (name, first_seen, last_seen) VALUES (?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET last_seen = excluded.last_seen",
+            [(name, seen_at, seen_at) for name in names],
+        )
+
+
+def load_known_players(path: Path = DEFAULT_DB_PATH) -> list[KnownPlayer]:
+    """Every name ever seen in this club's own scrapes, friends first then most
+    recently seen -- the directory screen's own listing (both front ends)."""
+    if not path.exists():
+        return []
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT name, first_seen, last_seen, is_friend FROM known_players "
+            "ORDER BY is_friend DESC, last_seen DESC"
+        ).fetchall()
+    return [
+        KnownPlayer(name=name, first_seen=first_seen, last_seen=last_seen, is_friend=bool(is_friend))
+        for name, first_seen, last_seen, is_friend in rows
+    ]
+
+
+def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:
+    """Just the names marked `is_friend` -- what `recommend.ranked_matches()` actually
+    needs, without loading (or the caller having to filter) the whole directory."""
+    if not path.exists():
+        return set()
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute("SELECT name FROM known_players WHERE is_friend = 1").fetchall()
+    return {name for (name,) in rows}
+
+
+def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) -> None:
+    """Mark (or unmark) one known name as a friend -- the directory screen's own edit
+    action. A no-op if `name` was never actually seen (nothing to mark), rather than
+    inserting a friend with no real sighting behind it."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE known_players SET is_friend = ? WHERE name = ?", (int(is_friend), name))

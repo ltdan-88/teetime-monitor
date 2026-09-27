@@ -215,3 +215,25 @@ def test_defaults_to_todays_date_and_six_days_when_omitted(tmp_path, monkeypatch
 
     assert len(captured_dates) == 6
     assert captured_dates[0] == date.today().isoformat()
+
+
+def test_marked_friend_sorts_first_when_prioritize_friends_is_on(tmp_path, monkeypatch, capsys):
+    global_preferences.save_preferences({"preferences": {"prioritize_friends": True}})
+    db = tmp_path / "0000001.db"
+    save_schedule(Schedule(date="2026-09-20", course="18 Loch Tee 1", slots=[  # a Sunday
+        Slot(time="09:10", booked=1, capacity=4, players=["A Stranger"]),
+        Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+    ]), path=db)
+    from src import storage
+
+    storage.record_seen_players(["A Stranger", "Erika Mustermann"], "2026-09-20T10:00:00+00:00", path=db)
+    storage.set_player_friend("Erika Mustermann", True, path=db)
+
+    result, code = _run(
+        monkeypatch, capsys,
+        {"min_open_spots": 1, "weekend_window": {"after": None, "before": None}},
+        ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-20", "--days", "1"],
+    )
+
+    assert code == 0
+    assert [row["time"] for row in result] == ["18:00", "09:10"]

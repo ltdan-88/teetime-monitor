@@ -125,7 +125,8 @@ def main(argv: list[str] | None = None) -> None:
             schedules.append(schedule)
 
     crowd_estimates = tui_module._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
-    matches = ranked_matches(schedules, criteria, config, crowd_estimates=crowd_estimates)
+    friend_names = storage.load_friend_names(path=Path(db_path))
+    matches = ranked_matches(schedules, criteria, config, crowd_estimates=crowd_estimates, friend_names=friend_names)
     print(json.dumps([
         {
             "date": match.date,

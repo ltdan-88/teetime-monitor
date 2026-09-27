@@ -32,6 +32,16 @@ struct Slot: Identifiable {
     var fill: Double { capacity > 0 ? Double(booked) / Double(capacity) : 0 }
 }
 
+/// Mirrors `models.KnownPlayer` -- a real name seen in some `Slot.players` list
+/// (2026-09-27, only possible from an authenticated scrape), browsable in the
+/// directory sheet with `isFriend` the one field a person actually edits.
+struct KnownPlayer: Identifiable {
+    var id: String { name }
+    let name: String
+    let lastSeen: String
+    let isFriend: Bool
+}
+
 struct WeatherPoint {
     let time: String
     let precipitationProbability: Double?
@@ -182,6 +192,35 @@ enum Store {
         write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
               + "VALUES (?, ?, NULL, NULL, 'manual', ?)",
               [course, date, isoNow()])
+    }
+
+    /// Every real name this club's own scrapes have ever seen (2026-09-27), friends
+    /// first then most recently seen -- mirrors `storage.load_known_players()`'s own
+    /// ordering exactly, same reasoning: friends are what a person actually came here
+    /// to look at. Silently empty (not an error) for a database that predates this
+    /// feature -- `known_players` won't exist yet, and `query()`'s own guard already
+    /// degrades a failed prepare to "no rows" rather than crashing.
+    static func knownPlayers(dbPath: String) -> [KnownPlayer] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+        var players: [KnownPlayer] = []
+        query(db, "SELECT name, last_seen, is_friend FROM known_players ORDER BY is_friend DESC, last_seen DESC") { s in
+            players.append(KnownPlayer(
+                name: column(s, 0) ?? "",
+                lastSeen: column(s, 1) ?? "",
+                isFriend: sqlite3_column_int(s, 2) != 0
+            ))
+        }
+        return players
+    }
+
+    /// Marks (or unmarks) one known name as a friend -- the directory sheet's own
+    /// selection action, same "just do it, no separate Save step" shape a toggle
+    /// implies. A no-op if `name` was never actually seen, mirroring
+    /// `storage.set_player_friend()`'s own stance exactly.
+    static func setPlayerFriend(dbPath: String, name: String, isFriend: Bool) {
+        write(dbPath, "UPDATE known_players SET is_friend = ? WHERE name = ?", [isFriend ? "1" : "0", name])
     }
 
     static func banners(dbPath: String) -> [Banner] {

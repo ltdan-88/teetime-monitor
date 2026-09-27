@@ -230,6 +230,32 @@ def test_rank_slots_never_sends_player_names_to_the_ai_provider(monkeypatch):
     assert "friends" not in prompt.lower()
 
 
+def test_rank_slots_includes_a_friend_count_but_never_a_name(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00", players=["Erika Mustermann", "A Stranger"])]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {"friend_names": {"Erika Mustermann"}}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "1 friend(s) already booked" in prompt
+    assert "Erika Mustermann" not in prompt
+    assert "A Stranger" not in prompt
+
+
+def test_rank_slots_omits_the_friend_count_line_when_no_friend_is_in_the_slot(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00", players=["A Stranger"])]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {"friend_names": {"Erika Mustermann"}}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "friend" not in prompt.lower()
+
+
 def test_rank_slots_omits_weather_without_schedule_context(monkeypatch):
     candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
     ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])

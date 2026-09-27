@@ -52,10 +52,19 @@ struct IntChoicePicker: View {
 /// you*. Reads/writes the same `preferences.yaml` directly -- see
 /// `PreferencesStore.swift` for the verified round-trip with Python.
 struct PreferencesSheet: View {
+    // Added 2026-09-27, for the new "Player directory" button below --
+    // prioritize_friends is otherwise a plain preferences.yaml toggle with no club
+    // context at all, but the directory it finally gives real effect to is per-club
+    // (known_players lives in that club's own database, same as everything else this
+    // app scrapes). Empty for a fresh install with nothing scraped yet -- the sheet
+    // itself handles that the same way KnownPlayersScreen's TUI counterpart does.
+    let dbPath: String
+
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var language = AppLanguage.shared
     @StateObject private var prefs = Box(Preferences.load())
     @StateObject private var status = Box<String?>(nil)
+    @StateObject private var showingPlayerDirectory = Box(false)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -124,6 +133,8 @@ struct PreferencesSheet: View {
                 }
                 Section(t("prefs.section.priorities")) {
                     Toggle(t("prefs.prioritize_friends"), isOn: $prefs.value.prioritizeFriends)
+                    Button(t("prefs.player_directory")) { showingPlayerDirectory.value = true }
+                        .disabled(dbPath.isEmpty)
                 }
             }
             .formStyle(.grouped)
@@ -146,6 +157,7 @@ struct PreferencesSheet: View {
             .padding(16)
         }
         .sheetFrame(SheetSize.form)
+        .sheet(isPresented: $showingPlayerDirectory.value) { PlayerDirectorySheet(dbPath: dbPath) }
     }
 }
 

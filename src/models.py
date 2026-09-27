@@ -92,6 +92,27 @@ class ConfirmedBooking:
 
 
 @dataclass
+class KnownPlayer:
+    """One real name ever seen in a `Slot.players` list (2026-09-27) — only possible
+    at all from an authenticated scrape, see `scraper.scrape_schedule()`'s own
+    `client` parameter. Accumulated automatically (`scrape_once.run()` calls
+    `storage.record_seen_players()` after every scrape), browsable as a directory in
+    both front ends, with `is_friend` the one thing a person actually edits —
+    everything else here is derived from what scraping has already observed.
+
+    `first_seen`/`last_seen` are ISO 8601 timestamps of when this name was recorded,
+    not necessarily when it last had a real booking — a name already known stays
+    known even through a stretch with no bookings, same "history isn't rewritten"
+    stance the rest of storage.py takes.
+    """
+
+    name: str
+    first_seen: str
+    last_seen: str
+    is_friend: bool = False
+
+
+@dataclass
 class DateRange:
     """A labeled span of dates — used for a club's manually-entered vacation periods
     (ROADMAP.md Phase 2), since there's no universal free API for those."""

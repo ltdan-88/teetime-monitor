@@ -116,6 +116,26 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Player directory + real "prioritize friends" (2026-09-27)
+
+Real names from authenticated scraping were only ever visible per-slot --
+this is a browsable directory over that same data (a new `known_players`
+table, populated incrementally on every scrape), with the ability to mark
+some as friends. That finally gives `prioritize_friends` (a no-op preference
+until now) two real effects, confirmed with the user before building either:
+a deterministic sort in `recommend.ranked_matches()` that works even with AI
+off, and a friend *count* (never a name) fed into the AI prompt when ranking
+is on.
+
+New `PlayerDirectorySheet` needed no CLI script -- `Store.swift` already
+writes directly to SQLite for simple reads/writes, so
+`knownPlayers()`/`setPlayerFriend()` just follow that same shape. Opened from
+a new button in `PreferencesSheet`'s "Priorities" section, right next to the
+toggle it gives effect to. Verified live against the real database: a real
+scrape captured 373 real names, marking one a friend sorted their real slot
+first, and the AI prompt was confirmed to contain only a count, never the
+name.
+
 ## Authenticated scraping: real player names (2026-09-27)
 
 The user found, live, that logging into pc caddie's own site showed other

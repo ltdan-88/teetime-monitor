@@ -908,7 +908,9 @@ def test_action_fields_have_no_value_to_round_trip(tmp_path):
     from src.settings_screen import config_to_widget_values, widget_values_to_config
 
     action_fields = [f for f in FIELDS if f.kind == "action"]
-    assert {f.label_key for f in action_fields} == {"settings.field.login", "settings.field.ai_credentials"}
+    assert {f.label_key for f in action_fields} == {
+        "settings.field.login", "settings.field.ai_credentials", "settings.field.player_directory",
+    }
     for field in action_fields:
         assert field.open_screen is not None
 
