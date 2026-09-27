@@ -560,7 +560,22 @@ def _parse_my_reservations_html(html: str, known_courses: list[str] | None = Non
     (see `scrape_once._report_reservations_sync_failure()`) instead of silently
     cancelling a real booking. Optional, so the pure parser stays testable against
     fixture HTML with no club context."""
-    if "No bookings found" in html or "Keine Buchungen gefunden" in html:
+    if (
+        "No bookings found" in html
+        or "Keine Buchungen gefunden" in html
+        # The real German empty-state text, confirmed live 2026-09-27 (direct
+        # report: "Deine Buchungen konnten nicht geprüft werden — pc caddie hat
+        # seine Seite geändert"): a genuine break, not a stale guess elsewhere
+        # in this app -- the account had a real booking that parsed correctly
+        # as recently as 2026-09-26 (confirmed_bookings, source="my_reservations"),
+        # so only the empty-state text stopped matching once that booking's own
+        # date passed and the list actually emptied out. "Keine Buchungen
+        # gefunden" was apparently never the real text at all -- kept here
+        # anyway in case a different locale/mode still uses it, since matching
+        # one extra string costs nothing and a live re-check isn't possible for
+        # every account state.
+        or "Es wurden keine Reservierungen gefunden" in html
+    ):
         return []
 
     soup = BeautifulSoup(html, "html.parser")

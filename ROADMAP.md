@@ -5396,6 +5396,35 @@ screenshot. Offset below them (`margin-top: 2`).
 
 900 tests passing (`pytest`), `ruff check` clean.
 
+## My Reservations sync: pc caddie's real "no reservations" text was never matched (2026-09-27)
+
+Follow-up to the TUI/GUI consistency audit's renders, which both showed a
+standing "Deine Buchungen konnten nicht geprüft werden — pc caddie hat seine
+Seite geändert" banner. Investigated against the real site rather than
+assumed: fetched "My Reservations" live and found `_parse_my_reservations_html()`
+recognized neither the confirmed empty-state text nor the `meine-buchungen`
+table, because the real page reads "Es wurden keine Reservierungen gefunden."
+-- a string that was, as far as this codebase's own history shows, never
+actually confirmed live; "Keine Buchungen gefunden" looks like a guessed
+translation of the real English text that happened to go unnoticed for weeks
+because the account had a real booking (which parses via the unrelated table
+path) right up until 2026-09-26. Once that booking's own date passed and the
+list genuinely emptied, the guessed string's mismatch finally had something to
+surface on.
+
+Fixed by recognizing the real text too (`scraper._parse_my_reservations_html()`),
+confirmed against a live fetch and a trimmed real fixture in a new test. No
+change to the table-parsing path itself — real data (`confirmed_bookings`,
+`source="my_reservations"`, dated 2026-09-26) already showed it still works
+unmodified, so there was nothing there to guess at fixing blind.
+`_sync_my_reservations()`'s own dedup/self-heal design needed no change either:
+verified live that the stale banner clears on the very next successful sync,
+with no manual dismissal needed.
+
+901 tests passing (`pytest`, 1 new), `ruff check` clean. Verified live,
+end to end, against the real account: the standing banner is gone after one
+real sync pass.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
