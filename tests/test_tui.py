@@ -2625,12 +2625,51 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "enter" in text and "Open / book" in text
             assert "r" in text and "Refresh" in text
-            assert "c" in text and "Collapse" in text
-            assert "x" in text and "Dismiss" in text
+            # `c`/`x` only while they'd do something (2026-09-27, bundle D --
+            # see OverviewScreen._refresh_footer()): nothing expanded, no banner.
+            assert "Collapse" not in text
+            assert "Dismiss" not in text
             assert "?" in text and "Legend" in text
             assert "t" in text and "Actions" in text
+            # The four main actions have direct keys again, named here
+            # (2026-09-27, bundle D -- reversing 2026-09-16's palette-only design
+            # at the user's own choice); Settings stays in the palette only.
+            assert "[b]/[/b] Search" in text
+            assert "[b]h[/b] Heatmap" in text
+            assert "[b]p[/b] Players" in text
+            assert "[b],[/b] Preferences" in text
             assert "Settings" not in text
-            assert "Search" not in text
+
+            app.screen._expanded_dates = {tui._TODAY()}
+            await app.screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            assert "[b]c[/b] Collapse" in app.screen.query_one(tui.TranslatedFooter).render()
+
+    _run(scenario())
+
+
+def test_overview_screen_direct_keys_open_their_screens_and_escape_returns_to_the_overview(tmp_path, monkeypatch):
+    """2026-09-27, bundle D: `/`, `h`, `p` open their screens directly; escape goes
+    straight back to the overview, not into the Actions palette (only opening
+    from the palette itself returns there -- see OverviewScreen._open())."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            for key, screen_class in (
+                ("slash", tui.SearchScreen),
+                ("h", tui.HeatmapScreen),
+                ("p", tui.KnownPlayersScreen),
+            ):
+                await pilot.press(key)
+                await pilot.pause()
+                assert isinstance(app.screen, screen_class), key
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, tui.OverviewScreen), key
 
     _run(scenario())
 

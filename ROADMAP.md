@@ -5373,6 +5373,29 @@ holes before sunset is 14:40 and moving earlier daily.
 `VisualRegressionRunner` (3) all pass. Verified on real renders of both apps
 against the user's own database.
 
+## TUI/GUI consistency audit, bundle D: direct keys for the main actions (2026-09-27)
+
+Last of the four bundles. The GUI has always shown Search, Heatmap, Players and
+Preferences as visible toolbar buttons (plus menu entries); the TUI reached them
+only through `t` (Actions) since 2026-09-16's deliberately palette-only design.
+The user chose to reverse that: `/` Search, `h` Heatmap, `p` Players, `,`
+Preferences are bound again and named in the footer, with the palette unchanged
+beside them. Opened by its own key, a screen's escape now returns straight to the
+overview (`OverviewScreen._open(..., via_palette=False)`); opened from the
+palette it still reopens the palette, as asked for on 2026-09-16.
+
+To keep the longer footer compact, `c` and `x` are only listed while they'd do
+something -- a day expanded, a banner showing (`_refresh_footer()`); both stay
+bound regardless. German "Vorgaben" became "Präferenzen" in the TUI, the word the
+GUI (and bundle C's own hint) already used.
+
+Also fixed, found in the same renders: the pinned day header docked over the
+first line of the table's two-line column titles, hiding "Datum/Zeit",
+"Belegung" etc. whenever it appeared -- visible in the user's own original
+screenshot. Offset below them (`margin-top: 2`).
+
+900 tests passing (`pytest`), `ruff check` clean.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.
