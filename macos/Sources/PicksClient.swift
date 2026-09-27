@@ -9,6 +9,39 @@ struct DayPick {
     let reasons: [String]
 }
 
+/// Everything `picks_cli.py` says about one day beyond its pick (2026-09-27,
+/// bundle C of the TUI/GUI consistency audit): your own availability window
+/// for that date -- what out-of-window slots are dimmed by and an expanded day
+/// scrolls to -- and, with no pick, why (`"daylight"`/`"weather"`). Decided in
+/// Python (`recommend.window_for_date()`, `recommend.unplayable_reasons()`),
+/// never re-derived here, so the two apps can't disagree about either.
+struct DayVerdict {
+    let windowAfter: String?
+    let windowBefore: String?
+    let unplayable: [String]
+
+    func isOutsideWindow(_ time: String) -> Bool {
+        if let after = windowAfter, time < after { return true }
+        if let before = windowBefore, time > before { return true }
+        return false
+    }
+}
+
+/// `recommend.window_too_late_hint()`'s own numbers -- your window opens after
+/// the latest start that still finishes before dark, on several days running.
+struct WindowHint {
+    let windowAfter: String
+    let latestStart: String
+    let sunset: String
+    let roundMinutes: Int
+}
+
+struct PicksResult {
+    var picks: [String: DayPick] = [:]
+    var verdicts: [String: DayVerdict] = [:]
+    var hint: WindowHint?
+}
+
 /// Shells out to `teetime-monitor-picks`, the Tier 2 console script wrapping
 /// `tui._availability_pipeline()` -- same hybrid split `SearchClient` already
 /// follows, for the same reason: the pick selection (hard filters, weather/daylight
@@ -44,8 +77,8 @@ enum PicksClient {
     /// correctly before this existed and must keep doing so if the call fails for
     /// any reason (same stance `_availability_pipeline()` itself takes).
     static func run(dbPath: String, course: String, clubSlug: String?, from: String, days: Int,
-                     done: @escaping ([String: DayPick]) -> Void) {
-        guard let exe = executable() else { done([:]); return }
+                     done: @escaping (PicksResult) -> Void) {
+        guard let exe = executable() else { done(PicksResult()); return }
         DispatchQueue.global(qos: .utility).async {
             let task = Process()
             task.executableURL = URL(fileURLWithPath: exe)
@@ -55,27 +88,46 @@ enum PicksClient {
             let stdout = Pipe(), stderr = Pipe()
             task.standardOutput = stdout; task.standardError = stderr
             do { try task.run() } catch {
-                DispatchQueue.main.async { done([:]) }
+                DispatchQueue.main.async { done(PicksResult()) }
                 return
             }
             task.waitUntilExit()
             let outData = stdout.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
                 guard let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    done([:])
+                    done(PicksResult())
                     return
                 }
-                var picks: [String: DayPick] = [:]
-                for (date, value) in obj {
-                    guard let row = value as? [String: Any], let time = row["time"] as? String else { continue }
-                    picks[date] = DayPick(
-                        time: time,
-                        score: row["score"] as? Double ?? 0,
-                        reasons: row["reasons"] as? [String] ?? []
-                    )
-                }
-                done(picks)
+                done(parse(obj))
             }
         }
+    }
+
+    /// Split out of `run()` so it's testable without a subprocess.
+    static func parse(_ obj: [String: Any]) -> PicksResult {
+        var result = PicksResult()
+        if let hint = obj["_hint"] as? [String: Any],
+           let after = hint["window_after"] as? String, let latest = hint["latest_start"] as? String,
+           let sunset = hint["sunset"] as? String {
+            result.hint = WindowHint(windowAfter: after, latestStart: latest, sunset: sunset,
+                                     roundMinutes: hint["round_minutes"] as? Int ?? 0)
+        }
+        for (date, value) in obj where date != "_hint" {
+            guard let row = value as? [String: Any] else { continue }
+            let window = row["window"] as? [String: Any]
+            result.verdicts[date] = DayVerdict(
+                windowAfter: window?["after"] as? String,
+                windowBefore: window?["before"] as? String,
+                unplayable: row["unplayable"] as? [String] ?? []
+            )
+            if let time = row["time"] as? String {
+                result.picks[date] = DayPick(
+                    time: time,
+                    score: row["score"] as? Double ?? 0,
+                    reasons: row["reasons"] as? [String] ?? []
+                )
+            }
+        }
+        return result
     }
 }

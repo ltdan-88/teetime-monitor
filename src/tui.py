@@ -1503,15 +1503,35 @@ def _compute_slot_rows(
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
     sunset_row = _closest_slot_time(slot_times, schedule.sun_times.sunset) if schedule.sun_times else None
+    # Your own window for this date (2026-09-27, bundle C of the TUI/GUI
+    # consistency audit): slots outside it are dimmed the same way past ones
+    # already are, so an expanded day of ~80 slots reads as "these few are the
+    # ones you'd actually book". Decided by recommend.window_for_date(), the
+    # same function the GUI's own dimming gets its window from (via
+    # picks_cli.py), never re-derived here.
+    window = recommend.window_for_date(date, config)
     rows: list[SlotRowCells] = []
     for slot in schedule.slots:
+        # Nothing before the sunrise row or after the sunset row (bundle C, same
+        # rule as the GUI's own day card): a tee time in the dark isn't one
+        # anyone books, and it was a dozen rows of noise ahead of the real day.
+        # The two rows carrying the sunrise/sunset notes themselves stay.
+        if sunrise_row is not None and slot.time < sunrise_row:
+            continue
+        if sunset_row is not None and slot.time > sunset_row:
+            continue
+        outside_window = window is not None and (
+            (window.after is not None and slot.time < window.after)
+            or (window.before is not None and slot.time > window.before)
+        )
         is_past = now is not None and slot.time < now
+        faded = is_past or outside_window
         markers = []
         if slot.time in recommended_times and not is_past:
             markers.append("★")
         elif not is_past and _too_late_for_daylight(slot.time, schedule, config):
             markers.append("🌙")
-        time_cell = _dim_if(slot.time, is_past)
+        time_cell = _dim_if(slot.time, faded)
         if markers:
             time_cell = f"{' '.join(markers)} {time_cell}"
         extra_events = []
@@ -1521,10 +1541,10 @@ def _compute_slot_rows(
             extra_events.append(i18n.t("events.sunset", time=schedule.sun_times.sunset))
         if confirmed is not None and slot.time == confirmed.time:
             extra_events.append(f"📌 {i18n.t('overview.booked')}")
-        condition_cell = _dim_if(_slot_condition_cell(schedule.weather, slot.time), is_past)
-        temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units), is_past)
-        precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units), is_past)
-        wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units), is_past)
+        condition_cell = _dim_if(_slot_condition_cell(schedule.weather, slot.time), faded)
+        temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units), faded)
+        precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units), faded)
+        wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units), faded)
         if slot.block_reason is not None:
             event_text = ", ".join([_slot_event_cell(slot), *extra_events])
             rows.append(
@@ -1541,7 +1561,7 @@ def _compute_slot_rows(
                 )
             )
             continue
-        style = f"dim {_fill_style(slot.booked, slot.capacity)}" if is_past else _fill_style(slot.booked, slot.capacity)
+        style = f"dim {_fill_style(slot.booked, slot.capacity)}" if faded else _fill_style(slot.booked, slot.capacity)
         # Free seats, not "booked/capacity" (2026-09-27, found comparing real renders
         # of both apps): the GUI has always said "2 frei" for the very slot this
         # used to render as "2/4" -- same number, opposite meaning, depending on
@@ -1560,7 +1580,7 @@ def _compute_slot_rows(
                 time_cell,
                 condition_cell,
                 occupancy,
-                _dim_if(players, is_past and bool(players)),
+                _dim_if(players, faded and bool(players)),
                 temperature_cell,
                 precipitation_cell,
                 wind_cell,
@@ -1568,6 +1588,24 @@ def _compute_slot_rows(
             )
         )
     return rows
+
+
+def _window_hint_text(hint: dict | None) -> str:
+    """`recommend.window_too_late_hint()`'s own numbers, as one line for
+    `OverviewScreen`'s #hint (2026-09-27, bundle C) -- said once, with what to
+    change, rather than implied by "too dark to finish" on day after day."""
+    if hint is None:
+        return ""
+    hours = hint["round_minutes"] / 60
+    hours_text = f"{hours:g}".replace(".", "," if i18n.get_language() == "de" else ".")
+    text = i18n.t(
+        "overview.hint_window_too_late",
+        after=hint["window_after"],
+        hours=hours_text,
+        sunset=hint["sunset"],
+        latest=hint["latest_start"],
+    )
+    return f"[yellow]💡[/] {text}"
 
 
 def _day_pick_text(
@@ -2127,10 +2165,10 @@ _SWITCHER_CSS = """
 # with in compose(); see _AutoHideStatic's own docstring for why this lives in
 # CSS rather than a per-widget default and why update() is what flips it back.
 _AUTO_HIDE_CSS = """
-#banners, #status, #row-detail {
+#banners, #status, #row-detail, #hint {
     display: none;
 }
-#row-detail {
+#row-detail, #hint {
     padding: 0 1;
 }
 """
@@ -2667,6 +2705,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         yield from self._compose_switcher()
         yield _AutoHideStatic("", id="banners")
         yield _AutoHideStatic("", id="status")
+        yield _AutoHideStatic("", id="hint")
         with Container(id="table-container"):
             yield DataTable(id="overview-table", header_height=2)
             # The sticky pinned-header row -- see _update_sticky_header()'s own
@@ -3312,6 +3351,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # fixed for. See this method's own docstring for the report.
         await self._prewarm_pick_cache(config, dates, open_dates)
         schedules = self._render_table(config, dates, open_dates)
+        self.query_one("#hint", _AutoHideStatic).update(_window_hint_text(recommend.window_too_late_hint(schedules, config)))
         table = self.query_one("#overview-table", DataTable)
 
         if keep_cursor:
@@ -3395,9 +3435,34 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def _toggle_expanded(self, date: str, row: int) -> None:
         if date in self._expanded_dates:
             self._expanded_dates.discard(date)
-        else:
-            self._expanded_dates.add(date)
+            self._rerender_preserving_cursor(row)
+            return
+        self._expanded_dates.add(date)
         self._rerender_preserving_cursor(row)
+        # Straight to the part of the day you'd actually book (2026-09-27, bundle
+        # C of the TUI/GUI consistency audit) instead of leaving you on the
+        # summary row with ~60 early slots between you and your own window --
+        # the pinned day header (_update_sticky_header()) keeps the day itself
+        # in view once the cursor moves down into it.
+        target = self._focus_row_for(date)
+        if target is not None:
+            self.query_one("#overview-table", DataTable).move_cursor(row=target)
+
+    def _focus_row_for(self, date: str) -> int | None:
+        """The expanded `date`'s own row to land on: its ★ pick when it has one,
+        otherwise the first slot at or after your window opens -- None (stay put)
+        with neither."""
+        _, playable = self._pick_cache.get((date, self.course), ([], []))
+        wanted = playable[0].slot.time if playable else None
+        if wanted is None:
+            window = recommend.window_for_date(date, self._config())
+            wanted = window.after if window is not None else None
+        if wanted is None:
+            return None
+        for index, (row_date, slot_time) in enumerate(self._row_index):
+            if row_date == date and slot_time is not None and slot_time >= wanted:
+                return index
+        return None
 
     def _confirm_or_cancel_slot(self, date: str, slot_time: str, row: int) -> None:
         """`enter` on an expanded slot row -- the exact same confirm-or-cancel

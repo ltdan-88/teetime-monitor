@@ -5341,6 +5341,38 @@ and pushed its most important column (the recommendation) off-screen -- only
 Result at 80x24: all five days visible, the recommendation on screen, no
 horizontal scrollbar. 892 tests passing (`pytest`, 5 new), `ruff check` clean.
 
+## TUI/GUI consistency audit, bundle C: focus on your own window, in both apps (2026-09-27)
+
+Third of four bundles. The audit's renders showed the same day saying "too dark
+to finish" three days running with no explanation, and an expanded day putting
+~60 slots you'd never book between you and your own window.
+
+New shared helpers in `recommend.py` -- `window_for_date()`, `latest_start()`,
+`window_too_late_hint()` -- decide all of this once, in Python: the TUI calls
+them directly, and `picks_cli.py` now hands the GUI each day's own window and,
+with no pick, the reason (`"unplayable": ["daylight"]`), plus a top-level
+`_hint`. Nothing about "which slots are yours" or "why no pick" is re-derived in
+Swift. On the real club this found the actual cause behind the repeated "too
+dark": a 16:00 weekday window, while the latest start that still finishes 18
+holes before sunset is 14:40 and moving earlier daily.
+
+- **One hint, with what to change**, when your window opens after that latest
+  start on two or more days: the TUI's new `#hint` line, the GUI's hint row
+  (with a Preferences button).
+- **Why there's no pick, in the GUI too.** A 🌙 / 🌧 capsule in the pick
+  badge's own fixed-width column (full sentence on hover) -- the TUI always
+  said it; the GUI showed nothing.
+- **Sunrise row through sunset row** only, in both apps (the GUI had its own
+  07:00-19:30 clip, the TUI showed everything from 06:00).
+- **Out-of-window slots dimmed**, in both apps.
+- **Expanding a day jumps to your window** -- the ★ pick, or the first slot
+  your window opens at: the TUI moves its cursor there, the GUI scrolls to it.
+
+899 Python tests (`pytest`, 8 new), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (209, 13 new in the new `PicksClientTests`),
+`VisualRegressionRunner` (3) all pass. Verified on real renders of both apps
+against the user's own database.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

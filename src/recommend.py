@@ -55,7 +55,7 @@ from . import ai_assist, i18n, playability
 from . import weather as weather_module
 from .models import Schedule, SlotMatch, TimeWindow
 from .scraper import _holes_from_course_label
-from .search import SearchCriteria, resolve_buffer_minutes, search
+from .search import SearchCriteria, _window_for_date, resolve_buffer_minutes, search
 
 # See the module docstring's "genuine design gap" note — club.example.yaml's
 # avoid_rain/avoid_wind are booleans, not thresholds, so exclude_unplayable() needs its
@@ -83,6 +83,65 @@ def default_criteria_from_config(config: dict) -> SearchCriteria:
         buffer_before_minutes=resolve_buffer_minutes(availability, "before", 0),
         buffer_after_minutes=resolve_buffer_minutes(availability, "after", 0),
     )
+
+
+def window_for_date(date: str, config: dict) -> TimeWindow | None:
+    """Your own saved availability window that applies to `date` -- the weekday
+    or the weekend one, exactly as `search()` itself picks it -- or None with no
+    `availability` rules (or no window for that day type) at all. Shared by
+    both front ends (2026-09-27, bundle C of the TUI/GUI consistency audit) so
+    "which slots are in your window" can never be decided two different ways:
+    the TUI calls it directly, the GUI gets it per date from `picks_cli.py`."""
+    if not config.get("availability"):
+        return None
+    return _window_for_date(date, default_criteria_from_config(config))
+
+
+def latest_start(schedule: Schedule, config: dict) -> str | None:
+    """The latest tee time on `schedule`'s own day that still finishes a round
+    of this course's length (plus your daylight buffer) before sunset -- the
+    same threshold `exclude_unplayable()`'s daylight check applies, stated as a
+    clock time instead of a yes/no. None without a sunset to measure against."""
+    if schedule.sun_times is None:
+        return None
+    return playability.latest_playable_start(
+        schedule.sun_times.sunset,
+        _round_duration_minutes(schedule.course, config),
+        config.get("daylight_buffer_minutes", 0),
+    )
+
+
+def window_too_late_hint(schedules: list[Schedule], config: dict) -> dict | None:
+    """One standing explanation for the case that otherwise just repeats "too
+    dark to finish" on day after day (2026-09-27, bundle C -- found in the
+    audit's own renders: 3 of 5 days said exactly that, because a 16:00 weekday
+    window plus a ~4-hour 18-hole round no longer fits before an autumn
+    sunset). Returned when your window *opens* after the latest start that
+    still finishes before dark on at least two of `schedules` -- one odd day
+    isn't a pattern worth a standing hint. The first such day's own numbers,
+    which is what both front ends phrase the hint from:
+
+        {"window_after": "16:00", "latest_start": "14:40", "sunset": "19:10",
+         "round_minutes": 240, "days": 3}
+    """
+    flagged = []
+    for schedule in schedules:
+        window = window_for_date(schedule.date, config)
+        latest = latest_start(schedule, config)
+        if window is None or window.after is None or latest is None:
+            continue
+        if window.after > latest:
+            flagged.append((schedule, window, latest))
+    if len(flagged) < 2:
+        return None
+    schedule, window, latest = flagged[0]
+    return {
+        "window_after": window.after,
+        "latest_start": latest,
+        "sunset": schedule.sun_times.sunset,
+        "round_minutes": _round_duration_minutes(schedule.course, config),
+        "days": len(flagged),
+    }
 
 
 def _schedule_for(candidate: SlotMatch, schedules: list[Schedule]) -> Schedule | None:

@@ -62,3 +62,12 @@ func weekday(_ iso: String) -> String {
     let o = DateFormatter(); o.dateFormat = "EEE d MMM"; o.locale = currentLocale()
     return o.string(from: d)
 }
+
+/// "4" / "3,5" -- a round's length in hours, for the window hint. Mirrors
+/// `tui._window_hint_text()`'s own `f"{hours:g}"` with the decimal comma German
+/// uses.
+func hoursText(_ minutes: Int) -> String {
+    let hours = Double(minutes) / 60
+    let text = hours == hours.rounded() ? String(Int(hours)) : String(format: "%.1f", hours)
+    return AppLanguage.shared.code == "de" ? text.replacingOccurrences(of: ".", with: ",") : text
+}

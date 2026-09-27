@@ -490,6 +490,19 @@ struct DayCardHeader: View {
                         .background(Color.yellow.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.yellow)
                         .help(pick.reasons.isEmpty ? t("tip.pick") : pick.reasons.joined(separator: ", "))
+                } else if let reasons = model.verdicts[day.date]?.unplayable, !reasons.isEmpty {
+                    // Why there's no pick (2026-09-27, bundle C of the TUI/GUI
+                    // consistency audit) -- the TUI has always said "too dark to
+                    // finish"/"no dry picks" here; this used to show nothing at
+                    // all. A compact icon capsule in the badge's own fixed width
+                    // (full sentence on hover), not the sentence itself, so the
+                    // column still lines up on every row.
+                    let tooDark = reasons == ["daylight"]
+                    Image(systemName: tooDark ? "moon.fill" : "cloud.rain.fill")
+                        .font(scaledFont(.caption)).padding(.horizontal, 9).padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .foregroundStyle(.secondary)
+                        .help(t(tooDark ? "tip.no_pick_daylight" : reasons == ["weather"] ? "tip.no_pick_weather" : "tip.no_pick_both"))
                 }
             }
             .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
@@ -503,29 +516,29 @@ struct DayCardHeader: View {
 /// `ContentView`'s pinned-header `LazyVStack`; omitted entirely (not just hidden)
 /// while the day is collapsed, so a collapsed day's `Section` has no content to
 /// scroll through and its header hands off to the next day's immediately.
+/// The `.id` an expanded day's slot row carries, so ContentView's
+/// ScrollViewReader can scroll straight to it (see `OverviewModel.focusTime`).
+func slotAnchor(_ date: String, _ time: String) -> String { "\(date) \(time)" }
+
 struct DayCardBody: View {
     let day: Day
     @ObservedObject var model: OverviewModel
     @ObservedObject private var theme = AppTheme.shared
 
-    // The 07:00-19:30 clip keeps this compact against a club's full 06:00-19:50
-    // slot list, but sunrise runs earlier than 07:00 for real stretches of the
-    // year (06:51 as of 2026-09-08) -- explicitly keeping whichever row carries
-    // the marker means the sunrise/sunset note this screen exists to show can't
-    // silently vanish just because the season shifted.
-    private var visibleSlots: [Slot] {
-        day.slots.filter {
-            ($0.time >= "07:00" && $0.time <= "19:30")
-                || $0.time == day.sunriseRowTime || $0.time == day.sunsetRowTime
-        }
-    }
+    // Sunrise row through sunset row -- see `Day.visibleSlots`.
+    private var visibleSlots: [Slot] { day.visibleSlots }
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
             VStack(spacing: 0) {
                 ForEach(visibleSlots) { slot in
+                    // Outside your own window: dimmed, same as the TUI's own
+                    // expanded rows (2026-09-27, bundle C) -- still there to
+                    // read, just not competing with the ones you'd book.
                     SlotRow(slot: slot, day: day, model: model)
+                        .opacity(model.verdicts[day.date]?.isOutsideWindow(slot.time) == true ? 0.4 : 1)
+                        .id(slotAnchor(day.date, slot.time))
                 }
             }
             .padding(.leading, 20)
@@ -621,6 +634,21 @@ final class OverviewModel: ObservableObject {
     /// Overview must render correctly with or without this" stance
     /// `_availability_pipeline()` itself takes.
     @Published var picks: [String: DayPick] = [:]
+    /// Per date: your window and, with no pick, why -- see `DayVerdict`.
+    @Published var verdicts: [String: DayVerdict] = [:]
+    /// Set when your window opens too late to finish before dark, several days
+    /// running -- see `WindowHint` and ContentView's own hint row.
+    @Published var windowHint: WindowHint?
+
+    /// The slot an expanded `date` should scroll to: its ★ pick, otherwise the
+    /// first visible slot at or after your window opens -- mirrors
+    /// `tui.OverviewScreen._focus_row_for()` (2026-09-27, bundle C).
+    func focusTime(for date: String) -> String? {
+        guard let day = days.first(where: { $0.date == date }) else { return nil }
+        let wanted = picks[date]?.time ?? verdicts[date]?.windowAfter
+        guard let wanted else { return nil }
+        return day.visibleSlots.first { $0.time >= wanted }?.time
+    }
 
     private var watcher: Timer?
     private var seenModification: Date?
@@ -817,7 +845,9 @@ final class OverviewModel: ObservableObject {
         let requestSlug = clubs.first { $0.path == clubPath }?.slug
         PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today, days: 6) { [weak self] result in
             guard let self, self.clubPath == requestPath, self.course == requestCourse else { return }
-            self.picks = result
+            self.picks = result.picks
+            self.verdicts = result.verdicts
+            self.windowHint = result.hint
         }
     }
 
@@ -954,6 +984,29 @@ struct ContentView: View {
                         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
                     }
                 }
+            }
+            // Your window opens too late to finish before dark, several days
+            // running (2026-09-27, bundle C of the TUI/GUI consistency audit):
+            // said once, with the numbers and a way straight to the setting,
+            // instead of a moon icon on day after day. Same hint, same numbers
+            // as the TUI's own #hint line -- both from
+            // recommend.window_too_late_hint().
+            if let hint = model.windowHint {
+                HStack(spacing: 8) {
+                    Image(systemName: "lightbulb.fill").font(scaledFont(.caption)).foregroundStyle(.yellow)
+                    Text(t("hint.window_too_late", [
+                        "after": hint.windowAfter,
+                        "hours": hoursText(hint.roundMinutes),
+                        "sunset": hint.sunset,
+                        "latest": hint.latestStart,
+                    ]))
+                    .font(scaledFont(.caption))
+                    Spacer()
+                    Button(t("action.preferences")) { showingPreferences.value = true }
+                        .font(scaledFont(.caption))
+                }
+                .padding(8)
+                .background(.yellow.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
             }
             // "Browse before saving" -- picking a club from Add a Club opens it
             // straight away, same as ClubBrowserScreen's own `enter`, with no
@@ -1142,16 +1195,29 @@ struct ContentView: View {
                 // correctly: its Section simply has no body, so its header hands
                 // off to the next day's immediately rather than lingering pinned
                 // with nothing under it.
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 7, pinnedViews: [.sectionHeaders]) {
-                        ForEach(model.visibleDays) { day in
-                            Section {
-                                if model.expanded.contains(day.date) {
-                                    DayCardBody(day: day, model: model)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 7, pinnedViews: [.sectionHeaders]) {
+                            ForEach(model.visibleDays) { day in
+                                Section {
+                                    if model.expanded.contains(day.date) {
+                                        DayCardBody(day: day, model: model)
+                                    }
+                                } header: {
+                                    DayCardHeader(day: day, model: model)
                                 }
-                            } header: {
-                                DayCardHeader(day: day, model: model)
                             }
+                        }
+                    }
+                    // A newly expanded day scrolls straight to its ★ pick, or to
+                    // where your window opens (2026-09-27, bundle C) -- the TUI's
+                    // own expand moves its cursor to the same slot. Centered,
+                    // not top-anchored: the day's own pinned header covers the top.
+                    .onChange(of: model.expanded) { old, new in
+                        guard let date = new.subtracting(old).first,
+                              let time = model.focusTime(for: date) else { return }
+                        DispatchQueue.main.async {
+                            withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
                         }
                     }
                 }

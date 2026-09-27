@@ -523,15 +523,30 @@ def test_compute_slot_rows_notes_sunrise_and_sunset_on_their_nearest_rows():
         sun_times=SunTimes(sunrise="06:50", sunset="19:58"),  # closest to 07:00 and 20:00 respectively
     )
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
-    assert rows[2].time_cell == "07:00"
-    assert rows[2].events_cell == i18n.t("events.sunrise", time="06:50")
+    # 06:00/06:30 start before the sunrise row and aren't shown at all any more
+    # (2026-09-27, bundle C) -- the sunrise row itself is the first one.
+    assert [row.time for row in rows] == ["07:00", "19:30", "20:00"]
+    assert rows[0].time_cell == "07:00"
+    assert rows[0].events_cell == i18n.t("events.sunrise", time="06:50")
     # 20:00 is already past sunset, so it also carries its own separate 🌙
     # "too late to finish" time marker -- independent of the events note, not
     # combined into one cell any more.
-    assert rows[4].time_cell == "🌙 20:00"
-    assert rows[4].events_cell == i18n.t("events.sunset", time="19:58")
-    for i in (0, 1, 3):
-        assert rows[i].events_cell == ""
+    assert rows[2].time_cell == "🌙 20:00"
+    assert rows[2].events_cell == i18n.t("events.sunset", time="19:58")
+    assert rows[1].events_cell == ""
+
+
+def test_compute_slot_rows_dims_slots_outside_your_window():
+    """2026-09-27, bundle C: out-of-window slots dim like past ones, so an expanded
+    day reads as "these are the ones you'd book"."""
+    schedule = Schedule(
+        date="2026-09-07",  # a Monday
+        course="18 Loch Tee 1",
+        slots=[Slot(time=t, booked=0, capacity=4) for t in ("09:00", "16:00", "17:00", "18:30")],
+    )
+    config = {"availability": {"weekday_window": {"after": "16:00", "before": "18:00"}}}
+    rows = tui._compute_slot_rows(schedule, config, "metric", "2026-09-07", set(), None)
+    assert [row.time_cell for row in rows] == ["[dim]09:00[/]", "16:00", "17:00", "[dim]18:30[/]"]
 
 
 def test_compute_slot_rows_has_no_sunrise_sunset_markers_without_sun_times():
@@ -1615,6 +1630,61 @@ def test_overview_screen_expanded_day_never_runs_wider_than_its_viewport(tmp_pat
             assert table.show_vertical_scrollbar  # the case that used to overflow
             visible = table.content_region.width - table.styles.scrollbar_size_vertical
             assert table.virtual_size.width <= visible
+
+    _run(scenario())
+
+
+def _two_too_late_weekdays(tmp_path, monkeypatch):
+    """Mon/Tue with a 16:00 weekday window and a 19:10 sunset -- the real club's
+    own situation found in the 2026-09-27 audit (latest start ~14:40)."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    monkeypatch.setattr(
+        tui.OverviewScreen, "_config",
+        lambda self: {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30},
+    )
+    for day in ("2026-09-28", "2026-09-29"):
+        storage.save_schedule(
+            Schedule(
+                date=day, course="18 Loch Tee 1",
+                slots=[Slot(time=f"{h:02d}:00", booked=0, capacity=4) for h in range(8, 19)],
+                sun_times=SunTimes(sunrise="07:20", sunset="19:10"),
+            ),
+            path=scrape_once._db_path("0000001"),
+        )
+
+
+def test_overview_screen_explains_a_window_that_opens_too_late_once(tmp_path, monkeypatch):
+    """2026-09-27, bundle C: one standing hint with what to change, instead of
+    "too dark to finish" repeated on day after day."""
+    _two_too_late_weekdays(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            hint = str(app.screen.query_one("#hint").content)
+            assert "16:00" in hint and "14:40" in hint and "19:10" in hint
+
+    _run(scenario())
+
+
+def test_expanding_a_day_jumps_to_your_window(tmp_path, monkeypatch):
+    """2026-09-27, bundle C: straight to the first slot you'd actually book, not
+    left on the summary row with the whole early day in between."""
+    _two_too_late_weekdays(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#overview-table", DataTable)
+            table.focus()
+            table.move_cursor(row=0)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen._row_index[table.cursor_row] == ("2026-09-28", "16:00")
 
     _run(scenario())
 

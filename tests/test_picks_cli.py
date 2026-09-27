@@ -3,7 +3,7 @@ import json
 import pytest
 
 from src import global_preferences, picks_cli
-from src.models import Schedule, Slot
+from src.models import Schedule, Slot, SunTimes
 from src.storage import save_schedule
 
 
@@ -83,7 +83,35 @@ def test_null_when_nothing_is_playable(tmp_path, capsys):
     )
 
     assert code == 0
-    assert result == {"2026-09-27": None}
+    # A scraped day with no pick is an object now, not null (2026-09-27, bundle C
+    # of the TUI/GUI consistency audit) -- the GUI needs its window regardless.
+    # Nothing matched at all here (the only slot is full), so no `unplayable`.
+    assert result == {"2026-09-27": {"time": None, "window": {"after": None, "before": None}}}
+
+
+def test_reports_why_a_day_has_no_pick_and_the_window_too_late_hint(tmp_path, capsys):
+    """The GUI shows "too dark to finish" and the standing hint from these, the
+    same way the TUI does -- decided here, not re-derived in Swift."""
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": "16:00"}}})
+    db = tmp_path / "club.db"
+    for day in ("2026-09-28", "2026-09-29"):  # Monday, Tuesday
+        save_schedule(Schedule(
+            date=day, course="18 Loch Tee 1",
+            slots=[Slot(time="16:00", booked=0, capacity=4)],
+            sun_times=SunTimes(sunrise="07:20", sunset="19:10"),
+        ), path=db)
+
+    result, code = _run(
+        capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-28", "--days", "2"]
+    )
+
+    assert code == 0
+    assert result["2026-09-28"] == {
+        "time": None, "window": {"after": "16:00", "before": None}, "unplayable": ["daylight"],
+    }
+    assert result["_hint"] == {
+        "window_after": "16:00", "latest_start": "15:10", "sunset": "19:10", "round_minutes": 240, "days": 2,
+    }
 
 
 def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch, capsys):
@@ -111,4 +139,6 @@ def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch
     )
 
     assert code == 0
-    assert result["2026-09-27"] == {"time": "09:10", "score": 90.0, "reasons": ["dry", "calm"]}
+    assert result["2026-09-27"] == {
+        "time": "09:10", "score": 90.0, "reasons": ["dry", "calm"], "window": {"after": None, "before": None},
+    }
