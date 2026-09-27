@@ -565,6 +565,19 @@ def test_parse_my_reservations_html_empty_state_german():
     assert _parse_my_reservations_html("<html>Keine Buchungen gefunden.</html>") == []
 
 
+def test_parse_my_reservations_html_empty_state_real_german_text():
+    # The real text (confirmed live 2026-09-27, direct report: "Deine Buchungen
+    # konnten nicht geprüft werden — pc caddie hat seine Seite geändert") --
+    # "Keine Buchungen gefunden" above was apparently never the real string at
+    # all. A genuine break, not a stale guess: the same account's own real
+    # booking had parsed correctly as recently as the day before, via the
+    # confirmed 'meine-buchungen' table path below -- only this empty-state
+    # match was missing.
+    assert _parse_my_reservations_html(
+        '<div class="alert alert-hint">Es wurden keine Reservierungen gefunden.</div>'
+    ) == []
+
+
 def test_parse_my_reservations_html_raises_for_unrecognized_markup():
     with pytest.raises(NotImplementedError):
         _parse_my_reservations_html("<html><table><tr><td>14:00</td></tr></table></html>")
