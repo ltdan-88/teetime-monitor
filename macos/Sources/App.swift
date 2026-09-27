@@ -851,6 +851,7 @@ final class AppCommands: ObservableObject {
     var onSearch: (() -> Void)?
     var onAddClub: (() -> Void)?
     var onHeatmap: (() -> Void)?
+    var onPlayerDirectory: (() -> Void)?
     var onCollapseAll: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
@@ -909,6 +910,7 @@ struct ContentView: View {
     @StateObject private var showingSearch = Box(false)
     @StateObject private var showingAddClub = Box(false)
     @StateObject private var showingHeatmap = Box(false)
+    @StateObject private var showingPlayerDirectory = Box(false)
     @StateObject private var isFavoritingPreview = Box(false)
     // Observing the shared singleton (not creating a new one) is what makes a theme
     // change in SettingsSheet redraw this view immediately -- both hold the exact
@@ -1073,6 +1075,16 @@ struct ContentView: View {
                 }
                 .help(t("tip.heatmap"))
                 .disabled(model.clubPath.isEmpty || model.course.isEmpty)
+                // Added 2026-09-27, direct request: previously only reachable via
+                // Preferences -> Priorities, several taps away from the Overview
+                // it's actually useful from -- same "browse/interact with data"
+                // grouping as Search/Heatmap beside it, not the app-configuration
+                // grouping Preferences/Settings have after the Spacer below.
+                Button { showingPlayerDirectory.value = true } label: {
+                    Label(t("action.player_directory"), systemImage: "person.2.fill")
+                }
+                .help(t("tip.player_directory"))
+                .disabled(model.clubPath.isEmpty)
 
                 Spacer()
 
@@ -1227,6 +1239,10 @@ struct ContentView: View {
                 guard !model.clubPath.isEmpty, !model.course.isEmpty else { return }
                 showingHeatmap.value = true
             }
+            AppCommands.shared.onPlayerDirectory = {
+                guard !model.clubPath.isEmpty else { return }
+                showingPlayerDirectory.value = true
+            }
             AppCommands.shared.onCollapseAll = { model.expanded.removeAll() }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
@@ -1244,5 +1260,6 @@ struct ContentView: View {
             HeatmapSheet(dbPath: model.clubPath, course: model.course,
                          clubYAMLPath: model.clubs.first { $0.path == model.clubPath }.map { Store.clubYAMLPath(slug: $0.slug) })
         }
+        .sheet(isPresented: $showingPlayerDirectory.value) { PlayerDirectorySheet(dbPath: model.clubPath) }
     }
 }

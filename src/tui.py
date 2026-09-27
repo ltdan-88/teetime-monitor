@@ -179,6 +179,7 @@ from . import (
 from . import theme as theme_module
 from . import units as units_module
 from .credentials_screen import CredentialsScreen
+from .known_players_screen import KnownPlayersScreen
 from .models import ConfirmedBooking, DateRange, Schedule, Slot, SlotMatch, TimeWindow, WeatherPoint
 from .scrape_once import _db_path
 from .scraper import (
@@ -3059,6 +3060,16 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             lambda _result: self.app._reopen_actions_menu(),
         )
 
+    def action_player_directory(self) -> None:
+        # Added 2026-09-27, direct request: previously only reachable via
+        # Settings -> Preferences -> Priorities, several menus away from the
+        # Overview it's actually useful from -- same Actions-menu placement as
+        # Search/Heatmap beside it.
+        self.app.push_screen(
+            KnownPlayersScreen(self.club_id),
+            lambda _result: self.app._reopen_actions_menu(),
+        )
+
     def action_switch(self) -> None:
         # Delegated rather than handled here — push_screen_wait()
         # needs to run on the App, see TeetimeApp.action_switch_club_or_course().
@@ -3962,6 +3973,11 @@ class TeetimeApp(App[None]):
             )
             yield SystemCommand(
                 i18n.t("binding.heatmap"), i18n.t("command.heatmap_description"), screen.action_heatmap
+            )
+            yield SystemCommand(
+                i18n.t("binding.player_directory"),
+                i18n.t("command.player_directory_description"),
+                screen.action_player_directory,
             )
             yield SystemCommand(
                 i18n.t("binding.preferences"),

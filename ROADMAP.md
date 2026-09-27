@@ -5013,6 +5013,29 @@ friend, a real `ranked_matches()` call sorting that friend's real slot first,
 and the built AI prompt confirmed to contain only `"1 friend(s) already
 booked"` — never the name.
 
+## Search sheet reflowed top/bottom; player directory reachable from Overview (2026-09-27)
+
+Direct follow-up feedback on the previous two entries. Real names are longer
+than the placeholders the search results list was originally sized for, so
+side-by-side criteria/results (`SearchSheet`'s old `HStack`, `SheetSize.split`
+at 760×540) truncated names like "Marlies..." with no way to see the rest.
+Reflowed to a top/bottom `VStack` — criteria on top in a `Form`, a status/
+search-button row, then a full-width results `List` below — reusing
+`SheetSize.browser` instead. `SheetSize.split` is now unused and deleted.
+
+Separately, the player directory shipped in the previous entry was only
+reachable via Settings/Preferences → Priorities, several menus away from the
+Overview screen it's actually useful from mid-session. Given the same
+placement as Search and Heatmap beside it: a new toolbar button and `⌘`-menu
+item in the GUI (`AppCommands.onPlayerDirectory`, wired in `App.swift` and
+`Main.swift`), and a new `action_player_directory()` on TUI's `OverviewScreen`
+reachable via the Actions command palette (`t`), pushing the same
+`KnownPlayersScreen` the Settings row already used.
+
+873 tests passing (`pytest`), `ruff check` clean; `swift build`,
+`TeetimeMonitorCoreTests` (196 assertions) and `VisualRegressionRunner` both
+fixtures pass unchanged.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -116,6 +116,25 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Search reflowed top/bottom; player directory reachable from Overview (2026-09-27)
+
+Direct follow-up feedback on the two entries below. Real names run longer than
+the placeholders `SearchSheet` was originally sized for, so its side-by-side
+`HStack` (criteria left, results right, `SheetSize.split` at 760×540)
+truncated names with no way to see the rest. Reflowed to a top/bottom
+`VStack` -- criteria in a `Form` on top, then a full-width results `List`
+below -- reusing `SheetSize.browser`; `SheetSize.split` is now unused and
+deleted.
+
+The player directory itself (previous entry) was only reachable via
+Preferences → Priorities, several menus away from the Overview it's actually
+useful from mid-session. Added a toolbar button and `⌘`-menu item next to
+Search and Heatmap (`AppCommands.onPlayerDirectory`, wired in `App.swift` and
+`Main.swift`) opening the same `PlayerDirectorySheet` directly.
+
+Verified via `swift build`, `TeetimeMonitorCoreTests` (196 assertions) and
+`VisualRegressionRunner` (both fixtures) -- all pass unchanged.
+
 ## Player directory + real "prioritize friends" (2026-09-27)
 
 Real names from authenticated scraping were only ever visible per-slot --
