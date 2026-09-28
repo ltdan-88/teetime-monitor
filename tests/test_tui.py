@@ -4,13 +4,13 @@ import threading
 import pytest
 from textual.app import App, ComposeResult
 from textual.command import CommandPalette
-from textual.widgets import DataTable, Input, Label, OptionList, Select, Static
+from textual.widgets import DataTable, Input, Label, OptionList, Select, Static, Switch
 
 from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
-from src.models import ConfirmedBooking, DateRange, Schedule, Slot, SunTimes, WeatherPoint
+from src.models import ConfirmedBooking, DateRange, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 
 
 @pytest.fixture(autouse=True)
@@ -2842,6 +2842,68 @@ def test_search_screen_runs_search_and_shows_results():
             assert row[6] == "10%"
             assert row[7] == "8"
             assert "18 Loch Tee 1" in app.screen.title
+
+    _run(scenario())
+
+
+# --- friends-only / player filter (2026-09-28, "implement players or friends into the search") ---
+
+
+def test_search_screen_friends_only_excludes_slots_with_no_marked_friend():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["Anna Bauer"]),
+            Slot(time="10:00", booked=1, capacity=4, players=["Someone Else"]),
+        ],
+    )
+    db_path = scrape_once._db_path("0000001")
+    storage.record_seen_players([PlayerSighting(name="Anna Bauer")], "2026-09-27T10:00:00+00:00", path=db_path)
+    storage.set_player_friend("Anna Bauer", True, path=db_path)
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            app.screen.query_one("#search-friends-only", Switch).value = True
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 1
+            assert table.get_row_at(0)[1] == "09:00"
+
+    _run(scenario())
+
+
+def test_search_screen_player_filter_picks_the_dropdown_options_correct_row():
+    schedule = Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["Anna Bauer"]),
+            Slot(time="10:00", booked=1, capacity=4, players=["Max Mustermann"]),
+        ],
+    )
+    db_path = scrape_once._db_path("0000001")
+    storage.record_seen_players(
+        [PlayerSighting(name="Anna Bauer"), PlayerSighting(name="Max Mustermann")],
+        "2026-09-27T10:00:00+00:00", path=db_path,
+    )
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#search-weekday-after-hh").value = "05"
+            app.screen.query_one("#search-player", Select).value = "Max Mustermann"
+            await pilot.click("#run")
+            await pilot.pause()
+            table = app.screen.query_one("#search-results", DataTable)
+            assert table.row_count == 1
+            assert table.get_row_at(0)[1] == "10:00"
+            assert table.get_row_at(0)[4] == "Max Mustermann"
 
     _run(scenario())
 

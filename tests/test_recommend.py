@@ -805,3 +805,40 @@ def test_window_too_late_hint_needs_two_days_whose_window_opens_after_the_latest
     }
     early = {"availability": {"weekday_window": {"after": "13:00"}}, "daylight_buffer_minutes": 30}
     assert recommend.window_too_late_hint(two_days, early) is None  # the window still fits
+
+
+# --- only_with_friend / only_with_player (2026-09-28, "implement players or friends into the search") ---
+
+
+def _match_with_players(date, time, players):
+    return SlotMatch(date=date, course="18 Loch Tee 1", slot=Slot(time=time, booked=len(players), capacity=4, players=players), score=0.0)
+
+
+def test_only_with_friend_keeps_only_slots_with_a_marked_friend():
+    matches = [
+        _match_with_players("2026-09-28", "09:00", ["Anna Bauer"]),
+        _match_with_players("2026-09-28", "10:00", ["Someone Else"]),
+        _match_with_players("2026-09-28", "11:00", []),
+    ]
+    result = recommend.only_with_friend(matches, {"Anna Bauer"})
+    assert [m.slot.time for m in result] == ["09:00"]
+
+
+def test_only_with_friend_no_friends_at_all_means_no_matches():
+    matches = [_match_with_players("2026-09-28", "09:00", ["Anna Bauer"])]
+    assert recommend.only_with_friend(matches, set()) == []
+
+
+def test_only_with_player_keeps_only_slots_with_that_exact_name():
+    matches = [
+        _match_with_players("2026-09-28", "09:00", ["Anna Bauer"]),
+        _match_with_players("2026-09-28", "10:00", ["Anna Bauer-Klein"]),  # not a substring match
+        _match_with_players("2026-09-28", "11:00", ["Max Mustermann", "Anna Bauer"]),
+    ]
+    result = recommend.only_with_player(matches, "Anna Bauer")
+    assert [m.slot.time for m in result] == ["09:00", "11:00"]
+
+
+def test_only_with_player_nobody_by_that_name_means_no_matches():
+    matches = [_match_with_players("2026-09-28", "09:00", ["Anna Bauer"])]
+    assert recommend.only_with_player(matches, "Someone Else") == []

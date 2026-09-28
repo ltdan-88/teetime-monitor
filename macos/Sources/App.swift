@@ -76,11 +76,18 @@ struct LegendLine: View {
     // previous round only added the "08:00-20:00" *time window* to this line (a
     // different gap the same complaint's wording pointed at); the color *scale*
     // itself was never actually explained anywhere the day list shows it. Same
-    // three colors, same thresholds as `fillColor()`, and reuses HeatmapSheet's
-    // own legend wording verbatim (heatmap.legend.open/mid/full) rather than
-    // inventing separate copy for the same three states.
+    // three colors, same thresholds as `fillColor()` as HeatmapSheet's own grid
+    // cells use, but a genuinely different *fact* -- this is one real day's own
+    // live booked/capacity fraction, not an average across scraped history the
+    // way a heatmap cell is -- so as of 2026-09-28 this has its own wording
+    // (`overview.crowd_legend.*`) instead of sharing `heatmap.legend.*`
+    // verbatim: describing a live count as "usually quiet"/"usually full" (that
+    // key's own post-2026-09-28 wording) would have been actively wrong here,
+    // not just inconsistent copy for "the same three states" the way the
+    // original version of this comment assumed.
     private var heatSwatches: [(color: Color, text: String)] {
-        [(.green, t("heatmap.legend.open")), (.orange, t("heatmap.legend.mid")), (.red, t("heatmap.legend.full"))]
+        [(.green, t("overview.crowd_legend.open")), (.orange, t("overview.crowd_legend.mid")),
+         (.red, t("overview.crowd_legend.full"))]
     }
 
     var body: some View {
@@ -639,6 +646,26 @@ final class OverviewModel: ObservableObject {
     /// Set when your window opens too late to finish before dark, several days
     /// running -- see `WindowHint` and ContentView's own hint row.
     @Published var windowHint: WindowHint?
+
+    /// A specific (date, time) to expand and scroll to right now -- distinct from
+    /// the automatic "which slot does a newly-expanded day scroll to"
+    /// (`focusTime(for:)` below), which only ever runs off a *change* to
+    /// `expanded` and only ever picks the day's own ★ pick or window-open time.
+    /// Set by `PlayerDirectorySheet`'s own double-click-a-player feature
+    /// (2026-09-28, direct request: "would it be possible to double click a
+    /// player in the directory and focus on their booked tee time or tee
+    /// times?") -- that needs to jump to one *specific* slot a chosen player is
+    /// actually in, which `focusTime(for:)`'s own heuristic has no way to know
+    /// about, and needs to work even when the target day is *already* expanded
+    /// (inserting an already-present date into `expanded` fires no change at
+    /// all, so reusing that mechanism alone would silently do nothing the
+    /// second time you focus the same day). `ContentView`'s own
+    /// `.onChange(of: model.scrollRequest)` clears this back to `nil` once
+    /// handled, so setting it to the *same* target again still triggers a
+    /// fresh scroll (nil -> value is always a real change, even when the
+    /// previous value would have compared equal).
+    struct ScrollTarget: Equatable { let date: String; let time: String }
+    @Published var scrollRequest: ScrollTarget?
 
     /// The slot an expanded `date` should scroll to: its ★ pick, otherwise the
     /// first visible slot at or after your window opens -- mirrors
@@ -1270,6 +1297,23 @@ struct ContentView: View {
                             withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
                         }
                     }
+                    // A specific slot to jump to right now, regardless of whether
+                    // its day is already expanded -- see `OverviewModel.scrollRequest`'s
+                    // own docstring for why this needs to be separate from the
+                    // expand-driven scroll right above. `expanded.insert` here is a
+                    // no-op (and fires no change of its own) when the day was
+                    // already open, which is exactly the case this exists to still
+                    // handle correctly.
+                    .onChange(of: model.scrollRequest) { (_: OverviewModel.ScrollTarget?, new: OverviewModel.ScrollTarget?) in
+                        guard let target: OverviewModel.ScrollTarget = new else { return }
+                        let date: String = target.date
+                        let time: String = target.time
+                        model.expanded.insert(date)
+                        DispatchQueue.main.async {
+                            withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
+                        }
+                        model.scrollRequest = nil
+                    }
                 }
             }
 
@@ -1376,6 +1420,6 @@ struct ContentView: View {
             HeatmapSheet(dbPath: model.clubPath, course: model.course,
                          clubYAMLPath: model.clubs.first { $0.path == model.clubPath }.map { Store.clubYAMLPath(slug: $0.slug) })
         }
-        .sheet(isPresented: $showingPlayerDirectory.value) { PlayerDirectorySheet(dbPath: model.clubPath) }
+        .sheet(isPresented: $showingPlayerDirectory.value) { PlayerDirectorySheet(dbPath: model.clubPath, model: model) }
     }
 }

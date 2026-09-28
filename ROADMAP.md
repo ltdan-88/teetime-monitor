@@ -5476,6 +5476,62 @@ for that side's own dated entry).
 926 tests passing (`pytest`), `ruff check` clean; 211 Swift unit tests
 passing, `swift build` clean across all four targets.
 
+## Cross-app wording audit, and friends/players into search (2026-09-28)
+
+Three direct follow-ups in one message, after being asked why "Auslastung"
+(TUI's own footer label for the heatmap) and "Heatmap" (the GUI's toolbar
+button for the exact same feature) didn't match:
+
+**A genuinely thorough pass**, not spot-checking the one pair reported --
+every "always-visible" TUI/GUI string pair (footer/toolbar actions, settings
+group headers, player-directory columns, heatmap legends) compared side by
+side. Found and fixed:
+- The reported one: GUI's `action.heatmap` (DE) was "Heatmap"; every other
+  label for the same feature (its own Actions-menu item, its own screen
+  title, and the TUI's footer/palette entry) already said "Auslastung" --
+  aligned the outlier, not the other three.
+- `settings.field.my_handicap`/`prefs.my_handicap` (DE, both apps) read "Ihr
+  Handicap" -- formal "Sie" address, the one place in either app's entire
+  German translation table that wasn't this project's own established
+  informal "du" (4 other "dein"/"du" strings already set that convention,
+  confirmed by grep before assuming). Both wrote themselves in the same
+  session (the handicap-preference feature, two entries up) and both got it
+  wrong the same way -- fixed to "Dein Handicap".
+- GUI's "Pace & daylight" section header (DE) read "Tempo & Tageslicht";
+  TUI's own equivalent group has always been "Spieltempo & Tageslicht" --
+  aligned to the TUI's wording.
+- A real semantic bug, not just a word choice: GUI's `heatmap.legend.open/
+  mid/full` were shared verbatim between two genuinely different things --
+  `HeatmapSheet`'s own predictive grid cell (an *average* across weeks of
+  scraped history) and the Overview's own real-time heat strip (one specific
+  day's *live* booked/capacity fraction) -- with wording ("under half
+  booked") that's accurate for the live strip but actively misleading for a
+  historical average. Split into `heatmap.legend.*` (now "usually quiet"/
+  "fills up"/"usually full", matching `tui.py`'s own wording exactly) and a
+  new `overview.crowd_legend.*` (keeping the original live-count wording) --
+  see `macos/README.md`'s own dated entry for the full before/after and the
+  `App.swift` comment this replaced.
+
+**"implement players or friends into the search"** -- ad hoc search
+(`SearchScreen`/`SearchSheet`, both front ends) gains two new, independent,
+combinable filters, applied as a post-filter over `ranked_matches()`'s own
+output rather than folded into `SearchCriteria` itself (`recommend.
+only_with_friend()`/`only_with_player()`, both pure functions over an
+already-ranked match list -- see their own docstrings for why this stays
+separate from the hard structural filters `search.py` itself applies):
+a "Friends only" toggle (excludes every slot with no marked friend at all --
+a stronger effect than the existing `prioritize_friends` preference, which
+only ever *reorders* results, never removes any), and a "Player" dropdown
+(built from `storage.load_known_players()`, friends starred) that narrows
+results to one specific named person. `search_cli.py`'s own JSON contract
+gained matching `friends_only`/`player` keys for the GUI's identical
+`SearchSheet` fields.
+
+926 -> 934 Python tests (8 new: 4 for the two filter functions, 2 TUI
+integration tests driving the real Search screen's new fields, 2 for
+`search_cli.py`'s own payload handling), `ruff check` clean; 229 Swift unit
+tests (4 new, `SearchCriteriaPayload`'s new JSON keys).
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

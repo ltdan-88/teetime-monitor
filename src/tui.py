@@ -158,7 +158,7 @@ from textual.command import DiscoveryHit
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.system_commands import SystemCommandsProvider
-from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static
+from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static, Switch
 from textual.widgets.data_table import RowDoesNotExist
 from textual.widgets.option_list import Option
 
@@ -3741,6 +3741,11 @@ class SearchScreen(Screen[None]):
         # display text, same reasoning the since-retired day-detail screen's own
         # `_row_times` followed for the identical purpose.
         self._row_matches: list[SlotMatch] = []
+        # For the "Player" filter dropdown below (2026-09-28, direct follow-up:
+        # "implement players or friends into the search") -- already sorted by
+        # family name (`storage.load_known_players()`'s own docstring), so this
+        # doubles as the dropdown's own display order with no re-sort here.
+        self._known_players = storage.load_known_players(path=_db_path(self.club_id))
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -3788,6 +3793,26 @@ class SearchScreen(Screen[None]):
                         id=widget_id,
                         classes="field-input",
                     )
+            with Horizontal(classes="field-row"):
+                yield Label(i18n.t("search.field.friends_only"), classes="field-label")
+                yield Switch(value=False, id="search-friends-only", classes="field-input")
+            with Horizontal(classes="field-row"):
+                yield Label(i18n.t("search.field.player"), classes="field-label")
+                # "★ Name" for a marked friend, same star KnownPlayersScreen's own
+                # table uses -- lets "player or friend" (the direct request's own
+                # wording) both be answered by this one dropdown, without a second
+                # separate "friend" picker duplicating almost the same list.
+                player_options = [(i18n.t("search.field.player.any"), "")] + [
+                    (f"★ {p.name}" if p.is_friend else p.name, p.name) for p in self._known_players
+                ]
+                yield Select(
+                    player_options,
+                    value="",
+                    allow_blank=False,
+                    compact=True,
+                    id="search-player",
+                    classes="field-input",
+                )
         yield DataTable(id="search-results", header_height=2)
         yield Static("", id="search-status")
         with Horizontal(id="buttons"):
@@ -3907,6 +3932,10 @@ class SearchScreen(Screen[None]):
             known_handicaps=known_handicaps,
             my_handicap=my_handicap,
         )
+        if self.query_one("#search-friends-only", Switch).value:
+            matches = recommend.only_with_friend(matches, friend_names)
+        if player_name := self.query_one("#search-player", Select).value:
+            matches = recommend.only_with_player(matches, str(player_name))
         self._row_matches = []
         status = self.query_one("#search-status", Static)
         if not matches:

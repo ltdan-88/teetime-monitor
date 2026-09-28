@@ -411,6 +411,29 @@ def ranked_matches(
         return playable
 
 
+def only_with_friend(matches: list[SlotMatch], friend_names: set[str]) -> list[SlotMatch]:
+    """Just the matches whose slot already has a marked friend in it -- ad hoc
+    search's own "friends only" filter (2026-09-28, direct follow-up to
+    `prioritize_friends`: "implement players or friends into the search"). A
+    genuinely different effect from that preference's own sort: `prioritize_friends`
+    only ever *reorders* `ranked_matches()`'s own output (a friend's slot moves
+    first, a slot with no friend still shows, just lower down); this *removes*
+    every slot with no friend at all, for the case a search is specifically for
+    "when can I play with someone I know," not "prefer it, but show me everything
+    else too." A pure function over already-ranked matches, not folded into
+    `ranked_matches()` itself, since it's a hard exclude a caller opts into
+    per-search, unlike the sort (which is a standing preference)."""
+    return [match for match in matches if set(match.slot.players) & friend_names]
+
+
+def only_with_player(matches: list[SlotMatch], player_name: str) -> list[SlotMatch]:
+    """Just the matches with `player_name` (an exact name, e.g. picked from a
+    dropdown built off `storage.load_known_players()`) already in the slot --
+    the other half of the same direct request `only_with_friend()` answers, for
+    "when can I play with this one specific person" rather than any friend."""
+    return [match for match in matches if player_name in match.slot.players]
+
+
 def weekly_picks(
     schedules: list[Schedule], config: dict, crowd_estimates: dict[tuple[str, str, str], float] | None = None
 ) -> list[SlotMatch]:

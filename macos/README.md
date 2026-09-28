@@ -116,6 +116,73 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Double-click a player to jump to their tee time; wording aligned with the TUI; friends/players into search (2026-09-28)
+
+Three more direct follow-ups on the work right above, same session:
+
+**Double-click a player in the directory, jump to their tee time** -- scoped
+live, before building: only the currently-loaded window (not full scrape
+history -- that's what you'd actually act on), multiple hits get a small
+picker (`.confirmationDialog`), one hit jumps straight there. The real design
+problem wasn't the lookup (`playerSlotHits(for:in:)`, a pure function over
+`model.visibleDays` -- 4 new tests) but the *jump*: `ContentView`'s existing
+scroll-on-expand (`.onChange(of: model.expanded)`) only fires when `expanded`
+itself changes, which is a no-op (and triggers nothing) when the target day
+is *already* open -- exactly the case double-clicking a friend playing later
+today would hit. Added a second, independent `OverviewModel.scrollRequest`
+(a `ScrollTarget?` the sheet sets and `ContentView` clears once handled) so a
+focus request always scrolls, expanded or not. `PlayerDirectorySheet.model`
+is optional -- this sheet is reachable both from Overview directly (which
+hands over a live model) and from Preferences' own "Priorities" section
+(which has never carried one); double-click quietly does nothing from the
+second path rather than plumbing a model through a sheet that has nowhere to
+scroll to anyway.
+
+One real compiler surprise along the way: `.onChange(of: model.scrollRequest) { _, new in ... }`
+failed with "the compiler is unable to type-check this expression in
+reasonable time" until the closure's parameter types were spelled out
+explicitly (`(_: OverviewModel.ScrollTarget?, new: OverviewModel.ScrollTarget?) in`)
+-- a nested `Equatable` struct type seemingly pushed this specific
+`onChange` overload's inference past what `-Onone` will resolve quickly.
+Also hit: `@ObservedObject var model: OverviewModel?` doesn't compile at all
+("generic struct 'ObservedObject' requires that 'OverviewModel?' conform to
+'ObservableObject'" -- an `Optional` never satisfies that regardless of what
+it wraps), so `model` is a plain, unwrapped stored property instead; nothing
+inside this sheet's own body needs to re-render off it living, only read
+once per double-click and written once per jump.
+
+**Wording audit, done thoroughly rather than just fixing the one reported
+pair** -- see `ROADMAP.md`'s own dated entry for the full list (settings
+section headers, the "Ihr"/"dein" formality slip in both apps' own handicap
+label, the heatmap toolbar button). The one worth detailing here since it's
+GUI-only: `heatmap.legend.open/mid/full` used to be shared, verbatim,
+between `HeatmapSheet`'s own predictive grid cells and the Overview's own
+real-time per-day heat strip (`App.swift`'s `heatSwatches`, whose own comment
+used to say "reuses HeatmapSheet's own legend wording verbatim ... rather
+than inventing separate copy for the same three states"). That reasoning
+was itself the bug: `Analytics.HeatmapBucket.average` (the predictive grid's
+own number) is a multi-week average, while the Overview strip's own ratio is
+one real day's live booked/capacity fraction -- not "the same three states"
+at all, just the same three-color *threshold* (`fillColor()`) applied to two
+different facts. Wording that's accurate for a live count ("under half
+booked") reads as a live status update, not a historical pattern, which is
+actively misleading on a cell that's actually an average. Split into
+`heatmap.legend.*` (now "usually quiet"/"fills up"/"usually full", matching
+`tui.py` exactly) for the predictive grid, and a new `overview.crowd_legend.*`
+(kept the original live-count wording) for the real-time strip, each now
+used by exactly one of the two views.
+
+**"implement players or friends into the search"** -- `SearchSheet` gains a
+"Friends only" `Toggle` and a "Player" `Picker` (built from
+`Store.knownPlayers(dbPath:)`, loaded once at `init` the same way
+`PlayerDirectorySheet.reload()` already does a plain synchronous read;
+friends shown starred), both threaded through `SearchCriteriaPayload`'s own
+JSON (`friends_only`, `player` -- omitted entirely when nothing's picked,
+matching the window fields' own present-vs-absent convention) to
+`search_cli.py`'s new post-filter. Mirrors `SearchScreen`'s own two new
+fields exactly, same wording, same "friends-only is a hard exclude, not just
+a reorder" distinction from the existing `prioritize_friends` preference.
+
 ## Stale window hint after a course switch, and a Contacts-style player directory (2026-09-28)
 
 Two direct reports in one message, both fixed:

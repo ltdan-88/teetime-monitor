@@ -18,7 +18,15 @@ Textual one:
     {"min_open_spots": 1,
      "weekday_window": {"after": "17:00", "before": null} | null,
      "weekend_window": {"after": "10:00", "before": null} | null,
-     "buffer_before_minutes": 0, "buffer_after_minutes": 0}
+     "buffer_before_minutes": 0, "buffer_after_minutes": 0,
+     "friends_only": false, "player": null}
+
+`friends_only`/`player` (2026-09-28, direct request: "implement players or
+friends into the search") aren't part of `SearchCriteria` itself -- they're
+applied as a post-filter over `ranked_matches()`'s own already-ranked output,
+same as `SearchScreen`'s own `#search-friends-only`/`#search-player` fields do
+(see `recommend.only_with_friend()`/`only_with_player()`'s own docstrings for
+why).
 
 Schedules aren't sent over the pipe at all — this loads them itself, the same way
 `OverviewScreen` builds `self.schedules` in the first place: one
@@ -67,7 +75,7 @@ from pathlib import Path
 from . import storage
 from . import tui as tui_module
 from .models import TimeWindow
-from .recommend import ranked_matches
+from .recommend import only_with_friend, only_with_player, ranked_matches
 from .search import SearchCriteria
 
 
@@ -137,6 +145,16 @@ def main(argv: list[str] | None = None) -> None:
         known_handicaps=known_handicaps,
         my_handicap=my_handicap,
     )
+    # Same "friends only"/"one specific player" filter SearchScreen's own
+    # #search-friends-only / #search-player fields apply (2026-09-28, direct
+    # request: "implement players or friends into the search") -- applied here,
+    # not folded into `_criteria_from_payload()`'s SearchCriteria, matching
+    # `only_with_friend()`/`only_with_player()`'s own docstrings on why this is a
+    # post-filter over already-ranked matches rather than a hard search criterion.
+    if payload.get("friends_only"):
+        matches = only_with_friend(matches, friend_names)
+    if player_name := payload.get("player"):
+        matches = only_with_player(matches, player_name)
     print(json.dumps([
         {
             "date": match.date,
