@@ -152,6 +152,10 @@ derselbe `~/.config/teetime-monitor`-Zustand, aktualisiert vom selben
 Hintergrund-Scraper. Ein zweiter Blick auf dieselbe Sache, kein zweites Ding, das von
 Hand synchron gehalten werden muss.
 
+<p align="center"><img src="assets/de/gui-overview.png" alt="Die macOS-App: dieselbe Tagesliste, Wetter, Auslastung und Termine, nativ"></p>
+
+<p align="center"><img src="assets/de/gui-expanded.png" alt="Ein aufgeklappter Tag in der macOS-App mit allen einzelnen Startzeiten"></p>
+
 Sie deckt alles vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
 Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, die Verwaltung
 der gespeicherten Clubs (einen Club ansehen und öffnen, bevor er überhaupt favorisiert
