@@ -116,6 +116,66 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Stale window hint after a course switch, and a Contacts-style player directory (2026-09-28)
+
+Two direct reports in one message, both fixed:
+
+**"the notification only applies for 18 hole match"** -- the "your window
+opens too late" hint (`window_too_late_hint()`, ported straight through via
+`picks_cli.py`'s own JSON) was itself always course-aware (`_round_duration_
+minutes()` already picks "nine" vs. "eighteen" off the course label), so the
+Python side was never the bug. `OverviewModel.reload()` was: switching course
+only ever *overwrote* `picks`/`verdicts`/`windowHint` once the new course's
+own `teetime-monitor-picks` subprocess call actually returned -- there was no
+synchronous clear on the switch itself, so the *previous* course's hint (a
+real 18-hole, ~4h-round number) stayed on screen, now attached to whatever
+9-hole course you'd just switched to, for as long as that fetch took. Fixed
+with a new `picksRequestKey` (the (path, course) the on-screen state was
+actually fetched for): `reload()` now blanks those three the instant it sees
+a request for a *different* key, but leaves them alone for a same-key
+reload -- the 2-second DB-mtime watcher and a confirm/cancel both call
+`reload()` too, for the *same* course, and clearing on those as well would
+have flashed the pick badges/hint to empty and back on every routine
+background refresh.
+
+The clearing decision itself (`OverviewModel.picksRequestChanged(from:to:)`)
+is a pure static function, not inline in `reload()` -- not by design up
+front, but by a real CI failure: a first version of this fix's own test drove
+a real `reload()` + `PicksClient.run()` subprocess call, asserting a same-
+course reload leaves `windowHint` alone. Passed locally (this dev machine has
+`teetime-monitor-picks` installed, so that call is genuinely async and
+`reload()` returns before it completes) and failed in CI (a clean runner with
+no such binary, where `PicksClient.executable()` finds nothing and its
+completion fires *synchronously*, inside `reload()`, with an empty result --
+clearing the very state the test asserted would survive). The test was
+timing-dependent on an environment detail that had nothing to do with the
+actual fix. Pulling the decision out into its own pure function let the two
+regression tests (`testSwitchingCourseCountsAsChanged`/
+`testReloadingSameCourseDoesNotCountAsChanged`) target it directly, with no
+subprocess, no RunLoop spin, and no environment dependence left at all.
+
+**"make the player directory a feature[sic] similar features like in common
+contact directories (e.g. alphabet letters as separators)"** -- `PlayerDirectorySheet`
+now groups by the first letter of family name into real `Section`s, plus a
+tappable A-Z jump strip down the trailing edge (`ScrollViewReader.scrollTo`),
+the same shape Contacts.app's own list uses. Only shown sorted by name --
+grouping a handicap- or gender-sorted list by family-name letter would
+scatter one person's own initial across the whole list instead of collecting
+it, so the header/strip both gate on `sectionsShown` (`sortField == .name`).
+The grouping itself is a free function (`groupPlayersByFamilyNameLetter`),
+not sheet-private state, specifically so `TeetimeMonitorCoreTests` can
+exercise it directly -- 4 new tests, adjacent-run grouping, case-insensitivity,
+the family-name (not full-name) rule, and the "#" fallback for a name with no
+leading letter.
+
+Neither change has a screenshot to verify against: this machine's screen is
+locked for this whole session (see the entry below), and `List`/`Section`
+render as an empty box through `ImageRenderer` the same way `Form` already
+does (no real window for native chrome to draw into) -- confirmed once
+already, not re-litigated here. Verified instead by the two new automated
+suites (222 Swift tests passing) and by reading the actual code path
+end to end.
+
 ## README screenshots, finally (2026-09-28)
 
 Direct question: "why don't we have screenshots for the companion app?" --
