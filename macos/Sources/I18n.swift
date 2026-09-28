@@ -280,6 +280,8 @@ private let englishStrings: [String: String] = [
     "players.sort.friend": "Friend",
     "players.sort.ascending": "Ascending",
     "players.sort.descending": "Descending",
+    "players.focus_title": "Jump to tee time",
+    "players.focus_none": "Not currently booked in the loaded days.",
     "players.gender.male": "Male",
     "players.gender.female": "Female",
     "players.gender.unknown": "Unknown",
@@ -343,6 +345,9 @@ private let englishStrings: [String: String] = [
     "search.title": "Search",
     "search.prefill_note": "Pre-filled from your saved Preferences — edit for this one search.",
     "search.section.criteria": "Criteria",
+    "search.field.friends_only": "Friends only",
+    "search.field.player": "Player",
+    "search.field.player.any": "(Any)",
     "search.button": "Search",
     "search.none_yet_title": "No search run yet",
     "search.none_yet_desc": "Adjust the criteria above and press Search.",
@@ -385,11 +390,27 @@ private let englishStrings: [String: String] = [
     "heatmap.public_holiday": "Public holiday",
     "heatmap.vacation": "Vacation",
     "heatmap.cell_tip": "{pct}% average occupancy, {n} samples",
-    "heatmap.legend.open": "under half booked",
-    "heatmap.legend.mid": "half to full",
-    "heatmap.legend.full": "fully booked",
-    "heatmap.legend.thin": "thin sample (<3)",
+    // A historical/predictive pattern ("this hour usually runs quiet"), not a live
+    // occupancy count -- matches tui.py's own heatmap.legend.* wording exactly
+    // (2026-09-28, direct request: "run a thorough check and align wording"). Used
+    // to read "under half booked"/"half to full"/"fully booked" -- accurate for a
+    // *live* single day, but this grid cell is an *average across many scraped
+    // days*, and phrasing it like a live status was actually misleading, not just
+    // differently worded. See `overview.crowd_legend.*` below for the live-count
+    // wording this used to (wrongly) share with the Overview's own real-time strip.
+    "heatmap.legend.open": "usually quiet",
+    "heatmap.legend.mid": "fills up",
+    "heatmap.legend.full": "usually full",
+    "heatmap.legend.thin": "too few samples yet",
     "heatmap.legend.no_data": "no data",
+    // The Overview's own real-time heat strip -- a live booked/capacity fraction
+    // for one specific real day, genuinely different from `heatmap.legend.*`
+    // above despite sharing the same green/orange/red thresholds (`fillColor()`).
+    // Split out 2026-09-28 -- see that key's own comment for why sharing one set
+    // of strings between the two was a real bug, not just a style choice.
+    "overview.crowd_legend.open": "under half booked",
+    "overview.crowd_legend.mid": "half to full",
+    "overview.crowd_legend.full": "fully booked",
     // Updated 2026-09-19, direct follow-up ("why does heatmap still say no
     // country is set for club") right after new clubs started detecting this
     // automatically: geocode.find_club_country_code() only runs when a club is
@@ -445,7 +466,7 @@ private let germanStrings: [String: String] = [
     // Toolbar and menu
     "action.refresh": "Aktualisieren",
     "action.search": "Suchen",
-    "action.heatmap": "Heatmap",
+    "action.heatmap": "Auslastung",
     "action.player_directory": "Spieler",
     "action.add_club": "Club hinzufügen",
     "action.collapse_all": "Alle einklappen",
@@ -544,7 +565,7 @@ private let germanStrings: [String: String] = [
     "prefs.live_note": "Wird sofort übernommen — eine laufende Terminal-App liest es beim nächsten Aktualisieren, kein Neustart nötig.",
     "prefs.section.availability": "Verfügbarkeit",
     "prefs.section.weather": "Wetter",
-    "prefs.section.pace": "Tempo & Tageslicht",
+    "prefs.section.pace": "Spieltempo & Tageslicht",
     "prefs.section.priorities": "Prioritäten",
     "prefs.min_open_spots_label": "Min. freie Plätze (Gruppengröße)",
     "prefs.weekday": "Unter der Woche",
@@ -569,7 +590,7 @@ private let germanStrings: [String: String] = [
     "prefs.hcp_preference.off": "Aus",
     "prefs.hcp_preference.similar": "Ähnliches Handicap wie meins",
     "prefs.hcp_preference.better": "Besseres Handicap (schnelleres Tempo)",
-    "prefs.my_handicap": "Ihr Handicap",
+    "prefs.my_handicap": "Dein Handicap",
     "prefs.my_handicap.unsynced": "noch nicht synchronisiert",
     "players.title": "Spielerverzeichnis",
     "players.intro": "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — siehe Einstellungen). Tippen, um Freund/in zu markieren oder zu entfernen.",
@@ -585,6 +606,8 @@ private let germanStrings: [String: String] = [
     "players.sort.friend": "Freund/in",
     "players.sort.ascending": "Aufsteigend",
     "players.sort.descending": "Absteigend",
+    "players.focus_title": "Zur Tee-Zeit springen",
+    "players.focus_none": "In den geladenen Tagen nicht gebucht.",
     "players.gender.male": "Männlich",
     "players.gender.female": "Weiblich",
     "players.gender.unknown": "Unbekannt",
@@ -639,6 +662,9 @@ private let germanStrings: [String: String] = [
     "search.title": "Suchen",
     "search.prefill_note": "Aus deinen gespeicherten Präferenzen vorbelegt — nur für diese eine Suche anpassen.",
     "search.section.criteria": "Kriterien",
+    "search.field.friends_only": "Nur Freunde",
+    "search.field.player": "Spieler",
+    "search.field.player.any": "(Alle)",
     "search.button": "Suchen",
     "search.none_yet_title": "Noch keine Suche ausgeführt",
     "search.none_yet_desc": "Passe oben die Kriterien an und klicke auf Suchen.",
@@ -681,11 +707,14 @@ private let germanStrings: [String: String] = [
     "heatmap.public_holiday": "Feiertag",
     "heatmap.vacation": "Ferien",
     "heatmap.cell_tip": "{pct} % durchschnittliche Belegung, {n} Messwerte",
-    "heatmap.legend.open": "weniger als halb belegt",
-    "heatmap.legend.mid": "halb bis voll",
-    "heatmap.legend.full": "ausgebucht",
-    "heatmap.legend.thin": "wenige Daten (<3)",
+    "heatmap.legend.open": "meist ruhig",
+    "heatmap.legend.mid": "füllt sich",
+    "heatmap.legend.full": "meist voll",
+    "heatmap.legend.thin": "noch zu wenige Messwerte",
     "heatmap.legend.no_data": "keine Daten",
+    "overview.crowd_legend.open": "weniger als halb belegt",
+    "overview.crowd_legend.mid": "halb bis voll",
+    "overview.crowd_legend.full": "ausgebucht",
     "heatmap.no_country": "Für diesen Club ist kein Land gesetzt — Feiertage werden nicht berücksichtigt. Neue Clubs erkennen das jetzt automatisch; entferne diesen Club unter Einstellungen → Clubs und füge ihn erneut hinzu, oder setze calendar.country_code manuell in seiner YAML-Datei.",
     "weekday.short.sunday": "So",
     "weekday.short.monday": "Mo",

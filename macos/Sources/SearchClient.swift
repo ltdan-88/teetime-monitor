@@ -13,6 +13,15 @@ struct SearchCriteriaPayload {
     var weekendBefore: String?
     var bufferBeforeMinutes: Int
     var bufferAfterMinutes: Int
+    /// A post-filter over already-ranked matches, not a hard search criterion --
+    /// see `search_cli.py`'s own `friends_only`/`player` docstring for why these
+    /// two live outside `SearchCriteria` entirely (2026-09-28, direct request:
+    /// "implement players or friends into the search"). `player` empty means
+    /// "any" -- mirrors `SearchScreen`'s own "(Any)" dropdown option, and a plain
+    /// non-optional `String` is what a SwiftUI `Picker`'s own `selection:`
+    /// binding wants without extra Optional-unwrapping machinery.
+    var friendsOnly: Bool = false
+    var player: String = ""
 
     /// A day type with *both* sides nil omits that window key entirely, not
     /// `{"after": null, "before": null}` -- those mean different things to
@@ -28,7 +37,11 @@ struct SearchCriteriaPayload {
             "min_open_spots": minOpenSpots,
             "buffer_before_minutes": bufferBeforeMinutes,
             "buffer_after_minutes": bufferAfterMinutes,
+            "friends_only": friendsOnly,
         ]
+        if !player.isEmpty {
+            obj["player"] = player
+        }
         if weekdayAfter != nil || weekdayBefore != nil {
             obj["weekday_window"] = [
                 "after": weekdayAfter as Any? ?? NSNull(), "before": weekdayBefore as Any? ?? NSNull(),

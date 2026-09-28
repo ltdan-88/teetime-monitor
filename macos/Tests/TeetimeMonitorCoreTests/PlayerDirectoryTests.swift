@@ -12,6 +12,12 @@ func runPlayerDirectoryTests() {
         testSwitchingCourseCountsAsChanged()
         testReloadingSameCourseDoesNotCountAsChanged()
     }
+    Harness.group("playerSlotHits") {
+        testFindsEveryHitAcrossMultipleDays()
+        testNoHitsForAPlayerNotInAnyLoadedDay()
+        testDoesNotMatchAPartialNameSubstring()
+        testIgnoresBlockedSlotsWithNoRealPlayers()
+    }
 }
 
 private func player(_ name: String) -> KnownPlayer {
@@ -83,4 +89,52 @@ private func testReloadingSameCourseDoesNotCountAsChanged() {
     Harness.check("the exact same (club, course) is not a change",
                    !OverviewModel.picksRequestChanged(from: ("/club.db", "18 Loch Tee 1"),
                                                        to: ("/club.db", "18 Loch Tee 1")))
+}
+
+private func slot(_ time: String, players: [String] = [], blockReason: String? = nil) -> Slot {
+    Slot(time: time, booked: players.count, capacity: 4, blockReason: blockReason, players: players)
+}
+
+private func day(_ date: String, slots: [Slot]) -> Day {
+    Day(date: date, slots: slots, weather: [], sunrise: nil, sunset: nil, events: [], bookedTime: nil)
+}
+
+/// Direct request, 2026-09-28: "would it be possible to double click a player in
+/// the directory and focus on their booked tee time or tee times?" -- the "or
+/// times" plural is exactly what this pins: a player showing up in more than one
+/// loaded day's slots is a real, expected case (multiple hits get a small picker
+/// in the sheet itself), not something `playerSlotHits` should collapse to one.
+private func testFindsEveryHitAcrossMultipleDays() {
+    let days = [
+        day("2026-09-28", slots: [slot("09:00", players: ["Anna Bauer"]), slot("09:20")]),
+        day("2026-09-29", slots: [slot("14:00", players: ["Max Mustermann", "Anna Bauer"])]),
+    ]
+    let hits = playerSlotHits(for: "Anna Bauer", in: days)
+    Harness.checkEqual("one hit per day she's actually in",
+                        Set(hits.map { "\($0.date) \($0.time)" }),
+                        Set(["2026-09-28 09:00", "2026-09-29 14:00"]))
+}
+
+private func testNoHitsForAPlayerNotInAnyLoadedDay() {
+    let days = [day("2026-09-28", slots: [slot("09:00", players: ["Anna Bauer"])])]
+    Harness.checkEqual("nobody by that name in the loaded window",
+                        playerSlotHits(for: "Someone Else", in: days).count, 0)
+}
+
+private func testDoesNotMatchAPartialNameSubstring() {
+    // Slot.players holds exact names pc caddie's own markup gave -- a substring
+    // match here would silently conflate "Anna Bauer" with e.g. "Anna Bauer-Klein".
+    let days = [day("2026-09-28", slots: [slot("09:00", players: ["Anna Bauer-Klein"])])]
+    Harness.checkEqual("a real name that merely contains the query isn't a hit",
+                        playerSlotHits(for: "Anna Bauer", in: days).count, 0)
+}
+
+private func testIgnoresBlockedSlotsWithNoRealPlayers() {
+    // A blocked slot (event/closure) carries no real players regardless of what's
+    // passed for `players:` here -- this fixture makes that explicit rather than
+    // relying on Store's own real query never producing one, since this function
+    // takes whatever Day/Slot data it's handed.
+    let days = [day("2026-09-28", slots: [slot("09:00", players: [], blockReason: "Clubmeisterschaft")])]
+    Harness.checkEqual("a block with no real players is never a hit",
+                        playerSlotHits(for: "Anna Bauer", in: days).count, 0)
 }

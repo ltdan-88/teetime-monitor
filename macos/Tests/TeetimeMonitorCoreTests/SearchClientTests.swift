@@ -6,6 +6,8 @@ func runSearchClientTests() {
         testOmittedWindowHasNoKey()
         testPresentWindowKeepsNullSides()
         testAlwaysIncludesTheScalarFields()
+        testFriendsOnlyAndPlayerDefaultToNoFilter()
+        testFriendsOnlyAndPlayerEncodeWhenSet()
     }
 }
 
@@ -47,4 +49,29 @@ private func testAlwaysIncludesTheScalarFields() {
     Harness.checkEqual("min_open_spots", payload.json["min_open_spots"] as? Int, 2)
     Harness.checkEqual("buffer_before_minutes", payload.json["buffer_before_minutes"] as? Int, 10)
     Harness.checkEqual("buffer_after_minutes", payload.json["buffer_after_minutes"] as? Int, 5)
+}
+
+/// Direct request, 2026-09-28: "implement players or friends into the search".
+/// `friends_only` always encodes (a plain bool, default false); `player` is
+/// omitted entirely when empty -- mirrors the window fields' own
+/// present-vs-absent convention, and matches `search_cli.py`'s own
+/// `payload.get("player")` read, which treats a missing key and an empty
+/// string identically anyway, so either would work, but omitting is what the
+/// GUI's own "(Any)" Picker option (tagged "") naturally produces.
+private func testFriendsOnlyAndPlayerDefaultToNoFilter() {
+    let payload = SearchCriteriaPayload(
+        minOpenSpots: 1, weekdayAfter: nil, weekdayBefore: nil,
+        weekendAfter: nil, weekendBefore: nil, bufferBeforeMinutes: 0, bufferAfterMinutes: 0)
+    Harness.checkEqual("friends_only defaults to false", payload.json["friends_only"] as? Bool, false)
+    Harness.check("player key is absent when nothing's picked", payload.json["player"] == nil)
+}
+
+private func testFriendsOnlyAndPlayerEncodeWhenSet() {
+    var payload = SearchCriteriaPayload(
+        minOpenSpots: 1, weekdayAfter: nil, weekdayBefore: nil,
+        weekendAfter: nil, weekendBefore: nil, bufferBeforeMinutes: 0, bufferAfterMinutes: 0)
+    payload.friendsOnly = true
+    payload.player = "Erika Mustermann"
+    Harness.checkEqual("friends_only", payload.json["friends_only"] as? Bool, true)
+    Harness.checkEqual("player", payload.json["player"] as? String, "Erika Mustermann")
 }

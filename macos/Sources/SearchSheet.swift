@@ -26,6 +26,11 @@ struct SearchSheet: View {
     @StateObject private var results = Box<[SearchMatch]>([])
     @StateObject private var weatherByDate = Box<[String: Day]>([:])
     @StateObject private var confirming = Box<SearchMatch?>(nil)
+    // For the "Player" filter dropdown below -- loaded once here (a plain
+    // synchronous SQLite read, same as PlayerDirectorySheet's own reload())
+    // rather than kept live, since this sheet's own criteria form isn't
+    // expected to still be open by the time a background scrape adds a new name.
+    @StateObject private var knownPlayers = Box<[KnownPlayer]>([])
 
     private let searchDays = 6  // same window Store.days() already shows on screen
 
@@ -43,6 +48,7 @@ struct SearchSheet: View {
             weekendAfter: p.weekendAfter, weekendBefore: p.weekendBefore,
             bufferBeforeMinutes: p.bufferBeforeMinutes, bufferAfterMinutes: p.bufferAfterMinutes
         )))
+        _knownPlayers = StateObject(wrappedValue: Box(Store.knownPlayers(dbPath: dbPath)))
     }
 
     private var today: String {
@@ -90,6 +96,22 @@ struct SearchSheet: View {
                             Text(t("prefs.buffer_after_label"))
                             Spacer()
                             IntChoicePicker(choices: [0, 10, 20, 30, 40, 50, 60], value: $criteria.value.bufferAfterMinutes, suffix: " min")
+                        }
+                        Toggle(t("search.field.friends_only"), isOn: $criteria.value.friendsOnly)
+                        HStack {
+                            Text(t("search.field.player"))
+                            Spacer()
+                            // "" tags the "(Any)" option -- SearchCriteriaPayload.json
+                            // already treats an empty/nil player as "no filter," so no
+                            // separate Optional-vs-empty-string handling needed here.
+                            Picker("", selection: $criteria.value.player) {
+                                Text(t("search.field.player.any")).tag("")
+                                ForEach(knownPlayers.value) { player in
+                                    Text(player.isFriend ? "★ \(player.name)" : player.name).tag(player.name)
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
                         }
                     }
                 }

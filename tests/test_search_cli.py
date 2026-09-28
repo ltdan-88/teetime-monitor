@@ -242,3 +242,46 @@ def test_marked_friend_sorts_first_when_prioritize_friends_is_on(tmp_path, monke
 
     assert code == 0
     assert [row["time"] for row in result] == ["18:00", "09:10"]
+
+
+def test_friends_only_excludes_slots_with_no_marked_friend(tmp_path, monkeypatch, capsys):
+    db = tmp_path / "0000001.db"
+    save_schedule(Schedule(date="2026-09-20", course="18 Loch Tee 1", slots=[  # a Sunday
+        Slot(time="09:10", booked=1, capacity=4, players=["A Stranger"]),
+        Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+    ]), path=db)
+    from src import storage
+    from src.models import PlayerSighting
+
+    storage.record_seen_players(
+        [PlayerSighting(name="A Stranger"), PlayerSighting(name="Erika Mustermann")],
+        "2026-09-20T10:00:00+00:00",
+        path=db,
+    )
+    storage.set_player_friend("Erika Mustermann", True, path=db)
+
+    result, code = _run(
+        monkeypatch, capsys,
+        {"min_open_spots": 1, "weekend_window": {"after": None, "before": None}, "friends_only": True},
+        ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-20", "--days", "1"],
+    )
+
+    assert code == 0
+    assert [row["time"] for row in result] == ["18:00"]
+
+
+def test_player_filter_keeps_only_that_players_slots(tmp_path, monkeypatch, capsys):
+    db = tmp_path / "0000001.db"
+    save_schedule(Schedule(date="2026-09-20", course="18 Loch Tee 1", slots=[  # a Sunday
+        Slot(time="09:10", booked=1, capacity=4, players=["A Stranger"]),
+        Slot(time="18:00", booked=1, capacity=4, players=["Erika Mustermann"]),
+    ]), path=db)
+
+    result, code = _run(
+        monkeypatch, capsys,
+        {"min_open_spots": 1, "weekend_window": {"after": None, "before": None}, "player": "Erika Mustermann"},
+        ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-20", "--days", "1"],
+    )
+
+    assert code == 0
+    assert [row["time"] for row in result] == ["18:00"]

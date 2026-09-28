@@ -37,6 +37,30 @@ private enum PlayerSortField: String, CaseIterable, Identifiable {
     }
 }
 
+/// One (date, time) a double-clicked player is actually booked into, within the
+/// currently-loaded window -- see `PlayerDirectorySheet.handleDoubleClick(_:)`.
+/// Not `private`: `TeetimeMonitorCoreTests` constructs these directly to check
+/// `playerSlotHits(for:in:)`'s own output.
+struct PlayerSlotHit: Identifiable, Hashable {
+    let date: String
+    let time: String
+    var id: String { date + time }
+}
+
+/// Every (date, time) `playerName` is actually booked into, across `days` -- the
+/// currently-loaded window only (`OverviewModel.visibleDays`), not full scrape
+/// history, matching direct scope confirmed 2026-09-28: "scope: only currently
+/// loaded window." A free function, not a `PlayerDirectorySheet` method, for the
+/// same reason `groupPlayersByFamilyNameLetter` above is one -- so
+/// `TeetimeMonitorCoreTests` can exercise it directly against plain `Day`/`Slot`
+/// fixtures, no live sheet or `OverviewModel` needed.
+func playerSlotHits(for playerName: String, in days: [Day]) -> [PlayerSlotHit] {
+    days.flatMap { day in
+        day.slots.filter { $0.players.contains(playerName) }
+            .map { PlayerSlotHit(date: day.date, time: $0.time) }
+    }
+}
+
 /// Groups `players` (already sorted the way the caller wants) into adjacent runs
 /// sharing the same first letter of `familyName(_:)`, uppercased -- one entry per
 /// letter, in first-seen order, so this reflects whatever order `players` already
@@ -87,12 +111,39 @@ func groupPlayersByFamilyNameLetter(_ players: [KnownPlayer]) -> [(letter: Strin
 struct PlayerDirectorySheet: View {
     @Environment(\.dismiss) private var dismiss
     let dbPath: String
+    // Optional, not required -- this sheet is reachable two ways (Overview's own
+    // toolbar/Actions menu, and PreferencesSheet's "Priorities" section), and only
+    // the first hands over a live `OverviewModel` to jump through. Double-click-to-
+    // focus (below) is scoped to that one: opened from Preferences, a match has
+    // nowhere to scroll to anyway (Preferences isn't looking at the day list), so
+    // it quietly does nothing there rather than needing Preferences to also carry
+    // a model just to dismiss itself out of the way for a nested sheet's jump.
+    // Plain reference, not @ObservedObject -- SwiftUI's property wrapper requires
+    // its wrapped type itself to conform to ObservableObject, which an Optional
+    // never does even when what it wraps does. No live re-render off this sheet's
+    // own body needs it anyway: `handleDoubleClick(_:)` below only ever reads
+    // `model.visibleDays` once per click and writes `model.scrollRequest` once.
+    let model: OverviewModel?
     @ObservedObject private var language = AppLanguage.shared
+
+    // Explicit, not relying on the synthesized memberwise init -- this struct mixes
+    // plain stored properties (dbPath, model) with several @StateObject-wrapped
+    // ones further down, and letting `model` default via `= nil` on its own
+    // declaration didn't reliably produce a callable `model:` parameter alongside
+    // them (found live: "extra argument 'model' in call" at the one real call site
+    // that passes it). Spelling the two real inputs out here is also just clearer
+    // than trusting synthesis to guess which stored properties are "the API."
+    init(dbPath: String, model: OverviewModel? = nil) {
+        self.dbPath = dbPath
+        self.model = model
+    }
 
     @StateObject private var players = Box<[KnownPlayer]>([])
     @StateObject private var query = Box("")
     @StateObject private var sortField = Box(PlayerSortField.name)
     @StateObject private var sortReversed = Box(false)
+    @StateObject private var focusChoices = Box<[PlayerSlotHit]>([])
+    @StateObject private var focusNoneNotice = Box(false)
 
     private var visiblePlayers: [KnownPlayer] {
         var visible = players.value
@@ -166,13 +217,15 @@ struct PlayerDirectorySheet: View {
                                 if sectionsShown {
                                     Section(header: Text(group.letter)) {
                                         ForEach(group.players) { player in
-                                            PlayerRow(player: player) { toggleFriend(player) }
+                                            PlayerRow(player: player, onToggle: { toggleFriend(player) },
+                                                      onFocus: model == nil ? nil : { handleDoubleClick(player) })
                                         }
                                     }
                                     .id(group.letter)
                                 } else {
                                     ForEach(group.players) { player in
-                                        PlayerRow(player: player) { toggleFriend(player) }
+                                        PlayerRow(player: player, onToggle: { toggleFriend(player) },
+                                                  onFocus: model == nil ? nil : { handleDoubleClick(player) })
                                     }
                                 }
                             }
@@ -195,6 +248,42 @@ struct PlayerDirectorySheet: View {
         }
         .sheetFrame(SheetSize.directory)
         .onAppear { reload() }
+        // Direct request, 2026-09-28: "would it be possible to double click a
+        // player in the directory and focus on their booked tee time or tee
+        // times?" -- scoped to the currently-loaded window only (model.days),
+        // same reasoning `groupPlayersByFamilyNameLetter` already documents for
+        // other per-session-state features here: this is about what you'd act
+        // on right now, not a full-history search. Multiple hits get a small
+        // picker; one hit jumps straight there.
+        .confirmationDialog(t("players.focus_title"),
+                             isPresented: Binding(get: { !focusChoices.value.isEmpty },
+                                                   set: { if !$0 { focusChoices.value = [] } })) {
+            ForEach(focusChoices.value) { hit in
+                Button("\(weekday(hit.date)) \(hit.time)") { jump(to: hit) }
+            }
+            Button(t("button.cancel"), role: .cancel) { focusChoices.value = [] }
+        }
+        .alert(t("players.focus_none"), isPresented: $focusNoneNotice.value) {
+            Button(t("button.close"), role: .cancel) {}
+        }
+    }
+
+    private func handleDoubleClick(_ player: KnownPlayer) {
+        guard let model else { return }
+        let hits = playerSlotHits(for: player.name, in: model.visibleDays)
+        if hits.isEmpty {
+            focusNoneNotice.value = true
+        } else if hits.count == 1 {
+            jump(to: hits[0])
+        } else {
+            focusChoices.value = hits
+        }
+    }
+
+    private func jump(to hit: PlayerSlotHit) {
+        focusChoices.value = []
+        model?.scrollRequest = OverviewModel.ScrollTarget(date: hit.date, time: hit.time)
+        dismiss()
     }
 
     private func reload() {
@@ -235,10 +324,21 @@ private struct AlphabetIndexStrip: View {
 struct PlayerRow: View {
     let player: KnownPlayer
     let onToggle: () -> Void
+    /// Double-click-to-focus (2026-09-28) -- `nil` when there's nowhere to jump to
+    /// (opened from Preferences rather than the Overview, see
+    /// `PlayerDirectorySheet`'s own `model` docstring), in which case this row
+    /// behaves exactly as it always did. Attached to `PlayerRowColumns` alone, not
+    /// this whole row -- putting it on the row would put a tap recognizer directly
+    /// over the trailing friend-toggle `Button` too, and a double-click landing on
+    /// that button is a real, physically-plausible way to trigger *this* gesture
+    /// by accident while trying to toggle a friend twice in quick succession.
+    var onFocus: (() -> Void)?
 
     var body: some View {
         HStack {
             PlayerRowColumns(player: player)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { onFocus?() }
             Spacer(minLength: 8)
             Button(player.isFriend ? t("players.unmark_friend") : t("players.mark_friend"), action: onToggle)
         }
