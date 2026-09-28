@@ -147,6 +147,10 @@ the exact same data — same club/course, same scrape history, same
 `~/.config/teetime-monitor` state, updated by the same background scraper. It's a
 second way to look at the same thing, not a second thing to keep in sync by hand.
 
+<p align="center"><img src="assets/en/gui-overview.png" alt="The macOS companion app: the same day list, weather, occupancy and events, native"></p>
+
+<p align="center"><img src="assets/en/gui-expanded.png" alt="A day expanded in the macOS app, showing each individual tee time"></p>
+
 It covers everything above: the day list with weather and a heat strip, ad hoc
 search, a crowd heatmap, preferences and pc caddie login, managing which clubs are
 saved (browse and open a club before ever favoriting it, add by name or id, remove

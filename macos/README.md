@@ -116,6 +116,41 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## README screenshots, finally (2026-09-28)
+
+Direct question: "why don't we have screenshots for the companion app?" --
+the TUI's own six had just been refreshed (see root README.md's own history);
+this app had never had any, prose-only since it existed. Two, not six:
+`DayCardHeader`/`DayCardBody` (collapsed day list, one day expanded) render
+correctly off-screen via `ImageRenderer` -- the same mechanism
+`VisualRegressionRunner` already trusts for exactly those two views -- but the
+full `ContentView` and any `Form`-based sheet (Preferences, Search, Heatmap)
+do not: `Picker`s render as a broken "missing resource" glyph with no real
+window to draw native chrome into, and `Form`/`List` render as an empty box
+outright. Confirmed directly rather than assumed, matching
+`VisualRegressionRunner`'s own already-documented "native-control-bearing
+views ... not confirmed" caveat -- this just cashed that caveat in for real.
+
+A real on-screen window (`screencapture`) was the other option, and was
+tried first, since the user had explicitly OK'd it (quit the real app,
+relaunch pointed at fixture data, screenshot, restore the real app after).
+Ruled out for a real, checked reason, not assumed: this machine's screen is
+locked (`CGSSessionScreenIsLocked` via `CGSessionCopyCurrentDictionary` ==
+`1`) -- `screencapture` returns the lock screen's own static frame regardless
+of which window or region is asked for, byte-identical across repeated
+attempts. Correctly out of reach, not a bug to route around.
+
+Screenshots render against the exact same fake "Golfclub Musterhausen e.V."
+demo data (`build_fixture.py`, see the root README's own screenshot-refresh
+history) the TUI's own six were regenerated from -- same club, same
+anonymized "X Mustermann"/"X Musterfrau" player names, reached the normal
+way via `TEETIME_MONITOR_CONFIG_DIR`/`_DATA_DIR`. Rendered by a temporary
+`ReadmeScreenshotRunner` executable target (own `main.swift`, added to
+`Package.swift`, both deleted once the two PNGs were copied into
+`assets/en/`/`assets/de/` as `gui-overview.png`/`gui-expanded.png`) rather
+than left as permanent infrastructure -- matches the TUI's own screenshot
+script, which lives in a scratchpad, never the repo.
+
 ## Handicap preference: play with similar or better HCP (2026-09-27)
 
 Direct follow-up to the player directory work above: "would it make sense to
