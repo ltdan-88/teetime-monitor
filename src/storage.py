@@ -537,6 +537,35 @@ def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
     return json.loads(row[0]) if row else None
 
 
+def save_my_handicap(handicap: float, path: Path = DEFAULT_DB_PATH) -> None:
+    """Cache your own live handicap index (2026-09-27, direct follow-up: "would it
+    make sense to have the option to choose to play with similar HCP or with better
+    HCP") -- same `club_meta` key-value store `save_location()` already uses for a
+    single standing fact about this account, not a new table for one float. Per-db
+    (per-club) like everything else here, even though your own handicap is really a
+    personal fact, not a club one -- consistent with how this module's own per-file
+    split already works, and harmless: `scraper._parse_my_handicap_html()` re-reads
+    the real value on every sync pass regardless of which club triggered it."""
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO club_meta (key, value) VALUES ('my_handicap', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(handicap),),
+        )
+
+
+def load_my_handicap(path: Path = DEFAULT_DB_PATH) -> float | None:
+    """The handicap `save_my_handicap()` cached, or None if it's never been synced yet
+    (or this club has no db file yet at all)."""
+    if not path.exists():
+        return None
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        row = conn.execute("SELECT value FROM club_meta WHERE key = 'my_handicap'").fetchone()
+    return json.loads(row[0]) if row else None
+
+
 def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
     """Upsert each sighting into `known_players` -- a new row (both timestamps set to
     `seen_at`) the first time a name is ever seen, or just `last_seen` bumped (plus
@@ -612,6 +641,20 @@ def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:
     with sqlite3.connect(path) as conn:
         rows = conn.execute("SELECT name FROM known_players WHERE is_friend = 1").fetchall()
     return {name for (name,) in rows}
+
+
+def load_known_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
+    """Name -> handicap for every known player who actually has one recorded --
+    what `recommend.ranked_matches()`'s own `known_handicaps` param wants, without
+    every call site repeating the same `load_known_players()` + filter-and-dict-
+    comprehension. Same shape of shortcut `load_friend_names()` already is over
+    `load_known_players()`."""
+    if not path.exists():
+        return {}
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute("SELECT name, handicap FROM known_players WHERE handicap IS NOT NULL").fetchall()
+    return dict(rows)
 
 
 def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) -> None:

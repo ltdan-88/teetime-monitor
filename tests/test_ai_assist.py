@@ -256,6 +256,36 @@ def test_rank_slots_omits_the_friend_count_line_when_no_friend_is_in_the_slot(mo
     assert "friend" not in prompt.lower()
 
 
+def test_rank_slots_includes_avg_field_hcp_but_never_a_name(monkeypatch):
+    # 2026-09-27, direct follow-up: "would it make sense to have the option to
+    # choose to play with similar HCP or with better HCP" -- same "a number, never
+    # a name" contract test_rank_slots_includes_a_friend_count_but_never_a_name
+    # above already pins for friends.
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00", players=["Low Hcp", "High Hcp"])]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {"known_handicaps": {"Low Hcp": 10.0, "High Hcp": 40.0}}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "avg field HCP 25.0" in prompt
+    assert "Low Hcp" not in prompt
+    assert "High Hcp" not in prompt
+
+
+def test_rank_slots_omits_the_hcp_line_for_a_player_with_no_known_handicap(monkeypatch):
+    candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00", players=["A Stranger"])]
+    ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])
+    messages = _FakeMessages(parse_result=_FakeResponse(ranking))
+    monkeypatch.setattr(ai_assist.anthropic, "Anthropic", lambda: _FakeClient(messages))
+
+    rank_slots(candidates, {"known_handicaps": {"Low Hcp": 10.0}}, {})
+
+    prompt = messages.parse_calls[0]["messages"][0]["content"]
+    assert "HCP" not in prompt
+
+
 def test_rank_slots_omits_weather_without_schedule_context(monkeypatch):
     candidates = [_candidate("2026-09-07", "18 Loch Tee 1", "18:00")]
     ranking = ai_assist._SlotRanking(ranked=[ai_assist._RankedSlot(index=0, score=50, reasons=["ok"])])

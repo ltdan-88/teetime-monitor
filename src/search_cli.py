@@ -126,7 +126,17 @@ def main(argv: list[str] | None = None) -> None:
 
     crowd_estimates = tui_module._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
     friend_names = storage.load_friend_names(path=Path(db_path))
-    matches = ranked_matches(schedules, criteria, config, crowd_estimates=crowd_estimates, friend_names=friend_names)
+    known_handicaps = storage.load_known_handicaps(path=Path(db_path))
+    my_handicap = storage.load_my_handicap(path=Path(db_path))
+    matches = ranked_matches(
+        schedules,
+        criteria,
+        config,
+        crowd_estimates=crowd_estimates,
+        friend_names=friend_names,
+        known_handicaps=known_handicaps,
+        my_handicap=my_handicap,
+    )
     print(json.dumps([
         {
             "date": match.date,

@@ -116,6 +116,30 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Handicap preference: play with similar or better HCP (2026-09-27)
+
+Direct follow-up to the player directory work above: "would it make sense to
+have the option to choose to play with similar HCP or with better HCP for
+better pace?" Real per-slot data, not an inferred pattern -- the same
+distinction that ruled out a friends-presence heatmap and a field-composition-
+by-time-of-day idea earlier the same day (both would have relied on a
+statistical pattern across a still-short scrape history; this reads a
+specific slot's already-known, already-booked players' real handicaps right
+now). Validated against the real database first (98% HCP coverage among
+currently-booked players in upcoming slots) before building.
+
+New `hcpPreference` on `Preferences` ("off"/"similar"/"better", same
+opt-in-off default as `prioritizeFriends`), a `Picker` in `PreferencesSheet`'s
+Priorities section, and `Store.myHandicap(dbPath:)` reading the same
+`club_meta` table `storage.load_my_handicap()` writes on the Python side.
+Your own handicap is auto-scraped, never entered here (confirmed with the
+user: "auto scrape is very accurate since it is entered by my club") -- read
+for free off the same "My Reservations" page already fetched every sync pass
+(`Mein Handicap Index: 43,8` in its account-menu markup), so a read-only
+"Your handicap" row is the only place this app ever shows it. Field-average
+HCP is fed into the AI prompt when ranking is on, same "aggregate number,
+never a name" treatment `friend_count` already gets.
+
 ## Why no pick, your window, and jumping to it -- same as the TUI (2026-09-27)
 
 Bundle C of a TUI/GUI consistency audit (see ROADMAP.md). `picks_cli.py` now

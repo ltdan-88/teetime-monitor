@@ -134,6 +134,27 @@ class ConfirmedBooking:
 
 
 @dataclass
+class ReservationsSync:
+    """What one "My Reservations" page fetch actually carries (2026-09-27, direct
+    follow-up: "would it make sense to have the option to choose to play with
+    similar HCP or with better HCP for better pace?") — `scraper.scrape_my_
+    reservations()`'s own real return shape, not just the bookings list it used to
+    be. `my_handicap` is your own live handicap index, read off the same page's
+    account-menu markup ("Mein Handicap Index: 43,8") -- entered by the club
+    itself, not something this app collects, so it's picked up for free on every
+    existing sync pass rather than added as a second thing to maintain. `None`
+    when the page's markup didn't have it this time (a transient fetch variant,
+    or a locale this hasn't been confirmed against) — a caller should keep
+    whatever value it already had rather than clobbering it with nothing, the
+    same "don't overwrite good data with missing data" stance
+    `storage.record_seen_players()`'s own COALESCE already takes for gender/
+    member-status/handicap."""
+
+    bookings: list[ConfirmedBooking]
+    my_handicap: float | None = None
+
+
+@dataclass
 class KnownPlayer:
     """One real name ever seen in a `Slot.players` list (2026-09-27) — only possible
     at all from an authenticated scrape, see `scraper.scrape_schedule()`'s own

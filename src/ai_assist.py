@@ -410,15 +410,17 @@ class _SlotRanking(BaseModel):
 
 
 def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
-    # `slot.players` itself is deliberately never read here (2026-09-27) -- real
-    # authenticated scraping (scraper.py's `scrape_schedule(..., client=...)`) can
-    # populate it with other members' actual names (opted into pc caddie's own
-    # reciprocal name-sharing, confirmed live), and sending one to whichever AI
+    # `slot.players` itself is never *sent* to the model here -- real authenticated
+    # scraping (scraper.py's `scrape_schedule(..., client=...)`) can populate it with
+    # other members' actual names (opted into pc caddie's own reciprocal
+    # name-sharing, confirmed live), and putting one in a prompt to whichever AI
     # provider is configured would mean a real third party's name leaving this
-    # machine without their knowledge. `context["friend_names"]` (added the same day,
-    # once a real player directory made "these specific names are my friends" a real
-    # list rather than nothing to filter to) only ever contributes a *count* below --
-    # never which names matched.
+    # machine without their knowledge. It's still read below, twice -- matched
+    # against `context["friend_names"]` for a friend *count*, and against
+    # `context["known_handicaps"]` for an *average* handicap (2026-09-27, direct
+    # follow-up: "would it make sense to have the option to choose to play with
+    # similar HCP or with better HCP") -- but only ever to compute a number that
+    # reaches the prompt, never the names themselves.
     slot = candidate.slot
     open_spots = slot.capacity - slot.booked
     line = f"[{index}] {candidate.date} {candidate.course} at {slot.time} — {open_spots} open spot(s) of {slot.capacity}"
@@ -428,6 +430,17 @@ def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
         friend_count = len(set(slot.players) & friend_names)
         if friend_count:
             line += f", {friend_count} friend(s) already booked"
+
+    # Same "a number, never a name" stance as friend_count just above (2026-09-27,
+    # direct follow-up: "would it make sense to have the option to choose to play
+    # with similar HCP or with better HCP") -- context["known_handicaps"] maps
+    # real names to a real number, but only the slot's own *average* ever reaches
+    # this prompt.
+    known_handicaps = context.get("known_handicaps")
+    if known_handicaps:
+        field_hcps = [known_handicaps[name] for name in slot.players if name in known_handicaps]
+        if field_hcps:
+            line += f", avg field HCP {sum(field_hcps) / len(field_hcps):.1f}"
 
     schedule = context.get("schedules", {}).get((candidate.date, candidate.course))
     if schedule is not None:

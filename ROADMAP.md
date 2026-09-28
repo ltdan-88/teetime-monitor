@@ -5425,6 +5425,57 @@ with no manual dismissal needed.
 end to end, against the real account: the standing banner is gone after one
 real sync pass.
 
+## Handicap preference: similar or better HCP, auto-scraped (2026-09-27)
+
+Direct follow-up once the player directory (previous entry) made real
+per-slot handicap data available: "would it make sense to have the option to
+choose to play with similar HCP or with better HCP for better pace?" Two
+other player-data ideas were floated and ruled out the same day first -- a
+friends-presence heatmap (1 sighting in 6,384 samples, held off) and
+aggregate field-composition-by-time-of-day (pseudo-replication: only 4-5
+distinct calendar days behind each hour bucket, and no plausible causal
+mechanism regardless of volume) -- both inferred a *pattern across scrape
+history*. This idea instead reads a *real, already-known fact about a
+specific slot right now* (who's already booked, and their real recorded
+HCP), so it's sound even with this project's still-short scrape history;
+confirmed against the real database (98% HCP coverage among currently-booked
+players in upcoming slots) before building.
+
+`ranked_matches()` gained `known_handicaps: dict[str, float]` and
+`my_handicap: float | None`, both optional and following the same "caller
+already has it, hand it in" convention as `friend_names`. A new
+`preferences.hcp_preference` ("off"/"similar"/"better", default "off")
+stable-sorts `playable` by each slot's average known field handicap --
+`"similar"` by distance from your own, `"better"` by lowest absolute value --
+applied *before* the `prioritize_friends` sort so friends still take
+priority and HCP only breaks ties within each friend/non-friend group. When
+AI ranking is on, `_describe_candidate()` adds an aggregate `"avg field HCP
+25.0"` to the prompt -- never a name, same treatment `friend_count` already
+gets.
+
+Your own handicap is auto-scraped, not entered manually (confirmed with the
+user: "I am HCP 43.8... auto scrape is very accurate since it is entered by
+my club") -- found live on the same authenticated "My Reservations" page
+already fetched every sync pass, in its persistent account-menu markup
+(`Mein Handicap Index: 43,8`), so no second login or fetch is needed.
+`scraper.scrape_my_reservations()` now returns a `ReservationsSync`
+(`bookings` + `my_handicap`) instead of a bare list;
+`storage.save_my_handicap()`/`load_my_handicap()` cache it in the existing
+`club_meta` key-value table `save_location()` already uses.
+`_sync_my_reservations()` only writes it when a value was actually parsed
+this pass -- the same "don't overwrite good data with a transient miss"
+stance `record_seen_players()`'s own `COALESCE` upsert already takes.
+
+Settings gained a `hcp_preference` dropdown (Priorities group, live-localized
+choices like `units`) and a read-only "Your handicap" row showing the synced
+value or "not yet synced" -- transparency for a value this app only ever
+reads. GUI: `Preferences.hcpPreference`, `Store.myHandicap(dbPath:)`, and a
+matching `Picker` + read-only row in `PreferencesSheet` (see macos/README.md
+for that side's own dated entry).
+
+926 tests passing (`pytest`), `ruff check` clean; 211 Swift unit tests
+passing, `swift build` clean across all four targets.
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

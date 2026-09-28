@@ -11,6 +11,7 @@ from src.scraper import (
     _event_names,
     _parse_club_directory_html,
     _parse_course_aliases_html,
+    _parse_my_handicap_html,
     _parse_my_reservations_html,
     _parse_slot_row,
     club_url,
@@ -511,7 +512,8 @@ def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(mon
 
     result = scrape_my_reservations("0000001", "user@example.com", "hunter2")
 
-    assert result == []
+    assert result.bookings == []
+    assert result.my_handicap is None
     assert fake_client.closed
     assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=reservations"
 
@@ -576,6 +578,40 @@ def test_parse_my_reservations_html_empty_state_real_german_text():
     assert _parse_my_reservations_html(
         '<div class="alert alert-hint">Es wurden keine Reservierungen gefunden.</div>'
     ) == []
+
+
+# --- _parse_my_handicap_html() (2026-09-27, direct follow-up: "would it make sense to
+# have the option to choose to play with similar HCP or with better HCP") ------------
+
+
+def test_parse_my_handicap_html_reads_the_real_confirmed_markup():
+    # The real fragment (confirmed live 2026-09-27) -- the account menu present on
+    # every authenticated page, not part of the reservations table itself.
+    html = (
+        '<li><a class="clubserver"><i class="far fa-golf-club"></i>'
+        '<span class="title">Mein Handicap Index: 43,8</span></a></li>'
+    )
+    assert _parse_my_handicap_html(html) == 43.8
+
+
+def test_parse_my_handicap_html_accepts_a_period_decimal_too():
+    assert _parse_my_handicap_html('<span class="title">My Handicap Index: 12.3</span>') == 12.3
+
+
+def test_parse_my_handicap_html_ignores_other_title_spans():
+    # "Mein Profil"/"Meine Einstellungen"/etc. share the exact same class -- only the
+    # one whose own text actually mentions "Handicap" should ever match.
+    html = (
+        '<span class="title">Mein Profil</span>'
+        '<span class="title">Meine Einstellungen</span>'
+        '<span class="title">Mein Handicap Index: 43,8</span>'
+    )
+    assert _parse_my_handicap_html(html) == 43.8
+
+
+def test_parse_my_handicap_html_none_when_not_present():
+    assert _parse_my_handicap_html('<span class="title">Mein Profil</span>') is None
+    assert _parse_my_handicap_html("<html></html>") is None
 
 
 def test_parse_my_reservations_html_raises_for_unrecognized_markup():
@@ -647,10 +683,23 @@ def test_scrape_my_reservations_returns_confirmed_bookings_for_a_real_row(monkey
     fake_client = _FakeClient(post_response_text="<html>Welcome back</html>", get_response_text=_REAL_ROW_HTML_EN)
     monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
 
-    [booking] = scrape_my_reservations("0000001", "user@example.com", "hunter2")
+    [booking] = scrape_my_reservations("0000001", "user@example.com", "hunter2").bookings
 
     assert (booking.date, booking.time, booking.course) == ("2026-09-07", "19:50", "6 Loch Platz")
     assert fake_client.closed
+
+
+def test_scrape_my_reservations_also_reads_my_handicap_off_the_same_fetch(monkeypatch):
+    # One fetch, both facts (2026-09-27) -- the account-menu markup carrying the
+    # handicap sits alongside the reservations table on the exact same page.
+    html = _REAL_ROW_HTML_EN + '<span class="title">Mein Handicap Index: 43,8</span>'
+    fake_client = _FakeClient(post_response_text="<html>Welcome back</html>", get_response_text=html)
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    result = scrape_my_reservations("0000001", "user@example.com", "hunter2")
+
+    assert len(result.bookings) == 1
+    assert result.my_handicap == 43.8
 
 
 # ---------------------------------------------------------------------------

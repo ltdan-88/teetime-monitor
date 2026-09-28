@@ -10,14 +10,17 @@ from src.storage import (
     load_all_confirmed_bookings,
     load_confirmed_booking,
     load_friend_names,
+    load_known_handicaps,
     load_known_players,
     load_latest_schedule,
     load_location,
+    load_my_handicap,
     load_unacknowledged_booking_changes,
     record_seen_players,
     save_booking_change,
     save_confirmed_booking,
     save_location,
+    save_my_handicap,
     save_schedule,
     set_player_friend,
 )
@@ -586,6 +589,38 @@ def test_save_location_overwrites_a_previous_value(tmp_path):
     assert load_location(path=db) == {"lat": 3.0, "lon": 4.0}
 
 
+# --- my_handicap (2026-09-27, direct follow-up: "would it make sense to have the
+# option to choose to play with similar HCP or with better HCP") --------------------
+
+
+def test_load_my_handicap_is_none_when_never_synced(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_schedule(Schedule(course="18 Loch Tee 1", date="2026-09-08", slots=[]), path=db)
+
+    assert load_my_handicap(path=db) is None
+
+
+def test_load_my_handicap_is_none_when_the_db_file_does_not_exist_yet(tmp_path):
+    assert load_my_handicap(path=tmp_path / "never-scraped.db") is None
+
+
+def test_save_and_load_my_handicap_round_trips(tmp_path):
+    db = tmp_path / "teetime.db"
+
+    save_my_handicap(43.8, path=db)
+
+    assert load_my_handicap(path=db) == 43.8
+
+
+def test_save_my_handicap_overwrites_a_previous_value(tmp_path):
+    db = tmp_path / "teetime.db"
+    save_my_handicap(43.8, path=db)
+
+    save_my_handicap(41.2, path=db)
+
+    assert load_my_handicap(path=db) == 41.2
+
+
 # --- Weather falls back to an earlier scrape when the latest has none (2026-09-17).
 # Direct report: "sometimes I noticed that weather data wasn't pulled for every day in
 # the overview." Open-Meteo was unreachable for ~7 hours; every scrape in that window
@@ -802,3 +837,18 @@ def test_load_friend_names_returns_only_the_marked_ones(tmp_path):
 
 def test_load_friend_names_with_no_club_db_yet_returns_empty_set(tmp_path):
     assert load_friend_names(path=tmp_path / "never-created.db") == set()
+
+
+def test_load_known_handicaps_returns_only_names_with_a_recorded_handicap(tmp_path):
+    path = tmp_path / "club.db"
+    record_seen_players(
+        [_sighting("Has Handicap", handicap=24.0), _sighting("No Handicap")],
+        "2026-09-27T10:00:00+00:00",
+        path=path,
+    )
+
+    assert load_known_handicaps(path=path) == {"Has Handicap": 24.0}
+
+
+def test_load_known_handicaps_with_no_club_db_yet_returns_empty_dict(tmp_path):
+    assert load_known_handicaps(path=tmp_path / "never-created.db") == {}

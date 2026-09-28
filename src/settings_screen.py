@@ -177,7 +177,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Collapsible, Header, Input, Label, Select, Static, Switch
 
-from . import club_config, global_preferences, i18n, units
+from . import club_config, global_preferences, i18n, storage, units
 from . import theme as theme_module
 from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
@@ -190,6 +190,7 @@ from .recommend import (
 from .scrape_once import (
     DEFAULT_SCRAPE_INTERVAL_MINUTES,
     DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
+    _db_path,
 )
 from .search import resolve_buffer_minutes
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
@@ -312,6 +313,12 @@ class Field:
     `kind="action"` is a field that isn't a value at all — it renders a button that
     opens another screen (currently just Login, which opens `CredentialsScreen`).
     `open_screen` supplies the screen to push.
+
+    `kind="display"` is also not a value — a read-only row showing whatever
+    `getter()` returns as plain text, with no widget to edit and nothing to save.
+    Added 2026-09-27 for "Your handicap" (see `_my_handicap_display()`): a value this
+    app only ever reads (auto-scraped, never entered here), so a row that lets you
+    see it beats one that pretends you can type over it.
     """
 
     label_key: str
@@ -365,6 +372,21 @@ def _current_theme() -> str:
     """The saved theme, or the resolved default when nothing has been saved yet — so
     the dropdown opens on what's actually showing rather than on a blank."""
     return theme_module.load_saved_theme() or theme_module.resolve_theme_name()
+
+
+def _my_handicap_display() -> str:
+    """Read-only text for the "Your handicap" row next to hcp_preference — added for
+    transparency (2026-09-27, direct follow-up to "auto scrape is very accurate since
+    it is entered by my club"): the preference silently uses whatever
+    `storage.load_my_handicap()` has cached, so this row is the only place that value
+    is ever actually shown. `i18n.t("settings.field.my_handicap.unsynced")` until the
+    first real sync fills it in — see `scrape_once._sync_my_reservations()`, which
+    only ever writes it, never this screen."""
+    club_id = _any_favorite_club_id()
+    handicap = storage.load_my_handicap(path=_db_path(club_id)) if club_id else None
+    if handicap is None:
+        return i18n.t("settings.field.my_handicap.unsynced")
+    return f"{handicap:g}"
 
 
 def _save_language(lang: str) -> None:
@@ -495,6 +517,30 @@ FIELDS: list[Field] = [
         "bool",
         "settings.group.priorities",
         False,
+    ),
+    # Added 2026-09-27, direct follow-up to prioritize_friends going live: "would it
+    # make sense to have the option to choose to play with similar HCP or with better
+    # HCP for better pace?" -- same real per-slot data (`storage.load_known_handicaps()`)
+    # as prioritize_friends' own known_players table, just judged by number instead of
+    # by name. "off" is the default: this reorders results, so it should be an
+    # explicit opt-in the same way prioritize_friends itself is.
+    Field(
+        "settings.field.hcp_preference",
+        ("preferences", "hcp_preference"),
+        "str",
+        "settings.group.priorities",
+        "off",
+    ),
+    # Read-only -- see Field's own docstring on kind="display" and
+    # `_my_handicap_display()`. Placed right after the preference it explains, not
+    # under Account, since it's about what the app already knows for ranking
+    # purposes, not about the login itself.
+    Field(
+        "settings.field.my_handicap",
+        ("__my_handicap__",),
+        "display",
+        "settings.group.priorities",
+        getter=_my_handicap_display,
     ),
     # Same "action" kind and open_screen mechanism as settings.field.login/
     # ai_credentials above -- added 2026-09-27, direct follow-up to authenticated
@@ -675,7 +721,7 @@ def config_to_widget_values(config: dict, fields: list[Field] | None = None) -> 
     that instead of the config, and an "action" field has no value at all."""
     values: dict[str, Any] = {}
     for field in fields if fields is not None else FIELDS:
-        if field.kind == "action":
+        if field.kind in ("action", "display"):
             continue
         if field.getter is not None:
             values[_field_id(field)] = field.getter()
@@ -712,7 +758,7 @@ def widget_values_to_config(
     by the screen itself, not here — this stays a pure function over the config dict."""
     updated = copy.deepcopy(config)
     for field in fields if fields is not None else FIELDS:
-        if field.kind == "action" or field.setter is not None:
+        if field.kind in ("action", "display") or field.setter is not None:
             continue
         raw = widget_values[_field_id(field)]
         if field.kind == "bool":
@@ -946,7 +992,11 @@ class SettingsScreen(Screen[dict | None]):
                         current = values.get(widget_id)  # None for an "action" field
                         with Horizontal(classes="field-row"):
                             yield Label(i18n.t(field.label_key), classes="field-label")
-                            if field.kind == "action":
+                            if field.kind == "display":
+                                # Not a value -- read-only text, see Field's own
+                                # docstring on this kind.
+                                yield Static(field.getter(), classes="field-input")
+                            elif field.kind == "action":
                                 # Not a value -- a button that opens another screen.
                                 yield Button(
                                     i18n.t("button.open"), id=widget_id, classes="field-input"
@@ -1004,17 +1054,41 @@ class SettingsScreen(Screen[dict | None]):
                                     id=widget_id,
                                     classes="field-input",
                                 )
-                            elif field.kind == "str":
-                                # Units only. Localized choices looked up here, not as
-                                # a frozen module-level list (unlike every other
+                            elif field.kind == "str" and field.path == ("units",):
+                                # Units. Localized choices looked up here, not as a
+                                # frozen module-level list (unlike every other
                                 # dropdown's `field.choices`) -- see FIELDS' own
-                                # comment on this field for why.
+                                # comment on this field for why. Discriminated by
+                                # `field.path`, not `kind` alone, since hcp_preference
+                                # below needs the same live-localized treatment for a
+                                # different set of choices -- matching on `kind` alone
+                                # would hand it these options instead (the exact bug
+                                # this file's own history already hit once, see the
+                                # comment above on `field.choices is not None`).
                                 unit_options = [
                                     (i18n.t("settings.units.metric"), units.METRIC),
                                     (i18n.t("settings.units.imperial"), units.IMPERIAL),
                                 ]
                                 yield Select(
                                     unit_options,
+                                    value=current,
+                                    allow_blank=False,
+                                    compact=True,
+                                    id=widget_id,
+                                    classes="field-input",
+                                )
+                            elif field.kind == "str" and field.path == ("preferences", "hcp_preference"):
+                                # Same reasoning as units above: real choices, but their
+                                # labels are translations ("Off"/"Similar"/"Better"),
+                                # not native names, so they can't be a frozen
+                                # `field.choices` list either.
+                                hcp_options = [
+                                    (i18n.t("settings.hcp_preference.off"), "off"),
+                                    (i18n.t("settings.hcp_preference.similar"), "similar"),
+                                    (i18n.t("settings.hcp_preference.better"), "better"),
+                                ]
+                                yield Select(
+                                    hcp_options,
                                     value=current,
                                     allow_blank=False,
                                     compact=True,
@@ -1037,7 +1111,7 @@ class SettingsScreen(Screen[dict | None]):
     def _read_widget_values(self) -> dict[str, Any]:
         widget_values: dict[str, Any] = {}
         for field in self.fields_shown:
-            if field.kind == "action":
+            if field.kind in ("action", "display"):
                 continue
             widget_id = _field_id(field)
             if field.kind == "optional_time":
