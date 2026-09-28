@@ -53,7 +53,7 @@ sign-off on the actual numbers later; flagged rather than silently assumed.
 
 from . import ai_assist, i18n, playability
 from . import weather as weather_module
-from .models import Schedule, SlotMatch, TimeWindow
+from .models import Schedule, Slot, SlotMatch, TimeWindow
 from .scraper import _holes_from_course_label
 from .search import SearchCriteria, _window_for_date, resolve_buffer_minutes, search
 
@@ -283,12 +283,27 @@ def unplayable_reasons(candidates: list[SlotMatch], schedules: list[Schedule], c
     return reasons
 
 
+def _slot_avg_known_handicap(slot: Slot, known_handicaps: dict[str, float]) -> float | None:
+    """Average handicap of `slot`'s own players, counting only names
+    `known_handicaps` actually has a value for (2026-09-27, direct follow-up:
+    "would it make sense to have the option to choose to play with similar HCP or
+    with better HCP") -- `None` for an empty slot or one whose players are all
+    unrecognized, not a fabricated 0. This reads real, already-known per-slot
+    fact, not a statistical pattern across scrape history -- see the friends-
+    heatmap/field-composition-by-time ideas this same conversation ruled out for
+    the opposite reason."""
+    hcps = [known_handicaps[name] for name in slot.players if name in known_handicaps]
+    return sum(hcps) / len(hcps) if hcps else None
+
+
 def ranked_matches(
     schedules: list[Schedule],
     criteria: SearchCriteria,
     config: dict,
     crowd_estimates: dict[tuple[str, str, str], float] | None = None,
     friend_names: set[str] | None = None,
+    known_handicaps: dict[str, float] | None = None,
+    my_handicap: float | None = None,
 ) -> list[SlotMatch]:
     """Search + exclude_unplayable + (best-effort) AI ranking for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on
@@ -323,11 +338,43 @@ def ranked_matches(
     point. When AI ranking also runs, the same names feed a friend *count* (never a
     name -- see `ai_assist._describe_candidate()`'s own docstring) into its prompt
     instead.
+
+    `known_handicaps`/`my_handicap` (2026-09-27, direct follow-up: "would it make
+    sense to have the option to choose to play with similar HCP or with better HCP
+    for better pace?") follow the identical shape and reasoning as `friend_names`
+    -- `storage.load_known_players()`'s own handicaps, "caller already has it,
+    hand it in." `preferences.hcp_preference` ("similar" or "better", "off" by
+    default) drives a second deterministic stable sort, applied *before* the
+    friends sort above so friends still take priority and HCP only breaks ties
+    within each friend/non-friend group: "similar" ranks a slot by how close its
+    already-booked players' average handicap is to `my_handicap`; "better" ranks
+    by that average directly (lower first -- a stronger field plays faster). A
+    slot with no known-handicap players at all (most future slots -- nobody's
+    booked into them yet) sorts after every slot that *does* have a real field to
+    judge, rather than being scored as if it had one. This is a real, already-
+    known per-slot fact, never an inferred pattern across scrape history -- see
+    `_slot_avg_known_handicap()`'s own docstring for why that distinction
+    mattered here. When AI ranking also runs, the field's average handicap (never
+    names) feeds into the same per-candidate description `friend_count` already
+    does, and `my_handicap` itself joins the `preferences` JSON already sent
+    wholesale in the prompt, since it's a fact about the user, not a per-slot one.
     """
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
 
     preferences_for_sort = config.get("preferences", {})
+    hcp_preference = preferences_for_sort.get("hcp_preference", "off")
+    if hcp_preference in ("similar", "better") and known_handicaps:
+
+        def _hcp_sort_key(match: SlotMatch) -> tuple[int, float]:
+            avg = _slot_avg_known_handicap(match.slot, known_handicaps)
+            if avg is None:
+                return (1, 0.0)
+            if hcp_preference == "similar" and my_handicap is not None:
+                return (0, abs(avg - my_handicap))
+            return (0, avg)  # "better" (or "similar" with no my_handicap yet): lowest first
+
+        playable = sorted(playable, key=_hcp_sort_key)
     if preferences_for_sort.get("prioritize_friends") and friend_names:
         playable = sorted(playable, key=lambda match: 0 if set(match.slot.players) & friend_names else 1)
 
@@ -343,10 +390,14 @@ def ranked_matches(
         context["crowd_estimates"] = crowd_estimates
     if friend_names:
         context["friend_names"] = friend_names
+    if known_handicaps:
+        context["known_handicaps"] = known_handicaps
     preferences = {
         **config.get("preferences", {}),
         "avoid_predicted_crowd": ai_config.get("avoid_predicted_crowd", False),
     }
+    if my_handicap is not None:
+        preferences["my_handicap"] = my_handicap
     try:
         return ai_assist.rank_slots(
             playable,

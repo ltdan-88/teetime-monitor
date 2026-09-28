@@ -8,6 +8,7 @@ func runPreferencesStoreTests() {
         testPresentWindowStaysPresent()
         testSaveOverlaysOnlyKnownKeys()
         testScrapeIntervalAndAIAssistRoundTrip()
+        testHcpPreferenceRoundTrip()
     }
 }
 
@@ -132,5 +133,21 @@ private func testScrapeIntervalAndAIAssistRoundTrip() {
         Harness.checkEqual("scrapeIntervalMinutesBooked round-trips", reloaded.scrapeIntervalMinutesBooked, 30)
         Harness.checkEqual("aiAssistEnabled round-trips", reloaded.aiAssistEnabled, true)
         Harness.checkEqual("avoidPredictedCrowd round-trips", reloaded.avoidPredictedCrowd, true)
+    }
+}
+
+/// Direct request, 2026-09-27 ("would it make sense to have the option to choose to
+/// play with similar HCP or with better HCP for better pace?") -- same nested
+/// preferences.hcp_preference path settings_screen.py's own FIELDS entry uses.
+private func testHcpPreferenceRoundTrip() {
+    withConfigDir { _ in
+        Harness.checkEqual("defaults to off", Preferences().hcpPreference, "off")
+
+        var p = Preferences()
+        p.hcpPreference = "similar"
+        try! p.save()
+
+        let reloaded = Preferences.load()
+        Harness.checkEqual("hcpPreference round-trips", reloaded.hcpPreference, "similar")
     }
 }

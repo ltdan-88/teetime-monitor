@@ -265,6 +265,22 @@ enum Store {
         write(dbPath, "UPDATE known_players SET is_friend = ? WHERE name = ?", [isFriend ? "1" : "0", name])
     }
 
+    /// Your own live handicap index, as `storage.load_my_handicap()` cached it --
+    /// same `club_meta` key-value table `save_location()`/`load_location()` already
+    /// use on the Python side, read here rather than through a new CLI script since
+    /// this is a single scalar read, same reasoning as `knownPlayers()` above.
+    /// `nil` if it's never been synced yet (or this club has no db file yet at all).
+    /// The stored value is JSON (`json.dumps(handicap)`, e.g. "43.8") -- a bare
+    /// `Double(string:)` parse handles that exactly, same as any plain float literal.
+    static func myHandicap(dbPath: String) -> Double? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return nil }
+        defer { sqlite3_close(db) }
+        var raw: String?
+        query(db, "SELECT value FROM club_meta WHERE key = 'my_handicap'") { s in raw = column(s, 0) }
+        return raw.flatMap { Double($0) }
+    }
+
     static func banners(dbPath: String) -> [Banner] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return [] }

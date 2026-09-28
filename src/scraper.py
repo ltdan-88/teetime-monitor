@@ -129,7 +129,7 @@ from datetime import UTC, datetime
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from .models import ConfirmedBooking, PlayerSighting, Schedule, Slot
+from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot
 
 # Confirmed 2026-09-05 by inspecting the real site — these are real values, not guesses.
 COURSE_ALIASES: dict[str, str] = {
@@ -808,7 +808,7 @@ def scrape_overview_areas(club_id: str, date: str) -> dict[str, tuple[int, int]]
 
 def scrape_my_reservations(
     club_id: str, username: str, password: str, known_courses: list[str] | None = None
-) -> list[ConfirmedBooking]:
+) -> ReservationsSync:
     """Log in and read "My Reservations" — the automatic primary source for
     confirmed_bookings (ROADMAP.md Phase 1). Needs login, unlike scrape_schedule().
 
@@ -823,15 +823,58 @@ def scrape_my_reservations(
     corruption this caught). Optional and not fetched here: a caller that already has
     this club's course list should hand it over, same "pure function over already-fetched
     inputs" convention `scrape_schedule()`'s own `course_aliases` parameter follows.
+
+    Returns a `ReservationsSync` (2026-09-27), not a bare list, once this same page
+    turned out to also carry your own live handicap index (`_parse_my_handicap_html()`)
+    — one fetch, one login, both facts, rather than a second round trip to the exact
+    page just fetched for the bookings themselves.
     """
     client = login(club_id, username, password)
     try:
         url = club_url(club_id, MY_RESERVATIONS_CATEGORY)
         response = client.get(url)
         response.raise_for_status()
-        return _parse_my_reservations_html(response.text, known_courses)
+        return ReservationsSync(
+            bookings=_parse_my_reservations_html(response.text, known_courses),
+            my_handicap=_parse_my_handicap_html(response.text),
+        )
     finally:
         client.close()
+
+
+def _parse_my_handicap_html(html: str) -> float | None:
+    """Your own live handicap index, read off the account menu present on every
+    authenticated page — confirmed live 2026-09-27 as `<span class="title">Mein
+    Handicap Index: 43,8</span>` (direct follow-up: "would it make sense to have
+    the option to choose to play with similar HCP or with better HCP"). Not part
+    of "My Reservations"' own booking content at all — it's the persistent nav
+    menu every authenticated fetch already carries, so this could in principle
+    read it off any logged-in page; `scrape_my_reservations()` is simply the one
+    call site that already has an authenticated fetch in hand.
+
+    Matched by finding the specific `span.title` whose *own* text mentions
+    "Handicap" (English or German — the label itself wasn't confirmed live, only
+    the number's position after it) rather than a raw regex over the whole page,
+    since the same `class="title"` styles several unrelated menu labels ("Mein
+    Profil", "Meine Einstellungen", ...) — a plain substring/regex search risks
+    matching one of those instead if the page's own ordering ever shifts.
+    German decimal-comma ("43,8"), same conversion `scraper._parse_hcp_span()`
+    already uses for another player's own HCP — a plain period passes through
+    unchanged. `None` or found nothing (a locale/markup this hasn't been checked
+    against) — the caller keeps whatever value it already had rather than losing
+    it to a transient miss."""
+    soup = BeautifulSoup(html, "html.parser")
+    for span in soup.find_all("span", class_="title"):
+        text = span.get_text(" ", strip=True)
+        if "andicap" not in text:  # "Handicap"/"handicap" -- English or German label
+            continue
+        match = re.search(r"([\d]+(?:[.,]\d+)?)", text)
+        if match:
+            try:
+                return float(match.group(1).replace(",", "."))
+            except ValueError:
+                continue
+    return None
 
 
 def _parse_club_directory_html(html: str) -> list[tuple[str, str]]:

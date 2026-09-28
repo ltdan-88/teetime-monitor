@@ -66,6 +66,16 @@ struct PreferencesSheet: View {
     @StateObject private var status = Box<String?>(nil)
     @StateObject private var showingPlayerDirectory = Box(false)
 
+    private var myHandicapDisplay: String {
+        guard !dbPath.isEmpty, let handicap = Store.myHandicap(dbPath: dbPath) else {
+            return t("prefs.my_handicap.unsynced")
+        }
+        // `%g` matches Python's `f"{handicap:g}"` in `_my_handicap_display()` --
+        // "43.8" stays "43.8", a whole number like "24.0" prints as "24", not
+        // "24.000000".
+        return String(format: "%g", handicap)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("prefs.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
@@ -135,6 +145,25 @@ struct PreferencesSheet: View {
                     Toggle(t("prefs.prioritize_friends"), isOn: $prefs.value.prioritizeFriends)
                     Button(t("prefs.player_directory")) { showingPlayerDirectory.value = true }
                         .disabled(dbPath.isEmpty)
+                    HStack {
+                        Text(t("prefs.hcp_preference"))
+                        Spacer()
+                        Picker("", selection: $prefs.value.hcpPreference) {
+                            Text(t("prefs.hcp_preference.off")).tag("off")
+                            Text(t("prefs.hcp_preference.similar")).tag("similar")
+                            Text(t("prefs.hcp_preference.better")).tag("better")
+                        }
+                        .labelsHidden()
+                    }
+                    // Read-only -- auto-scraped, never entered here. See
+                    // `Store.myHandicap()` and `settings_screen._my_handicap_display()`
+                    // for the Python-side twin of this row.
+                    HStack {
+                        Text(t("prefs.my_handicap"))
+                        Spacer()
+                        Text(myHandicapDisplay)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .formStyle(.grouped)

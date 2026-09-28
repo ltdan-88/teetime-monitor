@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from src import booking_watch, scrape_once
-from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot
+from src.models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot
 
 
 @pytest.fixture(autouse=True)
@@ -610,13 +610,44 @@ def test_sync_my_reservations_saves_confirmed_bookings_on_success(tmp_path, monk
     booking = ConfirmedBooking(
         date="2026-09-06", course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"
     )
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [booking])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([booking]))
 
     db_path = scrape_once._db_path("0000001")
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
     saved = scrape_once.storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=db_path)
     assert saved == booking
+
+
+def test_sync_my_reservations_saves_my_handicap_when_the_page_carries_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    monkeypatch.setattr(
+        scrape_once, "scrape_my_reservations",
+        lambda club_id, username, password, known_courses=None: ReservationsSync([], my_handicap=43.8),
+    )
+
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    assert scrape_once.storage.load_my_handicap(path=db_path) == 43.8
+
+
+def test_sync_my_reservations_never_clobbers_a_cached_handicap_with_a_transient_miss(tmp_path, monkeypatch):
+    # A sighting that happens to come back without it (see ReservationsSync's own
+    # docstring) must not erase a real value an earlier pass already cached.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    db_path = scrape_once._db_path("0000001")
+    scrape_once.storage.save_my_handicap(43.8, path=db_path)
+
+    monkeypatch.setattr(
+        scrape_once, "scrape_my_reservations",
+        lambda club_id, username, password, known_courses=None: ReservationsSync([], my_handicap=None),
+    )
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    assert scrape_once.storage.load_my_handicap(path=db_path) == 43.8
 
 
 def test_sync_my_reservations_clears_a_previously_pending_failure_banner_once_it_recovers(tmp_path, monkeypatch):
@@ -633,7 +664,7 @@ def test_sync_my_reservations_clears_a_previously_pending_failure_banner_once_it
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
     assert len(scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)) == 1
 
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([]))
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
     assert scrape_once.storage.load_unacknowledged_booking_changes(path=db_path) == []
@@ -651,7 +682,7 @@ def test_sync_my_reservations_clearing_a_failure_does_not_touch_unrelated_banner
         kind="party_grew", message="x", params={"count": 2, "time": "15:30"}, path=db_path,
     )
 
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([]))
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
     pending = scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)
@@ -675,7 +706,7 @@ def test_sync_my_reservations_marks_a_disappeared_future_booking_as_not_playing(
         path=db_path,
     )
     # The live list no longer has it -- cancelled on the real site.
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([]))
 
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
@@ -697,7 +728,7 @@ def test_sync_my_reservations_does_not_cancel_a_past_booking_that_naturally_drop
         ConfirmedBooking(date=past, course="18 Loch Tee 1", time="14:00", source="my_reservations", confirmed_at="t1"),
         path=db_path,
     )
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([]))
 
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
@@ -717,7 +748,7 @@ def test_sync_my_reservations_does_not_cancel_a_manual_confirmation(tmp_path, mo
         ConfirmedBooking(date=future, course="18 Loch Tee 1", time="14:00", source="manual", confirmed_at="t1"),
         path=db_path,
     )
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([]))
 
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
@@ -739,7 +770,7 @@ def test_sync_my_reservations_reinstates_a_booking_that_reappears_live(tmp_path,
     rebooked = ConfirmedBooking(
         date=future, course="18 Loch Tee 1", time="15:00", source="my_reservations", confirmed_at="t2"
     )
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: [rebooked])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda club_id, username, password, known_courses=None: ReservationsSync([rebooked]))
 
     scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
 
@@ -829,7 +860,7 @@ def test_scrape_due_for_club_shares_one_login_across_every_run_call(tmp_path, mo
     monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
     # _sync_my_reservations() resolves the same credentials and would otherwise make
     # a real network call here -- not what this test is about, see its own tests above.
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: ReservationsSync([]))
 
     class _FakeClient:
         def close(self):
@@ -863,7 +894,7 @@ def test_scrape_due_for_club_closes_the_shared_client_when_done(tmp_path, monkey
     monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: ReservationsSync([]))
 
     closed = []
 
@@ -885,7 +916,7 @@ def test_scrape_due_for_club_falls_back_to_anonymous_when_login_fails(tmp_path, 
     monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "wrong-password"))
-    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: [])
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: ReservationsSync([]))
 
     def broken_login(club_id, username, password):
         raise scrape_once.LoginError("bad credentials")

@@ -410,6 +410,135 @@ def test_ranked_matches_friend_sort_is_stable_among_non_friend_slots():
     assert [m.slot.time for m in matches] == ["09:00", "08:00", "10:00"]
 
 
+# --- hcp_preference deterministic boost (2026-09-27, direct follow-up: "would it
+# make sense to have the option to choose to play with similar HCP or with better
+# HCP for better pace?") -------------------------------------------------------------
+
+
+def _hcp_schedule() -> Schedule:
+    return Schedule(
+        date="2026-09-07",  # Monday
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["Low Hcp"]),  # 10.0
+            Slot(time="10:00", booked=1, capacity=4, players=["Mid Hcp"]),  # 24.0 -- closest to my_handicap below
+            Slot(time="11:00", booked=1, capacity=4, players=["High Hcp"]),  # 40.0
+            Slot(time="12:00", booked=0, capacity=4),  # empty -- no field to judge at all
+        ],
+    )
+
+
+_HCP_MAP = {"Low Hcp": 10.0, "Mid Hcp": 24.0, "High Hcp": 40.0}
+
+
+def test_ranked_matches_similar_hcp_prefers_the_closest_field_to_your_own():
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"hcp_preference": "similar"},
+    }
+
+    matches = ranked_matches(
+        [_hcp_schedule()], default_criteria_from_config(config), config,
+        known_handicaps=_HCP_MAP, my_handicap=25.0,
+    )
+
+    # 24.0 is closest to 25.0, then 10.0, then 40.0; the empty slot (no known field)
+    # sorts last regardless.
+    assert [m.slot.time for m in matches] == ["10:00", "09:00", "11:00", "12:00"]
+
+
+def test_ranked_matches_better_hcp_prefers_the_lowest_average_field():
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"hcp_preference": "better"},
+    }
+
+    matches = ranked_matches(
+        [_hcp_schedule()], default_criteria_from_config(config), config, known_handicaps=_HCP_MAP,
+    )
+
+    assert [m.slot.time for m in matches] == ["09:00", "10:00", "11:00", "12:00"]
+
+
+def test_ranked_matches_does_not_sort_by_hcp_when_preference_is_off():
+    config = {"availability": {"weekday_window": {"after": "08:00"}}}  # hcp_preference unset
+
+    matches = ranked_matches(
+        [_hcp_schedule()], default_criteria_from_config(config), config,
+        known_handicaps=_HCP_MAP, my_handicap=25.0,
+    )
+
+    assert [m.slot.time for m in matches] == ["09:00", "10:00", "11:00", "12:00"]  # chronological
+
+
+def test_ranked_matches_does_not_sort_by_hcp_without_any_known_handicaps_given():
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"hcp_preference": "better"},
+    }
+
+    matches = ranked_matches(
+        [_hcp_schedule()], default_criteria_from_config(config), config, known_handicaps=None,
+    )
+
+    assert [m.slot.time for m in matches] == ["09:00", "10:00", "11:00", "12:00"]  # chronological
+
+
+def test_ranked_matches_friends_take_priority_over_hcp_preference():
+    # Direct design decision, see ranked_matches()'s own docstring: friends stay
+    # the stronger signal, HCP only breaks ties within each friend/non-friend group.
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="09:00", booked=1, capacity=4, players=["Low Hcp"]),  # 10.0, not a friend
+            Slot(time="10:00", booked=1, capacity=4, players=["A Friend"]),  # 40.0, a friend
+        ],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "preferences": {"hcp_preference": "better", "prioritize_friends": True},
+    }
+
+    matches = ranked_matches(
+        [schedule], default_criteria_from_config(config), config,
+        friend_names={"A Friend"}, known_handicaps={"Low Hcp": 10.0, "A Friend": 40.0},
+    )
+
+    # The friend's own slot wins despite its much worse (higher) handicap.
+    assert [m.slot.time for m in matches] == ["10:00", "09:00"]
+
+
+def test_ranked_matches_feeds_avg_field_hcp_and_my_handicap_to_ai_never_names(monkeypatch):
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=2, capacity=4, players=["Low Hcp", "High Hcp"])],  # avg 25.0
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "08:00"}},
+        "ai_assist": {"enabled": True},
+    }
+    captured = {}
+
+    def fake_rank_slots(candidates, context, preferences, provider, model, language):
+        captured["description"] = recommend.ai_assist._describe_candidate(0, candidates[0], context)
+        captured["preferences"] = preferences
+        return candidates
+
+    monkeypatch.setattr(recommend.ai_assist, "rank_slots", fake_rank_slots)
+
+    ranked_matches(
+        [schedule], default_criteria_from_config(config), config,
+        known_handicaps={"Low Hcp": 10.0, "High Hcp": 40.0}, my_handicap=25.0,
+    )
+
+    assert "avg field HCP 25.0" in captured["description"]
+    assert "Low Hcp" not in captured["description"]
+    assert "High Hcp" not in captured["description"]
+    assert captured["preferences"]["my_handicap"] == 25.0
+
+
 def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
     # No "ai_assist" block at all -- defaults to disabled, so this must never call
     # ai_assist.rank_slots() (which would otherwise need a real API key).

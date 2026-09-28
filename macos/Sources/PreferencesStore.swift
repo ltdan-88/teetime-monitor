@@ -26,6 +26,11 @@ struct Preferences {
     var roundDurationEighteen = 240
 
     var prioritizeFriends = false
+    // Added 2026-09-27, direct follow-up: "would it make sense to have the option to
+    // choose to play with similar HCP or with better HCP for better pace?" — same
+    // "off" opt-in default as prioritizeFriends, see settings_screen.py's own FIELDS
+    // comment on this field for why. "off" | "similar" | "better".
+    var hcpPreference = "off"
 
     // Added 2026-09-19, direct request ("implement scrape-interval and ai
     // settings in GUI") -- both top-level `preferences.yaml` keys, same as
@@ -81,6 +86,7 @@ struct Preferences {
         p.avoidTempBelowC = prefs?["avoid_temp_below_c"]?.asDouble
         p.avoidTempAboveC = prefs?["avoid_temp_above_c"]?.asDouble
         p.prioritizeFriends = prefs?["prioritize_friends"]?.asBool ?? p.prioritizeFriends
+        p.hcpPreference = prefs?["hcp_preference"]?.asString ?? p.hcpPreference
 
         p.units = root["units"]?.asString ?? p.units
         p.daylightBufferMinutes = root["daylight_buffer_minutes"]?.asInt ?? p.daylightBufferMinutes
@@ -147,6 +153,7 @@ struct Preferences {
         setPref("avoid_temp_below_c", avoidTempBelowC.map(YAMLValue.double) ?? .null)
         setPref("avoid_temp_above_c", avoidTempAboveC.map(YAMLValue.double) ?? .null)
         setPref("prioritize_friends", .bool(prioritizeFriends))
+        setPref("hcp_preference", .string(hcpPreference))
         // avoid_predicted_crowd lives here too but has no widget on this screen (it's
         // Settings -> AI ranking, same as the Python split) -- left untouched by
         // starting `prefsPairs` from what was already on disk.

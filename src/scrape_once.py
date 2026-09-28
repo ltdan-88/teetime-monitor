@@ -290,7 +290,7 @@ def _sync_my_reservations(
     if not username or not password:
         return  # PCC_USER/PCC_PASS not configured yet for this club
     try:
-        live_bookings = scrape_my_reservations(club_id, username, password, known_courses)
+        sync = scrape_my_reservations(club_id, username, password, known_courses)
     except LoginError as exc:
         _log(f"[scrape_once] login failed for {club_id}: {exc}")
         _report_reservations_sync_failure("login", db_path)
@@ -299,9 +299,13 @@ def _sync_my_reservations(
         # a real booking exists but scraper.py can't parse its row markup yet
         _report_reservations_sync_failure("parsing", db_path)
         return
-    for booking in live_bookings:
+    for booking in sync.bookings:
         storage.save_confirmed_booking(booking, path=db_path)
-    _reconcile_cancelled_reservations(live_bookings, db_path)
+    _reconcile_cancelled_reservations(sync.bookings, db_path)
+    # Only when this pass actually found it -- see ReservationsSync's own
+    # docstring: never overwrite an already-cached handicap with a transient miss.
+    if sync.my_handicap is not None:
+        storage.save_my_handicap(sync.my_handicap, path=db_path)
     _clear_reservations_sync_failure(db_path)
 
 

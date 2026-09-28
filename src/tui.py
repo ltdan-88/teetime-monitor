@@ -1368,7 +1368,17 @@ def _availability_pipeline(
     candidates = search_slots([schedule], criteria)
     crowd_estimates = _crowd_estimates([schedule], config, club_id)
     friend_names = storage.load_friend_names(path=_db_path(club_id))
-    playable = recommend.ranked_matches([schedule], criteria, config, crowd_estimates, friend_names)
+    known_handicaps = storage.load_known_handicaps(path=_db_path(club_id))
+    my_handicap = storage.load_my_handicap(path=_db_path(club_id))
+    playable = recommend.ranked_matches(
+        [schedule],
+        criteria,
+        config,
+        crowd_estimates,
+        friend_names,
+        known_handicaps=known_handicaps,
+        my_handicap=my_handicap,
+    )
     result = (candidates, playable)
     if cache is not None:
         cache[key] = result
@@ -3886,7 +3896,17 @@ class SearchScreen(Screen[None]):
         criteria = self._build_criteria()
         crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
         friend_names = storage.load_friend_names(path=_db_path(self.club_id))
-        matches = recommend.ranked_matches(self.schedules, criteria, self.config, crowd_estimates, friend_names)
+        known_handicaps = storage.load_known_handicaps(path=_db_path(self.club_id))
+        my_handicap = storage.load_my_handicap(path=_db_path(self.club_id))
+        matches = recommend.ranked_matches(
+            self.schedules,
+            criteria,
+            self.config,
+            crowd_estimates,
+            friend_names,
+            known_handicaps=known_handicaps,
+            my_handicap=my_handicap,
+        )
         self._row_matches = []
         status = self.query_one("#search-status", Static)
         if not matches:

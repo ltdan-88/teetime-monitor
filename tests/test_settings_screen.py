@@ -346,6 +346,79 @@ def test_settings_screen_units_field_defaults_to_metric_and_saves_imperial(tmp_p
     assert saved["units"] == "imperial"
 
 
+def test_settings_screen_hcp_preference_field_defaults_to_off_and_saves_similar(tmp_path):
+    # Direct request, 2026-09-27: "would it make sense to have the option to choose to
+    # play with similar HCP or with better HCP for better pace?"
+    from textual.widgets import Select
+
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            widget = app.screen.query_one(f"#{_id('preferences', 'hcp_preference')}")
+            assert isinstance(widget, Select)
+            assert widget.value == "off"
+            widget.value = "similar"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["preferences"]["hcp_preference"] == "similar"
+
+
+def test_settings_screen_my_handicap_display_shows_unsynced_with_no_favorite_club(tmp_path):
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        from textual.widgets import Static
+
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            texts = {str(s.content) for s in app.screen.query(Static)}
+            assert i18n.t("settings.field.my_handicap.unsynced") in texts
+
+    asyncio.run(scenario())
+
+
+def test_settings_screen_my_handicap_display_shows_the_synced_value(tmp_path, monkeypatch):
+    from src import settings_screen, storage
+
+    db_path = tmp_path / "club.db"
+    storage.save_my_handicap(43.8, path=db_path)
+    monkeypatch.setattr(settings_screen, "_any_favorite_club_id", lambda: "0000001")
+    monkeypatch.setattr(settings_screen, "_db_path", lambda club_id: db_path)
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario():
+        from textual.widgets import Static
+
+        app = _HostApp(SettingsScreen(preferences_file))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            texts = {str(s.content) for s in app.screen.query(Static)}
+            assert "43.8" in texts
+
+    asyncio.run(scenario())
+
+
+def test_display_fields_have_no_value_to_round_trip(tmp_path):
+    # Same reasoning as test_action_fields_have_no_value_to_round_trip -- a "display"
+    # field has no value to round-trip either, see Field's own docstring on this kind.
+    display_fields = [f for f in FIELDS if f.kind == "display"]
+    assert {f.label_key for f in display_fields} == {"settings.field.my_handicap"}
+    for field in display_fields:
+        assert field.getter is not None
+
+    values = config_to_widget_values({}, display_fields)
+    assert values == {}
+    assert widget_values_to_config({"units": "metric"}, {}, display_fields) == {"units": "metric"}
+
+
 def test_settings_screen_invalid_input_does_not_crash_or_save(tmp_path):
     # min_open_spots (used here before 2026-09-08) and buffer_minutes (used here
     # before the same-day before/after split) both became Select dropdowns and can
