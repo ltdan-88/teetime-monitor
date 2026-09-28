@@ -659,6 +659,29 @@ final class OverviewModel: ObservableObject {
     /// subprocess round trip.
     var picksRequestKey: (path: String, course: String)?
 
+    /// Whether a fetch for `request` should blank the currently-shown picks/verdicts/
+    /// windowHint first -- true the moment `current` (whatever the on-screen state
+    /// actually belongs to) names a different club/course than `request`, false for
+    /// a same-club/course reload. Pulled out of `reload()` itself as a pure static
+    /// function, not because `reload()` needed the indirection, but because
+    /// `reload()`'s own async completion runs through a real `PicksClient.run()`
+    /// subprocess call whose *timing* differs by environment in a way that matters
+    /// for testing this exact decision: on a machine with `teetime-monitor-picks`
+    /// actually installed (any real dev machine), `PicksClient.run()` dispatches
+    /// genuinely asynchronously and reload() returns before it completes; on a
+    /// clean CI runner with no such binary, `PicksClient.executable()` finds
+    /// nothing and its completion fires *synchronously*, inside `reload()` itself,
+    /// with an empty result -- found live, 2026-09-28: a first version of this
+    /// fix's own test (asserting a *same*-course reload leaves picks/windowHint
+    /// alone) passed locally and failed in CI for exactly this reason, testing an
+    /// accidental timing artifact rather than the actual clearing decision. Testing
+    /// this predicate directly sidesteps the subprocess entirely, so the test is
+    /// deterministic in both environments.
+    static func picksRequestChanged(from current: (path: String, course: String)?,
+                                     to request: (path: String, course: String)) -> Bool {
+        current?.path != request.path || current?.course != request.course
+    }
+
     /// Green while the background agent's own cadence would have refreshed by now,
     /// amber once it's clearly overdue -- so a stopped launchd agent is visible rather
     /// than silently serving old data. Takes `now` as a parameter rather than reading
@@ -850,9 +873,12 @@ final class OverviewModel: ObservableObject {
         // every routine reload() -- the 2-second DB-mtime watcher and a confirm/
         // cancel both call this for the *same* club/course, and clearing on those
         // too would flash the pick badges/hint to empty and back on every single
-        // background refresh, a real regression of its own.
+        // background refresh, a real regression of its own. The decision itself is
+        // `Self.picksRequestChanged`, a pure function, specifically so it can be
+        // tested without going through a real (and environment-dependent -- see
+        // that function's own docstring) `PicksClient.run()` subprocess call.
         let requestPath = clubPath, requestCourse = course
-        if picksRequestKey?.path != requestPath || picksRequestKey?.course != requestCourse {
+        if Self.picksRequestChanged(from: picksRequestKey, to: (requestPath, requestCourse)) {
             picks = [:]
             verdicts = [:]
             windowHint = nil

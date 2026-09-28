@@ -136,10 +136,23 @@ a request for a *different* key, but leaves them alone for a same-key
 reload -- the 2-second DB-mtime watcher and a confirm/cancel both call
 `reload()` too, for the *same* course, and clearing on those as well would
 have flashed the pick badges/hint to empty and back on every routine
-background refresh. Two new regression tests
-(`testSwitchingCourseClearsStalePicksSynchronously`/
-`testReloadingSameCourseKeepsExistingPicks`) pin exactly that distinction,
-without needing a real subprocess round trip.
+background refresh.
+
+The clearing decision itself (`OverviewModel.picksRequestChanged(from:to:)`)
+is a pure static function, not inline in `reload()` -- not by design up
+front, but by a real CI failure: a first version of this fix's own test drove
+a real `reload()` + `PicksClient.run()` subprocess call, asserting a same-
+course reload leaves `windowHint` alone. Passed locally (this dev machine has
+`teetime-monitor-picks` installed, so that call is genuinely async and
+`reload()` returns before it completes) and failed in CI (a clean runner with
+no such binary, where `PicksClient.executable()` finds nothing and its
+completion fires *synchronously*, inside `reload()`, with an empty result --
+clearing the very state the test asserted would survive). The test was
+timing-dependent on an environment detail that had nothing to do with the
+actual fix. Pulling the decision out into its own pure function let the two
+regression tests (`testSwitchingCourseCountsAsChanged`/
+`testReloadingSameCourseDoesNotCountAsChanged`) target it directly, with no
+subprocess, no RunLoop spin, and no environment dependence left at all.
 
 **"make the player directory a feature[sic] similar features like in common
 contact directories (e.g. alphabet letters as separators)"** -- `PlayerDirectorySheet`

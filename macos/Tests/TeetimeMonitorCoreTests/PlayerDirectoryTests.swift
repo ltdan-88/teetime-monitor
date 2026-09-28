@@ -8,9 +8,9 @@ func runPlayerDirectoryTests() {
         testNonLetterFamilyNamesFallToHashBucket()
         testEmptyListGroupsToNoSections()
     }
-    Harness.group("OverviewModel.reload course switch") {
-        testSwitchingCourseClearsStalePicksSynchronously()
-        testReloadingSameCourseKeepsExistingPicks()
+    Harness.group("OverviewModel.picksRequestChanged") {
+        testSwitchingCourseCountsAsChanged()
+        testReloadingSameCourseDoesNotCountAsChanged()
     }
 }
 
@@ -53,33 +53,25 @@ private func testEmptyListGroupsToNoSections() {
 /// Direct report, 2026-09-28: switching from an 18-hole course to a 9-hole one kept
 /// showing the 18-hole course's own "window opens too late" hint (a real ~4h-round
 /// number) attached to the 9-hole day list, for as long as the new course's own
-/// picks subprocess took to return -- reload() only ever overwrote `windowHint`
-/// once that async fetch actually landed, never cleared it up front. This checks
-/// the synchronous portion of reload() only (no RunLoop spin, no waiting on the
-/// real teetime-monitor-picks subprocess this dev machine happens to have
-/// installed) -- exactly the property that was missing: switching course must
-/// blank stale state immediately, not eventually.
-private func testSwitchingCourseClearsStalePicksSynchronously() {
-    let dir = TempDir()
-    let dbPath = dir.file("club.db")
-    makeTestDB(dbPath)
-
-    let model = OverviewModel()
-    model.clubPath = dbPath
-    model.course = "18 Loch Tee 1"
-    // Simulates a previous, already-completed fetch for the 18-hole course --
-    // exactly the state a real prior reload() would have left behind.
-    model.windowHint = WindowHint(windowAfter: "16:00", latestStart: "14:40", sunset: "19:10", roundMinutes: 240)
-    model.picks = ["2026-09-28": DayPick(time: "16:00", score: 0, reasons: [])]
-    model.verdicts = ["2026-09-28": DayVerdict(windowAfter: "16:00", windowBefore: "18:00", unplayable: [])]
-
-    model.course = "9 Loch Tee 1"
-    model.reload()
-
-    Harness.check("windowHint cleared the instant the course changes, not left stale",
-                   model.windowHint == nil)
-    Harness.check("picks cleared the instant the course changes", model.picks.isEmpty)
-    Harness.check("verdicts cleared the instant the course changes", model.verdicts.isEmpty)
+/// picks subprocess took to return -- `reload()` only ever overwrote `windowHint`
+/// once that async fetch actually landed, never cleared it up front.
+///
+/// Tests `OverviewModel.picksRequestChanged(from:to:)` directly, the pure decision
+/// `reload()` itself now gates its synchronous clear on, rather than driving a real
+/// `reload()` + `PicksClient.run()` subprocess call -- that function's own docstring
+/// explains why: its completion fires genuinely asynchronously on a machine with
+/// `teetime-monitor-picks` actually installed, but *synchronously*, with an empty
+/// result, on a clean CI runner that has no such binary, which made an earlier,
+/// reload()-driven version of this exact test pass locally and fail in CI.
+private func testSwitchingCourseCountsAsChanged() {
+    Harness.check("no prior request at all counts as changed (first load)",
+                   OverviewModel.picksRequestChanged(from: nil, to: ("/club.db", "18 Loch Tee 1")))
+    Harness.check("a different course, same club, counts as changed",
+                   OverviewModel.picksRequestChanged(from: ("/club.db", "18 Loch Tee 1"),
+                                                      to: ("/club.db", "9 Loch Tee 1")))
+    Harness.check("a different club, same course name, counts as changed",
+                   OverviewModel.picksRequestChanged(from: ("/club-a.db", "18 Loch Tee 1"),
+                                                      to: ("/club-b.db", "18 Loch Tee 1")))
 }
 
 /// The other half of the same fix: a routine reload() of the *same* club/course
@@ -87,25 +79,8 @@ private func testSwitchingCourseClearsStalePicksSynchronously() {
 /// `windowHint` -- that would flash the pick badges/hint to empty and back on every
 /// single background refresh, a real regression clearing unconditionally would
 /// have caused.
-private func testReloadingSameCourseKeepsExistingPicks() {
-    let dir = TempDir()
-    let dbPath = dir.file("club.db")
-    makeTestDB(dbPath)
-
-    let model = OverviewModel()
-    model.clubPath = dbPath
-    model.course = "18 Loch Tee 1"
-    // A real prior reload()'s completion handler would have set this alongside
-    // the picks/hint it fetched -- seeded directly here so this test doesn't need
-    // to wait on a real subprocess round trip to reach the same state.
-    model.picksRequestKey = (dbPath, "18 Loch Tee 1")
-    let hint = WindowHint(windowAfter: "16:00", latestStart: "14:40", sunset: "19:10", roundMinutes: 240)
-    model.windowHint = hint
-    model.picks = ["2026-09-28": DayPick(time: "16:00", score: 0, reasons: [])]
-
-    model.reload()  // same club/course as already set above -- not a switch
-
-    Harness.check("windowHint survives a same-course reload's synchronous portion",
-                   model.windowHint != nil)
-    Harness.check("picks survive a same-course reload's synchronous portion", !model.picks.isEmpty)
+private func testReloadingSameCourseDoesNotCountAsChanged() {
+    Harness.check("the exact same (club, course) is not a change",
+                   !OverviewModel.picksRequestChanged(from: ("/club.db", "18 Loch Tee 1"),
+                                                       to: ("/club.db", "18 Loch Tee 1")))
 }
