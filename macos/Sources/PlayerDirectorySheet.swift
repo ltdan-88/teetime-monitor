@@ -37,6 +37,28 @@ private enum PlayerSortField: String, CaseIterable, Identifiable {
     }
 }
 
+/// Groups `players` (already sorted the way the caller wants) into adjacent runs
+/// sharing the same first letter of `familyName(_:)`, uppercased -- one entry per
+/// letter, in first-seen order, so this reflects whatever order `players` already
+/// came in rather than re-sorting. "#" collects anything whose family name starts
+/// with something that isn't a letter (a name is never actually empty, but this is
+/// the same non-letter fallback bucket a real Contacts app uses). A free function,
+/// not a `PlayerDirectorySheet` method, so `TeetimeMonitorCoreTests` can exercise
+/// the grouping itself directly, without a live sheet or its private state.
+func groupPlayersByFamilyNameLetter(_ players: [KnownPlayer]) -> [(letter: String, players: [KnownPlayer])] {
+    var groups: [(letter: String, players: [KnownPlayer])] = []
+    for player in players {
+        let initial = familyName(player.name).uppercased().first
+        let letter = (initial != nil && initial!.isLetter) ? String(initial!) : "#"
+        if groups.last?.letter == letter {
+            groups[groups.count - 1].players.append(player)
+        } else {
+            groups.append((letter: letter, players: [player]))
+        }
+    }
+    return groups
+}
+
 /// Every real player name this club's own scrapes have ever seen (2026-09-27, only
 /// possible from an authenticated scrape -- see `scraper.scrape_schedule()`'s own
 /// `client` parameter), browsable here with the ability to mark some as friends.
@@ -84,6 +106,25 @@ struct PlayerDirectorySheet: View {
         return visible
     }
 
+    /// A-Z section headers plus a jump strip down the trailing edge, the same shape
+    /// every contacts-style directory uses -- direct request (2026-09-28): "make the
+    /// player directory a feature[sic] similar features like in common contact
+    /// directories (e.g. alphabet letters as separators)". Only meaningful sorted by
+    /// name (grouping a handicap- or gender-sorted list by family-name letter would
+    /// scatter one contact's own initial across the whole list instead of collecting
+    /// it) -- `sectionsShown` below is what actually gates showing headers/strip;
+    /// the grouping itself (`groupPlayersByFamilyNameLetter`, a free function so
+    /// `TeetimeMonitorCoreTests` can exercise it directly without a live sheet) just
+    /// collects whatever's currently visible into adjacent same-letter runs, which
+    /// only forms real letter-blocks when the list is already name-sorted.
+    private var groupedPlayers: [(letter: String, players: [KnownPlayer])] {
+        groupPlayersByFamilyNameLetter(visiblePlayers)
+    }
+
+    /// Section headers/jump strip only show for the sort order they're actually
+    /// correct for -- see `groupedPlayers`' own docstring.
+    private var sectionsShown: Bool { sortField.value == .name }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("players.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
@@ -118,8 +159,30 @@ struct PlayerDirectorySheet: View {
                 Text(t("players.no_matches")).font(scaledFont(.body)).foregroundStyle(.secondary)
                 Spacer()
             } else {
-                List(visiblePlayers) { player in
-                    PlayerRow(player: player) { toggleFriend(player) }
+                ScrollViewReader { proxy in
+                    HStack(spacing: 0) {
+                        List {
+                            ForEach(groupedPlayers, id: \.letter) { group in
+                                if sectionsShown {
+                                    Section(header: Text(group.letter)) {
+                                        ForEach(group.players) { player in
+                                            PlayerRow(player: player) { toggleFriend(player) }
+                                        }
+                                    }
+                                    .id(group.letter)
+                                } else {
+                                    ForEach(group.players) { player in
+                                        PlayerRow(player: player) { toggleFriend(player) }
+                                    }
+                                }
+                            }
+                        }
+                        if sectionsShown {
+                            AlphabetIndexStrip(letters: groupedPlayers.map(\.letter)) { letter in
+                                withAnimation { proxy.scrollTo(letter, anchor: .top) }
+                            }
+                        }
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -141,6 +204,31 @@ struct PlayerDirectorySheet: View {
     private func toggleFriend(_ player: KnownPlayer) {
         Store.setPlayerFriend(dbPath: dbPath, name: player.name, isFriend: !player.isFriend)
         reload()
+    }
+}
+
+/// The tappable A-Z jump column down the trailing edge of the directory --
+/// Contacts.app's own "index" strip. Only the letters actually present
+/// (`groupedPlayers`' own keys), not the full alphabet padded with dead entries --
+/// with a real, if small, directory this is already every letter that matters, and
+/// a tap that does nothing (an empty letter) is worse than a slightly shorter strip.
+private struct AlphabetIndexStrip: View {
+    let letters: [String]
+    let onTap: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(letters, id: \.self) { letter in
+                Text(letter)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onTap(letter) }
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.trailing, 6)
     }
 }
 

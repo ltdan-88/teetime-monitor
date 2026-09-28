@@ -17,5 +17,6 @@ runLoginClientTests()
 runSearchClientTests()
 runFormattingTests()
 runPicksClientTests()
+runPlayerDirectoryTests()
 
 Harness.summarizeAndExit()

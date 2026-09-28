@@ -652,6 +652,12 @@ final class OverviewModel: ObservableObject {
 
     private var watcher: Timer?
     private var seenModification: Date?
+    /// The (clubPath, course) `picks`/`verdicts`/`windowHint` currently on screen
+    /// were actually fetched for -- see `reload()`'s own comment on why this exists.
+    /// Not `private`: `TeetimeMonitorCoreTests` seeds it directly to simulate "a
+    /// real prior fetch already landed for this course" without needing a live
+    /// subprocess round trip.
+    var picksRequestKey: (path: String, course: String)?
 
     /// Green while the background agent's own cadence would have refreshed by now,
     /// amber once it's clearly overdue -- so a stopped launchd agent is visible rather
@@ -834,6 +840,24 @@ final class OverviewModel: ObservableObject {
         lastScrape = Store.lastScrape(dbPath: clubPath)
         banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
 
+        // Cleared synchronously the moment club/course actually changes, not left to
+        // the async fetch below to overwrite once it eventually lands -- direct
+        // report 2026-09-28: switching from an 18-hole course to a 9-hole one kept
+        // showing the 18-hole course's own "window opens too late" hint (a real ~4h-
+        // round number) attached to the 9-hole day list, for as long as the new
+        // course's own picks subprocess took to return. Keyed off `picksRequestKey`
+        // (not just "always clear") specifically so this *doesn't* also fire on
+        // every routine reload() -- the 2-second DB-mtime watcher and a confirm/
+        // cancel both call this for the *same* club/course, and clearing on those
+        // too would flash the pick badges/hint to empty and back on every single
+        // background refresh, a real regression of its own.
+        let requestPath = clubPath, requestCourse = course
+        if picksRequestKey?.path != requestPath || picksRequestKey?.course != requestCourse {
+            picks = [:]
+            verdicts = [:]
+            windowHint = nil
+        }
+
         // Fire-and-forget, async -- reload() itself stays synchronous/fast (plain
         // SQLite reads, unchanged); this rides the exact same cadence reload()
         // already runs on (the 2-second DB-mtime watcher picking up the background
@@ -841,10 +865,10 @@ final class OverviewModel: ObservableObject {
         // clubPath/course by the time this returns (the user switched club/course
         // mid-fetch) is caught by the capture below rather than clobbering the new
         // selection's own picks.
-        let requestPath = clubPath, requestCourse = course
         let requestSlug = clubs.first { $0.path == clubPath }?.slug
         PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today, days: 6) { [weak self] result in
             guard let self, self.clubPath == requestPath, self.course == requestCourse else { return }
+            self.picksRequestKey = (requestPath, requestCourse)
             self.picks = result.picks
             self.verdicts = result.verdicts
             self.windowHint = result.hint
