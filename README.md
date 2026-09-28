@@ -63,8 +63,8 @@ Everything above works with none of these. Each one is additive:
 
 | Add | Unlocks |
 |---|---|
-| A pc caddie login (`l` in the club browser) | Searching the club directory by name, and reading your own confirmed bookings automatically instead of marking them by hand |
-| An [Anthropic](https://www.anthropic.com/) API key | AI-ranked recommendations (off by default; a paid API call per recommendation) |
+| A pc caddie login (`l` in the club browser) | Searching the club directory by name, reading your own confirmed bookings and handicap automatically, real player names (if your club shares them), a browsable player directory, and preferring slots with friends or a similar/better handicap |
+| An AI provider API key ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini, or Grok) | AI-ranked recommendations (off by default; a paid API call per recommendation) |
 
 **Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/).
 
@@ -96,7 +96,11 @@ per-club: your own availability doesn't change depending on which course you che
 A 🌙 marks any tee time whose round wouldn't finish before sunset, based on your own
 pace for 9 or 18 holes.
 
-<p align="center"><img src="assets/en/settings.png" alt="The settings screen, with availability and weather preferences grouped into sections"></p>
+With a pc caddie login, two more preferences use real data your club shares: prefer
+slots where a marked friend is already booked, or where the field's handicap is
+similar to (or better than) your own — auto-scraped, never typed in.
+
+<p align="center"><img src="assets/en/settings.png" alt="The settings screen, with availability, weather, and priority preferences grouped into sections"></p>
 
 ### Search, for the exceptions
 
@@ -122,9 +126,9 @@ normal Mondays.
 
 The grid shows hour-of-day against weekday — full colour once an hour has enough
 samples to trust, dimmed while it's still thin, blank where nothing's been scraped.
-The tables above it say how far along each weekday is.
+A separate readiness screen (`s` from here) says how far along each weekday is.
 
-<p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap: readiness tables above the colored hour-by-weekday grid"></p>
+<p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap: the colored hour-by-weekday grid, by weekday and by special day type"></p>
 
 ### One menu, two languages, eleven themes
 
@@ -190,7 +194,7 @@ directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
 ```
 ~/.config/teetime-monitor/
     clubs/<club-id>.yaml    # per-club: location, overview_days, default_course
-    .env                    # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
+    .env                    # PCC_USER / PCC_PASS / an AI provider key (Settings → AI provider)
     preferences.yaml        # availability, weather, AI, pace, interval
     config                  # THEME=, LANG=
 
@@ -261,7 +265,7 @@ src/
 ├── scrape_once.py            # scheduled scrape + "My Reservations" sync
 ├── storage.py                # SQLite persistence
 ├── search.py / recommend.py  # hard filters, then weather/daylight + AI ranking
-├── ai_assist.py              # the three Claude calls (classify, rank, summarize)
+├── ai_assist.py              # the three AI calls (classify, rank, summarize), multi-provider
 ├── weather.py                # Open-Meteo client
 ├── booking_watch.py          # did a confirmed booking's situation change?
 ├── playability.py            # does this round finish before sunset?
@@ -269,6 +273,8 @@ src/
 ├── calendar_context.py       # holidays + vacations -> day type
 ├── settings_screen.py        # preferences screen (in-app or standalone)
 ├── credentials_screen.py     # login screen (in-app or standalone)
+├── ai_credentials_screen.py  # AI provider setup (in-app or standalone)
+├── known_players_screen.py   # player directory -- mark friends, see handicaps
 ├── club_config.py            # favourites
 ├── club_directory.py         # cached club directory + id parsing
 ├── geocode.py                # weather-location lookup for a new club
@@ -298,7 +304,8 @@ Reservations" on each scheduled scrape, not live — **r** forces it immediately
 cancellation on the real site is picked up the same way.
 
 **AI ranking isn't doing anything.** It's off by default (Settings → AI ranking) and
-needs `ANTHROPIC_API_KEY` in `.env` regardless.
+needs a provider API key set up first (Settings → AI provider — Anthropic, OpenAI,
+Gemini, or Grok).
 
 **The heatmap is all "no data yet".** Expected on a new install — it needs a few
 weeks of scrapes. The readiness tables show how far along it is.

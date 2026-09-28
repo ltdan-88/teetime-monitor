@@ -64,8 +64,8 @@ Alles oben funktioniert ohne jede dieser Zutaten. Jede bringt nur etwas dazu:
 
 | Zusatz | Bringt |
 |---|---|
-| pc-caddie-Login (`l` in der Club-Suche) | Clubs nach Namen durchsuchen, und eigene Buchungen automatisch übernehmen statt sie selbst zu markieren |
-| [Anthropic](https://www.anthropic.com/)-API-Key | KI-bewertete Empfehlungen (standardmäßig aus, kostenpflichtig pro Empfehlung) |
+| pc-caddie-Login (`l` in der Club-Suche) | Clubs nach Namen durchsuchen, eigene Buchungen und Handicap automatisch übernehmen, echte Spielernamen (falls dein Club sie teilt), ein durchsuchbares Spielerverzeichnis, und Zeiten mit Freunden oder ähnlichem/besserem Handicap bevorzugen |
+| API-Key eines KI-Anbieters ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini oder Grok) | KI-bewertete Empfehlungen (standardmäßig aus, kostenpflichtig pro Empfehlung) |
 
 **Voraussetzungen:** macOS oder Linux und [Homebrew](https://brew.sh/).
 
@@ -98,7 +98,12 @@ gerade anschaust.
 Ein 🌙 markiert jede Startzeit, deren Runde vor Sonnenuntergang nicht mehr fertig wird —
 gerechnet mit deinem eigenen Tempo für 9 oder 18 Loch.
 
-<p align="center"><img src="assets/de/settings.png" alt="Die Einstellungen, nach Verfügbarkeit und Wetter gruppiert"></p>
+Mit pc-caddie-Login nutzen zwei weitere Vorgaben echte Daten, die dein Club teilt:
+Zeiten bevorzugen, in denen ein markierter Freund schon gebucht ist, oder in denen das
+Feld ein ähnliches (oder besseres) Handicap hat als du selbst — automatisch erfasst,
+nie eingetippt.
+
+<p align="center"><img src="assets/de/settings.png" alt="Die Einstellungen, nach Verfügbarkeit, Wetter und Prioritäten gruppiert"></p>
 
 ### Suche für die Ausnahmen
 
@@ -124,9 +129,10 @@ und nicht mit gewöhnlichen Montagen.
 
 Das Raster stellt Stunden gegen Wochentage: voll eingefärbt, sobald genug Messwerte für
 eine Aussage da sind, gedimmt, solange es noch zu wenige sind, leer, wo noch nichts
-erfasst wurde. Die Tabellen darüber zeigen, wie weit jeder Wochentag schon ist.
+erfasst wurde. Ein eigener Datenstand-Bildschirm (`s` von hier aus) zeigt, wie weit
+jeder Wochentag schon ist.
 
-<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: Datenstand-Tabellen über dem farbigen Raster aus Stunden und Wochentagen"></p>
+<p align="center"><img src="assets/de/heatmap.png" alt="Die Auslastungs-Heatmap: das farbige Raster aus Stunden und Wochentagen, nach Wochentag und nach besonderem Tagtyp"></p>
 
 ### Ein Menü, zwei Sprachen, elf Designs
 
@@ -195,7 +201,7 @@ sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreibe
 ```
 ~/.config/teetime-monitor/
     clubs/<club-id>.yaml    # pro Club: Koordinaten, overview_days, Standardplatz
-    .env                    # PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
+    .env                    # PCC_USER / PCC_PASS / API-Key eines KI-Anbieters (Einstellungen → KI-Anbieter)
     preferences.yaml        # Verfügbarkeit, Wetter, KI, Tempo, Intervall
     config                  # THEME=, LANG=
 
@@ -268,7 +274,7 @@ src/
 ├── scrape_once.py            # geplanter Abruf + Abgleich mit „Meine Reservierungen"
 ├── storage.py                # SQLite-Persistenz
 ├── search.py / recommend.py  # harte Filter, dann Wetter/Tageslicht + KI-Bewertung
-├── ai_assist.py              # die drei Claude-Aufrufe (einordnen, bewerten, zusammenfassen)
+├── ai_assist.py              # die drei KI-Aufrufe (einordnen, bewerten, zusammenfassen), mehrere Anbieter
 ├── weather.py                # Open-Meteo-Client
 ├── booking_watch.py          # hat sich an einer bestätigten Buchung etwas geändert?
 ├── playability.py            # wird diese Runde vor Sonnenuntergang fertig?
@@ -276,6 +282,8 @@ src/
 ├── calendar_context.py       # Feiertage + Ferien -> Tagtyp
 ├── settings_screen.py        # Einstellungen (in der App oder eigenständig)
 ├── credentials_screen.py     # Login (in der App oder eigenständig)
+├── ai_credentials_screen.py  # KI-Anbieter einrichten (in der App oder eigenständig)
+├── known_players_screen.py   # Spielerverzeichnis -- Freunde markieren, Handicaps sehen
 ├── club_config.py            # Favoriten
 ├── club_directory.py         # Club-Verzeichnis im Cache + ID-Erkennung
 ├── geocode.py                # Standortsuche für einen neuen Club
@@ -306,7 +314,8 @@ Abruf aus „Meine Reservierungen", nicht in Echtzeit — **r** erzwingt es sofo
 Stornierung auf der echten Seite wird genauso erkannt.
 
 **Die KI-Bewertung tut nichts.** Sie ist standardmäßig aus (Einstellungen →
-KI-Bewertung) und braucht ohnehin `ANTHROPIC_API_KEY` in der `.env`.
+KI-Bewertung) und braucht zuerst einen eingerichteten Anbieter-API-Key (Einstellungen
+→ KI-Anbieter — Anthropic, OpenAI, Gemini oder Grok).
 
 **In der Heatmap steht überall „Noch keine Daten".** Auf einer frischen Installation
 normal — sie braucht ein paar Wochen Abrufe. Die Tabellen zeigen, wie weit es ist.
