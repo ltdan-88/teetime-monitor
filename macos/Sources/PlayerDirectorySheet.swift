@@ -226,26 +226,28 @@ struct PlayerDirectorySheet: View {
             } else {
                 ScrollViewReader { proxy in
                     HStack(spacing: 0) {
-                        List {
-                            ForEach(groupedPlayers, id: \.letter) { group in
-                                if sectionsShown {
-                                    Section(header: Text(group.letter)) {
-                                        ForEach(group.players) { player in
-                                            PlayerRow(player: player, onToggle: { toggleFriend(player) },
-                                                      onFocus: model == nil ? nil : { handleDoubleClick(player) },
-                                                      onSelect: onSelect == nil ? nil : { selectAndDismiss(player) },
-                                                      isSelected: selectedName.value == player.name,
-                                                      onClick: { selectedName.value = player.name })
+                        // ScrollView + LazyVStack, not List: the List's NSOutlineView backing
+                        // crashed inside SwiftUI (ViewListTree.visitItem assertion, crash
+                        // report 2026-09-29) while scrolling this conditional
+                        // Section/ForEach structure. The Overview already uses this shape
+                        // for its pinned day headers.
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                                ForEach(groupedPlayers, id: \.letter) { group in
+                                    if sectionsShown {
+                                        Section {
+                                            playerRows(group.players)
+                                        } header: {
+                                            Text(group.letter)
+                                                .font(scaledFont(.caption)).bold()
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 16).padding(.vertical, 3)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .background(Color(nsColor: .windowBackgroundColor))
+                                                .id(group.letter)
                                         }
-                                    }
-                                    .id(group.letter)
-                                } else {
-                                    ForEach(group.players) { player in
-                                        PlayerRow(player: player, onToggle: { toggleFriend(player) },
-                                                  onFocus: model == nil ? nil : { handleDoubleClick(player) },
-                                                  onSelect: onSelect == nil ? nil : { selectAndDismiss(player) },
-                                                  isSelected: selectedName.value == player.name,
-                                                  onClick: { selectedName.value = player.name })
+                                    } else {
+                                        playerRows(group.players)
                                     }
                                 }
                             }
@@ -285,6 +287,19 @@ struct PlayerDirectorySheet: View {
         }
         .alert(t("players.focus_none"), isPresented: $focusNoneNotice.value) {
             Button(t("button.close"), role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private func playerRows(_ rows: [KnownPlayer]) -> some View {
+        ForEach(rows) { player in
+            PlayerRow(player: player, onToggle: { toggleFriend(player) },
+                      onFocus: model == nil ? nil : { handleDoubleClick(player) },
+                      onSelect: onSelect == nil ? nil : { selectAndDismiss(player) },
+                      isSelected: selectedName.value == player.name,
+                      onClick: { selectedName.value = player.name })
+                .padding(.horizontal, 12)
+            Divider().padding(.leading, 16)
         }
     }
 
