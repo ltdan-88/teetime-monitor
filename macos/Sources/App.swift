@@ -700,6 +700,10 @@ final class OverviewModel: ObservableObject {
     /// way" convention jump-to-definition/jump-to-file UIs already use elsewhere.
     @Published var highlightedSlot: ScrollTarget?
 
+    /// The day a `scrollRequest` jump is currently expanding, so the generic
+    /// expand-driven scroll to that day's ★ pick doesn't race the jump.
+    var jumpingToDate: String?
+
     /// The slot an expanded `date` should scroll to: its ★ pick, otherwise the
     /// first visible slot at or after your window opens -- mirrors
     /// `tui.OverviewScreen._focus_row_for()` (2026-09-27, bundle C).
@@ -1325,6 +1329,7 @@ struct ContentView: View {
                     // not top-anchored: the day's own pinned header covers the top.
                     .onChange(of: model.expanded) { old, new in
                         guard let date = new.subtracting(old).first,
+                              date != model.jumpingToDate,
                               let time = model.focusTime(for: date) else { return }
                         DispatchQueue.main.async {
                             withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
@@ -1341,9 +1346,23 @@ struct ContentView: View {
                         guard let target: OverviewModel.ScrollTarget = new else { return }
                         let date: String = target.date
                         let time: String = target.time
+                        // Marks this day so the expand-driven scroll above doesn't also
+                        // fire for it and drag the view to the day's ★ pick instead.
+                        model.jumpingToDate = date
                         model.expanded.insert(date)
-                        DispatchQueue.main.async {
-                            withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
+                        // The day body is a lazy section that only comes into existence
+                        // after the expand renders, and the sheet is still animating
+                        // away -- a single scrollTo right now silently does nothing when
+                        // the target row isn't laid out yet (the unreliable jump, found
+                        // 2026-09-29). Repeating it as layout settles is idempotent once
+                        // the row exists, so later attempts are harmless.
+                        for delay in [0.05, 0.3, 0.7] {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
+                            }
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            if model.jumpingToDate == date { model.jumpingToDate = nil }
                         }
                         model.scrollRequest = nil
                         // Flashes the landed-on row (SlotRow.isFocused), then clears
