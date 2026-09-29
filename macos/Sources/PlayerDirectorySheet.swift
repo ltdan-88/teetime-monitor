@@ -156,6 +156,7 @@ struct PlayerDirectorySheet: View {
     @StateObject private var sortReversed = Box(false)
     @StateObject private var focusChoices = Box<[PlayerSlotHit]>([])
     @StateObject private var focusNoneNotice = Box(false)
+    @StateObject private var selectedName = Box<String?>(nil)
 
     private var visiblePlayers: [KnownPlayer] {
         var visible = players.value
@@ -232,7 +233,9 @@ struct PlayerDirectorySheet: View {
                                         ForEach(group.players) { player in
                                             PlayerRow(player: player, onToggle: { toggleFriend(player) },
                                                       onFocus: model == nil ? nil : { handleDoubleClick(player) },
-                                                      onSelect: onSelect == nil ? nil : { selectAndDismiss(player) })
+                                                      onSelect: onSelect == nil ? nil : { selectAndDismiss(player) },
+                                                      isSelected: selectedName.value == player.name,
+                                                      onClick: { selectedName.value = player.name })
                                         }
                                     }
                                     .id(group.letter)
@@ -240,7 +243,9 @@ struct PlayerDirectorySheet: View {
                                     ForEach(group.players) { player in
                                         PlayerRow(player: player, onToggle: { toggleFriend(player) },
                                                   onFocus: model == nil ? nil : { handleDoubleClick(player) },
-                                                  onSelect: onSelect == nil ? nil : { selectAndDismiss(player) })
+                                                  onSelect: onSelect == nil ? nil : { selectAndDismiss(player) },
+                                                  isSelected: selectedName.value == player.name,
+                                                  onClick: { selectedName.value = player.name })
                                     }
                                 }
                             }
@@ -302,8 +307,12 @@ struct PlayerDirectorySheet: View {
     }
 
     private func selectAndDismiss(_ player: KnownPlayer) {
-        onSelect?(player.name)
-        dismiss()
+        // Brief pause so the selection highlight is actually seen before the sheet
+        // closes -- an instant dismiss reads as "nothing happened, it just vanished."
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            onSelect?(player.name)
+            dismiss()
+        }
     }
 
     private func reload() {
@@ -361,14 +370,27 @@ struct PlayerRow: View {
     /// also given an `onSelect`), so there's no real double-vs-single tap conflict
     /// to resolve here, just two different reasons a row can be tappable.
     var onSelect: (() -> Void)?
+    /// Single click marks the row as selected (highlight) in either mode -- direct
+    /// follow-up, 2026-09-29: "the player picker or player directory does not
+    /// provide any feedback when selecting a row."
+    var isSelected: Bool = false
+    var onClick: (() -> Void)?
+
+    @ObservedObject private var theme = AppTheme.shared
+    @StateObject private var isHovering = Box(false)
 
     var body: some View {
         HStack {
-            PlayerRowColumns(player: player)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) { onFocus?() }
-                .onTapGesture { onSelect?() }
-            Spacer(minLength: 8)
+            HStack {
+                PlayerRowColumns(player: player)
+                Spacer(minLength: 8)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { onFocus?() }
+            .onTapGesture {
+                onClick?()
+                onSelect?()
+            }
             // Hidden entirely in picker mode, not just inert -- this sheet's whole
             // reason for being open is "pick a name," and a second, unrelated
             // action sitting right next to that choice is exactly the kind of
@@ -378,6 +400,17 @@ struct PlayerRow: View {
             }
         }
         .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            isSelected ? theme.colors.accent.opacity(0.4)
+                : (isHovering.value ? theme.colors.accent.opacity(0.12) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4).stroke(theme.colors.accent, lineWidth: 1.5)
+                .opacity(isSelected ? 1 : 0)
+        )
+        .onHover { isHovering.value = $0 }
     }
 }
 

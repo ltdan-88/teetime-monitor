@@ -278,9 +278,17 @@ struct SlotRow: View {
         // `.onChange` that owns this state) is what turns the opacity jump into
         // an actual flash instead of an instant on/off.
         .background(
-            isFocused ? theme.colors.accent.opacity(0.5)
+            isFocused ? theme.colors.accent.opacity(0.7)
                 : (isHovering.value && !slot.isBlocked ? theme.colors.accent.opacity(0.15) : Color.clear),
             in: RoundedRectangle(cornerRadius: 4)
+        )
+        // A solid accent outline on top of the fill (direct follow-up, 2026-09-29:
+        // "make the row highlight more visible") -- a translucent fill alone can sit
+        // close to a theme's own background; an opaque border reads in every theme.
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(theme.colors.accent, lineWidth: 2)
+                .opacity(isFocused ? 1 : 0)
         )
         .contentShape(Rectangle())
         .onHover { isHovering.value = !slot.isBlocked && $0 }
@@ -1345,7 +1353,7 @@ struct ContentView: View {
                         // newer target must not have its own highlight cut short by
                         // an older timer firing after it.
                         withAnimation { model.highlightedSlot = target }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                             if model.highlightedSlot == target {
                                 withAnimation { model.highlightedSlot = nil }
                             }
