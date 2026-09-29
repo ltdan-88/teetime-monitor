@@ -37,13 +37,18 @@ struct SearchSheet: View {
         self.model = model
         // Same seeding PreferencesSheet/SettingsSheet already use -- a snapshot to
         // edit here, not a live binding back to preferences.yaml.
+        _criteria = StateObject(wrappedValue: Box(SearchSheet.defaultCriteria()))
+    }
+
+    /// The saved-preferences starting point -- used at open and by "Reset filters".
+    private static func defaultCriteria() -> SearchCriteriaPayload {
         let p = Preferences.load()
-        _criteria = StateObject(wrappedValue: Box(SearchCriteriaPayload(
+        return SearchCriteriaPayload(
             minOpenSpots: p.minOpenSpots,
             weekdayAfter: p.weekdayAfter, weekdayBefore: p.weekdayBefore,
             weekendAfter: p.weekendAfter, weekendBefore: p.weekendBefore,
             bufferBeforeMinutes: p.bufferBeforeMinutes, bufferAfterMinutes: p.bufferAfterMinutes
-        )))
+        )
     }
 
     private var today: String {
@@ -116,6 +121,8 @@ struct SearchSheet: View {
                     }
                     Spacer()
                     if isSearching.value { ProgressView().controlSize(.small) }
+                    Button(t("search.reset")) { criteria.value = SearchSheet.defaultCriteria() }
+                        .disabled(isSearching.value)
                     Button(t("search.button")) { runSearch() }
                         .keyboardShortcut(.defaultAction)
                         .disabled(isSearching.value)

@@ -3805,6 +3805,7 @@ class SearchScreen(Screen[None]):
         yield Static("", id="search-status")
         with Horizontal(id="buttons"):
             yield Button(i18n.t("button.cancel"), id="cancel")
+            yield Button(i18n.t("search.reset"), id="reset")
             yield Button(i18n.t("search.button"), id="run", variant="success")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
@@ -3986,10 +3987,34 @@ class SearchScreen(Screen[None]):
             return
         if event.button.id == "run":
             self._run_search()
+        elif event.button.id == "reset":
+            self._reset_filters()
         elif event.button.id == "search-player":
             self.app.push_screen(KnownPlayersScreen(self.club_id, pick=True), self._on_player_picked)
         elif event.button.id == "search-player-clear":
             self._set_player_filter("")
+
+    def _reset_filters(self) -> None:
+        """Puts every field back to what compose() opened with -- the saved global
+        availability defaults, friends-only off, no player (direct request,
+        2026-09-29: "the option to reset all filters in a search")."""
+        availability = self.config.get("availability", {})
+        weekday_window = availability.get("weekday_window") or {}
+        weekend_window = availability.get("weekend_window") or {}
+        self.query_one("#search-min-open-spots", Select).value = str(availability.get("min_open_spots", 1))
+        for base_id, value in (
+            ("search-weekday-after", weekday_window.get("after")),
+            ("search-weekday-before", weekday_window.get("before")),
+            ("search-weekend-after", weekend_window.get("after")),
+            ("search-weekend-before", weekend_window.get("before")),
+        ):
+            hh, _, mm = (value or "").partition(":")
+            self.query_one(f"#{base_id}-hh", Select).value = hh
+            self.query_one(f"#{base_id}-mm", Select).value = mm
+        for widget_id, direction in (("search-buffer-before", "before"), ("search-buffer-after", "after")):
+            self.query_one(f"#{widget_id}", Select).value = str(resolve_buffer_minutes(availability, direction, 0))
+        self.query_one("#search-friends-only", Switch).value = False
+        self._set_player_filter("")
 
     def _on_player_picked(self, name: str | None) -> None:
         # None is a cancelled picker (Escape) -- keeps whatever was chosen before.

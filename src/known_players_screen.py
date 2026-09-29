@@ -41,8 +41,9 @@ a form.
 from pathlib import Path
 
 from textual.app import App, ComposeResult
+from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import DataTable, Header, Input, Static
+from textual.widgets import DataTable, Header, Input, Label, Static, Switch
 from textual.widgets.data_table import RowDoesNotExist
 
 from . import i18n, storage
@@ -103,8 +104,16 @@ class KnownPlayersScreen(Screen[str | None]):
         padding: 1 2;
         color: $text-muted;
     }
-    #player-search {
+    #search-row {
+        height: 3;
         margin: 0 2 1 2;
+    }
+    #player-search {
+        width: 1fr;
+    }
+    #friends-only-label {
+        padding: 1 1 0 2;
+        width: auto;
     }
     """
 
@@ -124,6 +133,7 @@ class KnownPlayersScreen(Screen[str | None]):
         self._sort_key = "name"
         self._sort_reverse = False
         self._query = ""
+        self._friends_only = False
 
     def on_mount(self) -> None:
         self.title = i18n.t("players.picker_title" if self.pick else "players.title")
@@ -134,7 +144,10 @@ class KnownPlayersScreen(Screen[str | None]):
         if self.db_path is None:
             yield Static(i18n.t("players.no_club"), id="empty")
         else:
-            yield Input(placeholder=i18n.t("players.search_placeholder"), id="player-search")
+            with Horizontal(id="search-row"):
+                yield Input(placeholder=i18n.t("players.search_placeholder"), id="player-search")
+                yield Label(i18n.t("players.friends_only"), id="friends-only-label")
+                yield Switch(value=False, id="friends-only")
             yield DataTable(id="players-table", header_height=1, cursor_type="row")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
@@ -156,6 +169,8 @@ class KnownPlayersScreen(Screen[str | None]):
 
     def _visible_players(self) -> list[KnownPlayer]:
         players = self._players
+        if self._friends_only:
+            players = [p for p in players if p.is_friend]
         if self._query:
             query = self._query.casefold()
             players = [p for p in players if query in p.name.casefold()]
@@ -190,6 +205,12 @@ class KnownPlayersScreen(Screen[str | None]):
         if event.input.id != "player-search":
             return
         self._query = event.value.strip()
+        self._render_table()
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        if event.switch.id != "friends-only":
+            return
+        self._friends_only = event.value
         self._render_table()
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
