@@ -277,6 +277,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Every real name your own scrapes have seen (only possible once logged in — "
             "see Settings). Select a row to mark or unmark a friend."
         ),
+        "players.picker_title": "Choose a player",
+        "players.picker_intro": "Select a row to use that player as this search's filter.",
         "players.no_club": "No club selected yet — add or open a club first.",
         "players.search_placeholder": "Search by name…",
         "players.column.name": "Name",
@@ -574,6 +576,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — "
             "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen."
         ),
+        "players.picker_title": "Spieler auswählen",
+        "players.picker_intro": "Zeile auswählen, um diesen Spieler als Filter für diese Suche zu verwenden.",
         "players.no_club": "Noch kein Club ausgewählt — zuerst einen Club hinzufügen oder öffnen.",
         "players.search_placeholder": "Nach Namen suchen…",
         "players.column.name": "Name",

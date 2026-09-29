@@ -116,6 +116,10 @@ didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
 
+## Focused row is now highlighted; player filter picked through the directory (2026-09-29)
+
+Two direct follow-ups to the previous entry. (1) Double-clicking a player scrolled to and expanded their tee time but selected nothing, so the row was still hard to spot: the GUI now tints that row (`OverviewModel.highlightedSlot`) for a couple of seconds. (2) The Search screen's Player dropdown listed every name ever seen and was too long to use. It is now a "Choose player…" button that opens the Player directory in pick mode (A–Z index and search included; picking a name closes it and sets the filter, with a × to clear) in both the TUI (`KnownPlayersScreen(pick=True)`) and the GUI (`PlayerDirectorySheet(onSelect:)`). Escape keeps the previous choice.
+
 ## Double-click a player to jump to their tee time; wording aligned with the TUI; friends/players into search (2026-09-28)
 
 Three more direct follow-ups on the work right above, same session:

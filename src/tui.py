@@ -3741,11 +3741,10 @@ class SearchScreen(Screen[None]):
         # display text, same reasoning the since-retired day-detail screen's own
         # `_row_times` followed for the identical purpose.
         self._row_matches: list[SlotMatch] = []
-        # For the "Player" filter dropdown below (2026-09-28, direct follow-up:
-        # "implement players or friends into the search") -- already sorted by
-        # family name (`storage.load_known_players()`'s own docstring), so this
-        # doubles as the dropdown's own display order with no re-sort here.
-        self._known_players = storage.load_known_players(path=_db_path(self.club_id))
+        # The Player filter's chosen name ("" = any) -- picked through the same
+        # KnownPlayersScreen browser as the Player directory (pick mode), not a
+        # dropdown (2026-09-28, direct follow-up: "a bit too long to use").
+        self._player_filter = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -3798,21 +3797,10 @@ class SearchScreen(Screen[None]):
                 yield Switch(value=False, id="search-friends-only", classes="field-input")
             with Horizontal(classes="field-row"):
                 yield Label(i18n.t("search.field.player"), classes="field-label")
-                # "★ Name" for a marked friend, same star KnownPlayersScreen's own
-                # table uses -- lets "player or friend" (the direct request's own
-                # wording) both be answered by this one dropdown, without a second
-                # separate "friend" picker duplicating almost the same list.
-                player_options = [(i18n.t("search.field.player.any"), "")] + [
-                    (f"★ {p.name}" if p.is_friend else p.name, p.name) for p in self._known_players
-                ]
-                yield Select(
-                    player_options,
-                    value="",
-                    allow_blank=False,
-                    compact=True,
-                    id="search-player",
-                    classes="field-input",
+                yield Button(
+                    i18n.t("search.field.player.any"), id="search-player", compact=True, classes="field-input"
                 )
+                yield Button("×", id="search-player-clear", compact=True, disabled=True)
         yield DataTable(id="search-results", header_height=2)
         yield Static("", id="search-status")
         with Horizontal(id="buttons"):
@@ -3934,8 +3922,8 @@ class SearchScreen(Screen[None]):
         )
         if self.query_one("#search-friends-only", Switch).value:
             matches = recommend.only_with_friend(matches, friend_names)
-        if player_name := self.query_one("#search-player", Select).value:
-            matches = recommend.only_with_player(matches, str(player_name))
+        if self._player_filter:
+            matches = recommend.only_with_player(matches, self._player_filter)
         self._row_matches = []
         status = self.query_one("#search-status", Static)
         if not matches:
@@ -3998,6 +3986,20 @@ class SearchScreen(Screen[None]):
             return
         if event.button.id == "run":
             self._run_search()
+        elif event.button.id == "search-player":
+            self.app.push_screen(KnownPlayersScreen(self.club_id, pick=True), self._on_player_picked)
+        elif event.button.id == "search-player-clear":
+            self._set_player_filter("")
+
+    def _on_player_picked(self, name: str | None) -> None:
+        # None is a cancelled picker (Escape) -- keeps whatever was chosen before.
+        if name is not None:
+            self._set_player_filter(name)
+
+    def _set_player_filter(self, name: str) -> None:
+        self._player_filter = name
+        self.query_one("#search-player", Button).label = self._player_filter or i18n.t("search.field.player.any")
+        self.query_one("#search-player-clear", Button).disabled = not self._player_filter
 
     def action_cancel(self) -> None:
         self.dismiss(None)

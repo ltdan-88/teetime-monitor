@@ -84,9 +84,15 @@ def _handicap_cell(handicap: float | None) -> str:
     return f"{handicap:.1f}" if handicap is not None else ""
 
 
-class KnownPlayersScreen(Screen[None]):
+class KnownPlayersScreen(Screen[str | None]):
     """Browse known players, filter, sort, and toggle who's a friend. See module
-    docstring."""
+    docstring.
+
+    `pick=True` (2026-09-28, direct follow-up: the Search screen's own player dropdown
+    "is a bit too long to use") turns this same browser into a chooser: Enter on a row
+    dismisses with that player's name instead of toggling a friend, Escape dismisses
+    with None. Reusing the screen keeps its sort/search/family-name ordering rather than
+    duplicating them in a second list."""
 
     CSS = """
     #intro {
@@ -105,8 +111,9 @@ class KnownPlayersScreen(Screen[None]):
     BINDINGS = [("escape", "close", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
-    def __init__(self, club_id: str | None, db_path: Path | None = None) -> None:
+    def __init__(self, club_id: str | None, db_path: Path | None = None, pick: bool = False) -> None:
         super().__init__()
+        self.pick = pick
         # `db_path` is resolvable from `club_id` alone (see `_db_path()`) -- accepted
         # as its own optional override only so tests can point this at an isolated
         # database without needing a real club_id/DATA_DIR to line up, same reasoning
@@ -119,11 +126,11 @@ class KnownPlayersScreen(Screen[None]):
         self._query = ""
 
     def on_mount(self) -> None:
-        self.title = i18n.t("players.title")
+        self.title = i18n.t("players.picker_title" if self.pick else "players.title")
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(i18n.t("players.intro"), id="intro")
+        yield Static(i18n.t("players.picker_intro" if self.pick else "players.intro"), id="intro")
         if self.db_path is None:
             yield Static(i18n.t("players.no_club"), id="empty")
         else:
@@ -199,6 +206,9 @@ class KnownPlayersScreen(Screen[None]):
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         table = self.query_one("#players-table", DataTable)
         name = str(event.row_key.value)
+        if self.pick:
+            self.dismiss(name)
+            return
         try:
             currently_friend = table.get_cell(event.row_key, "friend") == _FRIEND_MARK
         except RowDoesNotExist:

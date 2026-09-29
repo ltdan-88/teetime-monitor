@@ -4,12 +4,13 @@ import threading
 import pytest
 from textual.app import App, ComposeResult
 from textual.command import CommandPalette
-from textual.widgets import DataTable, Input, Label, OptionList, Select, Static, Switch
+from textual.widgets import Button, DataTable, Input, Label, OptionList, Select, Static, Switch
 
 from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
+from src.known_players_screen import KnownPlayersScreen
 from src.models import ConfirmedBooking, DateRange, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 
 
@@ -2897,15 +2898,67 @@ def test_search_screen_player_filter_picks_the_dropdown_options_correct_row():
         async with app.run_test() as pilot:
             await pilot.pause()
             app.screen.query_one("#search-weekday-after-hh").value = "05"
-            app.screen.query_one("#search-player", Select).value = "Max Mustermann"
+            await pilot.click("#search-player")
+            await pilot.pause()
+            assert isinstance(app.screen, KnownPlayersScreen)
+            table = app.screen.query_one("#players-table", DataTable)
+            table.move_cursor(row=table.get_row_index("Max Mustermann"))
+            await pilot.press("enter")
+            await pilot.pause()
+            assert str(app.screen.query_one("#search-player", Button).label) == "Max Mustermann"
             await pilot.click("#run")
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 1
             assert table.get_row_at(0)[1] == "10:00"
             assert table.get_row_at(0)[4] == "Max Mustermann"
+            # Clear button drops the filter again, both matches are back
+            await pilot.click("#search-player-clear")
+            await pilot.click("#run")
+            await pilot.pause()
+            assert app.screen.query_one("#search-results", DataTable).row_count == 2
+            assert str(app.screen.query_one("#search-player", Button).label) == "(Any)"
 
     _run(scenario())
+
+
+def test_search_screen_player_picker_escape_keeps_previous_choice():
+    db_path = scrape_once._db_path("0000001")
+    storage.record_seen_players(
+        [PlayerSighting(name="Anna Bauer")], "2026-09-27T10:00:00+00:00", path=db_path,
+    )
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._set_player_filter("Anna Bauer")
+            await pilot.click("#search-player")
+            await pilot.pause()
+            assert isinstance(app.screen, KnownPlayersScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.screen is screen
+            assert screen._player_filter == "Anna Bauer"
+
+    _run(scenario())
+
+
+def test_known_players_screen_pick_mode_enter_returns_the_name_without_toggling_friend(tmp_path):
+    db = tmp_path / "t.db"
+    storage.record_seen_players([PlayerSighting(name="Anna Bauer")], "2026-09-27T10:00:00+00:00", path=db)
+
+    async def scenario():
+        app = _HostApp(KnownPlayersScreen("0000001", db_path=db, pick=True))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.result == "Anna Bauer"
+
+    _run(scenario())
+    assert storage.load_friend_names(path=db) == set()
 
 
 def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_path, monkeypatch):
