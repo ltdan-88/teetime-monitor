@@ -5476,6 +5476,10 @@ for that side's own dated entry).
 926 tests passing (`pytest`), `ruff check` clean; 211 Swift unit tests
 passing, `swift build` clean across all four targets.
 
+## Focused row is now highlighted; player filter picked through the directory (2026-09-29)
+
+Two direct follow-ups to the previous entry. (1) Double-clicking a player scrolled to and expanded their tee time but selected nothing, so the row was still hard to spot: the GUI now tints that row (`OverviewModel.highlightedSlot`) for a couple of seconds. (2) The Search screen's Player dropdown listed every name ever seen and was too long to use. It is now a "Choose player…" button that opens the Player directory in pick mode (A–Z index and search included; picking a name closes it and sets the filter, with a × to clear) in both the TUI (`KnownPlayersScreen(pick=True)`) and the GUI (`PlayerDirectorySheet(onSelect:)`). Escape keeps the previous choice.
+
 ## Cross-app wording audit, and friends/players into search (2026-09-28)
 
 Three direct follow-ups in one message, after being asked why "Auslastung"

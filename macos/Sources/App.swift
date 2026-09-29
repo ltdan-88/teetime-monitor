@@ -150,6 +150,9 @@ struct SlotRow: View {
         guard let sunset = day.sunset else { return false }
         return slot.time > sunset
     }
+    /// Briefly true right after a double-click-a-player jump lands here -- see
+    /// `OverviewModel.highlightedSlot`'s own docstring.
+    var isFocused: Bool { model.highlightedSlot == OverviewModel.ScrollTarget(date: day.date, time: slot.time) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -267,8 +270,18 @@ struct SlotRow: View {
         // chosen for the opposite reason -- visible contrast against the
         // background by construction, in every theme -- so it's what a hover
         // state actually needs.
-        .background(isHovering.value && !slot.isBlocked ? theme.colors.accent.opacity(0.15) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 4))
+        // isFocused takes the same accent color as the hover state (same
+        // "visible contrast in every theme" reasoning right above) but at full
+        // opacity, not 0.15 -- a row that only ever looked like a hover would
+        // read as "your mouse happens to be here," not "this is the one you
+        // jumped to." `withAnimation` at both ends (set and clear, in the
+        // `.onChange` that owns this state) is what turns the opacity jump into
+        // an actual flash instead of an instant on/off.
+        .background(
+            isFocused ? theme.colors.accent.opacity(0.5)
+                : (isHovering.value && !slot.isBlocked ? theme.colors.accent.opacity(0.15) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 4)
+        )
         .contentShape(Rectangle())
         .onHover { isHovering.value = !slot.isBlocked && $0 }
         .onTapGesture { if !slot.isBlocked { showingConfirm.value = true } }
@@ -666,6 +679,18 @@ final class OverviewModel: ObservableObject {
     /// previous value would have compared equal).
     struct ScrollTarget: Equatable { let date: String; let time: String }
     @Published var scrollRequest: ScrollTarget?
+
+    /// The slot `scrollRequest` last landed on, briefly -- direct follow-up,
+    /// 2026-09-28: "double-clicking a player and focusing doesn't select a row,
+    /// so it is still a bit difficult to pinpoint a player." Scrolling alone gets
+    /// you to roughly the right place in a day that can hold 40+ slot rows, but
+    /// says nothing about *which* row is the one you actually asked for.
+    /// `ContentView`'s own `.onChange(of: model.scrollRequest)` sets this
+    /// alongside the scroll itself and clears it a couple seconds later --
+    /// `SlotRow.isFocused` reads it to flash, not permanently mark, the target
+    /// row, the same "confirms you landed on the right one, then gets out of the
+    /// way" convention jump-to-definition/jump-to-file UIs already use elsewhere.
+    @Published var highlightedSlot: ScrollTarget?
 
     /// The slot an expanded `date` should scroll to: its ★ pick, otherwise the
     /// first visible slot at or after your window opens -- mirrors
@@ -1313,6 +1338,18 @@ struct ContentView: View {
                             withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
                         }
                         model.scrollRequest = nil
+                        // Flashes the landed-on row (SlotRow.isFocused), then clears
+                        // itself -- see `highlightedSlot`'s own docstring. The
+                        // `== target` check (not an unconditional clear) matters if a
+                        // second jump lands while this timer is still pending: that
+                        // newer target must not have its own highlight cut short by
+                        // an older timer firing after it.
+                        withAnimation { model.highlightedSlot = target }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            if model.highlightedSlot == target {
+                                withAnimation { model.highlightedSlot = nil }
+                            }
+                        }
                     }
                 }
             }

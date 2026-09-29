@@ -26,11 +26,7 @@ struct SearchSheet: View {
     @StateObject private var results = Box<[SearchMatch]>([])
     @StateObject private var weatherByDate = Box<[String: Day]>([:])
     @StateObject private var confirming = Box<SearchMatch?>(nil)
-    // For the "Player" filter dropdown below -- loaded once here (a plain
-    // synchronous SQLite read, same as PlayerDirectorySheet's own reload())
-    // rather than kept live, since this sheet's own criteria form isn't
-    // expected to still be open by the time a background scrape adds a new name.
-    @StateObject private var knownPlayers = Box<[KnownPlayer]>([])
+    @StateObject private var showingPlayerPicker = Box(false)
 
     private let searchDays = 6  // same window Store.days() already shows on screen
 
@@ -48,7 +44,6 @@ struct SearchSheet: View {
             weekendAfter: p.weekendAfter, weekendBefore: p.weekendBefore,
             bufferBeforeMinutes: p.bufferBeforeMinutes, bufferAfterMinutes: p.bufferAfterMinutes
         )))
-        _knownPlayers = StateObject(wrappedValue: Box(Store.knownPlayers(dbPath: dbPath)))
     }
 
     private var today: String {
@@ -101,17 +96,14 @@ struct SearchSheet: View {
                         HStack {
                             Text(t("search.field.player"))
                             Spacer()
-                            // "" tags the "(Any)" option -- SearchCriteriaPayload.json
-                            // already treats an empty/nil player as "no filter," so no
-                            // separate Optional-vs-empty-string handling needed here.
-                            Picker("", selection: $criteria.value.player) {
-                                Text(t("search.field.player.any")).tag("")
-                                ForEach(knownPlayers.value) { player in
-                                    Text(player.isFriend ? "★ \(player.name)" : player.name).tag(player.name)
-                                }
+                            Button(criteria.value.player.isEmpty ? t("search.field.player.any") : criteria.value.player) {
+                                showingPlayerPicker.value = true
                             }
-                            .labelsHidden()
-                            .fixedSize()
+                            if !criteria.value.player.isEmpty {
+                                Button { criteria.value.player = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -162,6 +154,9 @@ struct SearchSheet: View {
             .padding(16)
         }
         .sheetFrame(SheetSize.browser)
+        .sheet(isPresented: Binding(get: { showingPlayerPicker.value }, set: { showingPlayerPicker.value = $0 })) {
+            PlayerDirectorySheet(dbPath: dbPath, onSelect: { (name: String) in criteria.value.player = name })
+        }
         // Same interaction as SlotRow -- a confirming dialog, not a silent write on
         // tap, since this marks a local record of what you booked, not a real
         // pc caddie action.

@@ -124,18 +124,30 @@ struct PlayerDirectorySheet: View {
     // own body needs it anyway: `handleDoubleClick(_:)` below only ever reads
     // `model.visibleDays` once per click and writes `model.scrollRequest` once.
     let model: OverviewModel?
+    // Picker mode (2026-09-28, direct follow-up: "the player dropdown in the
+    // search screen is a bit too long to use... any better alternatives?"): this
+    // same searchable/sortable/A-Z-indexed browser, reused as a picker for
+    // SearchSheet's own "Player" field instead of one flat `Picker` over
+    // potentially hundreds of names. Non-nil switches every row from "tap toggles
+    // friend" to "tap picks this name and dismisses" -- see `PlayerRow`'s own
+    // `onSelect` docstring for why that's a single tap here (not the double-click
+    // `onFocus` uses), and `body`'s own title/intro swap for the rest of what
+    // changes in this mode.
+    let onSelect: ((String) -> Void)?
     @ObservedObject private var language = AppLanguage.shared
 
     // Explicit, not relying on the synthesized memberwise init -- this struct mixes
-    // plain stored properties (dbPath, model) with several @StateObject-wrapped
-    // ones further down, and letting `model` default via `= nil` on its own
-    // declaration didn't reliably produce a callable `model:` parameter alongside
-    // them (found live: "extra argument 'model' in call" at the one real call site
-    // that passes it). Spelling the two real inputs out here is also just clearer
-    // than trusting synthesis to guess which stored properties are "the API."
-    init(dbPath: String, model: OverviewModel? = nil) {
+    // plain stored properties (dbPath, model, onSelect) with several
+    // @StateObject-wrapped ones further down, and letting a property default via
+    // `= nil` on its own declaration didn't reliably produce a callable parameter
+    // alongside them (found live: "extra argument 'model' in call" at the one
+    // real call site that passed it, before this same fix). Spelling the real
+    // inputs out here is also just clearer than trusting synthesis to guess which
+    // stored properties are "the API."
+    init(dbPath: String, model: OverviewModel? = nil, onSelect: ((String) -> Void)? = nil) {
         self.dbPath = dbPath
         self.model = model
+        self.onSelect = onSelect
     }
 
     @StateObject private var players = Box<[KnownPlayer]>([])
@@ -178,8 +190,9 @@ struct PlayerDirectorySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(t("players.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
-            Text(t("players.intro"))
+            Text(t(onSelect == nil ? "players.title" : "players.picker_title"))
+                .font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
+            Text(t(onSelect == nil ? "players.intro" : "players.picker_intro"))
                 .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 .padding(.horizontal, 16).padding(.top, 2)
 
@@ -218,14 +231,16 @@ struct PlayerDirectorySheet: View {
                                     Section(header: Text(group.letter)) {
                                         ForEach(group.players) { player in
                                             PlayerRow(player: player, onToggle: { toggleFriend(player) },
-                                                      onFocus: model == nil ? nil : { handleDoubleClick(player) })
+                                                      onFocus: model == nil ? nil : { handleDoubleClick(player) },
+                                                      onSelect: onSelect == nil ? nil : { selectAndDismiss(player) })
                                         }
                                     }
                                     .id(group.letter)
                                 } else {
                                     ForEach(group.players) { player in
                                         PlayerRow(player: player, onToggle: { toggleFriend(player) },
-                                                  onFocus: model == nil ? nil : { handleDoubleClick(player) })
+                                                  onFocus: model == nil ? nil : { handleDoubleClick(player) },
+                                                  onSelect: onSelect == nil ? nil : { selectAndDismiss(player) })
                                     }
                                 }
                             }
@@ -286,6 +301,11 @@ struct PlayerDirectorySheet: View {
         dismiss()
     }
 
+    private func selectAndDismiss(_ player: KnownPlayer) {
+        onSelect?(player.name)
+        dismiss()
+    }
+
     private func reload() {
         players.value = Store.knownPlayers(dbPath: dbPath)
     }
@@ -333,14 +353,29 @@ struct PlayerRow: View {
     /// that button is a real, physically-plausible way to trigger *this* gesture
     /// by accident while trying to toggle a friend twice in quick succession.
     var onFocus: (() -> Void)?
+    /// Picker mode (2026-09-28) -- a *single* tap, not a double-click, since this
+    /// sheet is standing in for a whole dropdown here (see `PlayerDirectorySheet`'s
+    /// own `onSelect` docstring): the entire point is picking a name in one click,
+    /// not two. Mutually exclusive with `onFocus` in practice (a call site sets at
+    /// most one -- `PlayerDirectorySheet` never hands over a live `model` when it's
+    /// also given an `onSelect`), so there's no real double-vs-single tap conflict
+    /// to resolve here, just two different reasons a row can be tappable.
+    var onSelect: (() -> Void)?
 
     var body: some View {
         HStack {
             PlayerRowColumns(player: player)
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onFocus?() }
+                .onTapGesture { onSelect?() }
             Spacer(minLength: 8)
-            Button(player.isFriend ? t("players.unmark_friend") : t("players.mark_friend"), action: onToggle)
+            // Hidden entirely in picker mode, not just inert -- this sheet's whole
+            // reason for being open is "pick a name," and a second, unrelated
+            // action sitting right next to that choice is exactly the kind of
+            // clutter the original report ("a bit too long to use") was about.
+            if onSelect == nil {
+                Button(player.isFriend ? t("players.unmark_friend") : t("players.mark_friend"), action: onToggle)
+            }
         }
         .padding(.vertical, 2)
     }
