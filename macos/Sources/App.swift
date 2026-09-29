@@ -256,7 +256,8 @@ struct SlotRow: View {
             }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
-        .opacity(isPastSunset ? 0.4 : 1)
+        .opacity(isPastSunset && !isFocused ? 0.4 : 1)
+        .onAppear { if isFocused { model.focusedRowAppeared = true } }
         // Blocked slots aren't tappable (see the guard below), so they get no hover
         // highlight either -- a row that lit up on hover but did nothing on click
         // would be its own, subtler version of the same "no feedback" complaint.
@@ -565,7 +566,8 @@ struct DayCardBody: View {
                     // expanded rows (2026-09-27, bundle C) -- still there to
                     // read, just not competing with the ones you'd book.
                     SlotRow(slot: slot, day: day, model: model)
-                        .opacity(model.verdicts[day.date]?.isOutsideWindow(slot.time) == true ? 0.4 : 1)
+                        .opacity(model.verdicts[day.date]?.isOutsideWindow(slot.time) == true
+                                 && model.highlightedSlot != OverviewModel.ScrollTarget(date: day.date, time: slot.time) ? 0.4 : 1)
                         .id(slotAnchor(day.date, slot.time))
                 }
             }
@@ -703,6 +705,11 @@ final class OverviewModel: ObservableObject {
     /// The day a `scrollRequest` jump is currently expanding, so the generic
     /// expand-driven scroll to that day's ★ pick doesn't race the jump.
     var jumpingToDate: String?
+
+    /// Set by the focused `SlotRow` when it is actually realized on screen (it lives in
+    /// a lazy stack, so this is the only reliable "the scroll landed" signal), read by
+    /// the jump's retry loop and its highlight timer in `ContentView`.
+    var focusedRowAppeared = false
 
     /// The slot an expanded `date` should scroll to: its ★ pick, otherwise the
     /// first visible slot at or after your window opens -- mirrors
@@ -1350,33 +1357,35 @@ struct ContentView: View {
                         // fire for it and drag the view to the day's ★ pick instead.
                         model.jumpingToDate = date
                         model.expanded.insert(date)
-                        // The day body is a lazy section that only comes into existence
-                        // after the expand renders, and the sheet is still animating
-                        // away -- a single scrollTo right now silently does nothing when
-                        // the target row isn't laid out yet (the unreliable jump, found
-                        // 2026-09-29). Repeating it as layout settles is idempotent once
-                        // the row exists, so later attempts are harmless.
-                        for delay in [0.05, 0.3, 0.7] {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                                withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
-                            }
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            if model.jumpingToDate == date { model.jumpingToDate = nil }
-                        }
-                        model.scrollRequest = nil
-                        // Flashes the landed-on row (SlotRow.isFocused), then clears
-                        // itself -- see `highlightedSlot`'s own docstring. The
-                        // `== target` check (not an unconditional clear) matters if a
-                        // second jump lands while this timer is still pending: that
-                        // newer target must not have its own highlight cut short by
-                        // an older timer firing after it.
+                        // The day body is a lazy section that only exists after the expand
+                        // renders, and the sheet is still animating away, so a single
+                        // scrollTo can silently do nothing.
+                        // Keep re-issuing the scroll until the focused row has actually
+                        // been realized on screen (SlotRow.onAppear), then a couple more
+                        // times to settle -- the highlight is only started once it is
+                        // really visible, so a late scroll can't spend its 4 seconds
+                        // off-screen (found 2026-09-29: "expands day but no highlight").
+                        model.focusedRowAppeared = false
                         withAnimation { model.highlightedSlot = target }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                            if model.highlightedSlot == target {
-                                withAnimation { model.highlightedSlot = nil }
+                        func attempt(_ n: Int, settled: Int) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + (n == 0 ? 0.05 : 0.25)) {
+                                guard model.highlightedSlot == target else { return }
+                                withAnimation { proxy.scrollTo(slotAnchor(date, time), anchor: .center) }
+                                let seen = settled + (model.focusedRowAppeared ? 1 : 0)
+                                if seen >= 3 || n >= 16 {
+                                    if model.jumpingToDate == date { model.jumpingToDate = nil }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                                        if model.highlightedSlot == target {
+                                            withAnimation { model.highlightedSlot = nil }
+                                        }
+                                    }
+                                } else {
+                                    attempt(n + 1, settled: seen)
+                                }
                             }
                         }
+                        attempt(0, settled: 0)
+                        model.scrollRequest = nil
                     }
                 }
             }
