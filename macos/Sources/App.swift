@@ -1356,7 +1356,10 @@ struct ContentView: View {
                         // Marks this day so the expand-driven scroll above doesn't also
                         // fire for it and drag the view to the day's ★ pick instead.
                         model.jumpingToDate = date
-                        model.expanded.insert(date)
+                        // Collapses every other day first (direct request, 2026-09-29):
+                        // with earlier jumps' days left open, the target can sit
+                        // below a screenful of unrelated rows and never fit on screen.
+                        model.expanded = [date]
                         // The day body is a lazy section that only exists after the expand
                         // renders, and the sheet is still animating away, so a single
                         // scrollTo can silently do nothing.
