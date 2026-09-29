@@ -1,7 +1,7 @@
 import asyncio
 
 from textual.app import App
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Input, Static, Switch
 
 from src import storage
 from src.known_players_screen import KnownPlayersScreen
@@ -216,3 +216,51 @@ def test_escape_dismisses_the_screen(tmp_path):
 
     result = asyncio.run(scenario())
     assert result is None
+
+
+def test_friends_only_switch_hides_everyone_who_is_not_a_friend(tmp_path):
+    db_path = tmp_path / "club.db"
+    storage.record_seen_players(
+        [_sighting("Max Mustermann"), _sighting("Erika Mustermann"), _sighting("Anna Zeller")],
+        "2026-09-27T10:00:00+00:00",
+        path=db_path,
+    )
+    storage.set_player_friend("Anna Zeller", True, path=db_path)
+
+    async def scenario():
+        app = _HostApp("0000001", db_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#players-table", DataTable)
+            assert table.row_count == 3
+            app.screen.query_one("#friends-only", Switch).value = True
+            await pilot.pause()
+            assert [str(table.get_row_at(i)[0]) for i in range(table.row_count)] == ["Anna Zeller"]
+            app.screen.query_one("#friends-only", Switch).value = False
+            await pilot.pause()
+            assert table.row_count == 3
+
+    asyncio.run(scenario())
+
+
+def test_sorting_by_friend_puts_friends_first_then_last_when_reversed(tmp_path):
+    db_path = tmp_path / "club.db"
+    storage.record_seen_players(
+        [_sighting("Bernd Adler"), _sighting("Anna Zeller"), _sighting("Claus Bauer")],
+        "2026-09-27T10:00:00+00:00",
+        path=db_path,
+    )
+    storage.set_player_friend("Anna Zeller", True, path=db_path)
+
+    async def scenario():
+        app = _HostApp("0000001", db_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._sort_key = "friend"
+            screen._sort_reverse = False
+            assert screen._visible_players()[0].name == "Anna Zeller"
+            screen._sort_reverse = True
+            assert screen._visible_players()[-1].name == "Anna Zeller"
+
+    asyncio.run(scenario())

@@ -7,6 +7,7 @@ func runPlayerDirectoryTests() {
         testGroupingIsCaseInsensitiveAndUsesFamilyName()
         testNonLetterFamilyNamesFallToHashBucket()
         testEmptyListGroupsToNoSections()
+        testFriendSortPutsFriendsFirst()
     }
     Harness.group("OverviewModel.picksRequestChanged") {
         testSwitchingCourseCountsAsChanged()
@@ -137,4 +138,16 @@ private func testIgnoresBlockedSlotsWithNoRealPlayers() {
     let days = [day("2026-09-28", slots: [slot("09:00", players: [], blockReason: "Clubmeisterschaft")])]
     Harness.checkEqual("a block with no real players is never a hit",
                         playerSlotHits(for: "Anna Bauer", in: days).count, 0)
+}
+
+/// Direct report, 2026-09-29: "sorting by friends somehow did not have any effect."
+private func testFriendSortPutsFriendsFirst() {
+    let anna = KnownPlayer(name: "Anna Zeller", lastSeen: "2026-09-27T10:00:00+00:00", isFriend: true,
+                           gender: nil, memberStatus: nil, handicap: nil)
+    let players = [player("Bernd Adler"), anna, player("Claus Bauer")]
+    let field = PlayerSortField.friend
+    let ascending = players.sorted { field.key($0) < field.key($1) }
+    Harness.checkEqual("friend sort: friends first, then family-name order",
+                       ascending.map { $0.name }, ["Anna Zeller", "Bernd Adler", "Claus Bauer"])
+    Harness.check("reversed friend sort puts friends last", Array(ascending.reversed()).last?.name == "Anna Zeller")
 }

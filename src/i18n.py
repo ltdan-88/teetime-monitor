@@ -75,6 +75,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "events.sunset": "Sunset {time}",
         "search.title": "Search this week",
         "search.button": "Search",
+        "search.reset": "Reset filters",
         "search.no_matches": "No matches for these criteria.",
         "search.table.date": "Date",
         "search.table.notes": "Notes",
@@ -277,6 +278,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Every real name your own scrapes have seen (only possible once logged in — "
             "see Settings). Select a row to mark or unmark a friend."
         ),
+        "players.friends_only": "Friends only",
         "players.picker_title": "Choose a player",
         "players.picker_intro": "Select a row to use that player as this search's filter.",
         "players.no_club": "No club selected yet — add or open a club first.",
@@ -374,6 +376,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "events.sunset": "Sonnenuntergang {time}",
         "search.title": "Diese Woche suchen",
         "search.button": "Suchen",
+        "search.reset": "Filter zurücksetzen",
         "search.no_matches": "Keine Treffer für diese Kriterien.",
         "search.table.date": "Datum",
         "search.table.notes": "Hinweise",
@@ -576,6 +579,7 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — "
             "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen."
         ),
+        "players.friends_only": "Nur Freunde",
         "players.picker_title": "Spieler auswählen",
         "players.picker_intro": "Zeile auswählen, um diesen Spieler als Filter für diese Suche zu verwenden.",
         "players.no_club": "Noch kein Club ausgewählt — zuerst einen Club hinzufügen oder öffnen.",

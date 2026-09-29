@@ -4,7 +4,7 @@ import SwiftUI
 /// `known_players_screen.py`'s own `_SORT_KEYS` dict exactly (same five fields,
 /// same meaning), so the two front ends behave identically rather than each
 /// re-inventing their own idea of "sortable."
-private enum PlayerSortField: String, CaseIterable, Identifiable {
+enum PlayerSortField: String, CaseIterable, Identifiable {
     case name, gender, memberStatus, handicap, friend
     var id: String { rawValue }
 
@@ -154,12 +154,14 @@ struct PlayerDirectorySheet: View {
     @StateObject private var query = Box("")
     @StateObject private var sortField = Box(PlayerSortField.name)
     @StateObject private var sortReversed = Box(false)
+    @StateObject private var friendsOnly = Box(false)
     @StateObject private var focusChoices = Box<[PlayerSlotHit]>([])
     @StateObject private var focusNoneNotice = Box(false)
     @StateObject private var selectedName = Box<String?>(nil)
 
     private var visiblePlayers: [KnownPlayer] {
         var visible = players.value
+        if friendsOnly.value { visible = visible.filter { $0.isFriend } }
         let trimmed = query.value.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
             visible = visible.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
@@ -201,6 +203,8 @@ struct PlayerDirectorySheet: View {
                 TextField(t("players.search_placeholder"), text: $query.value)
                     .textFieldStyle(.roundedBorder)
                 Spacer(minLength: 12)
+                Toggle(t("players.friends_only"), isOn: $friendsOnly.value)
+                    .toggleStyle(.checkbox)
                 Picker("", selection: $sortField.value) {
                     ForEach(PlayerSortField.allCases) { Text($0.label).tag($0) }
                 }
@@ -444,6 +448,16 @@ struct PlayerRowColumns: View {
     @ObservedObject private var language = AppLanguage.shared
     let player: KnownPlayer
 
+    /// A gold star before a friend's name -- the friend state used to be visible only
+    /// as the toggle button's own wording, so sorting by friend looked like it did
+    /// nothing (direct report, 2026-09-29).
+    private var nameText: Text {
+        guard player.isFriend else { return Text(player.name) }
+        var star = AttributedString("\u{2605} ")
+        star.foregroundColor = .yellow
+        return Text(star + AttributedString(player.name))
+    }
+
     private var genderLabel: String {
         guard let gender = player.gender else { return "" }
         return t("players.gender.\(gender)")
@@ -461,7 +475,7 @@ struct PlayerRowColumns: View {
 
     var body: some View {
         Group {
-            Text(player.name).font(scaledFont(.body)).lineLimit(1)
+            nameText.font(scaledFont(.body)).lineLimit(1)
                 .frame(width: AppScale.shared.scaled(Metrics.playerName), alignment: .leading)
             Text(genderLabel).font(scaledFont(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 .frame(width: AppScale.shared.scaled(Metrics.playerGender), alignment: .leading)

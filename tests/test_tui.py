@@ -2998,6 +2998,39 @@ def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_pa
     _run(scenario())
 
 
+def test_search_screen_reset_button_restores_every_field_to_the_saved_defaults():
+    config = {
+        "availability": {
+            "min_open_spots": 3,
+            "weekday_window": {"after": "17:00"},
+            "buffer_before_minutes": 20,
+        }
+    }
+
+    async def scenario():
+        app = _HostApp(_search_screen(config=config))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen.query_one("#search-min-open-spots").value = "1"
+            screen.query_one("#search-weekday-after-hh").value = "07"
+            screen.query_one("#search-weekend-before-hh").value = "12"
+            screen.query_one("#search-buffer-before").value = "0"
+            screen.query_one("#search-friends-only").value = True
+            screen._set_player_filter("Max Mustermann")
+            await pilot.pause()
+            await pilot.click("#reset")
+            await pilot.pause()
+            assert screen.query_one("#search-min-open-spots").value == "3"
+            assert screen.query_one("#search-weekday-after-hh").value == "17"
+            assert screen.query_one("#search-weekend-before-hh").value == ""
+            assert screen.query_one("#search-buffer-before").value == "20"
+            assert screen.query_one("#search-friends-only").value is False
+            assert screen._player_filter == ""
+
+    _run(scenario())
+
+
 def test_search_screen_uses_typed_in_criteria_not_saved_defaults():
     # The whole point of ad hoc search -- "just this once," not your saved rules.
     schedule = Schedule(
