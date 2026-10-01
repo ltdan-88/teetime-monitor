@@ -5641,3 +5641,15 @@ def test_load_preferences_normalises_a_bare_yaml_off_hcp_preference(tmp_path):
     path = tmp_path / "preferences.yaml"
     path.write_text("preferences:\n  hcp_preference: off\n")
     assert global_preferences.load_preferences(path)["preferences"]["hcp_preference"] == "off"
+
+
+def test_compute_slot_rows_highlights_friends_in_the_players_cell():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=2, capacity=4, players=["Max Mustermann", "Erika Muster"])],
+    )
+    rows = tui._compute_slot_rows(
+        schedule, {}, "metric", "2026-09-06", set(), None, friend_names={"Erika Muster"}
+    )
+    assert rows[0].players_cell == "Max Mustermann, [bold yellow]Erika Muster[/]"
