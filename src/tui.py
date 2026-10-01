@@ -1537,14 +1537,16 @@ def _compute_slot_rows(
         )
         is_past = now is not None and slot.time < now
         faded = is_past or outside_window
-        markers = []
+        # Fixed 3-cell marker slot (★ is 1 cell wide, 🌙 is 2) so the HH:MM values
+        # themselves line up in one column whether or not a row has a marker --
+        # direct request, 2026-10-01: "align time values to the right in the column".
         if slot.time in recommended_times and not is_past:
-            markers.append("★")
+            marker = "★  "
         elif not is_past and _too_late_for_daylight(slot.time, schedule, config):
-            markers.append("🌙")
-        time_cell = _dim_if(slot.time, faded)
-        if markers:
-            time_cell = f"{' '.join(markers)} {time_cell}"
+            marker = "🌙 "
+        else:
+            marker = "   "
+        time_cell = f"{marker}{_dim_if(slot.time, faded)}"
         extra_events = []
         if slot.time == sunrise_row:
             extra_events.append(i18n.t("events.sunrise", time=schedule.sun_times.sunrise))

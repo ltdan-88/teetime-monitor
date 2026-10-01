@@ -411,11 +411,11 @@ def test_compute_slot_rows_occupancy_players_and_block_reason():
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
     # Free seats ("4 free"), not "booked/capacity" -- the same number the GUI shows
     # (2026-09-27; the two apps used to show opposite counts for one slot).
-    assert rows[0].time_cell == "06:00" and "4 free" in rows[0].occupancy_cell
-    assert rows[1].time_cell == "08:00" and "3 free" in rows[1].occupancy_cell and rows[1].players_cell == "Max Mustermann"
+    assert rows[0].time_cell == "   06:00" and "4 free" in rows[0].occupancy_cell
+    assert rows[1].time_cell == "   08:00" and "3 free" in rows[1].occupancy_cell and rows[1].players_cell == "Max Mustermann"
     # The reason lives in its own events_cell, not occupancy -- a blocked row is
     # never real occupancy.
-    assert rows[2].time_cell == "15:30" and "—" in rows[2].occupancy_cell
+    assert rows[2].time_cell == "   15:30" and "—" in rows[2].occupancy_cell
     assert "Golf Beginner Kurs" in rows[2].events_cell
 
 
@@ -446,10 +446,10 @@ def test_compute_slot_rows_dims_past_slots_on_todays_date(monkeypatch):
         ],
     )
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None)
-    assert rows[0].time_cell == "[dim]09:00[/]"
-    assert rows[1].time_cell == "[dim]11:10[/]"
+    assert rows[0].time_cell == "   [dim]09:00[/]"
+    assert rows[1].time_cell == "   [dim]11:10[/]"
     assert rows[1].players_cell == "[dim]Max Mustermann[/]"
-    assert rows[2].time_cell == "14:00"  # still upcoming -- not dimmed
+    assert rows[2].time_cell == "   14:00"  # still upcoming -- not dimmed
 
 
 def test_compute_slot_rows_does_not_dim_slots_on_a_different_date(monkeypatch):
@@ -460,7 +460,7 @@ def test_compute_slot_rows_does_not_dim_slots_on_a_different_date(monkeypatch):
     monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "23:59")
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="06:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None)
-    assert rows[0].time_cell == "06:00"
+    assert rows[0].time_cell == "   06:00"
 
 
 def test_compute_slot_rows_dims_a_blocked_past_slot_too(monkeypatch):
@@ -471,7 +471,7 @@ def test_compute_slot_rows_dims_a_blocked_past_slot_too(monkeypatch):
         slots=[Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")],
     )
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None)
-    assert rows[0].time_cell == "[dim]15:30[/]"
+    assert rows[0].time_cell == "   [dim]15:30[/]"
     assert "Golf Beginner Kurs" in rows[0].events_cell
 
 
@@ -508,7 +508,7 @@ def test_compute_slot_rows_omits_the_crowd_marker_for_a_past_slot(monkeypatch):
 def test_compute_slot_rows_stars_a_recommended_slot():
     schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", {"14:00"}, None)
-    assert rows[0].time_cell == "★ 14:00"
+    assert rows[0].time_cell == "★  14:00"
 
 
 def test_compute_slot_rows_does_not_star_a_past_matching_slot(monkeypatch):
@@ -518,7 +518,7 @@ def test_compute_slot_rows_does_not_star_a_past_matching_slot(monkeypatch):
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", {"14:00"}, None)
     # Still dimmed (it's past), but not starred -- recommending something already
     # gone doesn't make sense.
-    assert rows[0].time_cell == "[dim]14:00[/]"
+    assert rows[0].time_cell == "   [dim]14:00[/]"
 
 
 def test_compute_slot_rows_notes_sunrise_and_sunset_on_their_nearest_rows():
@@ -535,7 +535,7 @@ def test_compute_slot_rows_notes_sunrise_and_sunset_on_their_nearest_rows():
     # 06:00/06:30 start before the sunrise row and aren't shown at all any more
     # (2026-09-27, bundle C) -- the sunrise row itself is the first one.
     assert [row.time for row in rows] == ["07:00", "19:30", "20:00"]
-    assert rows[0].time_cell == "07:00"
+    assert rows[0].time_cell == "   07:00"
     assert rows[0].events_cell == i18n.t("events.sunrise", time="06:50")
     # 20:00 is already past sunset, so it also carries its own separate 🌙
     # "too late to finish" time marker -- independent of the events note, not
@@ -555,7 +555,7 @@ def test_compute_slot_rows_dims_slots_outside_your_window():
     )
     config = {"availability": {"weekday_window": {"after": "16:00", "before": "18:00"}}}
     rows = tui._compute_slot_rows(schedule, config, "metric", "2026-09-07", set(), None)
-    assert [row.time_cell for row in rows] == ["[dim]09:00[/]", "16:00", "17:00", "[dim]18:30[/]"]
+    assert [row.time_cell for row in rows] == ["   [dim]09:00[/]", "   16:00", "   17:00", "   [dim]18:30[/]"]
 
 
 def test_compute_slot_rows_has_no_sunrise_sunset_markers_without_sun_times():
@@ -563,7 +563,7 @@ def test_compute_slot_rows_has_no_sunrise_sunset_markers_without_sun_times():
     # a fabricated or stale sunrise/sunset guess.
     schedule = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
-    assert rows[0].time_cell == "14:00"
+    assert rows[0].time_cell == "   14:00"
 
 
 def test_compute_slot_rows_marks_the_confirmed_bookings_own_row():
@@ -590,7 +590,7 @@ def test_compute_slot_rows_marks_a_too_late_slot_with_a_moon():
         sun_times=SunTimes(sunrise="06:00", sunset="19:00"),
     )
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
-    assert rows[1].time_cell == "09:00"  # comfortably before sunset -- no marker
+    assert rows[1].time_cell == "   09:00"  # comfortably before sunset -- no marker
     assert rows[2].time_cell == "🌙 17:00"  # wouldn't finish before dark
 
 
