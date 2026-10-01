@@ -30,6 +30,14 @@ def _no_background_scraping(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_first_scrape_delay(monkeypatch):
+    """The first background scrape / bookable-date fetch waits briefly past the
+    first paint in the real app (2026-10-01, "launch under a second"); tests don't
+    need to wait that long for them."""
+    monkeypatch.setattr(tui, "_FIRST_SCRAPE_DELAY_SECONDS", 0.01)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_env_file(monkeypatch, tmp_path):
     """`ClubBrowserScreen` (2026-09-09: "I want login setup within the tui directly
     when you run it") now pushes a real `CredentialsScreen()` with no explicit path,
@@ -1888,7 +1896,7 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
-            await pilot.pause()
+            await pilot.pause(0.3)  # the real open-dates fetch lands after the first paint
             table = app.screen.query_one("#overview-table", DataTable)
             row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
             assert "not open" in str(row[tui.OverviewScreen._PICK_COLUMN_INDEX])
@@ -3953,7 +3961,7 @@ def test_start_falls_back_to_pickers_when_the_remembered_course_no_longer_exists
     _run(scenario())
 
 
-def test_start_falls_back_to_pickers_when_the_remembered_clubs_fetch_fails(tmp_path, monkeypatch):
+def test_start_falls_back_to_pickers_when_the_remembered_course_is_gone_from_the_clubs_lineup(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
     monkeypatch.setattr(
@@ -3966,6 +3974,33 @@ def test_start_falls_back_to_pickers_when_the_remembered_clubs_fetch_fails(tmp_p
         tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"}
     )
 
+    # The overview opens at once on the remembered course and is validated in the
+    # background (2026-10-01); a course no longer on the club's list pops back out.
+    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: ["18 Loch Tee 1"])
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            for _ in range(40):
+                if isinstance(app.screen, tui.ClubBrowserScreen):
+                    break
+                await pilot.pause(0.05)
+            assert isinstance(app.screen, tui.ClubBrowserScreen)
+
+    _run(scenario())
+
+
+def test_start_keeps_the_cached_overview_when_the_course_check_fails_offline(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "9 Loch Tee 1"},
+    )
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001"})
+
     def boom(club_id):
         raise RuntimeError("no network")
 
@@ -3974,9 +4009,8 @@ def test_start_falls_back_to_pickers_when_the_remembered_clubs_fetch_fails(tmp_p
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.pause()
-            assert isinstance(app.screen, tui.ClubBrowserScreen)
+            await pilot.pause(0.5)
+            assert isinstance(app.screen, tui.OverviewScreen)
 
     _run(scenario())
 
@@ -5553,8 +5587,12 @@ def test_resize_reuses_the_pick_cache_instead_of_re_ranking(tmp_path, monkeypatc
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
             screen = app.screen
+            for _ in range(40):  # AI picks are computed after the first paint
+                if calls:
+                    break
+                await pilot.pause(0.05)
+            await pilot.pause(0.2)
             after_load = len(calls)
             assert after_load > 0  # the fresh load itself did real ranking
 
