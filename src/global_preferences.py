@@ -62,7 +62,13 @@ def load_preferences(path: Path | None = None) -> dict:
     if not resolved.exists():
         return {}
     with resolved.open() as f:
-        return yaml.safe_load(f) or {}
+        config = yaml.safe_load(f) or {}
+    # A bare `hcp_preference: off` (the GUI used to write it unquoted) is a YAML 1.1
+    # boolean to PyYAML -- False -- which crashed the Preferences dropdown (2026-10-01).
+    prefs = config.get("preferences")
+    if isinstance(prefs, dict) and isinstance(prefs.get("hcp_preference"), bool):
+        prefs["hcp_preference"] = "off"
+    return config
 
 
 def save_preferences(config: dict, path: Path | None = None) -> None:

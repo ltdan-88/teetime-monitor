@@ -2942,6 +2942,18 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         won't even show)."""
         if not config.get("availability"):
             return
+        # Concurrent, not one day after another (2026-10-01, direct report: "the
+        # TUI takes ages to start up"): with AI ranking on, each day is its own live
+        # network call (plus a retry pause on a failure), so a sequential loop cost
+        # ~1-2s *per day* -- ~11s measured before the first row painted. Bounded so a
+        # 14-day window doesn't open 14 simultaneous API requests.
+        gate = asyncio.Semaphore(8)
+
+        async def warm(schedule: Schedule) -> None:
+            async with gate:
+                await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, self._pick_cache)
+
+        pending = []
         for one_date in dates:
             if one_date not in open_dates:
                 continue
@@ -2953,7 +2965,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
             if schedule is None or not schedule.slots:
                 continue
-            await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, self._pick_cache)
+            pending.append(warm(schedule))
+        await asyncio.gather(*pending)
 
     def _render_table(
         self, config: dict, dates: list[str], open_dates: set[str], width: int | None = None

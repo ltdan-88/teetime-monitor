@@ -5593,3 +5593,13 @@ def test_screenshot_is_not_offered_in_the_actions_menu(tmp_path, monkeypatch):
             assert i18n.t("binding.keys") in titles  # the rest of the menu is intact
 
     _run(scenario())
+
+
+def test_load_preferences_normalises_a_bare_yaml_off_hcp_preference(tmp_path):
+    # The GUI used to write `hcp_preference: off` unquoted, which PyYAML reads as
+    # the boolean False -- that crashed the Preferences screen's dropdown.
+    from src import global_preferences
+
+    path = tmp_path / "preferences.yaml"
+    path.write_text("preferences:\n  hcp_preference: off\n")
+    assert global_preferences.load_preferences(path)["preferences"]["hcp_preference"] == "off"

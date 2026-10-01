@@ -178,7 +178,7 @@ enum YAML {
             // as PyYAML would leave it.
             let needsQuoting = s.contains(":") || s.isEmpty
                 || Int(s) != nil || Double(s) != nil
-                || ["true", "false", "null", "~"].contains(s)
+                || ["true", "false", "null", "~", "on", "off", "yes", "no", "y", "n"].contains(s.lowercased())
             return needsQuoting ? "'\(s.replacingOccurrences(of: "'", with: "''"))'" : s
         case .int(let i):
             return String(i)
