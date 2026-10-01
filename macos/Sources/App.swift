@@ -154,6 +154,25 @@ struct SlotRow: View {
     /// `OverviewModel.highlightedSlot`'s own docstring.
     var isFocused: Bool { model.highlightedSlot == OverviewModel.ScrollTarget(date: day.date, time: slot.time) }
 
+    private var playersText: Text {
+        var result = AttributedString()
+        for (i, name) in slot.players.enumerated() {
+            if i > 0 {
+                var comma = AttributedString(", "); comma.foregroundColor = .secondary
+                result += comma
+            }
+            var part = AttributedString(name)
+            if model.friendNames.contains(name) {
+                part.foregroundColor = .yellow
+                part.inlinePresentationIntent = .stronglyEmphasized
+            } else {
+                part.foregroundColor = .secondary
+            }
+            result += part
+        }
+        return Text(result)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Text(slot.time)
@@ -191,8 +210,9 @@ struct SlotRow: View {
                     // display only, same truncated-with-tooltip treatment as
                     // SearchSheet's own players cell.
                     let names = slot.players.joined(separator: ", ")
-                    Text(names)
-                        .font(scaledFont(.caption2)).foregroundStyle(.secondary).lineLimit(1)
+                    // Friends in bold gold, same gold the player directory's own ★ uses
+                    // (direct request, 2026-10-02: "highlight friends when uncollapsing").
+                    playersText.font(scaledFont(.caption2)).lineLimit(1)
                         .help(names)
                 }
             }
@@ -648,6 +668,8 @@ final class OverviewModel: ObservableObject {
     @Published var courses: [String] = []
     @Published var course: String = ""
     @Published var days: [Day] = []
+    /// Names marked as friends in the player directory -- highlighted in expanded slot rows.
+    @Published var friendNames: Set<String> = []
     @Published var expanded: Set<String> = []
     @Published var isScraping = false
     @Published var problem: String?
@@ -929,6 +951,7 @@ final class OverviewModel: ObservableObject {
         guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; return }
         let keepOpen = expanded          // a background refresh must not collapse what
         days = Store.days(dbPath: clubPath, course: course, from: today)
+        friendNames = Set(Store.knownPlayers(dbPath: clubPath).filter { $0.isFriend }.map { $0.name })
         expanded = keepOpen              // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
         lastScrape = Store.lastScrape(dbPath: clubPath)

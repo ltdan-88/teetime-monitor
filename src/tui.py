@@ -152,6 +152,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from rich.cells import cell_len
+from rich.markup import escape as markup_escape
 from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult, SystemCommand
@@ -1497,6 +1498,7 @@ def _compute_slot_rows(
     recommended_times: set[str],
     confirmed: ConfirmedBooking | None,
     crowd_estimates: dict[tuple[str, str, str], float] | None = None,
+    friend_names: set[str] | None = None,
 ) -> list[SlotRowCells]:
     """One `SlotRowCells` per slot in `schedule`, in order — the exact per-slot
     rendering `DayDetailScreen.load_schedule()` used to do inline, factored out
@@ -1509,7 +1511,11 @@ def _compute_slot_rows(
     docstring) is optional, defaulting to `None` — every existing direct caller
     (this function's own tests included) that doesn't pass it keeps behaving
     exactly as before, same convention as `club_id`/`club_name` on
-    `_resolved_config()`."""
+    `_resolved_config()`.
+
+    `friend_names` (2026-10-02, "highlight friends when uncollapsing") are shown in
+    bold yellow in the players cell."""
+    friend_names = friend_names or set()
     now = _NOW_HHMM() if date == _TODAY() else None
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
@@ -1586,7 +1592,10 @@ def _compute_slot_rows(
             crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
             if crowd_marker:
                 occupancy += f" {crowd_marker}"
-        players = ", ".join(slot.players) if slot.players else ""
+        players = ", ".join(
+            f"[bold yellow]{markup_escape(name)}[/]" if name in friend_names else markup_escape(name)
+            for name in slot.players
+        )
         rows.append(
             SlotRowCells(
                 slot.time,
@@ -3180,11 +3189,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._row_header_cells[one_date] = pending_rows[-1]
 
             if can_expand and one_date in self._expanded_dates:
+                friend_names = storage.load_friend_names(path=_db_path(self.club_id))
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
                 crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
                 for slot_row in _compute_slot_rows(
-                    schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates
+                    schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates,
+                    friend_names,
                 ):
                     self._row_index.append((one_date, slot_row.time))
                     pending_rows.append((
