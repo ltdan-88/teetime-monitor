@@ -234,7 +234,7 @@ struct SlotRow: View {
                     // mirroring that same function's own probability+amount cell.
                     HStack(spacing: 1) {
                         if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
-                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value))
+                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value)).lineLimit(1)
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
                     .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))

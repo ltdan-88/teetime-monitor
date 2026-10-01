@@ -136,7 +136,10 @@ enum Metrics {
     // seems to still be missing"): this cell now shows "70%/1.5mm", not just
     // "70%" (mirrors tui._slot_precipitation_cell()'s own "%{mm}" combination),
     // and 34 was sized for the probability alone.
-    static let slotPrecip: CGFloat = 56
+    // 56 still wrapped "63%/0.5mm" (esp. with the 🌧 flag) onto two lines, making
+    // those rows taller than their neighbours; 78 fits it, and the cell is also
+    // lineLimit(1) so it can never grow a row again.
+    static let slotPrecip: CGFloat = 78
     static let slotWind: CGFloat = 30
     // A slot/search-result row's own per-time condition icon, before the
     // temperature column -- direct audit, 2026-09-26, following the day-card
