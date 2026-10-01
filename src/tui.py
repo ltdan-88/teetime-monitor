@@ -144,6 +144,7 @@ picker or return to the schedule?"
 
 import asyncio
 import importlib.metadata
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
@@ -2446,6 +2447,11 @@ class _ClubCourseSwitcher:
         global_preferences.save_last_active_club(self.club_id, self.club_slug, course)
 
 
+# How long after launch the first background scrape/date-fetch waits, so the
+# overview's first paint isn't competing with their GIL-holding HTML parsing.
+_FIRST_SCRAPE_DELAY_SECONDS = 1.5
+
+
 class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     """The multi-day at-a-glance home screen — one row per attempted day: weekday +
     exact ISO date, weather split into its own Temperature/Precipitation/Wind
@@ -2699,6 +2705,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # Cleared only by load_overview() -- a genuinely fresh dataset -- never by
         # _rerender_preserving_cursor(), which redraws the exact same schedules.
         self._pick_cache: dict[tuple[str, str], tuple[list, list]] = {}
+        self._overview_generation = 0
         # Every day-summary row's own cell tuple, keyed by date -- the exact
         # `(day_cell, condition_cell, ..., pick_cell)` _render_table() itself
         # just handed to add_row() for that date, kept around so
@@ -2890,6 +2897,34 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def _config(self) -> dict:
         return _resolved_config(self.club_slug, self.club_id, self.club_name)
 
+    def _local_dates(self, config: dict) -> list[str]:
+        """The dates to attempt a row for -- `_display_dates()`'s purely local half."""
+        display_days = config.get("overview_days", 5)
+        today = date_cls.fromisoformat(_TODAY())
+        return [(today + timedelta(days=offset)).isoformat() for offset in range(display_days)]
+
+    def _open_dates_cache_path(self) -> Path:
+        return Path(self.db_path).with_name("open_dates.json")
+
+    def _remembered_open_dates(self, dates: list[str]) -> set[str]:
+        """The open-for-booking set the last launch found, for dates still in this
+        window -- what a fresh open paints with while the real (slow, network)
+        fetch runs in the background (2026-10-01, "launch under a second"). Anything
+        unreadable or unknown falls back to "assume every attempted date is open",
+        same as `_display_dates()`'s own failure fallback."""
+        try:
+            remembered = set(json.loads(self._open_dates_cache_path().read_text()).get("open", []))
+        except Exception:  # noqa: BLE001 -- a missing/corrupt hint is just "no hint"
+            return set(dates)
+        known = remembered & set(dates)
+        return known or set(dates)
+
+    def _remember_open_dates(self, open_dates: set[str]) -> None:
+        try:
+            self._open_dates_cache_path().write_text(json.dumps({"open": sorted(open_dates)}))
+        except Exception:  # noqa: BLE001 -- purely an optimisation
+            pass
+
     async def _display_dates(self, config: dict) -> tuple[list[str], set[str]]:
         """(every date to attempt a row for, the subset of those actually open for
         booking). `overview_days` (config, default 5) is how many day-rows to
@@ -2919,7 +2954,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             return dates, set(dates)
         return (dates, open_dates) if open_dates else (dates, set(dates))
 
-    async def _prewarm_pick_cache(self, config: dict, dates: list[str], open_dates: set[str]) -> None:
+    async def _prewarm_pick_cache(
+        self, config: dict, dates: list[str], open_dates: set[str], cache: dict | None = None
+    ) -> None:
         """Fills `self._pick_cache` off-thread, for every date `_render_table()` is
         about to want a Pick column for, *before* that synchronous call reaches
         `_availability_pipeline()` itself. Added 2026-09-27, same report as
@@ -2947,11 +2984,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # network call (plus a retry pause on a failure), so a sequential loop cost
         # ~1-2s *per day* -- ~11s measured before the first row painted. Bounded so a
         # 14-day window doesn't open 14 simultaneous API requests.
+        if cache is None:
+            cache = self._pick_cache
         gate = asyncio.Semaphore(8)
 
         async def warm(schedule: Schedule) -> None:
             async with gate:
-                await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, self._pick_cache)
+                await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, cache)
 
         pending = []
         for one_date in dates:
@@ -2960,7 +2999,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if one_date == _TODAY() and _NOW_HHMM() > TODAY_HIDDEN_AFTER_HHMM:
                 continue
             key = (one_date, self.course)
-            if key in self._pick_cache:
+            if key in cache:
                 continue
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
             if schedule is None or not schedule.slots:
@@ -3406,15 +3445,39 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             cursor_row = self.query_one("#overview-table", DataTable).cursor_row
             if 0 <= cursor_row < len(self._row_index):
                 previous = self._row_index[cursor_row]
-        dates, open_dates = await self._display_dates(config)
+        # A fresh open paints from local data only (remembered open dates, local
+        # ranking) and finishes the slow network/AI work in `_finish_fresh_load()`.
+        fresh = not keep_cursor
+        if fresh:
+            dates = self._local_dates(config)
+            open_dates = self._remembered_open_dates(dates)
+        else:
+            dates, open_dates = await self._display_dates(config)
         self._cached_dates, self._cached_open_dates = dates, open_dates
         # Warms self._pick_cache off-thread *before* the synchronous _render_table()
         # call below reaches it -- otherwise a genuinely fresh load (this call) still
         # blocks the event loop on every day's own live AI ranking call, same "one
         # more spot with the identical bug" reasoning _display_dates() already got
         # fixed for. See this method's own docstring for the report.
-        await self._prewarm_pick_cache(config, dates, open_dates)
+        #
+        # Paint-first (2026-10-01, direct request: "make launch under a second"):
+        # with AI ranking on, a fresh open first fills the cache from the plain,
+        # local-only ranking (`ai_assist.enabled` off -- the same candidates/order,
+        # just without the live per-day AI call) so the table appears immediately,
+        # then `_upgrade_picks_with_ai()` swaps in the AI-ranked picks in the
+        # background and re-renders. Background refreshes (`keep_cursor`) keep the
+        # old blocking behavior -- they don't gate anything the user is waiting on.
+        ai_on = bool(config.get("availability")) and config.get("ai_assist", {}).get("enabled", False)
+        local_config = {**config, "ai_assist": {**config.get("ai_assist", {}), "enabled": False}}
+        await self._prewarm_pick_cache(local_config if (fresh and ai_on) else config, dates, open_dates)
         schedules = self._render_table(config, dates, open_dates)
+        if fresh:
+            self._overview_generation += 1
+            self.run_worker(
+                self._finish_fresh_load(config, local_config, dates, open_dates, ai_on, self._overview_generation),
+                exclusive=True,
+                group="ai-picks",
+            )
         self.query_one("#hint", _AutoHideStatic).update(_window_hint_text(recommend.window_too_late_hint(schedules, config)))
         table = self.query_one("#overview-table", DataTable)
 
@@ -3441,6 +3504,48 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             table.move_cursor(row=self._row_dates.index(target_date))
 
         self._schedules = schedules
+
+    async def _finish_fresh_load(
+        self, config: dict, local_config: dict, dates: list[str], open_dates: set[str], ai_on: bool, generation: int
+    ) -> None:
+        """Second half of `load_overview()`'s paint-first path: the slow parts a
+        fresh open used to block on. (1) The real bookable-date fetch -- if it
+        disagrees with the remembered set the table was painted with, re-render with
+        the truth. (2) The live AI-ranked picks, computed into a fresh cache
+        off-thread, then swapped in with a cursor-preserving re-render. Each step is
+        dropped if a newer `load_overview()` started meanwhile (`generation` moved
+        on) or the screen went away -- the newer load owns the state now."""
+
+        def stale() -> bool:
+            return generation != self._overview_generation or not self.is_attached
+
+        def rerender() -> None:
+            table = self.query_one("#overview-table", DataTable)
+            self._rerender_preserving_cursor(table.cursor_row)
+
+        try:
+            await asyncio.sleep(_FIRST_SCRAPE_DELAY_SECONDS)
+            real_dates, real_open = await self._display_dates(config)
+            if stale():
+                return
+            self._remember_open_dates(real_open)
+            if real_open != open_dates or real_dates != dates:
+                dates, open_dates = real_dates, real_open
+                self._cached_dates, self._cached_open_dates = dates, open_dates
+                await self._prewarm_pick_cache(local_config if ai_on else config, dates, open_dates)
+                if stale():
+                    return
+                rerender()
+            if not ai_on:
+                return
+            fresh_cache: dict = {}
+            await self._prewarm_pick_cache(config, dates, open_dates, fresh_cache)
+            if stale():
+                return
+            self._pick_cache = fresh_cache
+            rerender()
+        except Exception:  # noqa: BLE001 -- what's already on screen stays
+            return
 
     def _rerender_preserving_cursor(self, row: int, width: int | None = None) -> None:
         """Rebuild the table exactly as `load_overview()` does, but keep the
@@ -4840,10 +4945,15 @@ class TeetimeApp(App[None]):
 
         last_active = global_preferences.load_last_active_club()
         if last_active is not None and await self._resume_last_active(last_active):
-            self._periodic_scrape()
+            # Deferred past the first paint (2026-10-01, "launch under a second"): the
+            # scrape thread's HTML parsing holds the GIL and stalls the event loop.
+            self.set_timer(_FIRST_SCRAPE_DELAY_SECONDS, self._periodic_scrape)
             self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
             return
 
+        await self._pick_club_loop()
+
+    async def _pick_club_loop(self) -> None:
         while True:
             club_id = await self.push_screen_wait(
                 ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)
@@ -4857,7 +4967,7 @@ class TeetimeApp(App[None]):
             # A club with no tee sheet, a cancelled course picker, or a failed fetch —
             # go back to the club list with the reason shown, rather than exiting the
             # whole app over one bad pick.
-        self._periodic_scrape()
+        self.set_timer(_FIRST_SCRAPE_DELAY_SECONDS, self._periodic_scrape)
         self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
 
     async def _resume_last_active(self, last_active: dict) -> bool:
@@ -4896,22 +5006,34 @@ class TeetimeApp(App[None]):
             config = club_config.load_club_config(slug) if slug else {}
         except FileNotFoundError:
             config = {}
-        try:
-            # See OverviewScreen._refresh_course_options()'s own comment for why
-            # asyncio.to_thread, not a plain call, is needed here too -- this is
-            # the one that ran on *every* launch that resumes a remembered club
-            # (the default path since 2026-09-10), so it was the single biggest
-            # contributor to "slow to launch."
-            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
-        except Exception:  # noqa: BLE001 — any live-fetch failure just means "ask instead"
-            return False
-        if course not in courses:
-            return False
+        # Opens the remembered course immediately and validates it against the live
+        # course list in the background (2026-10-01, "make launch under a second"):
+        # that fetch is a full network round trip (~1s) and used to gate the very
+        # first paint on *every* launch. A stale choice (the course vanished from the
+        # club's real lineup) now pops back to the pickers a moment after opening
+        # instead of before; an offline/failed fetch just keeps the cached overview,
+        # which beats the old "fall back to a picker that needs the same network."
         replacement = OverviewScreen(club_id, slug, course, club_name=self._club_names.get(club_id, ""))
         await self.push_screen(replacement)
         self._club_slug = slug
         self._club_config = {**config, "club_id": club_id}
+        self.run_worker(self._validate_resumed_course(club_id, course, replacement), group="resume-validate")
         return True
+
+    async def _validate_resumed_course(self, club_id: str, course: str, screen: Screen) -> None:
+        try:
+            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
+        except Exception:  # noqa: BLE001 -- offline: the cached overview is still useful
+            return
+        if course in courses or self.screen is not screen:
+            return
+        self.run_worker(self._restart_with_pickers(), exclusive=True, group="switch")
+
+    async def _restart_with_pickers(self) -> None:
+        """The stale-remembered-course fallback: drop the overview and run the normal
+        club picker flow (same loop `_start()` falls through to)."""
+        self.pop_screen()
+        await self._pick_club_loop()
 
     def action_switch_club_or_course(self) -> None:
         """Re-open the club/course pickers on demand — direct feedback 2026-09-07:
