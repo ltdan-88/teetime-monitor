@@ -42,12 +42,15 @@ struct SearchCriteriaPayload {
         if !player.isEmpty {
             obj["player"] = player
         }
-        if weekdayAfter != nil || weekdayBefore != nil {
+        // All four unset (e.g. right after "Reset filters") means any time on any
+        // day, not "skip both day types", which would always return nothing.
+        let anyTime = weekdayAfter == nil && weekdayBefore == nil && weekendAfter == nil && weekendBefore == nil
+        if anyTime || weekdayAfter != nil || weekdayBefore != nil {
             obj["weekday_window"] = [
                 "after": weekdayAfter as Any? ?? NSNull(), "before": weekdayBefore as Any? ?? NSNull(),
             ]
         }
-        if weekendAfter != nil || weekendBefore != nil {
+        if anyTime || weekendAfter != nil || weekendBefore != nil {
             obj["weekend_window"] = [
                 "after": weekendAfter as Any? ?? NSNull(), "before": weekendBefore as Any? ?? NSNull(),
             ]
