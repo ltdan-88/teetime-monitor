@@ -245,7 +245,7 @@ private struct SearchResultRow: View {
                 if let p = w.precipitationProbability {
                     HStack(spacing: 1) {
                         if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
-                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value))
+                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value)).lineLimit(1)
                     }
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
