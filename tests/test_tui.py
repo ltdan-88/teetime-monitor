@@ -2998,7 +2998,7 @@ def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_pa
     _run(scenario())
 
 
-def test_search_screen_reset_button_restores_every_field_to_the_saved_defaults():
+def test_search_screen_reset_button_clears_every_field_not_back_to_saved_defaults():
     config = {
         "availability": {
             "min_open_spots": 3,
@@ -3012,21 +3012,23 @@ def test_search_screen_reset_button_restores_every_field_to_the_saved_defaults()
         async with app.run_test() as pilot:
             await pilot.pause()
             screen = app.screen
-            screen.query_one("#search-min-open-spots").value = "1"
-            screen.query_one("#search-weekday-after-hh").value = "07"
-            screen.query_one("#search-weekend-before-hh").value = "12"
-            screen.query_one("#search-buffer-before").value = "0"
+            screen.query_one("#search-weekday-before-hh").value = "20"
+            screen.query_one("#search-weekend-after-mm").value = "30"
             screen.query_one("#search-friends-only").value = True
             screen._set_player_filter("Max Mustermann")
             await pilot.pause()
             await pilot.click("#reset")
             await pilot.pause()
-            assert screen.query_one("#search-min-open-spots").value == "3"
-            assert screen.query_one("#search-weekday-after-hh").value == "17"
-            assert screen.query_one("#search-weekend-before-hh").value == ""
-            assert screen.query_one("#search-buffer-before").value == "20"
+            assert screen.query_one("#search-min-open-spots").value == "1"
+            for i in ("weekday-after", "weekday-before", "weekend-after", "weekend-before"):
+                assert screen.query_one(f"#search-{i}-hh").value == "", i
+                assert screen.query_one(f"#search-{i}-mm").value == "", i
+            assert screen.query_one("#search-buffer-before").value == "0"
+            assert screen.query_one("#search-buffer-after").value == "0"
             assert screen.query_one("#search-friends-only").value is False
             assert screen._player_filter == ""
+            criteria = screen._build_criteria()
+            assert criteria.weekday_window is not None and criteria.weekend_window is not None
 
     _run(scenario())
 

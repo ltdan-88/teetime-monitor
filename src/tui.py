@@ -3894,13 +3894,16 @@ class SearchScreen(Screen[None]):
         weekday_before = self._time_value("search-weekday-before")
         weekend_after = self._time_value("search-weekend-after")
         weekend_before = self._time_value("search-weekend-before")
+        # Every time dropdown on "--" (e.g. right after Reset) means "any time, any
+        # day", not "skip both day types" (which would always return nothing).
+        any_time = not (weekday_after or weekday_before or weekend_after or weekend_before)
         return SearchCriteria(
             min_open_spots=int(self.query_one("#search-min-open-spots").value),
             weekday_window=TimeWindow(after=weekday_after, before=weekday_before)
-            if (weekday_after or weekday_before)
+            if (any_time or weekday_after or weekday_before)
             else None,
             weekend_window=TimeWindow(after=weekend_after, before=weekend_before)
-            if (weekend_after or weekend_before)
+            if (any_time or weekend_after or weekend_before)
             else None,
             buffer_before_minutes=int(self.query_one("#search-buffer-before").value),
             buffer_after_minutes=int(self.query_one("#search-buffer-after").value),
@@ -3995,24 +3998,19 @@ class SearchScreen(Screen[None]):
             self._set_player_filter("")
 
     def _reset_filters(self) -> None:
-        """Puts every field back to what compose() opened with -- the saved global
-        availability defaults, friends-only off, no player (direct request,
-        2026-09-29: "the option to reset all filters in a search")."""
-        availability = self.config.get("availability", {})
-        weekday_window = availability.get("weekday_window") or {}
-        weekend_window = availability.get("weekend_window") or {}
-        self.query_one("#search-min-open-spots", Select).value = str(availability.get("min_open_spots", 1))
-        for base_id, value in (
-            ("search-weekday-after", weekday_window.get("after")),
-            ("search-weekday-before", weekday_window.get("before")),
-            ("search-weekend-after", weekend_window.get("after")),
-            ("search-weekend-before", weekend_window.get("before")),
+        """Clears every field to "no filter" -- 1 open spot, every time dropdown on
+        "--", no buffers, friends-only off, no player -- NOT back to the saved
+        availability defaults compose() opened with (direct correction, 2026-10-01:
+        "when i hit reset, i don't want to reset to preferences")."""
+        self.query_one("#search-min-open-spots", Select).value = "1"
+        for base_id in (
+            "search-weekday-after", "search-weekday-before",
+            "search-weekend-after", "search-weekend-before",
         ):
-            hh, _, mm = (value or "").partition(":")
-            self.query_one(f"#{base_id}-hh", Select).value = hh
-            self.query_one(f"#{base_id}-mm", Select).value = mm
-        for widget_id, direction in (("search-buffer-before", "before"), ("search-buffer-after", "after")):
-            self.query_one(f"#{widget_id}", Select).value = str(resolve_buffer_minutes(availability, direction, 0))
+            self.query_one(f"#{base_id}-hh", Select).value = ""
+            self.query_one(f"#{base_id}-mm", Select).value = ""
+        for widget_id in ("search-buffer-before", "search-buffer-after"):
+            self.query_one(f"#{widget_id}", Select).value = "0"
         self.query_one("#search-friends-only", Switch).value = False
         self._set_player_filter("")
 

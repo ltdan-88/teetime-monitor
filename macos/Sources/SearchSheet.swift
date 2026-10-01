@@ -40,7 +40,7 @@ struct SearchSheet: View {
         _criteria = StateObject(wrappedValue: Box(SearchSheet.defaultCriteria()))
     }
 
-    /// The saved-preferences starting point -- used at open and by "Reset filters".
+    /// The saved-preferences starting point -- used at open only.
     private static func defaultCriteria() -> SearchCriteriaPayload {
         let p = Preferences.load()
         return SearchCriteriaPayload(
@@ -48,6 +48,17 @@ struct SearchSheet: View {
             weekdayAfter: p.weekdayAfter, weekdayBefore: p.weekdayBefore,
             weekendAfter: p.weekendAfter, weekendBefore: p.weekendBefore,
             bufferBeforeMinutes: p.bufferBeforeMinutes, bufferAfterMinutes: p.bufferAfterMinutes
+        )
+    }
+
+    /// "Reset filters": every field cleared to "no filter", deliberately NOT the
+    /// saved preferences (direct correction, 2026-10-01: "when i hit reset, i
+    /// don't want to reset to preferences").
+    private static func clearedCriteria() -> SearchCriteriaPayload {
+        SearchCriteriaPayload(
+            minOpenSpots: 1,
+            weekdayAfter: nil, weekdayBefore: nil, weekendAfter: nil, weekendBefore: nil,
+            bufferBeforeMinutes: 0, bufferAfterMinutes: 0
         )
     }
 
@@ -121,7 +132,7 @@ struct SearchSheet: View {
                     }
                     Spacer()
                     if isSearching.value { ProgressView().controlSize(.small) }
-                    Button(t("search.reset")) { criteria.value = SearchSheet.defaultCriteria() }
+                    Button(t("search.reset")) { criteria.value = SearchSheet.clearedCriteria() }
                         .disabled(isSearching.value)
                     Button(t("search.button")) { runSearch() }
                         .keyboardShortcut(.defaultAction)
