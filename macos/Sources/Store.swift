@@ -669,3 +669,46 @@ enum Store {
         }
     }
 }
+
+
+/// A club's `default_course` in `clubs/<slug>.yaml` -- the same key the TUI's club
+/// settings and course picker use. Edited as plain text on purpose: club files carry
+/// lists (vacation ranges) that this app's small YAML codec can't round-trip, so only
+/// the one `default_course:` line is ever read or rewritten.
+enum ClubDefaults {
+    static func defaultCourse(slug: String) -> String? {
+        guard let text = try? String(contentsOfFile: Store.clubYAMLPath(slug: slug), encoding: .utf8) else { return nil }
+        return parseDefaultCourse(in: text)
+    }
+
+    static func setDefaultCourse(slug: String, course: String) {
+        let path = Store.clubYAMLPath(slug: slug)
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        try? replacingDefaultCourse(course, in: text).write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    static func parseDefaultCourse(in text: String) -> String? {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) where line.hasPrefix("default_course:") {
+            var value = line.dropFirst("default_course:".count).trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, let first = value.first, first == "'" || first == "\"", value.last == first {
+                value = String(value.dropFirst().dropLast())
+                if first == "'" { value = value.replacingOccurrences(of: "''", with: "'") }
+            }
+            return value.isEmpty ? nil : value
+        }
+        return nil
+    }
+
+    /// `text` with its `default_course:` line set to `course` (quoted), or the line
+    /// appended when the file has none. Every other line is left byte-for-byte alone.
+    static func replacingDefaultCourse(_ course: String, in text: String) -> String {
+        let newLine = "default_course: '" + course.replacingOccurrences(of: "'", with: "''") + "'"
+        var lines = text.components(separatedBy: "\n")
+        if let i = lines.firstIndex(where: { $0.hasPrefix("default_course:") }) {
+            lines[i] = newLine
+            return lines.joined(separator: "\n")
+        }
+        let body = text.hasSuffix("\n") || text.isEmpty ? text : text + "\n"
+        return body + newLine + "\n"
+    }
+}

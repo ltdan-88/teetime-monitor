@@ -357,6 +357,8 @@ private let englishStrings: [String: String] = [
     // own row/footer text below.
     "settings.section.clubs": "Clubs",
     "settings.remove_club": "Remove this club (its scrape history is kept)",
+    "settings.default_course": "Default course (opens on launch)",
+    "settings.default_course_none": "First available",
     "settings.clubs_footer": "Removing a club deletes its saved settings, not its scrape history -- adding it back later picks up right where it left off.",
     "settings.section.display": "Display",
     "settings.units": "Units",
@@ -732,6 +734,8 @@ private let germanStrings: [String: String] = [
     "settings.login_footer_club": "Wird beim Speichern live bei pc caddie für den gewählten Club geprüft.",
     "settings.section.clubs": "Clubs",
     "settings.remove_club": "Diesen Club entfernen (Scraping-Verlauf bleibt erhalten)",
+    "settings.default_course": "Standard-Platz (öffnet beim Start)",
+    "settings.default_course_none": "Erster verfügbarer",
     "settings.clubs_footer": "Beim Entfernen eines Clubs werden nur seine gespeicherten Einstellungen gelöscht, nicht sein Scraping-Verlauf — beim erneuten Hinzufügen geht es genau dort weiter.",
     "settings.section.display": "Anzeige",
     "settings.units": "Einheiten",

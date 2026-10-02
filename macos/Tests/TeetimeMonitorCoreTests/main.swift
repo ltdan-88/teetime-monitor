@@ -18,5 +18,6 @@ runSearchClientTests()
 runFormattingTests()
 runPicksClientTests()
 runPlayerDirectoryTests()
+runClubDefaultsTests()
 
 Harness.summarizeAndExit()

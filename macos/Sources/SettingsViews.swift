@@ -417,6 +417,7 @@ struct SettingsSheet: View {
                         HStack {
                             Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
                             Spacer()
+                            DefaultCoursePicker(club: club, model: model)
                             // No confirmation dialog -- matches the TUI's own `f`-
                             // to-unfavorite, a single keypress with no prompt
                             // either, and the footer below already explains
@@ -602,5 +603,38 @@ struct SettingsSheet: View {
         }
         .sheetFrame(SheetSize.form)
         .sheet(isPresented: $showingAddClub.value) { AddClubSheet(model: model) }
+    }
+}
+
+
+/// One club's "default course" dropdown in Settings > Clubs -- a fixed-width column so
+/// the pickers line up row to row. Writes `default_course` in the club's own YAML (the
+/// TUI reads the same key); "first available" clears it.
+struct DefaultCoursePicker: View {
+    let club: (path: String, id: String, slug: String, name: String, lastScrape: String)
+    @ObservedObject var model: OverviewModel
+    @ObservedObject private var language = AppLanguage.shared
+    @StateObject private var selection = Box("")
+
+    private var courses: [String] { Store.courses(dbPath: club.path) }
+
+    var body: some View {
+        Group {
+            if courses.count > 1 {
+                Picker(t("settings.default_course"), selection: $selection.value) {
+                    Text(t("settings.default_course_none")).tag("")
+                    ForEach(courses, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .onChange(of: selection.value) { _, new in
+                    ClubDefaults.setDefaultCourse(slug: club.slug, course: new)
+                }
+                .help(t("settings.default_course"))
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: 190, alignment: .trailing)
+        .onAppear { selection.value = ClubDefaults.defaultCourse(slug: club.slug) ?? "" }
     }
 }
