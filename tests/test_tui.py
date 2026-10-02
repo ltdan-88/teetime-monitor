@@ -1214,7 +1214,7 @@ def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
         course="18 Loch Tee 1",
         slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
     )
-    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/] 09:00"
+    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  09:00"
 
 
 def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
@@ -1238,7 +1238,7 @@ def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
 
     monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
 
-    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/] 10:00"
+    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  10:00"
 
 
 def test_day_pick_text_appends_ai_reasons_to_the_starred_cell(monkeypatch):
@@ -1263,7 +1263,7 @@ def test_day_pick_text_appends_ai_reasons_to_the_starred_cell(monkeypatch):
 
     monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
 
-    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/] 09:00  [dim]dry, calm[/]"
+    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  09:00  [dim]dry, calm[/]"
 
 
 def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():

@@ -47,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-from . import user_config
+from . import user_config, yaml_util
 
 CONFIG_DIR = user_config.CONFIG_DIR
 PREFERENCES_FILE = CONFIG_DIR / "preferences.yaml"
@@ -62,11 +62,15 @@ def load_preferences(path: Path | None = None) -> dict:
     if not resolved.exists():
         return {}
     with resolved.open() as f:
-        config = yaml.safe_load(f) or {}
-    # A bare `hcp_preference: off` (the GUI used to write it unquoted) is a YAML 1.1
-    # boolean to PyYAML -- False -- which crashed the Preferences dropdown (2026-10-01).
+        config = yaml_util.safe_load(f) or {}
+    # A hand-edited/legacy value outside the dropdown's choices (or a bare YAML
+    # boolean from before yaml_util) would crash the Preferences dropdown.
     prefs = config.get("preferences")
-    if isinstance(prefs, dict) and isinstance(prefs.get("hcp_preference"), bool):
+    if isinstance(prefs, dict) and "hcp_preference" in prefs and prefs["hcp_preference"] not in (
+        "off",
+        "similar",
+        "better",
+    ):
         prefs["hcp_preference"] = "off"
     return config
 

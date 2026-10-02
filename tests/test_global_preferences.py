@@ -76,3 +76,18 @@ def test_last_active_club_does_not_pollute_resolved_config_via_preferences_file(
 
     assert global_preferences.load_preferences(preferences_path) == {"availability": {"min_open_spots": 2}}
     assert "last_active" not in global_preferences.load_preferences(preferences_path)
+
+
+def test_yaml_util_treats_on_off_yes_no_as_strings_but_true_false_as_booleans():
+    from src import yaml_util
+
+    loaded = yaml_util.safe_load("a: off\nb: on\nc: yes\nd: no\ne: true\nf: false\ng: 'off'\n")
+    assert loaded == {"a": "off", "b": "on", "c": "yes", "d": "no", "e": True, "f": False, "g": "off"}
+
+
+def test_load_preferences_resets_an_unknown_hcp_preference_to_off(tmp_path):
+    from src import global_preferences
+
+    path = tmp_path / "preferences.yaml"
+    path.write_text("preferences:\n  hcp_preference: on\n")
+    assert global_preferences.load_preferences(path)["preferences"]["hcp_preference"] == "off"

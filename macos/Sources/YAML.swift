@@ -176,9 +176,17 @@ enum YAML {
             // global_preferences.py's own saved file already quotes every time
             // string; anything else in this schema (e.g. "metric") stays bare, same
             // as PyYAML would leave it.
-            let needsQuoting = s.contains(":") || s.isEmpty
-                || Int(s) != nil || Double(s) != nil
-                || ["true", "false", "null", "~", "on", "off", "yes", "no", "y", "n"].contains(s.lowercased())
+            // Rule: a bare string must start with a letter and contain none of YAML's
+            // structural characters -- anything else could parse back as a number,
+            // date, float (".inf", "1e3", "0x1F"), null or other non-string. The
+            // YAML 1.1 keyword words (on/off/yes/no, true/false, null) are quoted too.
+            let structural = CharacterSet(charactersIn: ":#'\"[]{},&*!|>%@`\\")
+            let keywords: Set<String> = ["true", "false", "null", "on", "off", "yes", "no", "y", "n"]
+            let needsQuoting = s.isEmpty
+                || !(s.first?.isLetter ?? false)
+                || s.rangeOfCharacter(from: structural) != nil
+                || s.hasSuffix(" ")
+                || keywords.contains(s.lowercased())
             return needsQuoting ? "'\(s.replacingOccurrences(of: "'", with: "''"))'" : s
         case .int(let i):
             return String(i)
