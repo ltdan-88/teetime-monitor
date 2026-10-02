@@ -1666,7 +1666,8 @@ def _day_pick_text(
     if not candidates:
         return "[dim]—[/]"
     if playable:
-        text = f"[yellow]★[/] {playable[0].slot.time}"
+        # Two spaces: the booked row's 📌 is 2 cells wide, so this keeps both times in one column.
+        text = f"[yellow]★[/]  {playable[0].slot.time}"
         # Folded straight into this cell, not a separate "This week's picks"
         # section any more (2026-09-14, direct feedback + the redundancy it
         # surfaced: that section only ever repeated this exact same ★ HH:MM per

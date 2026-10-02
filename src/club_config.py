@@ -62,7 +62,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from . import geocode, paths
+from . import geocode, paths, yaml_util
 
 # Loads the one fixed `.env` (paths.ENV_FILE) rather than hunting for one relative
 # to the working directory (2026-09-17, see paths.py): a GUI front end launched from
@@ -117,7 +117,7 @@ def load_club_config(club_id: str, clubs_dir: Path | None = None) -> dict:
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     path = directory / f"{club_id}.yaml"
     with path.open() as f:
-        return yaml.safe_load(f) or {}
+        return yaml_util.safe_load(f) or {}
 
 
 def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) -> None:
