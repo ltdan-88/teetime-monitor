@@ -130,8 +130,12 @@ struct LegendButton: View {
     ]
 
     var body: some View {
-        Button { shown.value.toggle() } label: { Image(systemName: "questionmark.circle") }
+        Button { shown.value.toggle() } label: {
+            Label(t("tip.legend"), systemImage: "questionmark.circle")
+                .font(scaledFont(.caption2))
+        }
             .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
             .help(t("tip.legend"))
             .popover(isPresented: $shown.value, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1017,13 +1021,26 @@ final class OverviewModel: ObservableObject {
         // Newest-scraped first (see Store.clubs) -- picking alphabetically landed on
         // an empty leftover test database and showed "no scraped days" forever.
         if clubPath.isEmpty { clubPath = clubs.first?.path ?? "" }
-        loadCourses()
+        loadCourses(preferDefault: course.isEmpty)  // a launch, not a later reload
     }
 
-    func loadCourses() {
+    /// The club's saved `default_course` (clubs/<slug>.yaml, shared with the TUI), if any.
+    func defaultCourse() -> String? {
+        guard let slug = clubs.first(where: { $0.path == clubPath })?.slug else { return nil }
+        return ClubDefaults.defaultCourse(slug: slug)
+    }
+
+    /// `preferDefault`: launch / club switch -- start on the club's default course
+    /// (direct request, 2026-10-03: a 9-hole member wants to open on the 9-hole course).
+    /// Any other reload keeps the course you're on while it still exists.
+    func loadCourses(preferDefault: Bool = false) {
         guard !clubPath.isEmpty else { courses = []; days = []; return }
         courses = Store.courses(dbPath: clubPath)
-        if !courses.contains(course) { course = courses.first ?? "" }
+        if preferDefault, let preferred = defaultCourse(), courses.contains(preferred) {
+            course = preferred
+        } else if !courses.contains(course) {
+            course = courses.first ?? ""
+        }
         reload()
     }
 
@@ -1307,7 +1324,7 @@ struct ContentView: View {
                         // A different club is a different dataset: nothing expanded from the old
                         // one means anything here (the TUI's _reload() does the same).
                         model.expanded = []
-                        model.loadCourses()
+                        model.loadCourses(preferDefault: true)
                     }
                 }
                 Spacer(minLength: 12)
@@ -1525,13 +1542,16 @@ struct ContentView: View {
             // shown (not gated on `!model.visibleDays.isEmpty` the way LegendLine
             // itself is) so freshness/version don't disappear along with the
             // legend on a genuinely empty day list.
-            HStack(alignment: .top) {
+            // One footer row on the same container padding as the toolbar and the cards
+            // above, so its two ends sit on the same left/right edges as they do: the
+            // legend button anchors the left, status and version share one baseline on
+            // the right (2026-10-03: previously a tiny "?" hung off the status line and
+            // the version stacked beneath it, leaving the left of the footer empty).
+            HStack(alignment: .firstTextBaseline) {
+                if !model.visibleDays.isEmpty { LegendButton() }
                 Spacer(minLength: 12)
-                VStack(alignment: .trailing, spacing: 2) {
-                    HStack(spacing: 8) {
-                        if !model.visibleDays.isEmpty { LegendButton() }
-                        FreshnessRow(model: model)
-                    }
+                HStack(spacing: 6) {
+                    FreshnessRow(model: model)
                     // Mirrors the TUI's own Header, which sets its subtitle to
                     // "v{version}" from the same package metadata -- direct
                     // request, 2026-09-19 ("I want to see the version ... It
@@ -1542,6 +1562,7 @@ struct ContentView: View {
                     // show it. The standard "About TeetimeMonitor" panel reads
                     // this same Info.plist key automatically -- nothing else
                     // to wire up for that half.
+                    Text("·").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
                     Text(appVersionString).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                 }
             }
