@@ -3,9 +3,6 @@ import SwiftUI
 // icon(for:)/fillColor(_:)/weekday(_:) moved to Formatting.swift so they can sit in
 // the SPM test target -- see that file's own docstring.
 
-/// One wrapped line explaining every icon/figure the day list uses -- the exact
-/// same role `tui.py`'s `OVERVIEW_LEGEND` plays under the TUI's own table, kept to
-/// the subset this card-based view actually shows.
 /// A left-to-right layout that wraps to a new line instead of overflowing --
 /// direct report, 2026-09-19 ("bottom info bar should wrap up when window is not
 /// wide enough"). `LegendLine` used to handle overflow with a horizontal
@@ -53,6 +50,10 @@ struct FlowLayout: Layout {
     }
 }
 
+/// The day-row half of the legend (the figures and colours the day cards show) --
+/// `tui.py`'s `OVERVIEW_LEGEND` plays the same role. Lives inside the "?" popover
+/// (`LegendButton`) as of 2026-10-03; it used to be a permanent line under the day
+/// list, which duplicated what the popover and the cell tooltips already say.
 struct LegendLine: View {
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
@@ -91,30 +92,34 @@ struct LegendLine: View {
     }
 
     var body: some View {
-        FlowLayout(hSpacing: 12, vSpacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(t("legend.day_title")).font(.headline)
             ForEach(entries, id: \.text) { entry in
-                HStack(spacing: 3) {
-                    Image(systemName: entry.icon)
+                HStack(spacing: 8) {
+                    Image(systemName: entry.icon).frame(width: 22)
                     Text(entry.text)
                 }
             }
+            Divider()
+            Text(t("legend.occupancy_title")).font(.headline)
             ForEach(heatSwatches, id: \.text) { swatch in
-                HStack(spacing: 4) {
+                HStack(spacing: 8) {
                     RoundedRectangle(cornerRadius: 2).fill(swatch.color)
                         .frame(width: scale.scaled(Metrics.legendSwatchWidth),
                                height: scale.scaled(Metrics.legendSwatchHeight))
+                        .frame(width: 22)
                     Text(swatch.text)
                 }
             }
         }
-        .font(scaledFont(.caption2)).foregroundStyle(.tertiary)
     }
 }
 
-/// The "?" next to the legend line: every weather icon the day list can show, with
-/// its meaning -- the TUI's own weather legend group (`?` there). Direct request,
-/// 2026-10-02: the GUI legend was missing the condition icons.
-struct WeatherLegendButton: View {
+/// The "?" next to the freshness status: the whole legend in one popover -- the day
+/// row's figures, the occupancy colours, every weather icon and the player-name
+/// colours (the TUI's `?` legend). Direct request, 2026-10-03: the permanent legend
+/// line was redundant with it, so everything lives here now.
+struct LegendButton: View {
     @ObservedObject private var language = AppLanguage.shared
     @StateObject private var shown = Box(false)
 
@@ -127,9 +132,11 @@ struct WeatherLegendButton: View {
     var body: some View {
         Button { shown.value.toggle() } label: { Image(systemName: "questionmark.circle") }
             .buttonStyle(.borderless)
-            .help(t("tip.weather_legend"))
+            .help(t("tip.legend"))
             .popover(isPresented: $shown.value, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 6) {
+                    LegendLine()
+                    Divider()
                     Text(t("legend.cond_title")).font(.headline)
                     ForEach(entries, id: \.code) { entry in
                         HStack(spacing: 8) {
@@ -1519,13 +1526,12 @@ struct ContentView: View {
             // itself is) so freshness/version don't disappear along with the
             // legend on a genuinely empty day list.
             HStack(alignment: .top) {
-                if !model.visibleDays.isEmpty {
-                    LegendLine()
-                    WeatherLegendButton()
-                }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
-                    FreshnessRow(model: model)
+                    HStack(spacing: 8) {
+                        if !model.visibleDays.isEmpty { LegendButton() }
+                        FreshnessRow(model: model)
+                    }
                     // Mirrors the TUI's own Header, which sets its subtitle to
                     // "v{version}" from the same package metadata -- direct
                     // request, 2026-09-19 ("I want to see the version ... It
