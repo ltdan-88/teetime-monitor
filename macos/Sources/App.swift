@@ -1276,7 +1276,12 @@ struct ContentView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .font(scaledFont(.body)).fontWeight(.semibold)
-                    .onChange(of: model.clubPath) { _, _ in model.loadCourses() }
+                    .onChange(of: model.clubPath) { _, _ in
+                        // A different club is a different dataset: nothing expanded from the old
+                        // one means anything here (the TUI's _reload() does the same).
+                        model.expanded = []
+                        model.loadCourses()
+                    }
                 }
                 Spacer(minLength: 12)
                 Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
@@ -1300,7 +1305,10 @@ struct ContentView: View {
                 // 230pt for a short course name" nicety is the one thing lost
                 // -- this Picker now sizes to its own selected course name,
                 // same as the Club picker beside it already does.
-                .onChange(of: model.course) { _, _ in model.reload() }
+                .onChange(of: model.course) { _, _ in
+                    model.expanded = []  // switching course collapses every day (direct request, 2026-10-03)
+                    model.reload()
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
