@@ -59,6 +59,16 @@ func anonymousPlayersText(booked: Int, namedCount: Int) -> String {
     return count == 1 ? label : "\(count)× \(label)"
 }
 
+/// Player-name colour by gender: blue / magenta, the secondary grey when unknown.
+/// Same two hues as the TUI's (tui._GENDER_COLORS).
+func genderColor(_ gender: String?) -> Color {
+    switch gender {
+    case "male": return Color(red: 0x5a / 255.0, green: 0xa9 / 255.0, blue: 0xff / 255.0)
+    case "female": return Color(red: 0xe3 / 255.0, green: 0x6b / 255.0, blue: 0xd0 / 255.0)
+    default: return .secondary
+    }
+}
+
 func fillColor(_ ratio: Double) -> Color {
     ratio >= 1.0 ? .red : (ratio >= 0.5 ? .orange : .green)
 }

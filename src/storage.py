@@ -677,6 +677,19 @@ def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:
     return {name for (name,) in rows}
 
 
+def load_player_genders(path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
+    """Name -> "male"/"female" for every known player whose gender is recorded (the
+    site's own "unknown" marker is left out) -- what colours names in the overview."""
+    if not path.exists():
+        return {}
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT name, gender FROM known_players WHERE gender IN ('male', 'female')"
+        ).fetchall()
+    return dict(rows)
+
+
 def load_known_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
     """Name -> handicap for every known player who actually has one recorded --
     what `recommend.ranked_matches()`'s own `known_handicaps` param wants, without

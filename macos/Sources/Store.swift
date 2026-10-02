@@ -247,6 +247,19 @@ enum Store {
         return names
     }
 
+    /// Name -> "male"/"female" for every player with a recorded gender -- colours names
+    /// in the overview (the site's own "unknown" marker is left out).
+    static func playerGenders(dbPath: String) -> [String: String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [:] }
+        defer { sqlite3_close(db) }
+        var genders: [String: String] = [:]
+        query(db, "SELECT name, gender FROM known_players WHERE gender IN ('male', 'female')") { s in
+            if let name = column(s, 0), let gender = column(s, 1) { genders[name] = gender }
+        }
+        return genders
+    }
+
     static func knownPlayers(dbPath: String) -> [KnownPlayer] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
