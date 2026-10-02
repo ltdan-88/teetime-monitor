@@ -23,6 +23,33 @@ func icon(for code: Int?) -> String {
     }
 }
 
+/// The WMO code's own wording ("Light rain", "Thunderstorm with hail") in the current
+/// language -- what the weather will actually be, which the icon alone can't say.
+func conditionName(for code: Int?) -> String? {
+    guard let code else { return nil }
+    let key = "wmo.\(code)"
+    let name = t(key)
+    return name == key ? nil : name
+}
+
+/// The tooltip for one hour's weather icon: "Light rain · 20° · rain 63%/0.5mm ·
+/// wind 10 km/h" (parts that aren't known are left out). Direct request,
+/// 2026-10-02: a tooltip saying how the weather will actually be.
+func weatherTooltip(_ w: WeatherPoint, units: String) -> String {
+    var parts: [String] = []
+    if let name = conditionName(for: w.code) { parts.append(name) }
+    if let tempC = w.temperatureC {
+        parts.append("\(wholeNumber(Units.temperature(tempC, units)))\(Units.temperatureSymbol(units))")
+    }
+    if let p = w.precipitationProbability {
+        parts.append(t("weather.rain_part", ["v": precipitationCellText(probability: p, mm: w.precipitationMM, units: units)]))
+    }
+    if let wind = w.windKPH {
+        parts.append(t("weather.wind_part", ["n": wholeNumber(Units.windSpeed(wind, units)), "unit": Units.windSymbol(units)]))
+    }
+    return parts.joined(separator: " · ")
+}
+
 func fillColor(_ ratio: Double) -> Color {
     ratio >= 1.0 ? .red : (ratio >= 0.5 ? .orange : .green)
 }

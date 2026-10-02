@@ -111,6 +111,38 @@ struct LegendLine: View {
     }
 }
 
+/// The "?" next to the legend line: every weather icon the day list can show, with
+/// its meaning -- the TUI's own weather legend group (`?` there). Direct request,
+/// 2026-10-02: the GUI legend was missing the condition icons.
+struct WeatherLegendButton: View {
+    @ObservedObject private var language = AppLanguage.shared
+    @StateObject private var shown = Box(false)
+
+    private let entries: [(code: Int, key: String)] = [
+        (0, "legend.cond_clear"), (1, "legend.cond_cloudy"), (3, "legend.cond_overcast"),
+        (45, "legend.cond_fog"), (51, "legend.cond_drizzle"), (61, "legend.cond_rain"),
+        (71, "legend.cond_snow"), (95, "legend.cond_thunder"),
+    ]
+
+    var body: some View {
+        Button { shown.value.toggle() } label: { Image(systemName: "questionmark.circle") }
+            .buttonStyle(.borderless)
+            .help(t("tip.weather_legend"))
+            .popover(isPresented: $shown.value, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t("legend.cond_title")).font(.headline)
+                    ForEach(entries, id: \.code) { entry in
+                        HStack(spacing: 8) {
+                            Image(systemName: icon(for: entry.code)).frame(width: 22)
+                            Text(t(entry.key))
+                        }
+                    }
+                }
+                .padding(12)
+            }
+    }
+}
+
 struct HeatStrip: View {
     let buckets: [Double?]
     @ObservedObject private var scale = AppScale.shared
@@ -248,7 +280,7 @@ struct SlotRow: View {
             }
             if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    .help(t("tip.condition_at", ["time": slot.time]))
+                    .help(weatherTooltip(w, units: units.value))
                     .frame(width: scale.scaled(Metrics.slotCondition))
                 if let tempC = w.temperatureC {
                     Text(String(format: "%.0f°", Units.temperature(tempC, units.value)))
@@ -478,7 +510,8 @@ struct DayCardHeader: View {
             // row above and below; same fixed-column fix `SlotRow` already uses
             // for its own time/temp/precip/wind cells.
             Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
-                .help(t("tip.condition_day"))
+                .help(conditionName(for: day.conditionCode).map { t("tip.condition_day_named", ["condition": $0]) }
+                      ?? t("tip.condition_day"))
                 .frame(width: scale.scaled(Metrics.dayCondition))
             Group {
                 if let (hi, lo) = day.tempHighLow {
@@ -1450,6 +1483,7 @@ struct ContentView: View {
             HStack(alignment: .top) {
                 if !model.visibleDays.isEmpty {
                     LegendLine()
+                    WeatherLegendButton()
                 }
                 Spacer(minLength: 12)
                 VStack(alignment: .trailing, spacing: 2) {
