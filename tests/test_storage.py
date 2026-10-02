@@ -852,3 +852,29 @@ def test_load_known_handicaps_returns_only_names_with_a_recorded_handicap(tmp_pa
 
 def test_load_known_handicaps_with_no_club_db_yet_returns_empty_dict(tmp_path):
     assert load_known_handicaps(path=tmp_path / "never-created.db") == {}
+
+
+def test_looks_like_player_name_rejects_events_and_accepts_real_names():
+    from src.models import looks_like_player_name
+
+    assert not looks_like_player_name("Doppelteestart 11:00 Uhr, Ihre Startzeit gilt nur für 9-Loch!")
+    assert not looks_like_player_name("")
+    for name in ("Max Mustermann", "Hans-Jürgen Rosshau", "didier waechter", "Dr. Jan-Simon Schmidt"):
+        assert looks_like_player_name(name)
+
+
+def test_purge_non_player_names_removes_event_rows_but_keeps_players(tmp_path):
+    import sqlite3
+
+    from src import storage
+    from src.models import PlayerSighting
+
+    db = tmp_path / "x.db"
+    storage.record_seen_players([PlayerSighting(name="Max Mustermann")], "2026-10-02T00:00:00", path=db)
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO known_players (name, first_seen, last_seen) VALUES (?, ?, ?)",
+            ("Doppelteestart 11:00 Uhr!", "x", "x"),
+        )
+    assert storage.purge_non_player_names(db) == 1
+    assert [p.name for p in storage.load_known_players(path=db)] == ["Max Mustermann"]
