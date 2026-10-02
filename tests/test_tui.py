@@ -1983,11 +1983,11 @@ def test_overview_screen_collapse_all_key_collapses_every_expanded_day_at_once(t
             table.focus()
             collapsed_row_count = table.row_count
 
+            # One day open at a time now (accordion, 2026-10-02) -- `c` still closes it.
             app.screen._toggle_expanded("2026-09-07", 0)
-            app.screen._toggle_expanded("2026-09-08", 2)
             await pilot.pause()
-            assert app.screen._expanded_dates == {"2026-09-07", "2026-09-08"}
-            assert table.row_count == collapsed_row_count + 2
+            assert app.screen._expanded_dates == {"2026-09-07"}
+            assert table.row_count == collapsed_row_count + 1
 
             await pilot.press("c")
             await pilot.pause()
@@ -5653,3 +5653,21 @@ def test_compute_slot_rows_highlights_friends_in_the_players_cell():
         schedule, {}, "metric", "2026-09-06", set(), None, friend_names={"Erika Muster"}
     )
     assert rows[0].players_cell == "Max Mustermann, [bold yellow]Erika Muster[/]"
+
+
+def test_expanding_a_day_collapses_the_other_expanded_days(tmp_path, monkeypatch):
+    _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18"])
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            screen = app.screen
+            screen._toggle_expanded("2026-09-17", screen._row_index.index(("2026-09-17", None)))
+            assert screen._expanded_dates == {"2026-09-17"}
+            screen._toggle_expanded("2026-09-18", screen._row_index.index(("2026-09-18", None)))
+            assert screen._expanded_dates == {"2026-09-18"}
+            table = screen.query_one("#overview-table", DataTable)
+            assert screen._row_index[table.cursor_row][0] == "2026-09-18"
+
+    _run(scenario())

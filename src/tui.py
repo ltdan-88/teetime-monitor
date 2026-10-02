@@ -3628,8 +3628,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._expanded_dates.discard(date)
             self._rerender_preserving_cursor(row)
             return
-        self._expanded_dates.add(date)
+        # Accordion: opening a day closes every other one (direct request,
+        # 2026-10-02) -- with earlier days left open the one you just opened can
+        # sit below a screenful of unrelated rows. Collapsing rows above it also
+        # shifts it up, so the cursor falls back to this day's own row, not `row`.
+        self._expanded_dates = {date}
         self._rerender_preserving_cursor(row)
+        if (date, None) in self._row_index:
+            self.query_one("#overview-table", DataTable).move_cursor(row=self._row_index.index((date, None)))
         # Straight to the part of the day you'd actually book (2026-09-27, bundle
         # C of the TUI/GUI consistency audit) instead of leaving you on the
         # summary row with ~60 early slots between you and your own window --

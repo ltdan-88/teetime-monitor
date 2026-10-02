@@ -438,7 +438,8 @@ struct DayCardHeader: View {
                 .onHover { isHovering.value = $0 }
                 .onTapGesture {
                     withAnimation(.snappy(duration: 0.18)) {
-                        if isOpen { model.expanded.remove(day.date) } else { model.expanded.insert(day.date) }
+                        // Accordion: opening a day closes the others (direct request, 2026-10-02).
+                        if isOpen { model.expanded.remove(day.date) } else { model.expanded = [day.date] }
                     }
                 }
 
