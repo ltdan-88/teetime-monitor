@@ -566,9 +566,12 @@ def load_my_handicap(path: Path = DEFAULT_DB_PATH) -> float | None:
     return json.loads(row[0]) if row else None
 
 
+_PURGED_PATHS: set[str] = set()
+
+
 def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
     """Deletes `known_players` rows that were recorded before the scraper learned to
-    tell an event/note from a name (see `models.looks_like_player_name()`). Returns
+    tell an event/note from a name (see `models.looks_like_player_name()`). A row marked as a friend is never deleted. Returns
     how many were removed."""
     if not path.exists():
         return 0
@@ -576,7 +579,7 @@ def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
     with sqlite3.connect(path) as conn:
         junk = [
             (name,)
-            for (name,) in conn.execute("SELECT name FROM known_players").fetchall()
+            for (name,) in conn.execute("SELECT name FROM known_players WHERE is_friend = 0").fetchall()
             if not looks_like_player_name(name)
         ]
         conn.executemany("DELETE FROM known_players WHERE name = ?", junk)
@@ -604,7 +607,9 @@ def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Pat
     if not sightings:
         return
     init_db(path)
-    purge_non_player_names(path)
+    if str(path) not in _PURGED_PATHS:  # a one-time legacy cleanup, not per scrape
+        _PURGED_PATHS.add(str(path))
+        purge_non_player_names(path)
     with sqlite3.connect(path) as conn:
         conn.executemany(
             "INSERT INTO known_players (name, first_seen, last_seen, gender, member_status, handicap) "

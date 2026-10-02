@@ -236,6 +236,17 @@ enum Store {
     /// a plain `ORDER BY`. Silently empty (not an error) for a database that predates
     /// this feature -- `known_players` won't exist yet, and `query()`'s own guard
     /// already degrades a failed prepare to "no rows" rather than crashing.
+    static func friendNames(dbPath: String) -> Set<String> {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        defer { sqlite3_close(db) }
+        var names: Set<String> = []
+        query(db, "SELECT name FROM known_players WHERE is_friend = 1") { s in
+            if let name = column(s, 0) { names.insert(name) }
+        }
+        return names
+    }
+
     static func knownPlayers(dbPath: String) -> [KnownPlayer] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }

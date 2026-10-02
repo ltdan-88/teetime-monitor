@@ -878,3 +878,25 @@ def test_purge_non_player_names_removes_event_rows_but_keeps_players(tmp_path):
         )
     assert storage.purge_non_player_names(db) == 1
     assert [p.name for p in storage.load_known_players(path=db)] == ["Max Mustermann"]
+
+
+def test_looks_like_player_name_keeps_parenthesised_and_long_names():
+    from src.models import looks_like_player_name
+
+    assert looks_like_player_name("Müller (Gast)")
+    assert looks_like_player_name("Hans-Joachim Freiherr von und zu Altenstein")
+
+
+def test_purge_never_deletes_a_friend_row(tmp_path):
+    import sqlite3
+
+    from src import storage
+
+    db = tmp_path / "y.db"
+    storage.init_db(db)
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO known_players (name, first_seen, last_seen, is_friend) VALUES (?, 'x', 'x', 1)",
+            ("Odd Name 2",),
+        )
+    assert storage.purge_non_player_names(db) == 0
