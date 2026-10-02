@@ -28,6 +28,20 @@ class PlayerSighting:
     handicap: float | None = None
 
 
+def looks_like_player_name(text: str) -> bool:
+    """False for a seat-cell text that is plainly a club's note or an event, not a
+    person ("Doppelteestart 11:00 Uhr, Ihre Startzeit gilt nur für 9-Loch!") -- the
+    scraper's colspan rule only catches notes in the merged free-seat cell, and some
+    clubs also write them into a normal seat cell (2026-10-02, direct report: "the
+    player directory has scraped elements that are not players but events"). A name
+    has no digits or sentence punctuation and is a handful of words at most."""
+    return (
+        0 < len(text) <= 40
+        and len(text.split()) <= 5
+        and not any(ch.isdigit() or ch in "!?:;@/()" for ch in text)
+    )
+
+
 def family_name(full_name: str) -> str:
     """The last whitespace-separated token of a name — used as the sort key
     everywhere the player directory sorts "alphabetically by family name" (2026-09-27,

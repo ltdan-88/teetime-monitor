@@ -154,6 +154,16 @@ struct SlotRow: View {
     /// `OverviewModel.highlightedSlot`'s own docstring.
     var isFocused: Bool { model.highlightedSlot == OverviewModel.ScrollTarget(date: day.date, time: slot.time) }
 
+    /// Pip `i` is one of the friend seats -- as many pips as there are friends in
+    /// this slot (the player list skips anonymised seats, so it can't be matched to
+    /// pip positions one-to-one; the count is what's reliably known). Starts after
+    /// the "you" pip. Direct request, 2026-10-02: highlight the squares too.
+    private func isFriendSeat(_ i: Int) -> Bool {
+        let friends = slot.players.filter { model.friendNames.contains($0) }.count
+        let start = isMine ? 1 : 0
+        return i >= start && i < start + friends
+    }
+
     private var playersText: Text {
         var result = AttributedString()
         for (i, name) in slot.players.enumerated() {
@@ -192,7 +202,8 @@ struct SlotRow: View {
                     ForEach(0..<max(slot.capacity, 1), id: \.self) { i in
                         RoundedRectangle(cornerRadius: 2)
                             .fill(i < slot.booked
-                                  ? (isMine && i == 0 ? Color.accentColor : theme.colors.muted)
+                                  ? (isMine && i == 0 ? Color.accentColor
+                                     : isFriendSeat(i) ? Color.yellow : theme.colors.muted)
                                   : theme.colors.faint)
                             .frame(width: scale.scaled(Metrics.seatPip),
                                    height: scale.scaled(Metrics.seatPip))

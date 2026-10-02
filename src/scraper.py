@@ -129,7 +129,7 @@ from datetime import UTC, datetime
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot
+from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot, looks_like_player_name
 
 # Confirmed 2026-09-05 by inspecting the real site — these are real values, not guesses.
 COURSE_ALIASES: dict[str, str] = {
@@ -337,6 +337,9 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
             continue
         if text in KNOWN_ANONYMIZED_LABELS:
             continue  # anonymized member booking — already counted in `booked`
+        if authenticated and not looks_like_player_name(text):
+            note = text  # an event/note written into a seat cell, not a person
+            continue
         if authenticated:
             players.append(text)  # a friend's real name — only ever visible logged in
             member_status, handicap = _parse_hcp_span(cell)

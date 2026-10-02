@@ -60,7 +60,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import ConfirmedBooking, KnownPlayer, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint, family_name
+from .models import ConfirmedBooking, KnownPlayer, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint, family_name, looks_like_player_name
 
 DEFAULT_DB_PATH = Path("teetime.db")
 
@@ -566,6 +566,23 @@ def load_my_handicap(path: Path = DEFAULT_DB_PATH) -> float | None:
     return json.loads(row[0]) if row else None
 
 
+def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
+    """Deletes `known_players` rows that were recorded before the scraper learned to
+    tell an event/note from a name (see `models.looks_like_player_name()`). Returns
+    how many were removed."""
+    if not path.exists():
+        return 0
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        junk = [
+            (name,)
+            for (name,) in conn.execute("SELECT name FROM known_players").fetchall()
+            if not looks_like_player_name(name)
+        ]
+        conn.executemany("DELETE FROM known_players WHERE name = ?", junk)
+    return len(junk)
+
+
 def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
     """Upsert each sighting into `known_players` -- a new row (both timestamps set to
     `seen_at`) the first time a name is ever seen, or just `last_seen` bumped (plus
@@ -583,9 +600,11 @@ def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Pat
     that scrape's own distinct players (by name -- last one wins for any duplicate
     within the same scrape, which never differs in practice) -- piggybacks on a fetch
     that's already happening rather than a separate pass over the whole database."""
+    sightings = [sighting for sighting in sightings if looks_like_player_name(sighting.name)]
     if not sightings:
         return
     init_db(path)
+    purge_non_player_names(path)
     with sqlite3.connect(path) as conn:
         conn.executemany(
             "INSERT INTO known_players (name, first_seen, last_seen, gender, member_status, handicap) "
