@@ -60,7 +60,17 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import ConfirmedBooking, KnownPlayer, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint, family_name, looks_like_player_name
+from .models import (
+    ConfirmedBooking,
+    KnownPlayer,
+    PlayerSighting,
+    Schedule,
+    Slot,
+    SunTimes,
+    WeatherPoint,
+    family_name,
+    looks_like_player_name,
+)
 
 DEFAULT_DB_PATH = Path("teetime.db")
 

@@ -17,11 +17,20 @@ func runSearchClientTests() {
 /// this wrong would silently turn "search weekdays only" into "search every day,
 /// unrestricted."
 private func testOmittedWindowHasNoKey() {
+    // One day type set, the other fully unset: the unset one is skipped entirely.
     let payload = SearchCriteriaPayload(
+        minOpenSpots: 1, weekdayAfter: "16:00", weekdayBefore: nil,
+        weekendAfter: nil, weekendBefore: nil, bufferBeforeMinutes: 0, bufferAfterMinutes: 0)
+    Harness.check("weekday_window key is present when a side is set", payload.json["weekday_window"] != nil)
+    Harness.check("weekend_window key is absent when both sides are nil", payload.json["weekend_window"] == nil)
+
+    // All four unset (e.g. right after "Reset filters") means any time on any day,
+    // not "skip both day types", which would always return nothing.
+    let cleared = SearchCriteriaPayload(
         minOpenSpots: 1, weekdayAfter: nil, weekdayBefore: nil,
         weekendAfter: nil, weekendBefore: nil, bufferBeforeMinutes: 0, bufferAfterMinutes: 0)
-    Harness.check("weekday_window key is absent when both sides are nil", payload.json["weekday_window"] == nil)
-    Harness.check("weekend_window key is absent when both sides are nil", payload.json["weekend_window"] == nil)
+    Harness.check("both windows are present (any time) when all four sides are nil",
+                  cleared.json["weekday_window"] != nil && cleared.json["weekend_window"] != nil)
 }
 
 private func testPresentWindowKeepsNullSides() {
