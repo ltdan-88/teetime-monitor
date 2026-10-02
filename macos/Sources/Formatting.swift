@@ -50,6 +50,15 @@ func weatherTooltip(_ w: WeatherPoint, units: String) -> String {
     return parts.joined(separator: " · ")
 }
 
+/// "anonymous" / "2× anonymous" for booked seats whose names aren't public, or "" when
+/// every booked seat has a name -- mirrors tui._anonymous_players_text().
+func anonymousPlayersText(booked: Int, namedCount: Int) -> String {
+    let count = booked - namedCount
+    guard count > 0 else { return "" }
+    let label = t("overview.anonymous")
+    return count == 1 ? label : "\(count)× \(label)"
+}
+
 func fillColor(_ ratio: Double) -> Color {
     ratio >= 1.0 ? .red : (ratio >= 0.5 ? .orange : .green)
 }

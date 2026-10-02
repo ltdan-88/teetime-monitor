@@ -5671,3 +5671,19 @@ def test_expanding_a_day_collapses_the_other_expanded_days(tmp_path, monkeypatch
             assert screen._row_index[table.cursor_row][0] == "2026-09-18"
 
     _run(scenario())
+
+
+def test_compute_slot_rows_fills_the_players_cell_for_anonymous_seats():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[
+            Slot(time="08:00", booked=3, capacity=4, players=["Max Mustermann"]),
+            Slot(time="09:00", booked=1, capacity=4),
+            Slot(time="10:00", booked=0, capacity=4),
+        ],
+    )
+    rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-06", set(), None)
+    assert rows[0].players_cell == "Max Mustermann, [dim italic]2× anonymous[/]"
+    assert rows[1].players_cell == "[dim italic]anonymous[/]"
+    assert rows[2].players_cell == ""
