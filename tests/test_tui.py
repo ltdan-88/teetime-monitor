@@ -1346,7 +1346,7 @@ def test_overview_screen_shows_a_row_per_attempted_day(tmp_path, monkeypatch):
 
 def test_legend_pairs_renders_icon_and_meaning():
     pairs = tui._legend_pairs([("★", "legend.recommended"), ("🌧", "legend.rain")])
-    assert pairs == ["★ recommended", "🌧 rain"]
+    assert pairs == ["★ recommended / friend", "🌧 rain"]
 
 
 # _wrap_legend() -- direct follow-up: "legend needs to wrap up, since some words
@@ -5652,7 +5652,7 @@ def test_compute_slot_rows_highlights_friends_in_the_players_cell():
     rows = tui._compute_slot_rows(
         schedule, {}, "metric", "2026-09-06", set(), None, friend_names={"Erika Muster"}
     )
-    assert rows[0].players_cell == "Max Mustermann, [bold yellow]Erika Muster[/]"
+    assert rows[0].players_cell == "Max Mustermann, [yellow]★[/] [bold]Erika Muster[/]"
 
 
 def test_expanding_a_day_collapses_the_other_expanded_days(tmp_path, monkeypatch):
@@ -5687,3 +5687,24 @@ def test_compute_slot_rows_fills_the_players_cell_for_anonymous_seats():
     assert rows[0].players_cell == "Max Mustermann, [dim italic]2× anonymous[/]"
     assert rows[1].players_cell == "[dim italic]anonymous[/]"
     assert rows[2].players_cell == ""
+
+
+def test_compute_slot_rows_colours_names_by_gender_and_stars_friends():
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=3, capacity=4, players=["Max Mustermann", "Erika Muster", "Kim Unknown"])],
+    )
+    rows = tui._compute_slot_rows(
+        schedule,
+        {},
+        "metric",
+        "2026-09-06",
+        set(),
+        None,
+        friend_names={"Erika Muster"},
+        genders={"Max Mustermann": "male", "Erika Muster": "female"},
+    )
+    assert rows[0].players_cell == (
+        "[#5aa9ff]Max Mustermann[/], [yellow]★[/] [bold][#e36bd0]Erika Muster[/][/], Kim Unknown"
+    )

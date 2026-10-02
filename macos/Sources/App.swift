@@ -137,6 +137,20 @@ struct WeatherLegendButton: View {
                             Text(t(entry.key))
                         }
                     }
+                    Divider()
+                    Text(t("legend.players_title")).font(.headline)
+                    HStack(spacing: 8) {
+                        Text("Aa").bold().foregroundStyle(genderColor("male")).frame(width: 22)
+                        Text(t("legend.player_male"))
+                    }
+                    HStack(spacing: 8) {
+                        Text("Aa").bold().foregroundStyle(genderColor("female")).frame(width: 22)
+                        Text(t("legend.player_female"))
+                    }
+                    HStack(spacing: 8) {
+                        Text("\u{2605}").foregroundStyle(.yellow).frame(width: 22)
+                        Text(t("legend.player_friend"))
+                    }
                 }
                 .padding(12)
             }
@@ -203,13 +217,16 @@ struct SlotRow: View {
                 var comma = AttributedString(", "); comma.foregroundColor = .secondary
                 result += comma
             }
-            var part = AttributedString(name)
+            // A friend: gold ★ in front and a bold name (the ★ matches the gold friend
+            // pips); the name itself is coloured by gender -- blue / magenta, neutral
+            // when unknown (direct request, 2026-10-03).
             if model.friendNames.contains(name) {
-                part.foregroundColor = .yellow
-                part.inlinePresentationIntent = .stronglyEmphasized
-            } else {
-                part.foregroundColor = .secondary
+                var star = AttributedString("\u{2605} "); star.foregroundColor = .yellow
+                result += star
             }
+            var part = AttributedString(name)
+            part.foregroundColor = genderColor(model.playerGenders[name])
+            if model.friendNames.contains(name) { part.inlinePresentationIntent = .stronglyEmphasized }
             result += part
         }
         let anonymous = anonymousPlayersText(booked: slot.booked, namedCount: slot.players.count)
@@ -724,6 +741,8 @@ final class OverviewModel: ObservableObject {
     @Published var days: [Day] = []
     /// Names marked as friends in the player directory -- highlighted in expanded slot rows.
     @Published var friendNames: Set<String> = []
+    /// Name -> "male"/"female", colours names in expanded slot rows.
+    @Published var playerGenders: [String: String] = [:]
     @Published var expanded: Set<String> = []
     @Published var isScraping = false
     @Published var problem: String?
@@ -1002,10 +1021,11 @@ final class OverviewModel: ObservableObject {
     }
 
     func reload() {
-        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; friendNames = []; return }
+        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; friendNames = []; playerGenders = [:]; return }
         let keepOpen = expanded          // a background refresh must not collapse what
         days = Store.days(dbPath: clubPath, course: course, from: today)
         friendNames = Store.friendNames(dbPath: clubPath)
+        playerGenders = Store.playerGenders(dbPath: clubPath)
         expanded = keepOpen              // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
         lastScrape = Store.lastScrape(dbPath: clubPath)

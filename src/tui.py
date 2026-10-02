@@ -1490,6 +1490,17 @@ class SlotRowCells(NamedTuple):
     events_cell: str
 
 
+def _player_name_markup(name: str, is_friend: bool, gender: str | None) -> str:
+    """A player's name coloured by gender (blue/magenta; unknown stays default),
+    with a friend marked by a bold name and a yellow ★ in front (direct request,
+    2026-10-03)."""
+    text = markup_escape(name)
+    color = _GENDER_COLORS.get(gender or "")
+    if color:
+        text = f"[{color}]{text}[/]"
+    return f"[yellow]★[/] [bold]{text}[/]" if is_friend else text
+
+
 def _anonymous_players_text(slot: Slot) -> str:
     """"anonymous" / "2× anonymous" for the booked seats whose names aren't public
     (anonymized members, or every seat when logged out) -- so the players column
@@ -1510,6 +1521,7 @@ def _compute_slot_rows(
     confirmed: ConfirmedBooking | None,
     crowd_estimates: dict[tuple[str, str, str], float] | None = None,
     friend_names: set[str] | None = None,
+    genders: dict[str, str] | None = None,
 ) -> list[SlotRowCells]:
     """One `SlotRowCells` per slot in `schedule`, in order — the exact per-slot
     rendering `DayDetailScreen.load_schedule()` used to do inline, factored out
@@ -1527,6 +1539,7 @@ def _compute_slot_rows(
     `friend_names` (2026-10-02, "highlight friends when uncollapsing") are shown in
     bold yellow in the players cell."""
     friend_names = friend_names or set()
+    genders = genders or {}
     now = _NOW_HHMM() if date == _TODAY() else None
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
@@ -1603,10 +1616,7 @@ def _compute_slot_rows(
             crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
             if crowd_marker:
                 occupancy += f" {crowd_marker}"
-        names = [
-            f"[bold yellow]{markup_escape(name)}[/]" if name in friend_names else markup_escape(name)
-            for name in slot.players
-        ]
+        names = [_player_name_markup(name, name in friend_names, genders.get(name)) for name in slot.players]
         anonymous = _anonymous_players_text(slot)
         if anonymous:
             names.append(f"[dim italic]{anonymous}[/]")
@@ -1850,6 +1860,15 @@ def _legend_pairs(entries: list[tuple[str, str]]) -> list[str]:
     return [f"{icon} {i18n.t(key)}" for icon, key in entries]
 
 
+def _color_legend_glyphs(text: str) -> str:
+    """Colours the ♂/♀ legend glyphs after wrapping -- markup can't go into the
+    pairs themselves, since `_wrap_legend()` measures their raw characters."""
+    return (
+        text.replace("♂", f"[{_GENDER_COLORS['male']}]♂[/]")
+        .replace("♀", f"[{_GENDER_COLORS['female']}]♀[/]")
+    )
+
+
 def _wrap_legend(pairs: list[str], width: int) -> str:
     """Pack legend pairs onto as few lines as fit in `width` cells, greedily,
     never splitting one pair's icon from its own meaning across two lines --
@@ -1971,7 +1990,12 @@ _MARKER_LEGEND = [
     # recognizes this without it being spelled out a second time here too.
     ("■", "legend.usual_crowd"),
 ]
+# Player-name colours (gender) and the friend star -- shared by the expanded slot
+# rows and the legend. Hex, so they read the same on every theme.
+_GENDER_COLORS = {"male": "#5aa9ff", "female": "#e36bd0"}
 _NOTICE_LEGEND = [
+    ("♂", "legend.male"),
+    ("♀", "legend.female"),
     ("🌧", "legend.rain_threshold"),
     ("💨", "legend.wind_threshold"),
 ]
@@ -2850,7 +2874,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         overflow the widget a second time."""
         w = width if width is not None else self.size.width
         blocks = [
-            f"[bold]{i18n.t(label_key)}[/]\n[dim]{_wrap_legend(_legend_pairs(entries), w)}[/]"
+            f"[bold]{i18n.t(label_key)}[/]\n[dim]{_color_legend_glyphs(_wrap_legend(_legend_pairs(entries), w))}[/]"
             for label_key, entries in OVERVIEW_LEGEND_CATEGORIES
         ]
         self.query_one("#legend", Static).update("\n".join(blocks))
@@ -3134,6 +3158,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # any call that's a genuinely new dataset.
         pipeline_cache = self._pick_cache
         friend_names: set[str] | None = None  # loaded once, on the first expanded day
+        genders: dict[str, str] = {}
         for one_date in dates:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             # No year (2026-09-15, fitting the whole app on an iPad portrait
@@ -3213,12 +3238,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if can_expand and one_date in self._expanded_dates:
                 if friend_names is None:
                     friend_names = storage.load_friend_names(path=self.db_path)
+                    genders = storage.load_player_genders(path=self.db_path)
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
                 crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
                 for slot_row in _compute_slot_rows(
                     schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates,
-                    friend_names,
+                    friend_names, genders,
                 ):
                     self._row_index.append((one_date, slot_row.time))
                     pending_rows.append((
