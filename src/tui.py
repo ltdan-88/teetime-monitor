@@ -1490,6 +1490,17 @@ class SlotRowCells(NamedTuple):
     events_cell: str
 
 
+def _anonymous_players_text(slot: Slot) -> str:
+    """"anonymous" / "2× anonymous" for the booked seats whose names aren't public
+    (anonymized members, or every seat when logged out) -- so the players column
+    accounts for every booked seat (direct request, 2026-10-03)."""
+    count = slot.booked - len(slot.players)
+    if count <= 0:
+        return ""
+    label = i18n.t("overview.anonymous")
+    return label if count == 1 else f"{count}× {label}"
+
+
 def _compute_slot_rows(
     schedule: Schedule,
     config: dict,
@@ -1592,10 +1603,14 @@ def _compute_slot_rows(
             crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
             if crowd_marker:
                 occupancy += f" {crowd_marker}"
-        players = ", ".join(
+        names = [
             f"[bold yellow]{markup_escape(name)}[/]" if name in friend_names else markup_escape(name)
             for name in slot.players
-        )
+        ]
+        anonymous = _anonymous_players_text(slot)
+        if anonymous:
+            names.append(f"[dim italic]{anonymous}[/]")
+        players = ", ".join(names)
         rows.append(
             SlotRowCells(
                 slot.time,
@@ -4094,7 +4109,7 @@ class SearchScreen(Screen[None]):
             schedule = schedule_by_key.get((match.date, match.course))
             weather = schedule.weather if schedule is not None else []
             occupancy = i18n.t("overview.free", n=_free_seats(match.slot))
-            players = ", ".join(match.slot.players) if match.slot.players else ""
+            players = ", ".join([*match.slot.players, *filter(None, [_anonymous_players_text(match.slot)])])
             pending_rows.append((
                 f"{weekday} {match.date}",
                 match.slot.time,

@@ -288,14 +288,16 @@ private struct SearchResultRow: View {
                 .padding(.leading, 6)
                 .help(t("tip.open_spots"))
 
-            if !match.players.isEmpty {
+            if !match.players.isEmpty || match.booked > 0 {
                 // Only ever non-empty from an authenticated scrape (2026-09-27) --
                 // pc caddie shows real names only to a logged-in member who's opted
                 // into its own reciprocal name-sharing; an anonymous fetch never
                 // sees one. Never sent to any AI provider (see ai_assist.py's own
                 // `_describe_candidate()`), shown here for local reading only, same
                 // truncated-with-tooltip treatment as the reasons cell below.
-                let names = match.players.joined(separator: ", ")
+                let names = ([match.players.joined(separator: ", "),
+                              anonymousPlayersText(booked: match.booked, namedCount: match.players.count)]
+                             .filter { !$0.isEmpty }).joined(separator: ", ")
                 Text(names)
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary).lineLimit(1)
                     .help(names)

@@ -212,6 +212,13 @@ struct SlotRow: View {
             }
             result += part
         }
+        let anonymous = anonymousPlayersText(booked: slot.booked, namedCount: slot.players.count)
+        if !anonymous.isEmpty {
+            var part = AttributedString((slot.players.isEmpty ? "" : ", ") + anonymous)
+            part.foregroundColor = .secondary
+            part.inlinePresentationIntent = .emphasized
+            result += part
+        }
         return Text(result)
     }
 
@@ -245,14 +252,16 @@ struct SlotRow: View {
                 Text(t("overview.free", ["n": "\(slot.capacity - slot.booked)"]))
                     .font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .help(t("tip.open_spots"))
-                if !slot.players.isEmpty {
+                if !slot.players.isEmpty || slot.booked > 0 {
                     // Only ever non-empty from an authenticated scrape (2026-09-27) --
                     // pc caddie shows real names only to a logged-in member who's
                     // opted into its own reciprocal name-sharing. Never sent to any
                     // AI provider (see ai_assist.py's `_describe_candidate()`), local
                     // display only, same truncated-with-tooltip treatment as
                     // SearchSheet's own players cell.
-                    let names = slot.players.joined(separator: ", ")
+                    let names = ([slot.players.joined(separator: ", "),
+                                  anonymousPlayersText(booked: slot.booked, namedCount: slot.players.count)]
+                                 .filter { !$0.isEmpty }).joined(separator: ", ")
                     // Friends in bold gold, same gold the player directory's own ★ uses
                     // (direct request, 2026-10-02: "highlight friends when uncollapsing").
                     playersText.font(scaledFont(.caption2)).lineLimit(1)
@@ -268,15 +277,15 @@ struct SlotRow: View {
             // sunsetRowTime for the tie-break rule this shares with Python).
             if slot.time == day.sunriseRowTime {
                 Label(t("overview.sunrise_at", ["time": day.sunrise ?? ""]), systemImage: "sunrise.fill")
-                    .font(scaledFont(.caption2)).foregroundStyle(.orange)
+                    .font(scaledFont(.caption2)).foregroundStyle(.orange).lineLimit(1).fixedSize()
             }
             if slot.time == day.sunsetRowTime {
                 Label(t("overview.sunset_at", ["time": day.sunset ?? ""]), systemImage: "sunset.fill")
-                    .font(scaledFont(.caption2)).foregroundStyle(.orange)
+                    .font(scaledFont(.caption2)).foregroundStyle(.orange).lineLimit(1).fixedSize()
             }
             if isMine {
                 Label(t("overview.you"), systemImage: "flag.fill")
-                    .font(scaledFont(.caption2)).foregroundStyle(Color.accentColor)
+                    .font(scaledFont(.caption2)).foregroundStyle(Color.accentColor).lineLimit(1).fixedSize()
             }
             if let w = day.weather(at: slot.time) {
                 Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
