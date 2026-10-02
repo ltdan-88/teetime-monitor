@@ -2915,7 +2915,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         return [(today + timedelta(days=offset)).isoformat() for offset in range(display_days)]
 
     def _open_dates_cache_path(self) -> Path:
-        return Path(self.db_path).with_name("open_dates.json")
+        return Path(self.db_path).with_suffix(".open_dates.json")
 
     def _remembered_open_dates(self, dates: list[str]) -> set[str]:
         """The open-for-booking set the last launch found, for dates still in this
@@ -2956,14 +2956,19 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         mount. `asyncio.to_thread` offloads just the blocking call to a worker
         thread and awaits its result, the same fix `scrape_due_for_club()` already
         needed and got (`run_worker(..., thread=True)`) for the identical reason."""
-        display_days = config.get("overview_days", 5)
-        today = date_cls.fromisoformat(_TODAY())
-        dates = [(today + timedelta(days=offset)).isoformat() for offset in range(display_days)]
+        dates, open_dates, _ = await self._display_dates_checked(config)
+        return dates, open_dates
+
+    async def _display_dates_checked(self, config: dict) -> tuple[list[str], set[str], bool]:
+        """`_display_dates()` plus whether the open set came from a genuinely
+        successful fetch (False for the assume-everything-open fallback) -- only a
+        real result is worth remembering for the next launch."""
+        dates = self._local_dates(config)
         try:
             open_dates = set(await asyncio.to_thread(fetch_available_dates, self.club_id))
         except Exception:  # noqa: BLE001 — see docstring: assume everything attempted is open
-            return dates, set(dates)
-        return (dates, open_dates) if open_dates else (dates, set(dates))
+            return dates, set(dates), False
+        return (dates, open_dates, True) if open_dates else (dates, set(dates), False)
 
     async def _prewarm_pick_cache(
         self, config: dict, dates: list[str], open_dates: set[str], cache: dict | None = None
@@ -3112,6 +3117,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # time. load_overview() clears self._pick_cache before reaching here on
         # any call that's a genuinely new dataset.
         pipeline_cache = self._pick_cache
+        friend_names: set[str] | None = None  # loaded once, on the first expanded day
         for one_date in dates:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             # No year (2026-09-15, fitting the whole app on an iPad portrait
@@ -3189,7 +3195,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._row_header_cells[one_date] = pending_rows[-1]
 
             if can_expand and one_date in self._expanded_dates:
-                friend_names = storage.load_friend_names(path=_db_path(self.club_id))
+                if friend_names is None:
+                    friend_names = storage.load_friend_names(path=self.db_path)
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
                 crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
@@ -3538,10 +3545,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         try:
             await asyncio.sleep(_FIRST_SCRAPE_DELAY_SECONDS)
-            real_dates, real_open = await self._display_dates(config)
+            real_dates, real_open, fetched = await self._display_dates_checked(config)
             if stale():
                 return
-            self._remember_open_dates(real_open)
+            if fetched:
+                self._remember_open_dates(real_open)
             if real_open != open_dates or real_dates != dates:
                 dates, open_dates = real_dates, real_open
                 self._cached_dates, self._cached_open_dates = dates, open_dates
@@ -4964,9 +4972,14 @@ class TeetimeApp(App[None]):
             self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
             return
 
-        await self._pick_club_loop()
+        if await self._pick_club_loop():
+            self.set_timer(_FIRST_SCRAPE_DELAY_SECONDS, self._periodic_scrape)
+            self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
 
-    async def _pick_club_loop(self) -> None:
+    async def _pick_club_loop(self) -> bool:
+        """The club picker flow; True once a club was opened, False if the user quit.
+        Scrape timers are the caller's job (`_start()` registers them once -- a
+        restart after a stale remembered course must not add a second set)."""
         while True:
             club_id = await self.push_screen_wait(
                 ClubBrowserScreen(allow_cancel=False, initial_status=self._club_list_message)
@@ -4974,14 +4987,12 @@ class TeetimeApp(App[None]):
             self._club_list_message = ""
             if club_id is None:
                 self.exit()
-                return
+                return False
             if await self._open_club(club_id, always_ask_course=False):
-                break
+                return True
             # A club with no tee sheet, a cancelled course picker, or a failed fetch —
             # go back to the club list with the reason shown, rather than exiting the
             # whole app over one bad pick.
-        self.set_timer(_FIRST_SCRAPE_DELAY_SECONDS, self._periodic_scrape)
-        self.set_interval(AUTO_REFRESH_INTERVAL_SECONDS, self._periodic_scrape)
 
     async def _resume_last_active(self, last_active: dict) -> bool:
         """Jump straight into the remembered club/course from a previous session,
@@ -5046,7 +5057,8 @@ class TeetimeApp(App[None]):
         """The stale-remembered-course fallback: drop the overview and run the normal
         club picker flow (same loop `_start()` falls through to)."""
         self.pop_screen()
-        await self._pick_club_loop()
+        if await self._pick_club_loop():
+            self._periodic_scrape()  # the interval from _start() is already running
 
     def action_switch_club_or_course(self) -> None:
         """Re-open the club/course pickers on demand — direct feedback 2026-09-07:

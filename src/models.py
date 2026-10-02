@@ -33,12 +33,15 @@ def looks_like_player_name(text: str) -> bool:
     person ("Doppelteestart 11:00 Uhr, Ihre Startzeit gilt nur für 9-Loch!") -- the
     scraper's colspan rule only catches notes in the merged free-seat cell, and some
     clubs also write them into a normal seat cell (2026-10-02, direct report: "the
-    player directory has scraped elements that are not players but events"). A name
-    has no digits or sentence punctuation and is a handful of words at most."""
+    player directory has scraped elements that are not players but events"). Kept
+    deliberately loose: a real name wrongly rejected loses data (and the scraper
+    would demote its seat to a note), so only digits and sentence punctuation
+    (names never have them) or an implausible length are rejected -- parentheses
+    ("Müller (Gast)") and long multi-part names are fine."""
     return (
-        0 < len(text) <= 40
-        and len(text.split()) <= 5
-        and not any(ch.isdigit() or ch in "!?:;@/()" for ch in text)
+        0 < len(text) <= 60
+        and len(text.split()) <= 8
+        and not any(ch.isdigit() or ch in "!?:;@/" for ch in text)
     )
 
 

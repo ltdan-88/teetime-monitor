@@ -959,10 +959,10 @@ final class OverviewModel: ObservableObject {
     }
 
     func reload() {
-        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; return }
+        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; friendNames = []; return }
         let keepOpen = expanded          // a background refresh must not collapse what
         days = Store.days(dbPath: clubPath, course: course, from: today)
-        friendNames = Set(Store.knownPlayers(dbPath: clubPath).filter { $0.isFriend }.map { $0.name })
+        friendNames = Store.friendNames(dbPath: clubPath)
         expanded = keepOpen              // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
         lastScrape = Store.lastScrape(dbPath: clubPath)
