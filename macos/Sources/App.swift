@@ -121,7 +121,7 @@ struct LegendLine: View {
 /// line was redundant with it, so everything lives here now.
 struct LegendButton: View {
     @ObservedObject private var language = AppLanguage.shared
-    @StateObject private var shown = Box(false)
+    @ObservedObject private var commands = AppCommands.shared
 
     private let entries: [(code: Int, key: String)] = [
         (0, "legend.cond_clear"), (1, "legend.cond_cloudy"), (3, "legend.cond_overcast"),
@@ -130,14 +130,14 @@ struct LegendButton: View {
     ]
 
     var body: some View {
-        Button { shown.value.toggle() } label: {
+        Button { commands.legendShown.toggle() } label: {
             Label(t("tip.legend"), systemImage: "questionmark.circle")
                 .font(scaledFont(.caption2))
         }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(t("tip.legend"))
-            .popover(isPresented: $shown.value, arrowEdge: .top) {
+            .popover(isPresented: $commands.legendShown, arrowEdge: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     LegendLine()
                     Divider()
@@ -1142,6 +1142,8 @@ final class OverviewModel: ObservableObject {
 /// added next to a button.
 final class AppCommands: ObservableObject {
     static let shared = AppCommands()
+    /// The legend popover's state lives here so the menu's ⌘/ can toggle it.
+    @Published var legendShown = false
     var onRefresh: (() -> Void)?
     var onSearch: (() -> Void)?
     var onAddClub: (() -> Void)?

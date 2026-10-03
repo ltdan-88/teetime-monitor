@@ -132,7 +132,7 @@ A separate readiness screen (`s` from here) says how far along each weekday is.
 
 ### One menu, two languages, eleven themes
 
-**t** opens **Actions** — find a club, search, heatmap, settings, language, theme.
+**t** opens **Actions** — add club, search, heatmap, settings, language, theme.
 The whole interface runs in English or German (including this menu and every
 banner), and ships eleven colour themes: the same ten as
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), plus Catppuccin

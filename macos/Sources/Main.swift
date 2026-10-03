@@ -29,13 +29,21 @@ struct TeetimeMonitorApp: App {
                     .keyboardShortcut("r", modifiers: .command)
                 Button(t("menu.search")) { AppCommands.shared.onSearch?() }
                     .keyboardShortcut("f", modifiers: .command)
+                // One shortcut per action, mirroring the TUI's single keys (r, /, h, p, ",",
+                // s, a, ?). ⌘H is macOS's own Hide, so Heatmap takes ⇧⌘H.
                 Button(t("menu.add_club")) { AppCommands.shared.onAddClub?() }
+                    .keyboardShortcut("n", modifiers: .command)
                 Button(t("menu.heatmap")) { AppCommands.shared.onHeatmap?() }
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button(t("menu.player_directory")) { AppCommands.shared.onPlayerDirectory?() }
+                    .keyboardShortcut("p", modifiers: .command)
+                Button(t("menu.legend")) { AppCommands.shared.legendShown.toggle() }
+                    .keyboardShortcut("/", modifiers: .command)
                 Divider()
                 Button(t("menu.preferences")) { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)
                 Button(t("menu.settings")) { AppCommands.shared.onSettings?() }
+                    .keyboardShortcut(",", modifiers: [.command, .shift])
             }
         }
     }

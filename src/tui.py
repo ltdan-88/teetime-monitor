@@ -126,7 +126,7 @@ independent, not one replacing the other.
 Switching club/course + searching for a new club on the fly (added 2026-09-07,
 direct feedback: "how can i switch to a different course from the time schedule
 menu?" followed by "I want to be able to switch clubs on the fly. It is a hassle if
-you need to first save clubs into the config"): Actions ("Find a club", reached via
+you need to first save clubs into the config"): Actions ("Add Club", reached via
 `t` — no dedicated key of its own since 2026-09-16, see `OverviewScreen`'s own
 docstring) opens `TeetimeApp.action_switch_club_or_course()` — which opens the very
 same `ClubBrowserScreen` the app launches into, so switching mid-session and
@@ -2599,7 +2599,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     mixin — see its own docstring) rather than pushing a new screen. The club
     dropdown only lists favorites (`_favorite_clubs()`) plus the currently active
     club if it isn't one — finding a club you haven't saved yet still needs Actions
-    → Find a club's full searchable `ClubBrowserScreen`, which stays exactly as it
+    → Add Club's full searchable `ClubBrowserScreen`, which stays exactly as it
     was; the inline selectors are an additional fast path for clubs you're already
     switching between regularly, not a replacement for discovering a new one.
 
@@ -2679,7 +2679,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ("h", "heatmap(False)", "Heatmap"),
         ("p", "player_directory(False)", "Players"),
         ("comma", "edit_preferences(False)", "Preferences"),
-        ("c", "collapse_all", "Collapse all"),
+        ("s", "edit_settings", "Settings"),
+        ("a", "switch", "Add Club"),
         ("x", "dismiss_banners", "Dismiss banners"),
         ("question_mark", "toggle_legend", "Legend"),
         ("t", "command_palette", "Actions"),
@@ -2691,8 +2692,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ("h", "binding.heatmap"),
         ("p", "binding.players_short"),
         (",", "binding.preferences"),
+        ("s", "binding.settings"),
+        ("a", "binding.switch"),
         ("r", "binding.refresh"),
-        ("c", "binding.collapse_all"),
         ("x", "binding.dismiss_banners"),
         ("?", "binding.legend"),
         ("t", "binding.commands"),
@@ -2903,15 +2905,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._refresh_footer()
 
     def _refresh_footer(self) -> None:
-        """Only list `c`/`x` while they'd actually do something -- something
-        expanded, a banner showing (2026-09-27, bundle D of the TUI/GUI
+        """Only list `x` while it'd actually do something -- a banner showing (2026-09-27, bundle D of the TUI/GUI
         consistency audit): with the four main actions' direct keys added, the
         full list no longer fit one line even at 120 columns, and those two are
         the ones with nothing to act on most of the time. The keys themselves
         stay bound either way."""
         hidden = set()
-        if not self._expanded_dates:
-            hidden.add("c")
         if not self._has_banners:
             hidden.add("x")
         footer = self.query_one(TranslatedFooter)
@@ -3728,23 +3727,6 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self.app.push_screen(
             ConfirmBookingScreen(self.club_id, self.course, date, slot_time, default_holes), on_result
         )
-
-    def action_collapse_all(self) -> None:
-        """`c` -- collapse every currently-expanded day row at once, back to the
-        compact day-summary view in a single press. Direct request 2026-09-16,
-        right after the Overview's own per-slot crowd marker shipped: "I'd also
-        like a collapse keybind in the overview screen." `enter` already
-        expands/collapses one day row at a time (`_toggle_expanded()` above) --
-        this doesn't replace that, it's the fast way back once more than one
-        day is open at once, the same relationship `x` (dismiss every banner)
-        already has to acknowledging one at a time. No-op with nothing expanded
-        (same as `x` with no pending banners) rather than needing its own
-        conditional binding."""
-        if not self._expanded_dates:
-            return
-        row = self.query_one("#overview-table", DataTable).cursor_row
-        self._expanded_dates = set()
-        self._rerender_preserving_cursor(row)
 
     def action_search(self, via_palette: bool = True) -> None:
         # Callback (not push_screen_wait()) since this itself isn't a worker
@@ -4763,7 +4745,7 @@ class TeetimeApp(App[None]):
         screen accessible from actions menu?") pushes the same
         `CredentialsScreen` `ClubBrowserScreen`'s own `l` key already reaches —
         until now that was the only way in, two menu levels deep (Actions ->
-        Find a club -> `l`) and easy to miss for revisiting credentials
+        Add Club -> `l`) and easy to miss for revisiting credentials
         already set (e.g. after a password change on pc caddie's own site).
         See `action_edit_credentials()`'s own docstring.
 
@@ -4823,7 +4805,7 @@ class TeetimeApp(App[None]):
 
     def _reopen_actions_menu(self) -> None:
         """Reopens the Actions menu (`t`) once a screen it opened (Settings,
-        Search, Heatmap, or Find a club's `ClubBrowserScreen`) backs out --
+        Search, Heatmap, or Add Club's `ClubBrowserScreen`) backs out --
         direct feedback 2026-09-16: "can you make ESC return to actions
         screen when accessing entries from actions screen?" Those four are
         the *only* way any of them are reached at all now (their own direct
@@ -4889,7 +4871,7 @@ class TeetimeApp(App[None]):
         `CoursePickerScreen` at all, even for a club with several courses and no
         saved default, falling back to the first one exactly the way the inline
         club-select dropdown's own `_switch_club()` already does. Only
-        `_do_switch_club_or_course()` (`s`, "Find a club") passes this -- the
+        `_do_switch_club_or_course()` (`s`, "Add Club") passes this -- the
         initial launch flow still shows the picker for a genuinely ambiguous
         club, since a first-time pick deserves an active choice the same way
         `always_ask` already covers for that flow specifically."""
@@ -5078,6 +5060,10 @@ class TeetimeApp(App[None]):
             config = club_config.load_club_config(slug) if slug else {}
         except FileNotFoundError:
             config = {}
+        # The club's own `default_course` wins over the remembered one -- the GUI
+        # launches on it the same way (a 9-hole member should land on the 9-hole
+        # course every time); a stale value is caught by the validation below.
+        course = config.get("default_course") or course
         # Opens the remembered course immediately and validates it against the live
         # course list in the background (2026-10-01, "make launch under a second"):
         # that fetch is a full network round trip (~1s) and used to gate the very
