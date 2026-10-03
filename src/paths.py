@@ -42,6 +42,7 @@ those exactly as before.
 """
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -53,8 +54,39 @@ def _dir_from_env(var: str, default: Path) -> Path:
     return Path(raw).expanduser() if raw else default
 
 
-CONFIG_DIR = _dir_from_env("TEETIME_MONITOR_CONFIG_DIR", Path.home() / ".config" / "teetime-monitor")
-DATA_DIR = _dir_from_env("TEETIME_MONITOR_DATA_DIR", Path.home() / ".local" / "share" / "teetime-monitor")
+def _platform_default(windows_var: str, windows_fallback: Path, unix_default: Path) -> Path:
+    """Windows keeps config in %APPDATA% (roaming) and data in %LOCALAPPDATA%, the
+    per-user locations that need no admin rights; macOS/Linux keep the XDG-style dot
+    directories. The variable is read at call time (import time here) so a test can
+    set it before reloading the module."""
+    if sys.platform == "win32":
+        base = os.environ.get(windows_var)
+        return (Path(base) if base else windows_fallback) / "teetime-monitor"
+    return unix_default
+
+
+CONFIG_DIR = _dir_from_env(
+    "TEETIME_MONITOR_CONFIG_DIR",
+    _platform_default("APPDATA", Path.home() / "AppData" / "Roaming", Path.home() / ".config" / "teetime-monitor"),
+)
+DATA_DIR = _dir_from_env(
+    "TEETIME_MONITOR_DATA_DIR",
+    _platform_default(
+        "LOCALAPPDATA", Path.home() / "AppData" / "Local", Path.home() / ".local" / "share" / "teetime-monitor"
+    ),
+)
+
+def force_utf8_stdio() -> None:
+    """The Windows console defaults to a legacy code page (cp1252) that can't print
+    the weather/marker glyphs or every club name; make stdout/stderr UTF-8 so the CLI
+    entry points don't crash with UnicodeEncodeError. A no-op elsewhere."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
 
 CLUBS_DIR = CONFIG_DIR / "clubs"
 ENV_FILE = CONFIG_DIR / ".env"
@@ -142,7 +174,8 @@ def migrate_from(cwd: Path | None = None) -> list[str]:
     legacy_env = cwd / LEGACY_ENV_FILE
     if legacy_env.is_file() and not ENV_FILE.exists():
         shutil.copy2(legacy_env, ENV_FILE)
-        ENV_FILE.chmod(0o600)  # it holds credentials; the old one may have been 644
+        if sys.platform != "win32":  # no POSIX permission bits on Windows
+            ENV_FILE.chmod(0o600)  # it holds credentials; the old one may have been 644
         moved.append("credentials (.env)")
 
     return moved

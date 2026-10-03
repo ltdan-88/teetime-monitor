@@ -10,6 +10,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:  # lets the Windows job below be run by hand
   schedule:
     # 22:30 UTC -- deliberately inside the window that used to break the suite,
     # so a re-introduced wall-clock dependency shows up on its own rather than
@@ -34,6 +35,40 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+  # Windows support (2026-10-03): the terminal app should run on a plain per-user
+  # Windows install (Scoop/uv, no admin). This job is how that stays true -- the
+  # suite plus a real headless launch, on a runner that isn't this developer's Mac.
+  #
+  # Nightly and on demand only, not on every push/PR (decided with the maintainer,
+  # 2026-10-03): a few Textual UI tests that chain keypresses across nested screens
+  # are timing-flaky on Windows runners (a different one fails each run, passes on
+  # the next), which would make every merge a coin flip. The nightly run still
+  # catches a real Windows regression within a day.
+  pytest-windows:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: App starts (version) and writes only to per-user folders
+        shell: pwsh
+        run: |
+          teetime-monitor --version
+          python -c "from src import paths; print(paths.CONFIG_DIR); print(paths.DATA_DIR)"
 
   # The suite must not depend on the machine's wall clock or calendar date.
   # Kiritimati (UTC+14) and Midway (UTC-11) are 25 hours apart, so on any given

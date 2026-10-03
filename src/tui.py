@@ -2961,7 +2961,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         unreadable or unknown falls back to "assume every attempted date is open",
         same as `_display_dates()`'s own failure fallback."""
         try:
-            remembered = set(json.loads(self._open_dates_cache_path().read_text()).get("open", []))
+            remembered = set(json.loads(self._open_dates_cache_path().read_text(encoding="utf-8")).get("open", []))
         except Exception:  # noqa: BLE001 -- a missing/corrupt hint is just "no hint"
             return set(dates)
         known = remembered & set(dates)
@@ -2969,7 +2969,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     def _remember_open_dates(self, open_dates: set[str]) -> None:
         try:
-            self._open_dates_cache_path().write_text(json.dumps({"open": sorted(open_dates)}))
+            self._open_dates_cache_path().write_text(json.dumps({"open": sorted(open_dates)}), encoding="utf-8")
         except Exception:  # noqa: BLE001 -- purely an optimisation
             pass
 
@@ -5309,6 +5309,7 @@ class TeetimeApp(App[None]):
 
 
 def main() -> None:
+    paths.force_utf8_stdio()
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"teetime-monitor {_version()}")
         return

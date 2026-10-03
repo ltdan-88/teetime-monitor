@@ -585,6 +585,7 @@ def main(argv: list[str] | None = None) -> None:
     let an explicit human request actually mean "now", rather than to explain the
     silence afterwards.
     """
+    paths.force_utf8_stdio()
     argv = argv if argv is not None else sys.argv[1:]
     force = "--force" in argv or "-f" in argv
     # One-time move off the old working-directory layout (2026-09-17, see paths.py).

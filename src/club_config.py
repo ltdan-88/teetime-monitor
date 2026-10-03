@@ -116,7 +116,7 @@ def load_club_config(club_id: str, clubs_dir: Path | None = None) -> dict:
     `clubs_dir` resolves at call time rather than as a bound default."""
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     path = directory / f"{club_id}.yaml"
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         return yaml_util.safe_load(f) or {}
 
 
@@ -135,7 +135,7 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) 
     either way, and this only affects a club's own gitignored copy."""
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     path = directory / f"{club_id}.yaml"
-    with path.open("w") as f:
+    with path.open("w", encoding="utf-8") as f:
         # allow_unicode=True -- without it PyYAML backslash-escapes every non-ASCII
         # character in a double-quoted scalar (a club name like "Domäne" becomes
         # "Domäne" on disk, note the *decomposed* combining-diaeresis escape,

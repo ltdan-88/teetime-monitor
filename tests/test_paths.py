@@ -4,6 +4,9 @@ The move exists because a GUI front end launched from Finder gets `cwd = "/"` an
 can never find CWD-relative state -- see paths.py's own module docstring.
 """
 
+import sys
+from pathlib import Path
+
 import pytest
 
 from src import paths
@@ -142,6 +145,7 @@ def test_migration_is_idempotent(fixed_dirs, tmp_path):
     assert second == []  # and nothing the second
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX permission bits")
 def test_migrated_credentials_are_not_world_readable(fixed_dirs, tmp_path):
     config, _ = fixed_dirs
     old = _legacy_install(tmp_path / "old")
@@ -169,3 +173,43 @@ def test_ensure_dirs_is_safe_to_call_twice(fixed_dirs):
     paths.ensure_dirs()
     for directory in paths.MANAGED_DIRS:
         assert directory.is_dir()
+
+
+# --- Windows defaults (per-user, no admin) --------------------------------------------
+
+
+def _reload_paths_as(monkeypatch, platform, **env):
+    import importlib
+
+    for var in ("TEETIME_MONITOR_CONFIG_DIR", "TEETIME_MONITOR_DATA_DIR", "APPDATA", "LOCALAPPDATA"):
+        monkeypatch.delenv(var, raising=False)
+    for var, value in env.items():
+        monkeypatch.setenv(var, value)
+    monkeypatch.setattr("sys.platform", platform)
+    return importlib.reload(paths)
+
+
+def test_windows_defaults_use_appdata_and_localappdata(monkeypatch, tmp_path):
+    try:
+        reloaded = _reload_paths_as(
+            monkeypatch, "win32", APPDATA=str(tmp_path / "Roaming"), LOCALAPPDATA=str(tmp_path / "Local")
+        )
+        assert reloaded.CONFIG_DIR == tmp_path / "Roaming" / "teetime-monitor"
+        assert reloaded.DATA_DIR == tmp_path / "Local" / "teetime-monitor"
+    finally:
+        monkeypatch.undo()
+        import importlib
+
+        importlib.reload(paths)
+
+
+def test_unix_defaults_stay_xdg_style(monkeypatch):
+    try:
+        reloaded = _reload_paths_as(monkeypatch, "darwin")
+        assert reloaded.CONFIG_DIR == Path.home() / ".config" / "teetime-monitor"
+        assert reloaded.DATA_DIR == Path.home() / ".local" / "share" / "teetime-monitor"
+    finally:
+        monkeypatch.undo()
+        import importlib
+
+        importlib.reload(paths)

@@ -66,7 +66,8 @@ Everything above works with none of these. Each one is additive:
 | A pc caddie login (`l` in the club browser) | Searching the club directory by name, reading your own confirmed bookings and handicap automatically, real player names (if your club shares them), a browsable player directory, and preferring slots with friends or a similar/better handicap |
 | An AI provider API key ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini, or Grok) | AI-ranked recommendations (off by default; a paid API call per recommendation) |
 
-**Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/).
+**Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/). Windows 10/11 works
+for the terminal app too (experimental) — see [Windows](#windows-experimental).
 
 </details>
 
@@ -269,6 +270,41 @@ fixed locations the app does — `~/.config/teetime-monitor/` (clubs, login) and
 `~/.local/share/teetime-monitor/` (scrape history) — so it works from anywhere.
 
 Empty log means no errors. Remove with `launchctl unload …` plus deleting the plist.
+
+### Windows (experimental)
+
+The terminal app runs on Windows without admin rights — everything installs into your
+user profile. The test suite runs on a Windows machine in CI on every change; the app
+itself has had less real-world use there than on macOS. (The macOS companion app is
+macOS-only.)
+
+```powershell
+scoop install uv                       # per-user, no admin
+scoop bucket add extras
+scoop install windows-terminal         # recommended: the old console window renders it poorly
+uv tool install git+https://github.com/ltdan-88/teetime-monitor
+teetime-monitor                        # in Windows Terminal
+```
+
+Upgrade with `uv tool upgrade teetime-monitor`. No Scoop? `winget install astral-sh.uv
+--scope user` or the [uv installer](https://docs.astral.sh/uv/) work the same way.
+
+State lives in `%APPDATA%\teetime-monitor` (clubs, login, preferences) and
+`%LOCALAPPDATA%\teetime-monitor` (scrape history); `TEETIME_MONITOR_CONFIG_DIR` /
+`TEETIME_MONITOR_DATA_DIR` override both. The login is stored in a plain `.env` file
+there — on a shared or managed PC, keep that in mind.
+
+To also scrape unattended, a per-user scheduled task needs no admin rights (it runs
+while you're logged in):
+
+```powershell
+$exe = Join-Path (uv tool dir --bin) "teetime-monitor-scrape.exe"
+schtasks /Create /SC MINUTE /MO 15 /TN "teetime-monitor-scrape" /TR "`"$exe`""
+# remove again: schtasks /Delete /TN "teetime-monitor-scrape" /F
+```
+
+If your company inspects HTTPS traffic and launch fails with a certificate error, point
+the app at your company's CA bundle: `$env:SSL_CERT_FILE = "C:\path\to\ca-bundle.pem"`.
 
 ### From source
 

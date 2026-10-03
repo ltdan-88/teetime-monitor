@@ -22,6 +22,8 @@ monkeypatches `_NOW_HHMM` itself in its own body — that runs after this
 fixture and wins, so those keep testing exactly what they always did.
 """
 
+import sys
+
 import pytest
 
 from src import (
@@ -191,3 +193,24 @@ def _no_real_state_directories(monkeypatch, tmp_path):
     monkeypatch.setattr(paths, "CLUBS_DIR", config / "clubs")
     monkeypatch.setattr(paths, "ENV_FILE", config / ".env")
     monkeypatch.setattr(paths, "MANAGED_DIRS", (config, config / "clubs", data))
+
+
+@pytest.fixture(autouse=True)
+def _patient_textual_pauses_on_windows(monkeypatch):
+    """Windows CI runners are slow enough that a single `pilot.pause()` sometimes
+    returns before a worker or screen dismissal has finished (a different Textual
+    test failed on each run, and passed on the next). Give every pause a short grace
+    period on Windows only; elsewhere behaviour is unchanged."""
+    if sys.platform != "win32":
+        return
+    import asyncio
+
+    from textual.pilot import Pilot
+
+    original = Pilot.pause
+
+    async def patient_pause(self, delay=None):
+        await original(self, delay)
+        await asyncio.sleep(0.05)
+
+    monkeypatch.setattr(Pilot, "pause", patient_pause)

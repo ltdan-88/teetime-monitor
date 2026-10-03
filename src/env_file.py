@@ -35,7 +35,7 @@ def load_env_value(key: str, path: Path | None = None) -> str | None:
     path = path if path is not None else ENV_FILE
     if not path.exists():
         return None
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith("#") or "=" not in stripped:
             continue
@@ -61,9 +61,9 @@ def set_env_values(
         return
 
     if path.exists():
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     elif template_path.exists():
-        lines = template_path.read_text().splitlines()
+        lines = template_path.read_text(encoding="utf-8").splitlines()
     else:
         lines = []
 
@@ -80,4 +80,4 @@ def set_env_values(
     for key, value in remaining.items():
         lines.append(f"{key}={value}")
 
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

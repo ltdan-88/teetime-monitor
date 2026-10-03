@@ -115,7 +115,7 @@ def load_cached_directory(path: Path | None = None) -> list[tuple[str, str]]:
     if not cache.exists():
         return []
     try:
-        with cache.open() as f:
+        with cache.open(encoding="utf-8") as f:
             payload = json.load(f)
         return [(str(club_id), str(name)) for club_id, name in payload.get("clubs", [])]
     except (json.JSONDecodeError, ValueError, TypeError, OSError):
@@ -134,7 +134,7 @@ def load_seed_directory(path: Path | None = None) -> list[tuple[str, str]]:
     if not seed.exists():
         return []
     try:
-        with seed.open() as f:
+        with seed.open(encoding="utf-8") as f:
             payload = json.load(f)
         return [(str(club_id), str(name)) for club_id, name in payload.get("clubs", [])]
     except (json.JSONDecodeError, ValueError, TypeError, OSError):
@@ -149,7 +149,7 @@ def cached_at(path: Path | None = None) -> str | None:
     if not cache.exists():
         return None
     try:
-        with cache.open() as f:
+        with cache.open(encoding="utf-8") as f:
             return json.load(f).get("fetched_at")
     except (json.JSONDecodeError, ValueError, TypeError, OSError):
         return None
@@ -165,7 +165,7 @@ def save_directory(entries: list[tuple[str, str]], path: Path | None = None) -> 
         "fetched_at": datetime.now(UTC).isoformat(),
         "clubs": [list(entry) for entry in entries],
     }
-    with cache.open("w") as f:
+    with cache.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
 
 
