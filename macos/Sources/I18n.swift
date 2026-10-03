@@ -129,7 +129,8 @@ private let englishStrings: [String: String] = [
     "menu.actions": "Actions",
     "menu.refresh": "Refresh",
     "menu.search": "Search…",
-    "menu.add_club": "Add a Club…",
+    "menu.add_club": "Add Club…",
+    "menu.legend": "Legend",
     "menu.heatmap": "Crowd Heatmap…",
     "menu.player_directory": "Player Directory…",
     "menu.preferences": "Preferences…",
@@ -410,7 +411,7 @@ private let englishStrings: [String: String] = [
     "search.booked": "Booked {day} at {time}.",
 
     // Add a club
-    "addclub.title": "Add a Club",
+    "addclub.title": "Add Club",
     "addclub.refresh": "Refresh directory",
     "addclub.search_placeholder": "Search by name, or paste a club id / booking link",
     "addclub.source_live": "Live directory, {n} clubs",
@@ -527,6 +528,7 @@ private let germanStrings: [String: String] = [
     "menu.refresh": "Aktualisieren",
     "menu.search": "Suchen…",
     "menu.add_club": "Club hinzufügen…",
+    "menu.legend": "Legende",
     "menu.heatmap": "Auslastungs-Heatmap…",
     "menu.player_directory": "Spielerverzeichnis…",
     "menu.preferences": "Präferenzen…",

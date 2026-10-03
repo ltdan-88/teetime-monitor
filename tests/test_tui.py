@@ -1959,51 +1959,6 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
     _run(scenario())
 
 
-def test_overview_screen_collapse_all_key_collapses_every_expanded_day_at_once(tmp_path, monkeypatch):
-    # Direct request 2026-09-16, right after the Overview's own crowd marker
-    # shipped: "I'd also like a collapse keybind in the overview screen" --
-    # `enter` only ever toggled one day row at a time; `c` clears every
-    # expanded day in a single press.
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
-    db_path = scrape_once._db_path("0000001")
-    for date in ["2026-09-07", "2026-09-08"]:
-        storage.save_schedule(
-            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
-            path=db_path,
-        )
-
-    async def scenario():
-        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            table = app.screen.query_one("#overview-table", DataTable)
-            table.focus()
-            collapsed_row_count = table.row_count
-
-            # One day open at a time now (accordion, 2026-10-02) -- `c` still closes it.
-            app.screen._toggle_expanded("2026-09-07", 0)
-            await pilot.pause()
-            assert app.screen._expanded_dates == {"2026-09-07"}
-            assert table.row_count == collapsed_row_count + 1
-
-            await pilot.press("c")
-            await pilot.pause()
-            assert app.screen._expanded_dates == set()
-            assert table.row_count == collapsed_row_count
-
-    _run(scenario())
-
-
-# _update_sticky_header() -- direct request, 2026-09-26, right after the GUI's own
-# equivalent shipped: "I like the behavior in the GUI when uncollapsing and
-# scrolling the days, can we replicate that behavior in the TUI?" Pins an expanded
-# day's own summary row at the top of #overview-table once scrolling has carried it
-# out of view, same as the GUI's own pinned Section header.
-
-
 def test_sticky_header_appears_once_scrolled_past_the_expanded_days_own_row(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
@@ -2089,26 +2044,6 @@ def test_sticky_header_matches_the_column_widths_overview_table_itself_uses(tmp_
             table_widths = [col.width for col in table.columns.values()]
             sticky_widths = [col.width for col in sticky.columns.values()]
             assert sticky_widths == table_widths == app.screen._column_widths
-
-    _run(scenario())
-
-
-def test_overview_screen_collapse_all_is_a_no_op_with_nothing_expanded(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-
-    async def scenario():
-        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            table = app.screen.query_one("#overview-table", DataTable)
-            table.focus()
-            row_count = table.row_count
-
-            await pilot.press("c")
-            await pilot.pause()
-            assert table.row_count == row_count
-            assert app.screen._expanded_dates == set()
 
     _run(scenario())
 
@@ -2634,25 +2569,23 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
             text = app.screen.query_one(tui.TranslatedFooter).render()
             assert "enter" in text and "Open / book" in text
             assert "r" in text and "Refresh" in text
-            # `c`/`x` only while they'd do something (2026-09-27, bundle D --
-            # see OverviewScreen._refresh_footer()): nothing expanded, no banner.
+            # `x` only while it'd do something (2026-09-27, bundle D -- see
+            # OverviewScreen._refresh_footer()): no banner showing. `c` is gone
+            # (2026-10-03): the accordion leaves one day open at most.
             assert "Collapse" not in text
             assert "Dismiss" not in text
             assert "?" in text and "Legend" in text
             assert "t" in text and "Actions" in text
             # The four main actions have direct keys again, named here
             # (2026-09-27, bundle D -- reversing 2026-09-16's palette-only design
-            # at the user's own choice); Settings stays in the palette only.
+            # at the user's own choice); Settings and Add Club got `s`/`a` on
+            # 2026-10-03 so the keys match the GUI's menu/toolbar one-to-one.
             assert "[b]/[/b] Search" in text
             assert "[b]h[/b] Heatmap" in text
             assert "[b]p[/b] Players" in text
             assert "[b],[/b] Preferences" in text
-            assert "Settings" not in text
-
-            app.screen._expanded_dates = {tui._TODAY()}
-            await app.screen.load_overview(keep_cursor=True)
-            await pilot.pause()
-            assert "[b]c[/b] Collapse" in app.screen.query_one(tui.TranslatedFooter).render()
+            assert "[b]s[/b] Settings" in text
+            assert "[b]a[/b] Add Club" in text
 
     _run(scenario())
 
@@ -5708,3 +5641,51 @@ def test_compute_slot_rows_colours_names_by_gender_and_stars_friends():
     assert rows[0].players_cell == (
         "[#5aa9ff]Max Mustermann[/], [yellow]★[/] [bold][#e36bd0]Erika Muster[/][/], Kim Unknown"
     )
+
+
+def test_overview_screen_s_and_a_open_settings_and_the_club_browser(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    calls = []
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(app.screen, "action_edit_settings", lambda: calls.append("settings"))
+            monkeypatch.setattr(app.screen, "action_switch", lambda: calls.append("add"))
+            await pilot.press("s")
+            await pilot.press("a")
+            await pilot.pause()
+
+    _run(scenario())
+    assert calls == ["settings", "add"]
+
+
+def test_start_resumes_on_the_clubs_default_course_not_the_last_used_one(tmp_path, monkeypatch):
+    # Same rule as the GUI's launch: a 9-hole member always lands on the 9-hole course.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(
+        tui.global_preferences,
+        "load_last_active_club",
+        lambda *a, **k: {"club_id": "0000001", "slug": "home-club", "course": "18 Loch Tee 1"},
+    )
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+    monkeypatch.setattr(
+        tui, "fetch_course_aliases", lambda club_id: {"9 Loch Tee 1": "COU1", "18 Loch Tee 1": "COU2"}
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+            assert app.screen.course == "9 Loch Tee 1"
+
+    _run(scenario())

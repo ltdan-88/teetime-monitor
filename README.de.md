@@ -136,7 +136,7 @@ jeder Wochentag schon ist.
 
 ### Ein Menü, zwei Sprachen, elf Designs
 
-**t** öffnet die **Aktionen** — Club suchen, Suchen, Auslastung, Einstellungen, Sprache,
+**t** öffnet die **Aktionen** — Club hinzufügen, Suchen, Auslastung, Einstellungen, Sprache,
 Design. Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
 und aller Hinweise) und bringt elf Farbdesigns mit: dieselben zehn wie
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), dazu Catppuccin Latte
