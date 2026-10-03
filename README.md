@@ -83,6 +83,13 @@ full 08:00–20:00 is, that day's events and closures, and the **Pick**: the ver
 for that day.
 
 Press **enter** to open a day in place rather than navigating away from the week.
+Only one day stays open at a time — opening another closes the first, and switching
+club or course closes them all.
+
+With a pc caddie login the names get meaning: players are coloured by gender
+(blue / magenta), a friend you marked in the player directory gets a bold name and a
+gold ★, and a seat with no public name reads *anonymous* instead of silently
+vanishing. **?** shows the legend for all of it.
 
 <p align="center"><img src="assets/en/expanded.png" alt="A day opened in place, showing each individual tee time with its own occupancy"></p>
 
@@ -100,7 +107,7 @@ With a pc caddie login, two more preferences use real data your club shares: pre
 slots where a marked friend is already booked, or where the field's handicap is
 similar to (or better than) your own — auto-scraped, never typed in.
 
-<p align="center"><img src="assets/en/settings.png" alt="The settings screen, with availability, weather, and priority preferences grouped into sections"></p>
+<p align="center"><img src="assets/en/settings.png" alt="The preferences screen, with availability, weather, and priority preferences grouped into sections"></p>
 
 ### Search, for the exceptions
 
@@ -132,13 +139,14 @@ A separate readiness screen (`s` from here) says how far along each weekday is.
 
 ### One menu, two languages, eleven themes
 
-**t** opens **Actions** — add club, search, heatmap, settings, language, theme.
+**t** opens **Actions** — add club, search, heatmap, players, preferences, settings,
+language, theme. Each of those also has its own key (see [Keys](#keys)).
 The whole interface runs in English or German (including this menu and every
 banner), and ships eleven colour themes: the same ten as
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), plus Catppuccin
 Latte for anyone who wants a light theme that isn't Solarized.
 
-<p align="center"><img src="assets/en/actions.png" alt="The Actions menu: find a club, search, heatmap, settings"></p>
+<p align="center"><img src="assets/en/actions.png" alt="The Actions menu: add club, search, heatmap, players, preferences, settings"></p>
 
 ## A macOS companion app (macOS only)
 
@@ -151,7 +159,10 @@ second way to look at the same thing, not a second thing to keep in sync by hand
 
 <p align="center"><img src="assets/en/gui-expanded.png" alt="A day expanded in the macOS app, showing each individual tee time"></p>
 
-It covers everything above: the day list with weather and a heat strip, ad hoc
+It shows the same things the same way — friends in gold, names coloured by gender,
+anonymous seats, the **?** legend — and opens on each club's default course (set per
+club in Settings → Clubs; the terminal app honours the same `default_course`). It
+covers everything above: the day list with weather and a heat strip, ad hoc
 search, a crowd heatmap, preferences and pc caddie login, managing which clubs are
 saved (browse and open a club before ever favoriting it, add by name or id, remove
 — all from the same place), scrape interval and AI ranking, and — same as the
@@ -169,17 +180,28 @@ any other app. See [`macos/README.md`](macos/README.md) for the full build story
 
 ## Keys
 
-Almost everything lives behind **t**. These are the keys worth knowing:
+The terminal app and the macOS app use the same letters, so nothing has to be
+relearned between them. In the macOS app the shortcuts are in the **Actions** menu;
+⌘H is macOS's own Hide, so the heatmap is ⇧⌘H there.
 
-| Key | Does | Where |
+| Action | Terminal | macOS app |
 |---|---|---|
-| **enter** | Open a day in place · mark a tee time as booked or cancelled | Overview |
-| **r** | Re-scrape the whole loaded window right now | Overview |
-| **x** | Dismiss booking-change banners | Overview |
-| **t** / **ctrl+p** | Actions — everything else | Overview |
-| **escape** | Back (returns to Actions if you came from there) | any screen |
-| **q** | Quit | everywhere |
-| **f** · **r** · **l** | Favourite a club · refresh the directory · set up your login | Club browser |
+| Open a day in place · mark a tee time as booked or cancelled | **enter** | click |
+| Refresh — re-scrape the loaded window now | **r** | ⌘R |
+| Search | **/** | ⌘F |
+| Heatmap | **h** | ⇧⌘H |
+| Players (player directory) | **p** | ⌘P |
+| Preferences | **,** | ⌘, |
+| Settings | **s** | ⇧⌘, |
+| Add Club | **a** | ⌘N |
+| Legend | **?** | ⌘/ |
+| Dismiss booking-change banners | **x** | per banner |
+| Actions menu | **t** / **ctrl+p** | menu bar |
+| Back | **escape** | **escape** |
+| Quit | **q** | ⌘Q |
+
+In the club browser (terminal): **f** favourite · **r** refresh the directory ·
+**l** set up your login.
 
 `teetime-monitor --version` prints the version; it's also in the header while running.
 

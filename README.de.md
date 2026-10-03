@@ -84,6 +84,13 @@ Auslastung zwischen 08:00 und 20:00 Uhr, die Termine und Sperrungen des Tages, u
 **Empfehlung**: das Fazit für diesen Tag.
 
 **Enter** klappt einen Tag an Ort und Stelle auf, statt die Wochenansicht zu verlassen.
+Es bleibt immer nur ein Tag offen — ein weiterer Tag schließt den ersten, und ein
+Wechsel von Club oder Platz schließt alle.
+
+Mit einem pc-caddie-Login bekommen die Namen Bedeutung: Spieler sind nach Geschlecht
+eingefärbt (blau / magenta), ein im Spielerverzeichnis markierter Freund erscheint
+fett mit goldenem ★, und ein Platz ohne öffentlichen Namen steht als *anonym* da, statt
+einfach zu fehlen. **?** zeigt die Legende zu alledem.
 
 <p align="center"><img src="assets/de/expanded.png" alt="Ein aufgeklappter Tag mit allen einzelnen Startzeiten und deren Auslastung"></p>
 
@@ -136,13 +143,14 @@ jeder Wochentag schon ist.
 
 ### Ein Menü, zwei Sprachen, elf Designs
 
-**t** öffnet die **Aktionen** — Club hinzufügen, Suchen, Auslastung, Einstellungen, Sprache,
-Design. Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
+**t** öffnet die **Aktionen** — Club hinzufügen, Suchen, Auslastung, Spieler, Präferenzen,
+Einstellungen, Sprache, Design. Jeder dieser Punkte hat zusätzlich eine eigene Taste (siehe
+[Tasten](#tasten)). Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
 und aller Hinweise) und bringt elf Farbdesigns mit: dieselben zehn wie
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), dazu Catppuccin Latte
 für alle, die ein helles Design abseits von Solarized möchten.
 
-<p align="center"><img src="assets/de/actions.png" alt="Das Aktionen-Menü: Club suchen, Suchen, Auslastung, Einstellungen"></p>
+<p align="center"><img src="assets/de/actions.png" alt="Das Aktionen-Menü: Club hinzufügen, Suchen, Auslastung, Spieler, Präferenzen, Einstellungen"></p>
 
 ## Eine macOS-Begleit-App (nur macOS)
 
@@ -156,7 +164,10 @@ Hand synchron gehalten werden muss.
 
 <p align="center"><img src="assets/de/gui-expanded.png" alt="Ein aufgeklappter Tag in der macOS-App mit allen einzelnen Startzeiten"></p>
 
-Sie deckt alles vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
+Sie zeigt dieselben Dinge auf dieselbe Weise — Freunde in Gold, nach Geschlecht eingefärbte
+Namen, anonyme Plätze, die **?**-Legende — und öffnet für jeden Club auf dessen
+Standardplatz (pro Club unter Einstellungen → Clubs festlegbar; die Terminal-App beachtet
+dasselbe `default_course`). Sie deckt alles vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
 Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, die Verwaltung
 der gespeicherten Clubs (einen Club ansehen und öffnen, bevor er überhaupt favorisiert
 wird, per Name oder ID hinzufügen, entfernen — alles an einer Stelle), Abrufintervall
@@ -175,17 +186,28 @@ Launchpad und Spotlight erscheinen lässt. Die volle Entstehungsgeschichte steht
 
 ## Tasten
 
-Fast alles steckt hinter **t**. Diese Tasten lohnt es sich zu kennen:
+Terminal- und macOS-App nutzen dieselben Buchstaben, man muss also nichts umlernen. In der
+macOS-App stehen die Kurzbefehle im Menü **Aktionen**; ⌘H ist macOS' eigenes „Ausblenden“,
+deshalb liegt die Heatmap dort auf ⇧⌘H.
 
-| Taste | Wirkung | Wo |
+| Aktion | Terminal | macOS-App |
 |---|---|---|
-| **Enter** | Tag aufklappen · Tee-Zeit als gebucht oder storniert markieren | Übersicht |
-| **r** | Das gesamte geladene Fenster sofort neu abrufen | Übersicht |
-| **x** | Hinweise ausblenden | Übersicht |
-| **t** / **Strg+P** | Aktionen — alles Weitere | Übersicht |
-| **Esc** | Zurück (zu den Aktionen, wenn du von dort kamst) | überall |
-| **q** | Beenden | überall |
-| **f** · **r** · **l** | Club favorisieren · Verzeichnis aktualisieren · Login einrichten | Club-Suche |
+| Tag aufklappen · Tee-Zeit als gebucht oder storniert markieren | **Enter** | Klick |
+| Aktualisieren — geladenes Fenster sofort neu abrufen | **r** | ⌘R |
+| Suchen | **/** | ⌘F |
+| Auslastung (Heatmap) | **h** | ⇧⌘H |
+| Spieler (Spielerverzeichnis) | **p** | ⌘P |
+| Präferenzen | **,** | ⌘, |
+| Einstellungen | **s** | ⇧⌘, |
+| Club hinzufügen | **a** | ⌘N |
+| Legende | **?** | ⌘/ |
+| Hinweise ausblenden | **x** | je Hinweis |
+| Aktionen-Menü | **t** / **Strg+P** | Menüleiste |
+| Zurück | **Esc** | **Esc** |
+| Beenden | **q** | ⌘Q |
+
+In der Club-Suche (Terminal): **f** favorisieren · **r** Verzeichnis aktualisieren ·
+**l** Login einrichten.
 
 `teetime-monitor --version` gibt die Version aus; sie steht außerdem durchgehend im Kopf
 der Anwendung.

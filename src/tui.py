@@ -2692,8 +2692,6 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ("h", "binding.heatmap"),
         ("p", "binding.players_short"),
         (",", "binding.preferences"),
-        ("s", "binding.settings"),
-        ("a", "binding.switch"),
         ("r", "binding.refresh"),
         ("x", "binding.dismiss_banners"),
         ("?", "binding.legend"),

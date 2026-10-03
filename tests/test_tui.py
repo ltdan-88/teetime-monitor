@@ -2579,13 +2579,14 @@ def test_overview_screen_footer_says_enter_expands_or_confirms(tmp_path, monkeyp
             # The four main actions have direct keys again, named here
             # (2026-09-27, bundle D -- reversing 2026-09-16's palette-only design
             # at the user's own choice); Settings and Add Club got `s`/`a` on
-            # 2026-10-03 so the keys match the GUI's menu/toolbar one-to-one.
+            # 2026-10-03 so the keys match the GUI's menu one-to-one -- bound but
+            # not in the footer: with a banner showing, 11 hints wrapped to two
+            # lines even at 135 columns.
             assert "[b]/[/b] Search" in text
             assert "[b]h[/b] Heatmap" in text
             assert "[b]p[/b] Players" in text
             assert "[b],[/b] Preferences" in text
-            assert "[b]s[/b] Settings" in text
-            assert "[b]a[/b] Add Club" in text
+            assert "Settings" not in text and "Add Club" not in text
 
     _run(scenario())
 
