@@ -2426,12 +2426,15 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             widget = app.screen.query_one("#field-availability-min_open_spots")
             widget.value = "3"
             await pilot.click("#save")
-            await pilot.pause()
+            # Saving re-renders the overview behind this screen; on a slow Windows
+            # runner an escape sent before that finishes is swallowed (it only passed
+            # there with a longer wait here), so give the save time to settle.
+            await pilot.pause(0.5)
             # escape, not "q" -- SettingsScreen's own q now quits the whole app,
             # matching every other screen's convention (2026-09-09 fix; see that
             # module's own docstring for the direct feedback this responds to).
             await pilot.press("escape")
-            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette))
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=15)
 
             # Reopens the Actions menu it was opened from, not the overview
             # directly (2026-09-16, "can you make ESC return to actions screen
@@ -2439,7 +2442,7 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             # is what actually gets back to the overview now.
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
-            await _wait_until(pilot, lambda: isinstance(app.screen, tui.OverviewScreen))
+            await _wait_until(pilot, lambda: isinstance(app.screen, tui.OverviewScreen), timeout=15)
 
             # Back on the overview, reloaded -- a saved availability change can
             # immediately affect its per-day pick column and "This week's picks".
