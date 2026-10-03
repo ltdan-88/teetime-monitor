@@ -32,10 +32,6 @@ struct TeetimeMonitorApp: App {
                 Button(t("menu.add_club")) { AppCommands.shared.onAddClub?() }
                 Button(t("menu.heatmap")) { AppCommands.shared.onHeatmap?() }
                 Button(t("menu.player_directory")) { AppCommands.shared.onPlayerDirectory?() }
-                // ⌥⌘← -- Finder's and Xcode's own shortcut for "collapse everything
-                // in this outline", reused rather than picked arbitrarily.
-                Button(t("menu.collapse_all")) { AppCommands.shared.onCollapseAll?() }
-                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 Divider()
                 Button(t("menu.preferences")) { AppCommands.shared.onPreferences?() }
                     .keyboardShortcut(",", modifiers: .command)

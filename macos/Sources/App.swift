@@ -1044,16 +1044,39 @@ final class OverviewModel: ObservableObject {
         reload()
     }
 
-    func reload() {
+    func reload(offMain: Bool = false) {
         guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; friendNames = []; playerGenders = [:]; return }
         let keepOpen = expanded          // a background refresh must not collapse what
-        days = Store.days(dbPath: clubPath, course: course, from: today)
-        friendNames = Store.friendNames(dbPath: clubPath)
-        playerGenders = Store.playerGenders(dbPath: clubPath)
-        expanded = keepOpen              // you were reading -- same rule as the TUI's
+        if offMain {
+            // Course switch: the SQLite reads (6 days of slots + weather) ran on the
+            // main thread, so the collapse repaint waited on them -- the visible lag
+            // when switching with a day open (report 2026-10-03). Read on a worker
+            // and apply only if the selection is still the one asked for.
+            let path = clubPath, course = course, today = today
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let loaded = Store.days(dbPath: path, course: course, from: today)
+                let friends = Store.friendNames(dbPath: path)
+                let genders = Store.playerGenders(dbPath: path)
+                let scrape = Store.lastScrape(dbPath: path)
+                let bans = Store.banners(dbPath: path)
+                DispatchQueue.main.async {
+                    guard let self, self.clubPath == path, self.course == course else { return }
+                    self.days = loaded
+                    self.friendNames = friends
+                    self.playerGenders = genders
+                    self.lastScrape = scrape
+                    self.banners = bans
+                }
+            }
+        } else {
+            days = Store.days(dbPath: clubPath, course: course, from: today)
+            friendNames = Store.friendNames(dbPath: clubPath)
+            playerGenders = Store.playerGenders(dbPath: clubPath)
+            expanded = keepOpen          // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
-        lastScrape = Store.lastScrape(dbPath: clubPath)
-        banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
+            lastScrape = Store.lastScrape(dbPath: clubPath)
+            banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
+        }
 
         // Cleared synchronously the moment club/course actually changes, not left to
         // the async fetch below to overwrite once it eventually lands -- direct
@@ -1124,7 +1147,6 @@ final class AppCommands: ObservableObject {
     var onAddClub: (() -> Void)?
     var onHeatmap: (() -> Void)?
     var onPlayerDirectory: (() -> Void)?
-    var onCollapseAll: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
 }
@@ -1351,7 +1373,7 @@ struct ContentView: View {
                 // same as the Club picker beside it already does.
                 .onChange(of: model.course) { _, _ in
                     model.expanded = []  // switching course collapses every day (direct request, 2026-10-03)
-                    model.reload()
+                    model.reload(offMain: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1416,26 +1438,6 @@ struct ContentView: View {
                         : t("overview.empty_pick_another")))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                // Placed beside the list it acts on, not in the already-full
-                // 6-button toolbar above -- direct request, 2026-09-19 ("I'd like a
-                // button to collapse all incl. a keybind"). Hidden once nothing is
-                // open rather than merely disabled: with every card already
-                // collapsed there is nothing left for it to say.
-                if !model.expanded.isEmpty {
-                    HStack {
-                        Spacer()
-                        // No .keyboardShortcut() here -- same reason AppCommands'
-                        // own docstring gives for every other toolbar action: it
-                        // would work but wouldn't be *discoverable*. The real
-                        // shortcut lives on the Actions-menu item below, routed
-                        // through the same AppCommands.onCollapseAll closure this
-                        // button calls directly.
-                        Button { model.expanded.removeAll() } label: {
-                            Label(t("action.collapse_all"), systemImage: "arrow.up.to.line.compact")
-                        }
-                        .help(t("tip.collapse_all"))
-                    }
-                }
                 // LazyVStack + Section, not the plain VStack this used to be --
                 // `pinnedViews: [.sectionHeaders]` is what actually pins each open
                 // day's own header while its slots scroll underneath (direct
@@ -1612,7 +1614,6 @@ struct ContentView: View {
                 guard !model.clubPath.isEmpty else { return }
                 showingPlayerDirectory.value = true
             }
-            AppCommands.shared.onCollapseAll = { model.expanded.removeAll() }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }
         }
