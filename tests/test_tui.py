@@ -2501,6 +2501,7 @@ def test_edit_settings_units_change_rebuilds_the_overviews_own_column_headers(tm
             await pilot.pause()
 
             # Reopens the Actions menu first -- see the other e->settings test above.
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=10)
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
@@ -2550,6 +2551,7 @@ def test_edit_settings_works_on_a_club_that_was_never_favorited(tmp_path, monkey
             await pilot.pause()
 
             # Reopens the Actions menu first -- see the other e->settings test above.
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=10)
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
@@ -2700,6 +2702,7 @@ def test_overview_screen_search_escape_reopens_the_actions_menu_then_the_overvie
             assert isinstance(app.screen, tui.SearchScreen)
             await pilot.press("escape")
             await pilot.pause()
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=10)
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
@@ -4324,6 +4327,7 @@ def test_switch_action_cancel_reopens_the_actions_menu_then_the_overview(tmp_pat
             app.screen.dismiss(None)  # backed out, no club chosen
             await pilot.pause()
             await pilot.pause()
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=10)
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
@@ -5088,6 +5092,7 @@ def test_heatmap_screen_escape_reopens_the_actions_menu_then_the_overview(tmp_pa
             assert isinstance(app.screen, tui.HeatmapScreen)
             await pilot.press("escape")
             await pilot.pause()
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=10)
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
             await pilot.pause()
