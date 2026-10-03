@@ -179,6 +179,17 @@ class _HostApp(App):
         self.call_after_refresh(self.action_command_palette)
 
 
+async def _wait_until(pilot, predicate, timeout=5.0):
+    """Poll until `predicate()` holds, instead of guessing how many `pilot.pause()`s a
+    screen change needs -- a fixed pause count was enough on a Mac and not on a slower
+    Windows CI runner."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        await pilot.pause(0.05)
+
+
 def _run(coro):
     asyncio.run(coro)
 
@@ -2420,7 +2431,7 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             # matching every other screen's convention (2026-09-09 fix; see that
             # module's own docstring for the direct feedback this responds to).
             await pilot.press("escape")
-            await pilot.pause()
+            await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette))
 
             # Reopens the Actions menu it was opened from, not the overview
             # directly (2026-09-16, "can you make ESC return to actions screen
@@ -2428,7 +2439,7 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             # is what actually gets back to the overview now.
             assert isinstance(app.screen, CommandPalette)
             await pilot.press("escape")
-            await pilot.pause()
+            await _wait_until(pilot, lambda: isinstance(app.screen, tui.OverviewScreen))
 
             # Back on the overview, reloaded -- a saved availability change can
             # immediately affect its per-day pick column and "This week's picks".
