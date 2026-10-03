@@ -2433,7 +2433,13 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             # escape, not "q" -- SettingsScreen's own q now quits the whole app,
             # matching every other screen's convention (2026-09-09 fix; see that
             # module's own docstring for the direct feedback this responds to).
-            await pilot.press("escape")
+            # Re-press escape while still on this screen: on a slow Windows runner the
+            # first one is sometimes swallowed (never when the screen is idle).
+            for _ in range(10):
+                if not isinstance(app.screen, tui.PreferencesScreen):
+                    break
+                await pilot.press("escape")
+                await pilot.pause(0.3)
             await _wait_until(pilot, lambda: isinstance(app.screen, CommandPalette), timeout=15)
 
             # Reopens the Actions menu it was opened from, not the overview
