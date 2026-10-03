@@ -229,7 +229,7 @@ enum SheetSize {
     /// picked for (a season's worth of operating hours, ~14 rows, comes to
     /// roughly 350pt total including both header rows and padding), and nothing
     /// was resizing the ScrollView above the fixed footer down to match.
-    static let wide = CGSize(width: 560, height: 500)
+    static let wide = CGSize(width: 520, height: 440)
     /// The player directory (2026-09-27, direct request: "make the layout fit all
     /// contents at a glance (make screen wider if no other option)") -- wider than
     /// every other sheet on purpose: it's the one screen in this app with a fixed

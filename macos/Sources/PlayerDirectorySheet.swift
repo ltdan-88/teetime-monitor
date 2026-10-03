@@ -222,10 +222,12 @@ struct PlayerDirectorySheet: View {
             if players.value.isEmpty {
                 Spacer()
                 Text(t("players.empty")).font(scaledFont(.body)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                 Spacer()
             } else if visiblePlayers.isEmpty {
                 Spacer()
                 Text(t("players.no_matches")).font(scaledFont(.body)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                 Spacer()
             } else {
                 ScrollViewReader { proxy in
