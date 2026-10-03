@@ -61,7 +61,7 @@ def load_preferences(path: Path | None = None) -> dict:
     resolved = path if path is not None else PREFERENCES_FILE
     if not resolved.exists():
         return {}
-    with resolved.open() as f:
+    with resolved.open(encoding="utf-8") as f:
         config = yaml_util.safe_load(f) or {}
     # A hand-edited/legacy value outside the dropdown's choices (or a bare YAML
     # boolean from before yaml_util) would crash the Preferences dropdown.
@@ -82,7 +82,7 @@ def save_preferences(config: dict, path: Path | None = None) -> None:
     it already exists)."""
     resolved = path if path is not None else PREFERENCES_FILE
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    with resolved.open("w") as f:
+    with resolved.open("w", encoding="utf-8") as f:
         # allow_unicode=True -- same fix as club_config.save_club_config(), same
         # reason: preferences.yaml has no non-ASCII fields today, but this file is
         # also re-written wholesale by the Swift GUI's own PreferencesStore.save()

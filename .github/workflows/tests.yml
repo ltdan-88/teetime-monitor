@@ -35,6 +35,33 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  # Windows support (2026-10-03): the terminal app should run on a plain per-user
+  # Windows install (Scoop/uv, no admin). This job is how that stays true -- the
+  # suite plus a real headless launch, on a runner that isn't this developer's Mac.
+  pytest-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: App starts (version) and writes only to per-user folders
+        shell: pwsh
+        run: |
+          teetime-monitor --version
+          python -c "from src import paths; print(paths.CONFIG_DIR); print(paths.DATA_DIR)"
+
   # The suite must not depend on the machine's wall clock or calendar date.
   # Kiritimati (UTC+14) and Midway (UTC-11) are 25 hours apart, so on any given
   # run they disagree about both the local hour *and* the current date -- which

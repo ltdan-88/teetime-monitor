@@ -17,7 +17,9 @@ rather than defaulting it themselves.
 
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "teetime-monitor"
+from . import paths
+
+CONFIG_DIR = paths.CONFIG_DIR
 CONFIG_FILE = CONFIG_DIR / "config"
 
 
@@ -27,7 +29,7 @@ def load_value(key: str, config_file: Path) -> str | None:
     if not config_file.exists():
         return None
     prefix = f"{key}="
-    for line in config_file.read_text().splitlines():
+    for line in config_file.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith(prefix):
             value = stripped[len(prefix) :].strip()
@@ -43,7 +45,7 @@ def save_value(key: str, value: str, config_file: Path) -> None:
     lines: list[str] = []
     replaced = False
     if config_file.exists():
-        for line in config_file.read_text().splitlines():
+        for line in config_file.read_text(encoding="utf-8").splitlines():
             if line.strip().startswith(prefix):
                 lines.append(f"{key}={value}")
                 replaced = True
@@ -51,4 +53,4 @@ def save_value(key: str, value: str, config_file: Path) -> None:
                 lines.append(line)
     if not replaced:
         lines.append(f"{key}={value}")
-    config_file.write_text("\n".join(lines) + "\n")
+    config_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
