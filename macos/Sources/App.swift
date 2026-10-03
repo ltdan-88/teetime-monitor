@@ -1323,7 +1323,8 @@ struct ContentView: View {
                     Text(model.clubName).font(scaledFont(.body)).fontWeight(.semibold)
                         .lineLimit(1).truncationMode(.tail)
                 } else {
-                    Picker("", selection: $model.clubPath) {
+                    Picker("", selection: Binding(get: { model.clubPath },
+                                                  set: { model.expanded = []; model.clubPath = $0 })) {
                         // Alphabetical here, in the dropdown only -- direct
                         // question, 2026-09-19 ("are entries in club dropdown
                         // sorted alphabetically?"). `model.clubs` itself stays
@@ -1351,7 +1352,13 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 12)
                 Text(t("overview.course")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                Picker("", selection: $model.course) {
+                // Collapse in the same mutation as the course change: with a day open the
+                // first render after the switch still laid out and hover-tracked its ~60
+                // rows (each with several tooltips) before onChange could collapse it --
+                // a ~10 s freeze inside the open menu (sampled 2026-10-03:
+                // NSHostingView.didRequestHoverUpdate was half the main thread).
+                Picker("", selection: Binding(get: { model.course },
+                                              set: { model.expanded = []; model.course = $0 })) {
                     ForEach(model.courses, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().pickerStyle(.menu).font(scaledFont(.body)).fontWeight(.semibold)
