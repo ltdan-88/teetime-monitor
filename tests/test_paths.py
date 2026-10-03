@@ -4,6 +4,7 @@ The move exists because a GUI front end launched from Finder gets `cwd = "/"` an
 can never find CWD-relative state -- see paths.py's own module docstring.
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -144,6 +145,7 @@ def test_migration_is_idempotent(fixed_dirs, tmp_path):
     assert second == []  # and nothing the second
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX permission bits")
 def test_migrated_credentials_are_not_world_readable(fixed_dirs, tmp_path):
     config, _ = fixed_dirs
     old = _legacy_install(tmp_path / "old")
