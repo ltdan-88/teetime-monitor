@@ -169,6 +169,7 @@ from textual.widgets.option_list import Option
 
 from . import (
     analytics,
+    booking_window,
     calendar_context,
     club_config,
     club_directory,
@@ -225,6 +226,7 @@ TODAY_HIDDEN_AFTER_HHMM = "21:00"
 
 _TODAY = lambda: date_cls.today().isoformat()  # noqa: E731 — small enough, and patched as a whole in tests
 _NOW_HHMM = lambda: datetime.now().strftime("%H:%M")  # noqa: E731 — same reasoning, for _initial_date()
+_NOW_UTC = lambda: datetime.now(UTC)  # noqa: E731 — same reasoning, for the booking-window lock
 
 
 def _version() -> str:
@@ -1862,6 +1864,46 @@ def _window_hint_text(hint: dict | None) -> str:
     return f"[yellow]💡[/] {text}"
 
 
+def _lock_when_text(opens_at: datetime, hour_known: bool, now: datetime) -> str:
+    """When a locked day opens, for the Pick cell and its sentence (2026-10-05): "Wed
+    21:00", "today 20:00", or -- when the club names no hour -- just the day ("Tue"),
+    never a time it didn't state. A weekday is only unambiguous within a week, so an
+    opening 7+ days away says "Oct 14" / "14. Okt" instead. Judged in the opening's own zone (the
+    club's), the way its "ab 20 Uhr" is. Mirrored by `lockWhenText()` in Formatting.swift
+    (cross-checked by scripts/cross_language_reference.py)."""
+    days = (opens_at.date() - now.astimezone(opens_at.tzinfo).date()).days
+    if days <= 0:
+        day = i18n.t("lock.today")
+    elif days < 7:
+        day = i18n.t(f"weekday.{opens_at.weekday()}")
+    else:
+        day = i18n.t("lock.date", month=i18n.t(f"lock.month.{opens_at.month}"), day=opens_at.day)
+    return f"{day} {opens_at:%H:%M}" if hour_known else day
+
+
+def _locked_day_texts(schedule: Schedule | None, config: dict) -> tuple[str, str] | None:
+    """(Pick cell, #row-detail sentence) for a day that isn't bookable yet, else None
+    -- every slot (nearly) a "4 Tage im Voraus ab 20 Uhr buchbar" notice and that
+    moment still ahead, see `booking_window.day_booking_status()`. Independent of any
+    availability rules: when it opens is worth knowing either way."""
+    if schedule is None or not schedule.slots:
+        return None
+    now = _NOW_UTC()
+    status = booking_window.day_booking_status(schedule.slots, schedule.date, now, booking_window.club_timezone(config))
+    if not status["locked"]:
+        return None
+    when = _lock_when_text(status["opens_at"], status["hour_known"], now)
+    key = "lock.opens_at" if status["hour_known"] else "lock.opens_at_date"
+    return f"[dim]🔒 {markup_escape(when)}[/]", markup_escape(i18n.t(key, when=when))
+
+
+def _locked_detail_text(schedule: Schedule | None, config: dict, pick_cell: str) -> str:
+    """The sentence ("Booking opens Wed 21:00") for a locked day's #row-detail --
+    "" unless `pick_cell` really is that day's lock (a confirmed booking wins the cell)."""
+    texts = _locked_day_texts(schedule, config)
+    return texts[1] if texts is not None and pick_cell == texts[0] else ""
+
+
 def _day_pick_text(
     schedule: Schedule | None,
     config: dict,
@@ -1876,6 +1918,8 @@ def _day_pick_text(
        it's what's actually happening. "⚠" alongside it means `booking_watch.py`
        found an unacknowledged change since it was booked (see `refresh_banners()`
        for the banner that spells out what actually changed).
+    1b. A day that isn't bookable yet shows "🔒 Wed 21:00" -- when it opens (2026-10-05,
+       see `_locked_day_texts()`) -- whether or not availability rules exist.
     2. Otherwise, if availability rules are configured and this day has a schedule to
        check: a recommended "★ HH:MM" (the best still-playable match — AI-ranked once
        `ai_assist.enabled`, otherwise the earliest, see `_availability_pipeline()`'s
@@ -1892,6 +1936,9 @@ def _day_pick_text(
         if has_pending_change:
             text += " [red]⚠[/]"
         return text
+    locked = _locked_day_texts(schedule, config)
+    if locked is not None:
+        return locked[0]
     if schedule is None or not config.get("availability"):
         return "[dim]—[/]"
     candidates, playable = _availability_pipeline(schedule, config, club_id, cache)
@@ -2192,6 +2239,7 @@ _MARKER_LEGEND = [
     ("🌙", "legend.too_late"),
     ("📋", "legend.event"),
     ("📌", "overview.booked"),
+    ("🔒", "legend.locked"),
     ("⚠", "legend.changed"),
     # Plain, uncolored "■" here rather than one colored swatch per state
     # (green/yellow/red, as `_slot_crowd_marker()` actually renders) --
@@ -3466,7 +3514,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # {pending_rows index: sentence} for day rows whose Pick is a shorter-round
         # alternative -- the cell itself can't name the course, so #row-detail
         # does whenever that row is highlighted, like the GUI's tooltip on hover
-        # (2026-10-05).
+        # (2026-10-05) -- or a locked day, whose sentence says when it opens.
         alternative_details: dict[int, str] = {}
         # Memo for _availability_pipeline() -- self._pick_cache (see its own
         # docstring in __init__), not a fresh dict per call: a resize/expand/
@@ -3523,7 +3571,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             self._row_index.append((one_date, None))
             can_expand = schedule is not None and bool(schedule.slots)
             if can_expand:
-                schedules.append(schedule)
+                # Not a locked day: its sheet is all notices, so it says nothing about
+                # the window being too late -- and picks_cli.py leaves it out of the same
+                # hint, so the TUI's and the GUI's agree (2026-10-05).
+                if _locked_day_texts(schedule, config) is None:
+                    schedules.append(schedule)
                 caret = "▼" if one_date in self._expanded_dates else "▶"
                 day_cell = f"{caret} {day_cell}"
                 condition_cell = _condition_cell(schedule.weather) or "[dim]—[/]"
@@ -3552,7 +3604,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 (day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, heat_cell, event_cell, pick_cell)
             )
             self._row_header_cells[one_date] = pending_rows[-1]
-            alternative_detail = _alternative_detail_text(schedule, config, self.club_id, pipeline_cache, pick_cell)
+            alternative_detail = _locked_detail_text(schedule, config, pick_cell) or _alternative_detail_text(
+                schedule, config, self.club_id, pipeline_cache, pick_cell
+            )
             if alternative_detail:
                 alternative_details[len(pending_rows) - 1] = alternative_detail
 
@@ -3677,7 +3731,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 # column, so _row_lost_text() always keeps it (plus any lost Events).
                 pick = self._PICK_COLUMN_INDEX
                 full_row = (*full_row[:pick], alternative_details[index], *full_row[pick + 1 :])
-            self._row_full_text.append(self._row_lost_text(full_row, column_widths))
+            self._row_full_text.append(
+                self._row_lost_text(full_row, column_widths, always_pick=index in alternative_details)
+            )
             table.add_row(*cells, height=1)
         self._refresh_footer()
 
@@ -3698,17 +3754,22 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def _in_display_order(cls, cells):
         return tuple(cells[index] for index in cls._DISPLAY_ORDER)
 
-    def _row_lost_text(self, full_row: tuple[str, ...], column_widths: list[int]) -> str:
+    def _row_lost_text(self, full_row: tuple[str, ...], column_widths: list[int], always_pick: bool = False) -> str:
         """Whatever of this row's Pick/Events text didn't make it onto screen --
         cut short by "…", or (Events) not shown at all on a narrow terminal --
-        for #row-detail. A bare dash (nothing to say) is never worth repeating."""
+        for #row-detail. A bare dash (nothing to say) is never worth repeating.
+        `always_pick`: the Pick text is a sentence standing in for its cell (an
+        alternative round, a locked day's opening), kept even if the column happens to
+        be wide enough for it."""
         lost = []
         for index in (self._PICK_COLUMN_INDEX, self._EVENTS_COLUMN_INDEX):
             text = full_row[index]
             if Text.from_markup(text).plain.strip() in ("", "—"):
                 continue
             shown_width = column_widths[index] if index < len(column_widths) else 0
-            if _cell_visible_width(text.replace("\n", " ")) > shown_width:
+            if (always_pick and index == self._PICK_COLUMN_INDEX) or _cell_visible_width(
+                text.replace("\n", " ")
+            ) > shown_width:
                 lost.append(text)
         return " · ".join(lost)
 

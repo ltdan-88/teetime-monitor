@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import threading
+from datetime import UTC, datetime
 
 import pytest
 from rich.text import Text
@@ -1307,6 +1308,145 @@ def test_day_pick_text_flags_a_pending_booking_watch_change():
     assert "⚠" in text
 
 
+# --- locked days: "🔒 Wed 21:00" (2026-10-05) -----------------------------------------
+
+_LOCK_NOTICE = "4 Tage im Voraus ab 20 Uhr buchbar (KP)"
+
+
+def _locked_schedule(date: str, reason: str = _LOCK_NOTICE, count: int = 30) -> Schedule:
+    return Schedule(
+        date=date,
+        course="18 Loch Tee 1",
+        slots=[Slot(time=f"{8 + i // 6:02d}:{(i % 6) * 10:02d}", booked=0, capacity=4, block_reason=reason) for i in range(count)],
+    )
+
+
+@pytest.fixture
+def _scrape_clock(monkeypatch):
+    """18:28 CEST on Mon 2026-10-05 -- the observed scrape (16:28 UTC)."""
+    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 16, 28, tzinfo=UTC))
+
+
+def test_day_pick_text_shows_when_a_locked_day_opens_later_today(_scrape_clock):
+    # 2026-10-09 minus 4 days = today, 20:00 club-local
+    text = tui._day_pick_text(_locked_schedule("2026-10-09"), {}, None, False, "0000001")
+    assert text == "[dim]🔒 today 20:00[/]"
+
+
+def test_day_pick_text_shows_the_weekday_for_a_later_opening(_scrape_clock):
+    # 2026-10-10 opens Tue 2026-10-06 20:00
+    assert tui._day_pick_text(_locked_schedule("2026-10-10"), {}, None, False, "0000001") == "[dim]🔒 Tue 20:00[/]"
+    i18n.set_language("de")
+    assert tui._day_pick_text(_locked_schedule("2026-10-10"), {}, None, False, "0000001") == "[dim]🔒 Di 20:00[/]"
+    i18n.set_language("de")
+    assert tui._day_pick_text(_locked_schedule("2026-10-09"), {}, None, False, "0000001") == "[dim]🔒 heute 20:00[/]"
+
+
+def test_day_pick_text_names_only_the_day_when_the_club_gives_no_hour(_scrape_clock):
+    # "Buchung 1 Tag im voraus möglich." for Thu 10-08: opens Wed 10-07 -- date-level, no time
+    schedule = _locked_schedule("2026-10-08", reason="Buchung 1 Tag im voraus möglich.")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]🔒 Wed[/]"
+    i18n.set_language("de")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]🔒 Mi[/]"
+
+
+def test_day_pick_text_uses_a_date_when_the_opening_is_a_week_or_more_away(_scrape_clock):
+    # 14 days ahead of Tue 10-27 = Tue 10-13, 8 days from now: "Tue" would read as tomorrow's
+    schedule = _locked_schedule("2026-10-27", reason="14 Tage im Voraus ab 8 Uhr")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]🔒 Oct 13 08:00[/]"
+    i18n.set_language("de")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]🔒 13. Okt 08:00[/]"
+
+
+def test_day_pick_text_lock_replaces_the_pick_even_with_availability_rules(_scrape_clock):
+    config = {"availability": {"weekday_window": {"after": None, "before": None}}}
+    text = tui._day_pick_text(_locked_schedule("2026-10-10"), config, None, False, "0000001")
+    assert text == "[dim]🔒 Tue 20:00[/]"
+    assert "nothing playable" not in text
+
+
+def test_day_pick_text_a_confirmed_booking_beats_the_lock(_scrape_clock):
+    booking = ConfirmedBooking(date="2026-10-10", course="18 Loch Tee 1", time="14:00", source="manual")
+    text = tui._day_pick_text(_locked_schedule("2026-10-10"), {}, booking, False, "0000001")
+    assert "📌" in text and "🔒" not in text
+
+
+def test_day_pick_text_no_lock_once_the_day_has_opened(monkeypatch):
+    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 18, 0, tzinfo=UTC))  # 20:00 CEST
+    assert tui._day_pick_text(_locked_schedule("2026-10-09"), {}, None, False, "0000001") == "[dim]—[/]"
+
+
+def test_day_pick_text_lock_follows_the_club_timezone(monkeypatch):
+    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 18, 30, tzinfo=UTC))
+    schedule = _locked_schedule("2026-10-09")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"  # Berlin: opened 18:00 UTC
+    assert tui._day_pick_text(schedule, {"timezone": "Europe/Lisbon"}, None, False, "0000001") == "[dim]🔒 today 20:00[/]"
+
+
+def test_day_pick_text_other_notes_do_not_lock_a_day(_scrape_clock):
+    schedule = _locked_schedule("2026-10-10", reason="Kanonenstart 13 Uhr, Sie müssen den Platz bis 12:30 Uhr verlassen haben.")
+    assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"
+
+
+def test_locked_detail_text_says_when_booking_opens(_scrape_clock):
+    schedule = _locked_schedule("2026-10-10")
+    cell = tui._day_pick_text(schedule, {}, None, False, "0000001")
+    assert tui._locked_detail_text(schedule, {}, cell) == "Booking opens Tue 20:00"
+    i18n.set_language("de")
+    assert tui._locked_detail_text(schedule, {}, tui._day_pick_text(schedule, {}, None, False, "0000001")) == (
+        "Buchbar ab Di 20:00"
+    )
+    # not the cell's own text (a booking won): no sentence
+    assert tui._locked_detail_text(schedule, {}, "📌 14:00 booked") == ""
+
+
+def test_locked_detail_text_without_an_hour_does_not_claim_a_time(_scrape_clock):
+    schedule = _locked_schedule("2026-10-08", reason="Buchung 1 Tag im voraus möglich.")
+    cell = tui._day_pick_text(schedule, {}, None, False, "0000001")
+    assert tui._locked_detail_text(schedule, {}, cell) == "Booking opens Wed (the club gives no time)"
+    i18n.set_language("de")
+    assert tui._locked_detail_text(schedule, {}, tui._day_pick_text(schedule, {}, None, False, "0000001")) == (
+        "Buchbar ab Mi (Uhrzeit vom Club nicht angegeben)"
+    )
+
+
+def test_pick_cell_for_a_locked_day_is_no_wider_than_the_notes_it_replaces(_scrape_clock):
+    # The Pick column keeps its width rule: the widest lock cell ("🔒 today 20:00") must not
+    # be wider than the "nothing playable" message the column already has to fit.
+    widest = max(
+        tui._cell_visible_width(tui._day_pick_text(_locked_schedule(date), {}, None, False, "0000001"))
+        for date in ("2026-10-09", "2026-10-10", "2026-10-13")
+    )
+    assert widest <= tui._cell_visible_width(i18n.t("overview.no_playable_picks")) + 1
+
+
+def test_overview_legend_lists_the_lock():
+    assert ("🔒", "legend.locked") in tui.OVERVIEW_LEGEND
+    assert "🔒" not in [icon for icon, key in tui.OVERVIEW_LEGEND if key != "legend.locked"]
+
+
+def test_overview_screen_shows_the_lock_and_names_the_opening_in_row_detail(tmp_path, monkeypatch, _scrape_clock):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-10-05")
+    monkeypatch.setattr(tui.OverviewScreen, "_config", lambda self: {"overview_days": 6})
+    storage.save_schedule(_locked_schedule("2026-10-10"), path=scrape_once._db_path("0000001"))
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert Text.from_markup(app.screen._row_header_cells["2026-10-10"][2]).plain == "🔒 Tue 20:00"
+            table = app.screen.query_one("#overview-table", DataTable)
+            table.focus()
+            table.move_cursor(row=app.screen._row_index.index(("2026-10-10", None)))
+            await pilot.pause()
+            detail = Text.from_markup(str(app.screen.query_one("#row-detail").content)).plain
+            assert "Booking opens Tue 20:00" in detail
+
+    _run(scenario())
+
+
 def test_day_pick_text_dash_without_availability_configured():
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"
@@ -1849,6 +1989,58 @@ def test_overview_screen_explains_a_window_that_opens_too_late_once(tmp_path, mo
             await pilot.pause()
             hint = str(app.screen.query_one("#hint").content)
             assert "16:00" in hint and "14:40" in hint and "19:10" in hint
+
+    _run(scenario())
+
+
+def test_overview_hint_and_picks_cli_hint_agree_when_a_day_is_locked(tmp_path, monkeypatch, capsys):
+    """One day too late for the window plus a locked day: the hint needs two such days.
+    A locked day's sheet is all notices and says nothing about the window, so neither the
+    TUI's #hint nor picks_cli (which the GUI shows) may count it (2026-10-05, review
+    finding -- the TUI used to, and showed a hint the GUI did not)."""
+    import json
+
+    from src import picks_cli
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    config = {
+        "availability": {"weekday_window": {"after": "16:00"}},
+        "daylight_buffer_minutes": 30,
+        "overview_days": 6,
+    }
+    monkeypatch.setattr(tui.OverviewScreen, "_config", lambda self: config)
+    monkeypatch.setattr(tui, "_resolved_config", lambda *a, **k: config)
+    now = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)  # 11:00 CEST
+    monkeypatch.setattr(tui, "_NOW_UTC", lambda: now)
+    monkeypatch.setattr(picks_cli, "_NOW", lambda: now)
+    sun = SunTimes(sunrise="07:20", sunset="19:10")
+    db = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(date="2026-09-28", course="18 Loch Tee 1",
+                 slots=[Slot(time=f"{h:02d}:00", booked=0, capacity=4) for h in range(8, 19)], sun_times=sun),
+        path=db,
+    )
+    # Fri 10-02, "2 Tage im Voraus ab 20 Uhr": opens Wed 09-30 20:00, still ahead. It has
+    # sun times, so it *would* be a second too-late day if it were counted.
+    locked = _locked_schedule("2026-10-02", reason="2 Tage im Voraus ab 20 Uhr buchbar")
+    locked.sun_times = sun
+    storage.save_schedule(locked, path=db)
+
+    picks_cli.main([
+        "--db-path", str(db), "--course", "18 Loch Tee 1",
+        "--club", "musterhausen", "--from", "2026-09-28", "--days", "6",
+    ])
+    picks = json.loads(capsys.readouterr().out)
+    assert picks["2026-10-02"]["locked"]["hour_known"] is True
+    assert "_hint" not in picks
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#hint").content) == tui._window_hint_text(picks.get("_hint")) == ""
 
     _run(scenario())
 

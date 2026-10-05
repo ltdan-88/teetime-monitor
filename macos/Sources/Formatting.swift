@@ -223,3 +223,51 @@ func windowHintText(_ hint: WindowHint) -> String {
     }
     return text
 }
+
+/// When a locked day opens, for the pick-badge slot and its tooltip (2026-10-05): "Wed
+/// 21:00", "today 20:00" or -- when the club names no hour -- just the day ("Tue"),
+/// never a time it didn't state. Mirrors `tui._lock_when_text()` exactly: a weekday is
+/// only unambiguous within a week, so an opening 7+ days away says "Oct 14" / "14. Okt" instead.
+/// `opensAt` is `picks_cli.py`'s ISO 8601 string with the club's UTC offset; "today" is
+/// judged on that offset's own calendar, the way the club's "ab 20 Uhr" is, not the
+/// machine's zone. Python stays the source of truth for *when* -- this only words it.
+/// Nil for a string that isn't the expected shape.
+func lockWhenText(opensAt: String, hourKnown: Bool, now: Date) -> String? {
+    // "2026-10-05T20:00:00+02:00" (or "...Z")
+    let chars = Array(opensAt)
+    guard chars.count >= 20, chars[10] == "T" || chars[10] == " " else { return nil }
+    let date = String(chars[0..<10])
+    let time = String(chars[11..<16])
+    let offsetText = String(chars[19...])
+    var offsetSeconds = 0
+    if offsetText != "Z" {
+        guard let sign = offsetText.first, sign == "+" || sign == "-", offsetText.count >= 6 else { return nil }
+        let parts = offsetText.dropFirst().split(separator: ":")
+        guard parts.count >= 2, let h = Int(parts[0]), let m = Int(parts[1]) else { return nil }
+        offsetSeconds = (sign == "-" ? -1 : 1) * (h * 3600 + m * 60)
+    }
+    guard let opensDay = ISODate.parse(date), let zone = TimeZone(secondsFromGMT: offsetSeconds),
+          let nowDay = ISODate.parse(ISODate.today(now: now, timeZone: zone)) else { return nil }
+    let days = Int(((opensDay.timeIntervalSince(nowDay)) / 86400).rounded())
+    let day: String
+    if days <= 0 {
+        day = t("lock.today")
+    } else if days < 7 {
+        // Calendar weekday is 1 = Sunday ... 7 = Saturday; the table's keys count from Monday = 0.
+        let weekdayIndex = (ISODate.utcCalendar.component(.weekday, from: opensDay) + 5) % 7
+        day = t("weekday.\(weekdayIndex)")
+    } else {
+        let parts = date.split(separator: "-")
+        guard parts.count == 3, let month = Int(parts[1]), let dayOfMonth = Int(parts[2]), (1...12).contains(month)
+        else { return nil }
+        day = t("lock.date", ["month": t("lock.month.\(month)"), "day": String(dayOfMonth)])
+    }
+    return hourKnown ? "\(day) \(time)" : day
+}
+
+/// The sentence behind a lock badge ("Booking opens Wed 21:00") -- the same i18n keys as
+/// the TUI's #row-detail, and its tooltip's whole text.
+func lockSentence(opensAt: String, hourKnown: Bool, now: Date) -> String? {
+    guard let when = lockWhenText(opensAt: opensAt, hourKnown: hourKnown, now: now) else { return nil }
+    return t(hourKnown ? "lock.opens_at" : "lock.opens_at_date", ["when": when])
+}

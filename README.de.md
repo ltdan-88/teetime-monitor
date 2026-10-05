@@ -44,6 +44,10 @@ sich an ihr etwas ändert.
    schlägt die Zelle diese vor — z. B. „★ 16:10 · 9L" (die TUI nennt den Platz unter
    der Tabelle, sobald der Tag markiert ist; in der GUI zeigt ihn der Tooltip, und ein
    Klick wechselt auf diesen Platz).
+   Ein Tag, der noch nicht buchbar ist, zeigt 🔒 und wann er öffnet — z. B. „🔒 Mi 21:00"
+   bei einem Club, der Startzeiten 3 Tage vorher um 21 Uhr freigibt (Uhrzeit des Clubs;
+   nennt der Club keine Uhrzeit, steht nur der Tag). Der Hintergrund-Scraper schaut sich
+   so einen Tag gleich nach dem Öffnen noch einmal an.
 3. **Enter auf einem Tag** klappt dessen Startzeiten direkt auf; Enter auf einer Zeit
    markiert sie als deine, sobald du sie auf pc caddie gebucht hast.
 4. **Laufen lassen.** Der Rest passiert im Hintergrund. Kommt jemand in deinen Flight,
@@ -232,7 +236,7 @@ sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreibe
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-name>.yaml  # pro Club: club_id, Koordinaten, overview_days, Standardplatz
+    clubs/<club-name>.yaml  # pro Club: club_id, Koordinaten, overview_days, Standardplatz, timezone (optional)
     .env                    # PCC_USER / PCC_PASS / API-Key eines KI-Anbieters (Einstellungen → KI-Anbieter)
     preferences.yaml        # Verfügbarkeit, Wetter, KI, Tempo, Intervall
     config                  # THEME=, LANG=

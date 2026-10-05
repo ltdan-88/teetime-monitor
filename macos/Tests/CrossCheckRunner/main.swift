@@ -247,6 +247,23 @@ runGroup("health_i18n") { args in
     I18n.strings[args["language"] as! String]?[args["key"] as! String] ?? "<missing>"
 }
 
+// The lock badge's wording (2026-10-05): tui._lock_when_text() vs lockWhenText(), and the
+// shared lock.*/weekday.* strings text-for-text.
+func isoInstant(_ s: String) -> Date {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime]
+    return f.date(from: s)!
+}
+runGroup("lock_when") { args in
+    AppLanguage.shared.code = args["language"] as! String
+    defer { AppLanguage.shared.code = "en" }
+    return orNull(lockWhenText(opensAt: args["opens_at"] as! String, hourKnown: args["hour_known"] as! Bool,
+                               now: isoInstant(args["now"] as! String)))
+}
+runGroup("lock_i18n") { args in
+    I18n.strings[args["language"] as! String]?[args["key"] as! String] ?? "<missing>"
+}
+
 // A reference group with no runGroup here would otherwise pass by checking nothing.
 for name in Set(reference.keys).subtracting(ranGroups).sorted() {
     failed += 1

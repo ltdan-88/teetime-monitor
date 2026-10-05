@@ -84,6 +84,7 @@ struct LegendLine: View {
             ("sunrise.fill", t("legend.sunrise")),
             ("sunset.fill", t("legend.sunset")),
             ("flag.fill", t("legend.booking")),
+            ("lock.fill", t("legend.locked")),
         ]
     }
 
@@ -642,6 +643,10 @@ struct DayCardHeader: View {
                         .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.accentColor)
+                } else if let lock = model.locked[day.date] {
+                    // A day that isn't bookable yet (2026-10-05) -- the TUI's "🔒 Wed 21:00" Pick
+                    // cell. Ahead of the pick like there: nothing to pick on a locked day anyway.
+                    LockBadge(lock: lock, now: model.now())
                 } else if let pick = model.picks[day.date] {
                     // The recommended pick, once there's no real booking to show
                     // instead -- mirrors tui.py's own _day_pick_text() priority
@@ -682,6 +687,34 @@ struct DayCardHeader: View {
             }
             .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
             HeatStrip(buckets: day.heatStrip)
+        }
+    }
+}
+
+/// A locked day in `DayCardHeader`'s pick badge slot: "🔒 Wed 21:00" in the same capsule,
+/// font and padding as the pick and the alternative, secondary tint (2026-10-05). The
+/// tooltip is the TUI's #row-detail sentence ("Booking opens Wed 21:00"), same i18n keys.
+/// Capped at the slot's width like `ShorterRoundBadge`, so a longer value truncates
+/// instead of moving the HeatStrip.
+struct LockBadge: View {
+    let lock: LockedDay
+    let now: Date
+    @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
+
+    var body: some View {
+        if let when = lockWhenText(opensAt: lock.opensAt, hourKnown: lock.hourKnown, now: now) {
+            // The sentence ("Booking opens Wed 21:00") is the tooltip and, for VoiceOver, the
+            // label -- the visible text alone ("Wed 21:00") never says what the time is.
+            let sentence = lockSentence(opensAt: lock.opensAt, hourKnown: lock.hourKnown, now: now) ?? when
+            Label(when, systemImage: "lock.fill")
+                .font(scaledFont(.caption)).lineLimit(1)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.12), in: Capsule())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
+                .help(sentence)
+                .accessibilityLabel(sentence)
         }
     }
 }
@@ -856,6 +889,8 @@ final class OverviewModel: ObservableObject {
     /// Per date: a shorter round on another course for a day too dark to finish
     /// this one (2026-10-05) -- see `ShorterRound`.
     @Published var alternatives: [String: ShorterRound] = [:]
+    /// Per date: a day that isn't bookable yet and when it opens (2026-10-05) -- see `LockedDay`.
+    @Published var locked: [String: LockedDay] = [:]
     /// Set when your window opens too late to finish before dark, several days
     /// running -- see `WindowHint` and ContentView's own hint row.
     @Published var windowHint: WindowHint?
@@ -1205,7 +1240,7 @@ final class OverviewModel: ObservableObject {
     /// to show -- otherwise the previous club's banners, hint and "updated N min ago"
     /// stayed on screen under a never-scraped club.
     func clearClubState() {
-        days = []; picks = [:]; verdicts = [:]; alternatives = [:]; windowHint = nil; banners = []
+        days = []; picks = [:]; verdicts = [:]; alternatives = [:]; locked = [:]; windowHint = nil; banners = []
         pendingJump = nil
         lastScrape = nil; scrapeHealth = .empty; friendNames = []; playerGenders = [:]; picksRequestKey = nil
         picksGeneration += 1  // a fetch still running for the old club must not land
@@ -1275,6 +1310,7 @@ final class OverviewModel: ObservableObject {
             picks = [:]
             verdicts = [:]
             alternatives = [:]
+            locked = [:]
             windowHint = nil
         }
 
@@ -1291,6 +1327,9 @@ final class OverviewModel: ObservableObject {
     /// Bumped per picks request (and by `clearClubState()`); a result is applied only
     /// while it is still the latest, so a slow older run can't overwrite a newer one.
     var picksGeneration = 0
+    /// "Now" for wording a locked day's opening ("today 20:00" vs "Wed 21:00"); a seam so
+    /// the visual-regression fixtures render the same text on every day they run.
+    var now: () -> Date = { Date() }
     /// The picks_cli run currently going, if any -- at most one per club/course.
     private var picksInFlight: (path: String, course: String, generation: Int)?
     /// A same-club/course request arrived while one was running: run once more after.
@@ -1326,6 +1365,7 @@ final class OverviewModel: ObservableObject {
                 self.picks = result.picks
                 self.verdicts = result.verdicts
                 self.alternatives = result.alternatives
+                self.locked = result.locked
                 self.windowHint = result.hint
             }
             if self.picksInFlight == nil, self.picksRerunQueued {

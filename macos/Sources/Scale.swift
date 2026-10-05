@@ -178,7 +178,9 @@ enum Metrics {
     // real value ("HH:MM" plus the flag icon and its padding), not just "wide enough".
     // Widened 74 -> 96 (2026-10-05) for the shorter-round badge ("★ 16:10 · 9H"),
     // the widest value now, so it renders at full size like the pick beside it.
-    static let bookingBadge: CGFloat = 96
+    // Widened 96 -> 112 (2026-10-05, second time) for the lock badge's widest value, "🔒 today
+    // 20:00" / "heute 20:00" (truncated at 96).
+    static let bookingBadge: CGFloat = 112
     // Heatmap grid
     static let heatCellWidth: CGFloat = 18
     static let heatCellHeight: CGFloat = 13

@@ -458,6 +458,50 @@ def _health_i18n_cases() -> dict:
     return {"health_i18n": cases}
 
 
+def _lock_when_cases() -> dict:
+    """tui._lock_when_text() (a locked day's "Wed 21:00") against Swift's lockWhenText():
+    today / weekday / the 7-day date switch, an hour or none, both languages, a few
+    offsets. `now` and `opens_at` go over as ISO strings, parsed the same way on both
+    sides (fixed offsets, so the DST edge is Python-only -- booking_window tests)."""
+    now = "2026-10-05T16:28:00+00:00"  # Mon 18:28 in Berlin
+    opens = [
+        "2026-10-05T20:00:00+02:00",  # later today
+        "2026-10-06T20:00:00+02:00",  # tomorrow
+        "2026-10-07T21:00:00+02:00",
+        "2026-10-11T08:30:00+02:00",  # six days out: still a weekday
+        "2026-10-12T08:00:00+02:00",  # seven days out: a date
+        "2026-10-27T00:00:00+01:00",
+        "2027-03-09T08:00:00+01:00",  # a date: "Mar 9" / "9. Mär" (day unpadded, month name)
+        "2026-12-31T21:00:00+01:00",
+        "2026-10-05T20:00:00+00:00",
+        "2026-10-05T20:00:00-05:00",
+    ]
+    nows = [now, "2026-10-05T23:30:00+00:00", "2026-10-05T18:00:00+00:00"]
+    cases = []
+    for lang in i18n.SUPPORTED_LANGUAGES:
+        i18n.set_language(lang)
+        for now_iso in nows:
+            for opens_at in opens:
+                for hour_known in (True, False):
+                    cases.append({
+                        "args": {"opens_at": opens_at, "hour_known": hour_known, "now": now_iso, "language": lang},
+                        "expected": tui._lock_when_text(
+                            datetime.fromisoformat(opens_at), hour_known, datetime.fromisoformat(now_iso)
+                        ),
+                    })
+    i18n.set_language("en")
+    return {"lock_when": cases}
+
+
+def _lock_i18n_cases() -> dict:
+    # The keys both apps share for this feature must carry the same text, not just exist.
+    cases = []
+    for lang in i18n.SUPPORTED_LANGUAGES:
+        for key in sorted(k for k in i18n._STRINGS[lang] if k.startswith(("lock.", "weekday.")) or k == "legend.locked"):
+            cases.append({"args": {"key": key, "language": lang}, "expected": i18n._STRINGS[lang][key]})
+    return {"lock_i18n": cases}
+
+
 def main() -> None:
     reference = {
         **_units_cases(),
@@ -475,6 +519,8 @@ def main() -> None:
         **_store_scrape_health_cases(),
         **_scrape_health_warning_cases(),
         **_health_i18n_cases(),
+        **_lock_when_cases(),
+        **_lock_i18n_cases(),
     }
     json.dump(reference, sys.stdout, indent=2, sort_keys=True)
     print()

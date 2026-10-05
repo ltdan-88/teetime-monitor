@@ -358,6 +358,116 @@ def test_should_scrape_ignores_a_confirmed_not_playing_booking(tmp_path, monkeyp
     assert scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-09-06", config) is False
 
 
+# --- _should_scrape(): a day that opens for booking is due right after (2026-10-05) ----------
+
+_LOCKED_NOTICE = "4 Tage im Voraus ab 20 Uhr buchbar (KP)"
+# 2026-10-09 opens 2026-10-05 20:00 Berlin (CEST) = 18:00 UTC.
+_OPENS_UTC = datetime(2026, 10, 5, 18, 0, tzinfo=UTC)
+
+
+def _locked_day_fixture(tmp_path, monkeypatch, *, last_scraped, now, reason=_LOCKED_NOTICE, other_slots=0):
+    """A DB holding one scrape of 2026-10-09 whose slots all carry `reason`, "scraped"
+    at `last_scraped`, with the clock at `now` -- the two things _should_scrape() compares."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    slots = [Slot(time=f"{8 + i // 6:02d}:{(i % 6) * 10:02d}", booked=0, capacity=4, block_reason=reason) for i in range(30)]
+    slots += [Slot(time=f"18:{i:02d}", booked=0, capacity=4) for i in range(other_slots)]
+    scrape_once.storage.save_schedule(
+        Schedule(date="2026-10-09", course="18 Loch Tee 1", slots=slots), path=scrape_once._db_path("0000001")
+    )
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: last_scraped.isoformat())
+    monkeypatch.setattr(scrape_once, "_utcnow", lambda: now)
+
+
+def _due(config=None) -> bool:
+    return scrape_once._should_scrape("0000001", "18 Loch Tee 1", "2026-10-09", config or {})
+
+
+def test_should_scrape_a_locked_day_once_its_opening_time_has_passed(tmp_path, monkeypatch):
+    _locked_day_fixture(
+        tmp_path, monkeypatch, last_scraped=_OPENS_UTC - timedelta(hours=1), now=_OPENS_UTC + timedelta(minutes=30)
+    )
+    assert _due() is True  # well inside the 360-minute interval, but it has opened since
+
+
+def test_should_scrape_a_locked_day_not_before_it_opens(tmp_path, monkeypatch):
+    _locked_day_fixture(
+        tmp_path, monkeypatch, last_scraped=_OPENS_UTC - timedelta(hours=2), now=_OPENS_UTC - timedelta(minutes=30)
+    )
+    assert _due() is False  # still locked: the normal interval applies, every pass
+
+
+def test_should_scrape_does_not_loop_on_a_day_that_stays_locked_after_opening(tmp_path, monkeypatch):
+    # Scraped after the opening time and still all-notices (a misread, a lagging sheet):
+    # the opening is no longer "since that scrape", so nothing is due until the interval.
+    _locked_day_fixture(
+        tmp_path, monkeypatch, last_scraped=_OPENS_UTC + timedelta(minutes=15), now=_OPENS_UTC + timedelta(minutes=45)
+    )
+    assert _due() is False
+
+
+def test_should_scrape_waits_ten_minutes_after_the_latest_scrape(tmp_path, monkeypatch):
+    last = _OPENS_UTC - timedelta(minutes=5)
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=last, now=last + timedelta(minutes=9))
+    assert _due() is False  # opened since, but the scrape is only 9 minutes old
+    monkeypatch.setattr(scrape_once, "_utcnow", lambda: last + timedelta(minutes=10))
+    assert _due() is True
+
+
+def test_should_scrape_leaves_ordinary_days_to_the_interval(tmp_path, monkeypatch):
+    now = _OPENS_UTC + timedelta(minutes=30)
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=now - timedelta(hours=1), now=now, reason=None)
+    assert _due() is False
+    # a booked-out event note is not a booking-window notice either
+    _locked_day_fixture(
+        tmp_path, monkeypatch, last_scraped=now - timedelta(hours=1), now=now, reason="Kanonenstart 13 Uhr"
+    )
+    assert _due() is False
+
+
+def test_should_scrape_needs_the_day_to_have_been_nearly_all_notices(tmp_path, monkeypatch):
+    now = _OPENS_UTC + timedelta(minutes=30)
+    # 30 notice slots + 10 ordinary ones = 75%: not a locked day
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=now - timedelta(hours=1), now=now, other_slots=10)
+    assert _due() is False
+    # 30 + 2 = 94%: still locked
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=now - timedelta(hours=1), now=now, other_slots=2)
+    assert _due() is True
+
+
+def test_should_scrape_still_honours_the_interval_for_everything_else(tmp_path, monkeypatch):
+    now = _OPENS_UTC - timedelta(hours=10)  # long before it opens
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=now - timedelta(minutes=400), now=now)
+    assert _due({"scrape_interval_minutes": 360}) is True
+
+
+def test_should_scrape_uses_the_club_timezone_for_the_opening(tmp_path, monkeypatch):
+    # In Lisbon (WEST, UTC+1) "ab 20 Uhr" is 19:00 UTC, an hour later than Berlin's.
+    last = _OPENS_UTC - timedelta(hours=1)
+    _locked_day_fixture(tmp_path, monkeypatch, last_scraped=last, now=_OPENS_UTC + timedelta(minutes=30))
+    assert _due({"timezone": "Europe/Berlin"}) is True
+    assert _due({"timezone": "Europe/Lisbon"}) is False
+    monkeypatch.setattr(scrape_once, "_utcnow", lambda: _OPENS_UTC + timedelta(hours=1, minutes=30))
+    assert _due({"timezone": "Europe/Lisbon"}) is True
+
+
+def test_should_scrape_a_day_without_a_notice_hour_opens_at_the_start_of_the_day(tmp_path, monkeypatch):
+    # "1 Tag im voraus möglich." for 2026-10-09: opens 2026-10-08 00:00 Berlin = 07 22:00 UTC.
+    opens = datetime(2026, 10, 7, 22, 0, tzinfo=UTC)
+    _locked_day_fixture(
+        tmp_path, monkeypatch, last_scraped=opens - timedelta(hours=3), now=opens + timedelta(minutes=20),
+        reason="Buchung 1 Tag im voraus möglich.",
+    )
+    assert _due() is True
+
+
+def test_should_scrape_without_a_stored_schedule_is_not_due_early(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    now = _OPENS_UTC
+    monkeypatch.setattr(scrape_once.storage, "last_scraped_at", lambda course, date, path: (now - timedelta(hours=1)).isoformat())
+    monkeypatch.setattr(scrape_once, "_utcnow", lambda: now)
+    assert _due() is False
+
+
 # --- scrape_due_for_club() (extracted from main() 2026-09-07 so tui.py can call it
 # directly for its own auto-refresh -- see that module's docstring) ------------------
 
