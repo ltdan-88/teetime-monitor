@@ -180,6 +180,9 @@ private let englishStrings: [String: String] = [
     "lock.opens_at": "Booking opens {when}",
     "lock.opens_at_date": "Booking opens {when} (the club gives no time)",
     "legend.locked": "not bookable yet, opens at the time shown",
+    // The slot markers (2026-10-05), text-for-text the TUI's own legend (src/i18n.py).
+    "legend.recommended": "recommended / friend",
+    "legend.too_late": "too late for sunset",
     "weekday.0": "Mon", "weekday.1": "Tue", "weekday.2": "Wed", "weekday.3": "Thu",
     "weekday.4": "Fri", "weekday.5": "Sat", "weekday.6": "Sun",
     "tip.pick_alternative_click": "Click to switch to it.",
@@ -611,6 +614,8 @@ private let germanStrings: [String: String] = [
     "lock.opens_at": "Buchbar ab {when}",
     "lock.opens_at_date": "Buchbar ab {when} (Uhrzeit vom Club nicht angegeben)",
     "legend.locked": "noch nicht buchbar, öffnet zur angezeigten Zeit",
+    "legend.recommended": "empfohlen / Freund",
+    "legend.too_late": "Runde endet nach Sonnenuntergang",
     "weekday.0": "Mo", "weekday.1": "Di", "weekday.2": "Mi", "weekday.3": "Do",
     "weekday.4": "Fr", "weekday.5": "Sa", "weekday.6": "So",
     "tip.pick_alternative_click": "Klicken zum Wechseln.",

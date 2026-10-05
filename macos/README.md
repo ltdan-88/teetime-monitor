@@ -25,7 +25,8 @@ Shows the multi-day overview — one card per bookable day, with the day's 08:00
 weather summary (worst condition, high/low, average rain chance, peak wind), the
 six-bucket occupancy heat strip, day events, and your confirmed booking. Click a day to
 expand its tee times in place: seat pips, free count, per-slot weather, your own slot
-flagged, and post-sunset slots dimmed.
+flagged, post-sunset slots dimmed, and the TUI's per-slot markers: ★ on the recommended
+times and a moon on those whose round would not finish before sunset.
 
 ## The shortcut that makes it cheap
 
@@ -121,6 +122,10 @@ assertion could check without snapshot-testing infrastructure this project
 didn't have yet. It does now: see "Visual regression checks" below, added
 2026-09-26 once three real layout bugs in a row made the gap in this
 paragraph itself worth closing.
+
+## ★ and moon markers on the slot rows, same as the TUI (2026-10-05)
+
+The last visible gap in an expanded day: the TUI marks recommended slots with ★ and slots whose round would end after sunset with 🌙, and the GUI showed only one pick time per day. `picks_cli.py` now also returns per-date `"recommended"` and `"too_late"` lists of "HH:MM" (from `pipeline._recommended_times_for()`, off the same cached pipeline result as the pick, and `pipeline._too_late_for_daylight()`; absent when empty, ignored by older builds), so the two apps cannot disagree. `PicksClient` decodes them into `DayVerdict` (so they clear with the verdicts on a club/course change) and `SlotRow` draws a star or moon in a fixed `Metrics.slotMarker` column ahead of the time, so times stay aligned on rows with and without a marker; the star wins if a slot is in both lists, as in the TUI. The "?" legend lists both with the TUI's wording (`legend.recommended`, `legend.too_late`, compared text-for-text by the cross-check). A slot already past today carries neither, like the TUI. The two known differences at the top of this file are unchanged; there is no remaining gap in the overview's per-slot markers.
 
 ## Focused row is now highlighted; player filter picked through the directory (2026-09-29)
 

@@ -131,6 +131,9 @@ func scaledFont(_ role: TextRole, design: Font.Design = .default) -> Font {
 enum Metrics {
     // Slot row columns
     static let slotTime: CGFloat = 42
+    // The leading ★ / moon marker column in front of the time (2026-10-05) -- fixed, so
+    // every row's time lines up whether or not it carries a marker.
+    static let slotMarker: CGFloat = 14
     static let slotTemp: CGFloat = 24
     // Widened from 34 -- direct report, 2026-09-19 ("precipitation amount in mm
     // seems to still be missing"): this cell now shows "70%/1.5mm", not just

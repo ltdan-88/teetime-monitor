@@ -175,7 +175,7 @@ Hand synchron gehalten werden muss.
 <p align="center"><img src="assets/de/gui-expanded.png" alt="Ein aufgeklappter Tag in der macOS-App mit allen einzelnen Startzeiten"></p>
 
 Sie zeigt dieselben Dinge auf dieselbe Weise — Freunde in Gold, nach Geschlecht eingefärbte
-Namen, anonyme Plätze, die **?**-Legende — und öffnet für jeden Club auf dessen
+Namen, anonyme Plätze, die **?**-Legende und die Markierungen ★ (empfohlen) und 🌙 (Runde endet nach Sonnenuntergang) an den Startzeiten eines aufgeklappten Tages, die mit der Terminal-App übereinstimmen — und öffnet für jeden Club auf dessen
 Standardplatz (pro Club unter Einstellungen → Clubs festlegbar; die Terminal-App beachtet
 dasselbe `default_course`). Sie deckt alles vom Obigen ab: die Tagesliste mit Wetter und Auslastungsstreifen,
 Ad-hoc-Suche, eine Auslastungs-Heatmap, Präferenzen und pc-caddie-Login, die Verwaltung

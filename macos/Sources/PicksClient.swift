@@ -15,16 +15,39 @@ struct DayPick {
 /// scrolls to -- and, with no pick, why (`"daylight"`/`"weather"`). Decided in
 /// Python (`recommend.window_for_date()`, `recommend.unplayable_reasons()`),
 /// never re-derived here, so the two apps can't disagree about either.
+///
+/// Also the per-slot markers of an expanded day (2026-10-05): `recommended` the "HH:MM"
+/// slots the TUI marks "★" (`pipeline._recommended_times_for()`), `tooLate` those it marks
+/// "🌙" (`pipeline._too_late_for_daylight()`). They live here, not on `DayPick`, because a
+/// day with no pick still has too-late slots; and being part of the verdict they are
+/// cleared and replaced with it, so another course's markers can never show.
 struct DayVerdict {
     let windowAfter: String?
     let windowBefore: String?
     let unplayable: [String]
+    var recommended: Set<String> = []
+    var tooLate: Set<String> = []
+
+    /// What a slot row carries in front of its time. "★" wins over "🌙" when both are
+    /// listed, exactly as `tui._compute_slot_rows()` decides (in practice a recommended
+    /// slot is playable, so never too late).
+    func marker(for time: String) -> SlotMarker? {
+        if recommended.contains(time) { return .recommended }
+        if tooLate.contains(time) { return .tooLate }
+        return nil
+    }
 
     func isOutsideWindow(_ time: String) -> Bool {
         if let after = windowAfter, time < after { return true }
         if let before = windowBefore, time > before { return true }
         return false
     }
+}
+
+/// The marker in a slot row's leading column -- see `DayVerdict.marker(for:)`.
+enum SlotMarker: Equatable {
+    case recommended
+    case tooLate
 }
 
 /// A shorter round on another of the club's courses, for a day too dark to
@@ -136,7 +159,9 @@ enum PicksClient {
             result.verdicts[date] = DayVerdict(
                 windowAfter: window?["after"] as? String,
                 windowBefore: window?["before"] as? String,
-                unplayable: row["unplayable"] as? [String] ?? []
+                unplayable: row["unplayable"] as? [String] ?? [],
+                recommended: Set(row["recommended"] as? [String] ?? []),
+                tooLate: Set(row["too_late"] as? [String] ?? [])
             )
             if let alternative = row["alternative"] as? [String: Any],
                let course = alternative["course"] as? String, let time = alternative["time"] as? String,

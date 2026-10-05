@@ -73,6 +73,7 @@ struct LegendLine: View {
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
     @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var theme = AppTheme.shared
 
     // Computed, not a stored `let`: the temperature/wind labels state the current
     // unit, so they have to follow a Units change the same way the numbers do.
@@ -85,6 +86,8 @@ struct LegendLine: View {
             ("sunset.fill", t("legend.sunset")),
             ("flag.fill", t("legend.booking")),
             ("lock.fill", t("legend.locked")),
+            ("star.fill", t("legend.recommended")),
+            ("moon.fill", t("legend.too_late")),
         ]
     }
 
@@ -112,7 +115,10 @@ struct LegendLine: View {
             Text(t("legend.day_title")).font(.headline)
             ForEach(entries, id: \.text) { entry in
                 HStack(spacing: 8) {
+                    // The two slot markers keep the colours the slot rows draw them in.
                     Image(systemName: entry.icon).frame(width: 22)
+                        .foregroundStyle(entry.icon == "star.fill" ? theme.colors.accent
+                                         : entry.icon == "moon.fill" ? Color.secondary : Color.primary)
                     Text(entry.text)
                 }
             }
@@ -266,12 +272,37 @@ struct SlotRow: View {
         return Text(result)
     }
 
+    /// Distinct from the friend's gold ★ in the players cell: the theme accent here, as
+    /// the TUI's plain leading ★ is not its yellow friend star either. ZStack, not
+    /// Group, so the column keeps its width when there is nothing to draw.
+    private var slotMarkerView: some View {
+        ZStack {
+            switch model.verdicts[day.date]?.marker(for: slot.time) {
+            case .recommended:
+                Image(systemName: "star.fill").font(scaledFont(.caption2)).foregroundStyle(theme.colors.accent)
+                    .help(t("legend.recommended"))
+            case .tooLate:
+                Image(systemName: "moon.fill").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .help(t("legend.too_late"))
+            case nil:
+                EmptyView()
+            }
+        }
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Text(slot.time)
-                .font(scaledFont(.caption, design: .monospaced))
-                .fontWeight(isMine ? .bold : .regular)
-                .frame(width: scale.scaled(Metrics.slotTime), alignment: .leading)
+            // ★ recommended / moon too late to finish before dark, in a fixed-width column
+            // ahead of the time (2026-10-05) -- the TUI's marker cell. Decided in Python
+            // (picks_cli's "recommended"/"too_late"); the column stays when empty.
+            HStack(spacing: 2) {
+                slotMarkerView
+                    .frame(width: scale.scaled(Metrics.slotMarker))
+                Text(slot.time)
+                    .font(scaledFont(.caption, design: .monospaced))
+                    .fontWeight(isMine ? .bold : .regular)
+                    .frame(width: scale.scaled(Metrics.slotTime), alignment: .leading)
+            }
 
             if slot.isBlocked {
                 Text(slot.blockReason?.isEmpty == false ? slot.blockReason! : t("overview.not_bookable"))

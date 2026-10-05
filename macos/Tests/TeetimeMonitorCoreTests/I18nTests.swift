@@ -8,6 +8,7 @@ func runI18nTests() {
         testFallbackChain()
         testRenderBookingChange()
         testLockStringsExistInBothLanguages()
+        testSlotMarkerLegendStringsExistInBothLanguages()
         testLanguageResolutionOrder()
     }
 }
@@ -141,5 +142,15 @@ private func testLockStringsExistInBothLanguages() {
         Harness.checkEqual("lock/weekday strings present (\(language))", missing, [])
         Harness.check("sentences take {when} (\(language))",
                       (table["lock.opens_at"] ?? "").contains("{when}") && (table["lock.opens_at_date"] ?? "").contains("{when}"))
+    }
+}
+
+/// The slot-marker legend lines (2026-10-05) are the TUI's own keys and text
+/// (`legend.recommended`, `legend.too_late` -- compared text-for-text by the cross-check).
+private func testSlotMarkerLegendStringsExistInBothLanguages() {
+    for language in ["en", "de"] {
+        let table = I18n.strings[language] ?? [:]
+        let missing = ["legend.recommended", "legend.too_late"].filter { (table[$0] ?? "").isEmpty }
+        Harness.checkEqual("slot marker legend strings present (\(language))", missing, [])
     }
 }

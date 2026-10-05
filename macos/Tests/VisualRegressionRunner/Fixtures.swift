@@ -192,8 +192,12 @@ let allCases: [VisualRegressionCase] = [
             .padding(8)
         )
     },
+    // 11:00 carries the recommended ★, 12:00 the too-late moon (2026-10-05); 09:00/10:00 carry
+    // none -- the times, and every column after them, must line up across all four.
     VisualRegressionCase(name: "slot-row-multi", size: CGSize(width: 520, height: 140)) {
         let model = OverviewModel()
+        model.verdicts = [multiSlotDay.date: DayVerdict(windowAfter: nil, windowBefore: nil, unplayable: [],
+                                                         recommended: ["11:00"], tooLate: ["12:00"])]
         return AnyView(
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(multiSlotDay.slots) { slot in

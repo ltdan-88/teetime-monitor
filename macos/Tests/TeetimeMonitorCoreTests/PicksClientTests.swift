@@ -9,6 +9,9 @@ func runPicksClientTests() {
         testWindowHintTextNamesTheShorterRoundCourse()
         testVisibleSlotsRunSunriseRowToSunsetRow()
         testParsesTheLockedDay()
+        testParsesTheSlotMarkers()
+        testSlotMarkerPicksStarOverMoon()
+        testSlotMarkersClearWithTheirVerdicts()
     }
 }
 
@@ -120,4 +123,53 @@ private func testParsesTheLockedDay() {
     Harness.check("a locked day carries no pick", result.picks["2026-10-09"] == nil)
     Harness.check("an old picks_cli without the key decodes with no locks",
                   PicksClient.parse(["2026-10-10": ["time": "09:10"]]).locked.isEmpty)
+}
+
+/// `picks_cli.py`'s optional per-date `"recommended"` / `"too_late"` (2026-10-05): sets of
+/// "HH:MM", empty when absent (older picks_cli builds) or malformed, on every kind of day.
+private func testParsesTheSlotMarkers() {
+    let result = PicksClient.parse([
+        "2026-10-06": ["time": "16:00", "window": ["after": "16:00", "before": NSNull()],
+                       "recommended": ["16:00", "16:10"], "too_late": ["17:30"]],
+        "2026-10-07": ["time": NSNull(), "window": NSNull(), "too_late": ["15:00", "15:10"]],
+        "2026-10-08": ["time": "09:10", "window": NSNull()],
+        "2026-10-09": ["time": NSNull(), "window": NSNull(), "recommended": "16:00", "too_late": [1, 2]],
+        "2026-10-10": NSNull(),
+    ])
+    Harness.checkEqual("recommended decodes", result.verdicts["2026-10-06"]?.recommended, ["16:00", "16:10"])
+    Harness.checkEqual("too_late decodes", result.verdicts["2026-10-06"]?.tooLate, ["17:30"])
+    Harness.checkEqual("a no-pick day still has its too-late slots", result.verdicts["2026-10-07"]?.tooLate, ["15:00", "15:10"])
+    Harness.check("...and no pick", result.picks["2026-10-07"] == nil)
+    Harness.check("absent keys decode as empty sets",
+                  result.verdicts["2026-10-08"]?.recommended == [] && result.verdicts["2026-10-08"]?.tooLate == [])
+    Harness.check("wrong types decode as empty sets, not a crash",
+                  result.verdicts["2026-10-09"]?.recommended == [] && result.verdicts["2026-10-09"]?.tooLate == [])
+    Harness.check("a null day has no verdict, so no markers", result.verdicts["2026-10-10"] == nil)
+    Harness.check("the existing keys are unaffected by the new ones",
+                  result.picks["2026-10-06"]?.time == "16:00" && result.verdicts["2026-10-06"]?.windowAfter == "16:00")
+}
+
+/// The slot row's marker rule, same as `tui._compute_slot_rows()`: ★ first, then 🌙, else none.
+private func testSlotMarkerPicksStarOverMoon() {
+    let verdict = DayVerdict(windowAfter: nil, windowBefore: nil, unplayable: [],
+                             recommended: ["16:00", "17:00"], tooLate: ["17:00", "17:30"])
+    Harness.check("recommended slot", verdict.marker(for: "16:00") == .recommended)
+    Harness.check("too-late slot", verdict.marker(for: "17:30") == .tooLate)
+    Harness.check("both lists: the star wins, like the TUI", verdict.marker(for: "17:00") == .recommended)
+    Harness.check("neither", verdict.marker(for: "09:00") == nil)
+    Harness.check("a verdict from an older picks_cli marks nothing",
+                  PicksClient.parse(["2026-10-06": ["time": "16:00"]]).verdicts["2026-10-06"]?.marker(for: "16:00") == nil)
+}
+
+/// Markers are part of the verdict, so a club/course change (which blanks the verdicts) can't
+/// leave another course's ★/🌙 on screen.
+private func testSlotMarkersClearWithTheirVerdicts() {
+    let model = OverviewModel()
+    model.verdicts = ["2026-10-06": DayVerdict(windowAfter: nil, windowBefore: nil, unplayable: [],
+                                               recommended: ["16:00"], tooLate: ["17:30"])]
+    model.picksRequestKey = ("/a.db", "18 Loch")
+    model.clubPath = "/b.db"; model.course = ""
+    model.reload()
+    Harness.check("no verdict, so no marker, after switching away",
+                  model.verdicts["2026-10-06"]?.marker(for: "16:00") == nil)
 }
