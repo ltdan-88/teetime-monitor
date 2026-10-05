@@ -36,7 +36,6 @@ from . import (
 )
 from .models import DateRange, Schedule
 from .scrape_once import _db_path
-from .scraper import _holes_from_course_label
 from .search import search as search_slots
 
 
@@ -370,7 +369,7 @@ def _shorter_round_alternative(
         return cache[key]
     candidates, playable = _availability_pipeline(schedule, config, club_id, cache)
     alternative = None
-    selected_holes = _holes_from_course_label(schedule.course)
+    selected_holes = recommend.holes_for_course(schedule.course, config)
     if (
         candidates
         and not playable
@@ -380,7 +379,7 @@ def _shorter_round_alternative(
         path = db_path if db_path is not None else _db_path(club_id)
         by_course = {schedule.course: schedule}
         for course in storage.courses_scraped_on(schedule.date, path=path):
-            holes = _holes_from_course_label(course)
+            holes = recommend.holes_for_course(course, config)
             if course == schedule.course or holes is None or holes >= selected_holes:
                 continue
             sibling = storage.load_latest_schedule(course, schedule.date, path=path)

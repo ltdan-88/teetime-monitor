@@ -138,6 +138,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "legend.expand": "expand",
         "legend.today": "today",
         "legend.recommended": "recommended / friend",
+        "legend.hcp": "(18.4) = player's handicap",
         "legend.male": "male",
         "legend.female": "female",
         "legend.rain": "rain",
@@ -251,6 +252,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.field.buffer_before_minutes": "Buffer to the group ahead (minutes)",
         "settings.field.buffer_after_minutes": "Buffer to the group behind (minutes)",
         "settings.field.units": "Units",
+        "settings.field.show_handicaps": "Show players' handicaps",
+        # Per-club `course_holes` (2026-10-05): a hole count for courses whose name doesn't say it.
+        "settings.course_holes.title": "Course lengths",
+        "settings.course_holes.auto": "Auto",
+        "settings.course_holes.option": "{n} holes",
+        "settings.course_holes.hint": "For courses whose name doesn't say how many holes they have. Used for the round length and the shorter-round suggestion.",
         "settings.units.metric": "Metric (°C, km/h, mm)",
         "settings.units.imperial": "Imperial (°F, mph, in)",
         "settings.field.avoid_rain": "Avoid rain",
@@ -481,6 +488,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "legend.expand": "aufklappen",
         "legend.today": "heute",
         "legend.recommended": "empfohlen / Freund",
+        "legend.hcp": "(18,4) = Handicap des Spielers",
         "legend.male": "männlich",
         "legend.female": "weiblich",
         "legend.rain": "Regen",
@@ -594,6 +602,11 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.field.buffer_before_minutes": "Abstand zur Gruppe davor (Minuten)",
         "settings.field.buffer_after_minutes": "Abstand zur Gruppe danach (Minuten)",
         "settings.field.units": "Einheiten",
+        "settings.field.show_handicaps": "Handicaps der Spieler anzeigen",
+        "settings.course_holes.title": "Platzlängen",
+        "settings.course_holes.auto": "Auto",
+        "settings.course_holes.option": "{n} Loch",
+        "settings.course_holes.hint": "Für Plätze, deren Name nicht verrät, wie viele Löcher sie haben. Wird für die Rundendauer und den Vorschlag einer kürzeren Runde verwendet.",
         "settings.units.metric": "Metrisch (°C, km/h, mm)",
         "settings.units.imperial": "Imperial (°F, mph, in)",
         "settings.field.avoid_rain": "Regen vermeiden",
@@ -751,6 +764,15 @@ def get_language() -> str:
     if _current_language is None:
         _current_language = resolve_language_name()
     return _current_language
+
+
+def format_handicap(handicap: float, lang: str | None = None) -> str:
+    """A handicap as shown after a player's name: one decimal, with the decimal comma
+    German uses ("18.4" / "18,4", 54.0 -> "54.0" / "54,0") -- same one-decimal form
+    the player directory's HCP column has. The GUI's `hcpText()` is the port
+    (pinned by the `hcp_text` cross-check group)."""
+    text = f"{handicap:.1f}"
+    return text.replace(".", ",") if (lang or get_language()) == "de" else text
 
 
 def set_language(lang: str) -> None:

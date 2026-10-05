@@ -109,8 +109,19 @@ runGroup("whole_number") { args in
 runGroup("hours_text") { args in
     hoursText(args["minutes"] as! Int, language: args["language"] as! String)
 }
+runGroup("hcp_text") { args in
+    hcpText(args["handicap"] as! Double, language: args["language"] as! String)
+}
 runGroup("holes_from_label") { args in
     orNull(Store.holes(from: args["course"] as! String))
+}
+
+runGroup("holes_for_course") { args in
+    orNull(Store.holes(from: args["course"] as! String, overrides: (args["overrides"] as! [String: Int]).map { ($0.key, $0.value) }))
+}
+runGroup("course_holes_yaml") { args in
+    Dictionary(ClubDefaults.parseCourseHoles(in: args["text"] as! String), uniquingKeysWith: { _, last in last })
+        as [String: Int] as Any
 }
 
 /// A `Day` holding just `args["weather"]` -- the payload `_weather_payload()` writes.
@@ -195,6 +206,7 @@ runGroup("store_players") { args in
     return [
         "friend_names": Store.friendNames(dbPath: path).sorted(),
         "player_genders": Store.playerGenders(dbPath: path),
+        "player_handicaps": Store.playerHandicaps(dbPath: path),
         "known_players": players,
         "my_handicap": orNull(Store.myHandicap(dbPath: path)),
     ] as [String: Any]

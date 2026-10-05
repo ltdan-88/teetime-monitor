@@ -228,6 +228,19 @@ enum Store {
         return Int(digits)
     }
 
+    /// `recommend.holes_for_course()`: the club's `course_holes` override (exact label,
+    /// case-insensitive, trimmed; `ClubDefaults.courseHoles`) wins over the name
+    /// heuristic above, which is the fallback; nil when neither knows. `overrides` is in
+    /// file order and the first match wins (Python's rule), so a hand-edited file with
+    /// "Kurz: 9" and "kurz: 18" resolves the same way in both apps.
+    static func holes(from course: String, overrides: [(String, Int)]) -> Int? {
+        let wanted = ClubDefaults.normalizedCourseKey(course)
+        for (label, holes) in overrides where holes > 0 && ClubDefaults.normalizedCourseKey(label) == wanted {
+            return holes
+        }
+        return holes(from: course)
+    }
+
     /// Records a confirmed tee time -- the manual fallback path
     /// `storage.save_confirmed_booking()` backs, same `source: "manual"` the TUI's
     /// own `ConfirmBookingScreen` writes. Never overwrites: `confirmed_bookings` is
@@ -237,8 +250,9 @@ enum Store {
     /// `false` when the row wasn't written (database locked past the busy timeout,
     /// missing table, ...), so the caller doesn't report a booking that isn't there.
     @discardableResult
-    static func confirmBooking(dbPath: String, course: String, date: String, time: String) -> Bool {
-        let holes = holes(from: course)
+    static func confirmBooking(dbPath: String, course: String, date: String, time: String,
+                               courseHoles: [(String, Int)] = []) -> Bool {
+        let holes = holes(from: course, overrides: courseHoles)
         return write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
                      + "VALUES (?, ?, ?, ?, 'manual', ?)",
                      [course, date, time, holes.map(String.init) ?? nil, isoNow()])
@@ -283,6 +297,30 @@ enum Store {
             if let name = column(s, 0), let gender = column(s, 1) { genders[name] = gender }
         }
         return genders
+    }
+
+    /// Name -> handicap for every player with one recorded (NULL left out) -- the
+    /// "(18,4)" after a name in the overview. Mirrors `storage.load_player_handicaps()`.
+    static func playerHandicaps(dbPath: String) -> [String: Double] {
+        guard let db = openDB(dbPath) else { return [:] }
+        defer { sqlite3_close(db) }
+        var handicaps: [String: Double] = [:]
+        query(db, "SELECT name, handicap FROM known_players WHERE handicap IS NOT NULL") { s in
+            if let name = column(s, 0) { handicaps[name] = sqlite3_column_double(s, 1) }
+        }
+        return handicaps
+    }
+
+    /// Name -> "member"/"guest" where the club's data says -- the hover text of the
+    /// players cell. (The TUI has no hover, so nothing on the Python side mirrors it.)
+    static func playerMemberStatuses(dbPath: String) -> [String: String] {
+        guard let db = openDB(dbPath) else { return [:] }
+        defer { sqlite3_close(db) }
+        var statuses: [String: String] = [:]
+        query(db, "SELECT name, member_status FROM known_players WHERE member_status IS NOT NULL") { s in
+            if let name = column(s, 0), let status = column(s, 1) { statuses[name] = status }
+        }
+        return statuses
     }
 
     static func knownPlayers(dbPath: String) -> [KnownPlayer] {
@@ -376,11 +414,33 @@ enum Store {
     }
 
     /// How long a read or write waits for the scraper's lock before giving up --
-    /// the same 5 s Python's `sqlite3.connect()` waits by default. The databases
-    /// use a rollback journal, so with SQLite's own default of 0 a GUI write that
-    /// landed inside a scraper commit failed at once with SQLITE_BUSY.
+    /// the same 5000 ms as `storage.BUSY_TIMEOUT_MS`. With SQLite's own default of 0 a
+    /// GUI write that landed inside a scraper commit failed at once with SQLITE_BUSY.
     static let busyTimeoutMS: Int32 = 5000
 
+    /// The schema version this build knows -- `storage.SCHEMA_VERSION`. A database
+    /// stamped with a *newer* one (an updated scraper ran first) is still read as
+    /// before: nothing here refuses or warns on a higher number.
+    static let knownSchemaVersion = 1
+
+    /// `PRAGMA user_version` of the database (0 when it predates the stamp), nil when
+    /// it can't be opened. Informational only -- no reader branches on it.
+    static func schemaVersion(dbPath: String) -> Int? {
+        guard let db = openDB(dbPath) else { return nil }
+        defer { sqlite3_close(db) }
+        var version: Int?
+        query(db, "PRAGMA user_version") { s in version = Int(sqlite3_column_int(s, 0)) }
+        return version
+    }
+
+    /// The databases run in WAL mode (2026-10-05, `storage._open()`), so a reader and
+    /// the scraper's writer no longer block each other. A read-only connection on a WAL
+    /// database still needs the `-shm` index: SQLite reads or creates it itself as long
+    /// as the directory is writable. When it can't (a read-only volume, a restored
+    /// backup in a locked folder) the first read fails with CANTOPEN/READONLY; this then
+    /// falls back to `immutable=1`, which skips locking and the sidecar entirely and
+    /// reads the main file as of its last checkpoint -- slightly stale at worst, never
+    /// an error and never a write.
     private static func openDB(_ path: String, _ flags: Int32 = SQLITE_OPEN_READONLY) -> OpaquePointer? {
         var db: OpaquePointer?
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
@@ -388,6 +448,29 @@ enum Store {
             return nil
         }
         sqlite3_busy_timeout(db, busyTimeoutMS)
+        guard flags & SQLITE_OPEN_READWRITE == 0 else { return db }
+        // Touch the schema: this is where a WAL database without a usable -shm fails.
+        let rc = sqlite3_exec(db, "SELECT 1 FROM sqlite_master LIMIT 1", nil, nil, nil)
+        if rc == SQLITE_OK { return db }
+        sqlite3_close(db)
+        guard rc & 0xFF != SQLITE_BUSY, rc & 0xFF != SQLITE_NOTADB, rc & 0xFF != SQLITE_CORRUPT else { return nil }
+        return openImmutable(path)
+    }
+
+    private static func openImmutable(_ path: String) -> OpaquePointer? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "?#%")
+        guard let escaped = path.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2("file:\(escaped)?immutable=1", &db,
+                              SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        guard sqlite3_exec(db, "SELECT 1 FROM sqlite_master LIMIT 1", nil, nil, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            return nil
+        }
         return db
     }
 
@@ -812,5 +895,187 @@ enum ClubDefaults {
         }
         let body = text.hasSuffix("\n") || text.isEmpty ? text : text + "\n"
         return body + newLine + "\n"
+    }
+
+    // MARK: course_holes (2026-10-05)
+
+    /// The club's `course_holes:` mapping (course label -> hole count), for courses whose
+    /// name doesn't say how many holes they have ("Kurzplatz": 9). Read and written as
+    /// plain text like the keys above, and for a stronger reason: it is a *mapping*, which
+    /// `YAML.parse` doesn't round-trip either. In file order (first match wins when two
+    /// labels collide, like Python); empty for a missing file or key.
+    static func courseHoles(slug: String?) -> [(String, Int)] {
+        guard let slug, let text = try? String(contentsOfFile: Store.clubYAMLPath(slug: slug), encoding: .utf8)
+        else { return [] }
+        return parseCourseHoles(in: text)
+    }
+
+    static func setCourseHoles(slug: String, course: String, holes: Int?) {
+        let path = Store.clubYAMLPath(slug: slug)
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        try? replacingCourseHoles(course, holes: holes, in: text).write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// Case-insensitive, whitespace-trimmed label comparison -- `holes_for_course()`'s rule.
+    static func normalizedCourseKey(_ label: String) -> String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// The top-level `course_holes:` entries in file order, from either YAML form the
+    /// block can take (PyYAML and this app write the indented block; a hand-edited file
+    /// may use `{"Kurzplatz": 9}`). Entries that aren't `label: positive int` are skipped.
+    static func parseCourseHoles(in text: String) -> [(String, Int)] {
+        guard let block = courseHolesBlock(in: text.components(separatedBy: "\n")) else { return [] }
+        return block.entries
+    }
+
+    /// `text` with `course`'s entry in `course_holes:` set to `holes`, or removed when
+    /// `holes` is nil (the whole key goes when that was the last one -- "Auto" leaves no
+    /// trace). The block is rewritten in the indented form; every line outside it
+    /// (vacation-range lists, comments, other keys) is left byte-for-byte alone. An
+    /// existing entry for the same label (any case) is replaced in place.
+    static func replacingCourseHoles(_ course: String, holes: Int?, in text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        let existing = courseHolesBlock(in: lines)
+        var entries = existing?.entries ?? []
+        let wanted = normalizedCourseKey(course)
+        if let i = entries.firstIndex(where: { normalizedCourseKey($0.0) == wanted }) {
+            if let holes, holes > 0 { entries[i] = (course, holes) } else { entries.remove(at: i) }
+        } else if let holes, holes > 0 {
+            entries.append((course, holes))
+        }
+        let newLines = entries.isEmpty ? [] : ["course_holes:"] + entries.map { label, holes in
+            "  '" + label.replacingOccurrences(of: "'", with: "''") + "': \(holes)"
+        }
+        if let existing {
+            // A CRLF file keeps its endings on the lines this rewrites too.
+            let eol = lines[existing.range.lowerBound].hasSuffix("\r") ? "\r" : ""
+            lines.replaceSubrange(existing.range, with: newLines.map { $0 + eol })
+            return lines.joined(separator: "\n")
+        }
+        if newLines.isEmpty { return text }
+        let body = text.hasSuffix("\n") || text.isEmpty ? text : text + "\n"
+        return body + newLines.joined(separator: "\n") + "\n"
+    }
+
+    /// Where the `course_holes:` key sits (its line plus the indented lines under it, or
+    /// the lines of a flow `{...}` mapping) and what it holds. nil when the key is absent.
+    private static func courseHolesBlock(in rawLines: [String]) -> (range: Range<Int>, entries: [(String, Int)])? {
+        // CRLF files: a trailing "\r" is invisible to YAML, so it must be to the parse too
+        // (the rewrite only replaces whole lines, so the other lines keep their endings).
+        let lines = rawLines.map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
+        guard let start = lines.firstIndex(where: { $0.hasPrefix("course_holes:") }) else { return nil }
+        let rest = stripYAMLComment(String(lines[start].dropFirst("course_holes:".count)))
+            .trimmingCharacters(in: .whitespaces)
+        var end = start + 1
+        var entries: [(String, Int)] = []
+        if rest.hasPrefix("{") {
+            var flow = rest
+            while !flow.contains("}"), end < lines.count {
+                flow += " " + stripYAMLComment(lines[end]).trimmingCharacters(in: .whitespaces)
+                end += 1
+            }
+            if let close = flow.lastIndex(of: "}") {
+                let inner = String(flow[flow.index(after: flow.startIndex)..<close])
+                for piece in splitOutsideQuotes(inner, on: ",") {
+                    if let entry = courseHolesEntry(piece) { entries.append(entry) }
+                }
+            }
+        } else {
+            // Blank and column-0 comment lines don't end a YAML block while an indented
+            // line still follows them (hand edits; PyYAML accepts them), so they belong to
+            // the replaced range -- otherwise the later entries would be orphaned.
+            var scan = end
+            while scan < lines.count {
+                let line = lines[scan]
+                if let first = line.first, first == " " || first == "\t" {
+                    if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                        if let entry = courseHolesEntry(line) { entries.append(entry) }
+                        end = scan + 1
+                    }
+                } else if !(line.isEmpty || line.hasPrefix("#")) {
+                    break
+                }
+                scan += 1
+            }
+        }
+        return (start..<end, entries)
+    }
+
+    /// One `label: 9` pair (quoted or bare label), nil unless the value is a positive int.
+    private static func courseHolesEntry(_ raw: String) -> (String, Int)? {
+        let text = stripYAMLComment(raw).trimmingCharacters(in: .whitespaces)
+        guard let first = text.first else { return nil }
+        var label: String
+        var rest: Substring
+        if first == "'" || first == "\"" {
+            var i = text.index(after: text.startIndex)
+            var closed: String.Index?
+            while i < text.endIndex {
+                let ch = text[i]
+                if first == "\"", ch == "\\" {
+                    i = text.index(i, offsetBy: 2, limitedBy: text.endIndex) ?? text.endIndex
+                    continue
+                }
+                if ch == first {
+                    let next = text.index(after: i)
+                    if first == "'", next < text.endIndex, text[next] == "'" { i = text.index(after: next); continue }
+                    closed = i
+                    break
+                }
+                i = text.index(after: i)
+            }
+            guard let closed else { return nil }
+            label = YAML.scalarText(String(text[text.startIndex...closed]))
+            rest = text[text.index(after: closed)...]
+        } else {
+            guard let colon = text.range(of: ": ")?.lowerBound ?? (text.hasSuffix(":") ? text.index(before: text.endIndex) : nil)
+            else { return nil }
+            label = text[text.startIndex..<colon].trimmingCharacters(in: .whitespaces)
+            rest = text[colon...]
+        }
+        rest = rest.drop(while: { $0 == " " })
+        guard rest.first == ":" else { return nil }
+        guard let holes = Int(rest.dropFirst().trimmingCharacters(in: .whitespaces)), holes > 0,
+              !label.isEmpty else { return nil }
+        return (label, holes)
+    }
+
+    /// `text` up to a ` #` comment, ignoring `#` inside quotes.
+    private static func stripYAMLComment(_ text: String) -> String {
+        var quote: Character?
+        var previous: Character = " "
+        for i in text.indices {
+            let ch = text[i]
+            if let q = quote {
+                if ch == q { quote = nil }
+            } else if ch == "'" || ch == "\"" {
+                quote = ch
+            } else if ch == "#", previous == " " || previous == "\t" {
+                return String(text[..<i])
+            }
+            previous = ch
+        }
+        return text
+    }
+
+    private static func splitOutsideQuotes(_ text: String, on separator: Character) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var quote: Character?
+        for ch in text {
+            if let q = quote {
+                if ch == q { quote = nil }
+            } else if ch == "'" || ch == "\"" {
+                quote = ch
+            } else if ch == separator {
+                parts.append(current)
+                current = ""
+                continue
+            }
+            current.append(ch)
+        }
+        parts.append(current)
+        return parts
     }
 }

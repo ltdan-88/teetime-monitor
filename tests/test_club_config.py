@@ -281,3 +281,37 @@ def test_is_favorite_reflects_add_and_remove(tmp_path):
 
 def test_slugify_folds_umlauts_and_punctuation():
     assert club_config_module.slugify("Golfclub Domäne Musterhausen e.V.") == "golfclub-domane-musterhausen-e-v"
+
+
+# --- course_holes (2026-10-05) -------------------------------------------------------
+
+
+def test_set_course_holes_round_trips_and_keeps_every_other_key(tmp_path):
+    (tmp_path / "hetzenhof.yaml").write_text(
+        "club_id: '0497712'\ncalendar:\n  vacation_ranges:\n  - {start: '2026-07-04', end: '2026-09-15', label: summer}\n"
+        "overview_days: 5\n",
+        encoding="utf-8",
+    )
+    original = club_config_module.load_club_config("hetzenhof", tmp_path)
+
+    club_config_module.set_course_holes("hetzenhof", "Kurzplatz", 9, tmp_path)
+    after = club_config_module.load_club_config("hetzenhof", tmp_path)
+    assert after == {**original, "course_holes": {"Kurzplatz": 9}}
+    assert club_config_module.course_holes_overrides(after) == {"Kurzplatz": 9}
+
+    club_config_module.set_course_holes("hetzenhof", "kurzplatz", 18, tmp_path)  # same label, other spelling: replaced
+    club_config_module.set_course_holes("hetzenhof", "Kinderplatz", 6, tmp_path)
+    assert club_config_module.load_club_config("hetzenhof", tmp_path)["course_holes"] == {"kurzplatz": 18, "Kinderplatz": 6}
+
+    club_config_module.set_course_holes("hetzenhof", "KURZPLATZ", None, tmp_path)
+    assert club_config_module.load_club_config("hetzenhof", tmp_path)["course_holes"] == {"Kinderplatz": 6}
+    club_config_module.set_course_holes("hetzenhof", "Kinderplatz", None, tmp_path)
+    assert club_config_module.load_club_config("hetzenhof", tmp_path) == original  # the key goes with its last entry
+
+
+def test_course_holes_overrides_drops_malformed_entries():
+    assert club_config_module.course_holes_overrides({}) == {}
+    assert club_config_module.course_holes_overrides({"course_holes": "Kurzplatz"}) == {}
+    assert club_config_module.course_holes_overrides(
+        {"course_holes": {"A": 9, "B": "nine", "C": 0, "D": True, "E": 18}}
+    ) == {"A": 9, "E": 18}

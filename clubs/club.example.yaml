@@ -38,6 +38,16 @@ calendar:
   # vacation_ranges:
   #   - { start: "2026-07-04", end: "2026-09-15", label: "summer break" }
 
+# Hole count for courses whose name doesn't say it (optional). The app reads it off the
+# name ("18 Loch Tee 1", "9-Loch Schleife", "Tee 10 (9 Loch)"); a course called just
+# "Kurzplatz" has no count, so it is assumed to take a full 18-hole round and is never
+# suggested as the shorter round that still fits before dark. Map the course label to 9,
+# 18 or any positive number -- matched exactly, ignoring case and surrounding spaces,
+# and it wins over the name when both exist. Set it in the apps (Settings > Course
+# lengths in the terminal app, Settings > Clubs in the macOS app) or by hand:
+# course_holes:
+#   Kurzplatz: 9
+
 # How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 

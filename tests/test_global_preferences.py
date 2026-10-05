@@ -91,3 +91,10 @@ def test_load_preferences_resets_an_unknown_hcp_preference_to_off(tmp_path):
     path = tmp_path / "preferences.yaml"
     path.write_text("preferences:\n  hcp_preference: on\n")
     assert global_preferences.load_preferences(path)["preferences"]["hcp_preference"] == "off"
+
+
+def test_show_handicaps_round_trips_through_the_preferences_file(tmp_path):
+    path = tmp_path / "preferences.yaml"
+    global_preferences.save_preferences({"units": "metric", "show_handicaps": False}, path)
+    assert global_preferences.load_preferences(path)["show_handicaps"] is False
+    assert "show_handicaps: false" in path.read_text()

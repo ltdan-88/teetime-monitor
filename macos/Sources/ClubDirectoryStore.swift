@@ -106,30 +106,25 @@ enum ClubDirectoryStore {
 /// saved credentials to authenticate with, same optional fallback
 /// `directory_cli.py` itself documents.
 enum DirectoryClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-directory-refresh",
-                          "/usr/local/bin/teetime-monitor-directory-refresh"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-directory-refresh"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-directory-refresh") }
 
-    static func refresh(fallbackClubID: String?, done: @escaping (Int?, String?) -> Void) {
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
+    static func refresh(fallbackClubID: String?, timeout: TimeInterval = Subprocess.Timeout.directory,
+                        done: @escaping (Int?, String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(nil, t("error.directory_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, fallbackClubID.map { ["--club-id", $0] } ?? []) } catch {
+            do {
+                result = try Subprocess.run(exe, fallbackClubID.map { ["--club-id", $0] } ?? [],
+                                            timeout: timeout, handle: handle)
+            } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
@@ -151,6 +146,7 @@ enum DirectoryClient {
                 }
             }
         }
+        return handle
     }
 }
 
@@ -158,29 +154,24 @@ enum DirectoryClient {
 /// piece (saving a favorite includes a best-effort geocoding lookup, see that
 /// script's own docstring).
 enum AddClubClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-add-club", "/usr/local/bin/teetime-monitor-add-club"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-add-club"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-add-club") }
 
-    static func add(clubID: String, name: String, done: @escaping (String?, String?) -> Void) {
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
+    static func add(clubID: String, name: String, timeout: TimeInterval = Subprocess.Timeout.addClub,
+                    done: @escaping (String?, String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(nil, t("error.addclub_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, ["--club-id", clubID, "--name", name]) } catch {
+            do {
+                result = try Subprocess.run(exe, ["--club-id", clubID, "--name", name], timeout: timeout, handle: handle)
+            } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
@@ -197,5 +188,6 @@ enum AddClubClient {
                 }
             }
         }
+        return handle
     }
 }

@@ -17,6 +17,10 @@ func runStoreTests() {
         testMyHandicap()
         testWritesReportFailure()
         testWriteWaitsOutABusyLock()
+        testWALDatabaseReadsAndWrites()
+        testReaderIsNotBlockedByAnOpenWriter()
+        testReadOnlyOpenFallsBackWhenTheSidecarCannotBeCreated()
+        testNewerSchemaVersionIsTolerated()
         testClubIDAndNameDecodeEscapes()
         testOverviewDays()
     }
@@ -285,6 +289,10 @@ private func testKnownPlayersReaders() {
     Harness.checkEqual("friendNames", Store.friendNames(dbPath: db), ["Max Mustermann"])
     Harness.checkEqual("playerGenders leaves out 'unknown'", Store.playerGenders(dbPath: db),
                         ["Max Mustermann": "male", "Erika Beispiel": "female"])
+    Harness.checkEqual("playerHandicaps skips NULL", Store.playerHandicaps(dbPath: db), ["Max Mustermann": 12.5])
+    Harness.checkEqual("playerMemberStatuses skips NULL", Store.playerMemberStatuses(dbPath: db),
+                        ["Max Mustermann": "member", "Erika Beispiel": "guest"])
+    Harness.checkEqual("no database: no handicaps", Store.playerHandicaps(dbPath: dir.file("missing.db")), [:])
     let players = Store.knownPlayers(dbPath: db)
     Harness.checkEqual("knownPlayers sorted by family name", players.map(\.name),
                         ["Erika Beispiel", "Max Mustermann", "Al Unknown"])
@@ -365,4 +373,112 @@ private func testOverviewDays() {
     Harness.checkEqual("a browsed club gets the default", ClubDefaults.overviewDays(slug: nil), 5)
     try! "overview_days: 3\n".write(toFile: dir.file("preferences.yaml"), atomically: true, encoding: .utf8)
     Harness.checkEqual("preferences.yaml wins, as in _resolved_config()", ClubDefaults.overviewDays(slug: "x"), 3)
+}
+
+/// Opens `path` the way the Python scraper leaves it (WAL) and keeps the connection
+/// open, so the `-wal`/`-shm` sidecars exist while the Store under test reads and writes.
+private func openWALHolder(_ path: String) -> OpaquePointer? {
+    var holder: OpaquePointer?
+    sqlite3_open(path, &holder)
+    sqlite3_exec(holder, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+    return holder
+}
+
+private func seedOneSlotDay(_ db: String) {
+    exec(db, "INSERT INTO scrapes (id, course, date, scraped_at) VALUES (1, '18 Loch', '2026-09-20', '2026-09-19T08:00:00');")
+    exec(db, "INSERT INTO slots (scrape_id, time, booked, capacity, players) VALUES (1, '10:30', 1, 4, '[]');")
+}
+
+/// A WAL database (storage.py's `_open()`, 2026-10-05): the read-only readers see rows
+/// that are still only in the `-wal` file, and the writers still land.
+private func testWALDatabaseReadsAndWrites() {
+    let dir = TempDir()
+    let db = dir.file("club.db")
+    makeTestDB(db)
+    let holder = openWALHolder(db)
+    defer { sqlite3_close(holder) }
+    seedOneSlotDay(db)
+    Harness.check("the fixture really is in WAL mode (-wal beside it)",
+                   FileManager.default.fileExists(atPath: db + "-wal"))
+    let day = Store.days(dbPath: db, course: "18 Loch", from: "2026-09-20", days: 1).first
+    Harness.checkEqual("a read-only open sees commits that live only in the WAL", day?.slots.count, 1)
+    Harness.checkEqual("distinctScrapedDates on WAL", Store.distinctScrapedDates(dbPath: db, course: "18 Loch"), ["2026-09-20"])
+    Harness.check("a write on WAL lands", Store.confirmBooking(dbPath: db, course: "18 Loch", date: "2026-09-20", time: "10:30"))
+    Harness.checkEqual("and reads back", Store.days(dbPath: db, course: "18 Loch", from: "2026-09-20", days: 1).first?.bookedTime, "10:30")
+}
+
+private func journalMode(_ conn: OpaquePointer?) -> String {
+    var stmt: OpaquePointer?
+    defer { sqlite3_finalize(stmt) }
+    guard sqlite3_prepare_v2(conn, "PRAGMA journal_mode", -1, &stmt, nil) == SQLITE_OK,
+          sqlite3_step(stmt) == SQLITE_ROW, let text = sqlite3_column_text(stmt, 0) else { return "?" }
+    return String(cString: text)
+}
+
+/// The point of WAL: a read while another connection sits in an open write
+/// transaction returns at once (and only sees committed rows) instead of waiting.
+/// The writer spills dirty pages (tiny cache, ~4 MB): in a rollback-journal database that
+/// takes the EXCLUSIVE lock and the read would wait out its busy timeout, so this fails
+/// without WAL (a writer with a few dirty pages only holds RESERVED and proves nothing).
+private func testReaderIsNotBlockedByAnOpenWriter() {
+    let dir = TempDir()
+    let db = dir.file("club.db")
+    makeTestDB(db)
+    let holder = openWALHolder(db)
+    defer { sqlite3_close(holder) }
+    seedOneSlotDay(db)
+    Harness.checkEqual("the fixture is in WAL mode", journalMode(holder), "wal")
+    sqlite3_exec(holder, "PRAGMA cache_size = 1;", nil, nil, nil)
+    sqlite3_exec(holder, """
+        BEGIN IMMEDIATE;
+        INSERT INTO scrapes (course, date, scraped_at) VALUES ('18 Loch', '2026-09-21', 'x');
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000)
+        INSERT INTO scrapes (course, date, scraped_at) SELECT '18 Loch', '2026-09-22', hex(randomblob(2000)) FROM n;
+        """, nil, nil, nil)
+    let started = Date()
+    let dates = Store.distinctScrapedDates(dbPath: db, course: "18 Loch")
+    let elapsed = Date().timeIntervalSince(started)
+    sqlite3_exec(holder, "ROLLBACK;", nil, nil, nil)
+    Harness.checkEqual("only the committed row is visible", dates, ["2026-09-20"])
+    Harness.check("the read did not wait on the writer (took \(elapsed) s)", elapsed < 1.0)
+}
+
+/// A read-only open of a WAL database whose `-shm` can't be created (no sidecars, and a
+/// read-only folder) falls back to `immutable=1` instead of returning nothing.
+private func testReadOnlyOpenFallsBackWhenTheSidecarCannotBeCreated() {
+    let dir = TempDir()
+    let folder = dir.file("locked")
+    try! FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    let db = folder + "/club.db"
+    makeTestDB(db)
+    seedOneSlotDay(db)
+    var conn: OpaquePointer?
+    sqlite3_open(db, &conn)
+    sqlite3_exec(conn, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+    sqlite3_close(conn)  // last connection: checkpoints and removes the sidecars
+    try? FileManager.default.removeItem(atPath: db + "-wal")
+    try? FileManager.default.removeItem(atPath: db + "-shm")
+    try! FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder) }
+    let day = Store.days(dbPath: db, course: "18 Loch", from: "2026-09-20", days: 1).first
+    Harness.checkEqual("readable even though no -shm can be created", day?.slots.count, 1)
+    Harness.check("no sidecar was forced into existence",
+                   !FileManager.default.fileExists(atPath: db + "-wal"))
+}
+
+/// `PRAGMA user_version` newer than this build knows is read as normal -- an updated
+/// scraper must not break the app that hasn't been updated yet.
+private func testNewerSchemaVersionIsTolerated() {
+    let dir = TempDir()
+    let db = dir.file("club.db")
+    makeTestDB(db)
+    seedOneSlotDay(db)
+    Harness.checkEqual("a database without the stamp reads as 0", Store.schemaVersion(dbPath: db), 0)
+    exec(db, "PRAGMA user_version = \(Store.knownSchemaVersion);")
+    Harness.checkEqual("the known version", Store.schemaVersion(dbPath: db), Store.knownSchemaVersion)
+    exec(db, "PRAGMA user_version = 99;")
+    Harness.checkEqual("a newer version is reported as is", Store.schemaVersion(dbPath: db), 99)
+    Harness.checkEqual("and the data still reads",
+                        Store.days(dbPath: db, course: "18 Loch", from: "2026-09-20", days: 1).first?.slots.count, 1)
+    Harness.check("no database: nil, not a crash", Store.schemaVersion(dbPath: dir.file("missing.db")) == nil)
 }

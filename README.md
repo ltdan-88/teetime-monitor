@@ -48,7 +48,10 @@ something about it changes.
    When your course is too dark to finish but a shorter one at the club still fits,
    the cell suggests that instead — e.g. "★ 16:10 · 9H" (the TUI names the course
    under the table when you highlight the day; in the GUI, hover it for the course
-   or click it to switch to that course).
+   or click it to switch to that course). A course whose name doesn't say its length
+   (a "Kurzplatz") is only considered once you give it a hole count — Settings → Course
+   lengths in the terminal app, Settings → Clubs in the macOS app (the club file's
+   `course_holes`).
    A day that isn't open for booking yet shows 🔒 and when it opens — e.g.
    "🔒 Wed 21:00" for a club that releases tee times 3 days ahead at 21:00 (club time;
    a club that names no hour just shows the day). The background scraper looks at
@@ -105,7 +108,9 @@ club or course closes them all.
 With a pc caddie login the names get meaning: players are coloured by gender
 (blue / magenta), a friend you marked in the player directory gets a bold name and a
 gold ★, and a seat with no public name reads *anonymous* instead of silently
-vanishing. **?** shows the legend for all of it.
+vanishing. Each name carries the player's handicap in brackets, e.g. *Max Mustermann
+(18.4)* (hover a row in the macOS app for handicap and member status; switch it off under
+Settings → Display). **?** shows the legend for all of it.
 
 <p align="center"><img src="assets/en/expanded.png" alt="A day opened in place, showing each individual tee time with its own occupancy"></p>
 
@@ -235,7 +240,7 @@ directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course, timezone (optional)
+    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course, course_holes (optional), timezone (optional)
     .env                    # PCC_USER / PCC_PASS / an AI provider key (Settings → AI provider)
     preferences.yaml        # availability, weather, AI, pace, interval
     config                  # THEME=, LANG=

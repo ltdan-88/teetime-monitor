@@ -54,6 +54,10 @@ struct Preferences {
     /// preferences-vs-settings *screens*, not preferences-vs-settings *files*.
     var units = "metric"
 
+    /// Top-level `show_handicaps` (2026-10-05): "(18,4)" after player names in the slot
+    /// rows. On unless switched off; Settings -> Display in both apps.
+    var showHandicaps = true
+
     static func path() -> String {
         let env = ProcessInfo.processInfo.environment["TEETIME_MONITOR_CONFIG_DIR"]
         let base = (env as NSString?)?.expandingTildeInPath
@@ -93,6 +97,7 @@ struct Preferences {
         p.hcpPreference = prefs?["hcp_preference"]?.asString ?? p.hcpPreference
 
         p.units = root["units"]?.asString ?? p.units
+        p.showHandicaps = root["show_handicaps"]?.asBool ?? p.showHandicaps
         p.daylightBufferMinutes = root["daylight_buffer_minutes"]?.asInt ?? p.daylightBufferMinutes
         let round = root["round_duration_minutes"]
         p.roundDurationNine = round?["nine"]?.asInt ?? p.roundDurationNine
@@ -175,6 +180,7 @@ struct Preferences {
         setTop("preferences", .map(prefsPairs))
 
         setTop("units", .string(units))
+        setTop("show_handicaps", .bool(showHandicaps))
         setTop("daylight_buffer_minutes", .int(daylightBufferMinutes))
         setTop("round_duration_minutes", .map([
             ("nine", .int(roundDurationNine)),

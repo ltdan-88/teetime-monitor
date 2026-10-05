@@ -149,6 +149,35 @@ def test_offers_a_shorter_round_when_daylight_alone_rules_out_the_selected_cours
     assert result["_hint"]["alternative_courses"] == ["9 Loch Tee 1"]
 
 
+def test_course_holes_override_makes_an_unnamed_course_a_shorter_round_alternative(tmp_path, capsys):
+    """The club YAML's `course_holes` (reaches picks_cli via --club-slug ->
+    `_resolved_config()`) gives "Kurzplatz" a hole count, so it is now offered where it
+    was skipped before (2026-10-05)."""
+    from src import club_config
+
+    club_config.CLUBS_DIR.mkdir(parents=True, exist_ok=True)
+    (club_config.CLUBS_DIR / "hetzenhof.yaml").write_text(
+        "club_id: '0497712'\ncourse_holes:\n  Kurzplatz: 9\n", encoding="utf-8"
+    )
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": "16:00"}}})
+    db = tmp_path / "club.db"
+    sun = SunTimes(sunrise="07:30", sunset="18:50")
+    for day in ("2026-10-05", "2026-10-06"):  # two days: the hint needs two flagged ones
+        save_schedule(Schedule(date=day, course="18 Loch Tee 1",
+                               slots=[Slot(time="16:00", booked=0, capacity=4)], sun_times=sun), path=db)
+        save_schedule(Schedule(date=day, course="Kurzplatz",
+                               slots=[Slot(time="16:10", booked=0, capacity=4)], sun_times=sun), path=db)
+    argv = ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-05", "--days", "2"]
+
+    without, _ = _run(capsys, [*argv, "--club-slug", "no-such-club"])
+    with_override, code = _run(capsys, [*argv, "--club-slug", "hetzenhof"])
+
+    assert code == 0
+    assert "alternative" not in without["2026-10-05"]
+    assert with_override["2026-10-05"]["alternative"] == {"course": "Kurzplatz", "time": "16:10", "holes": 9}
+    assert with_override["_hint"]["alternative_courses"] == ["Kurzplatz"]
+
+
 def test_no_alternative_on_a_day_that_has_a_pick(tmp_path, capsys):
     global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
     db = tmp_path / "club.db"

@@ -18,7 +18,9 @@ weather comfort don't change depending on which course you're looking at, so tha
 never actually a per-club fact, just modeled as one. Now reads/writes
 `global_preferences.py`'s one shared file instead. Everything genuinely per-club
 (`club_id`, `location`, `calendar`, `overview_days`, `default_course`, `identity`)
-still lives in `clubs/*.yaml`, untouched by this screen, and hand-edited for now —
+still lives in `clubs/*.yaml`, untouched by this screen, and hand-edited for now (one
+exception, 2026-10-05: the "Course lengths" rows of `AppSettingsScreen` write the
+club's `course_holes`, see `course_holes_rows()`) —
 those are set-once-at-setup values, not day-to-day dials, and each one really does
 vary by club.
 
@@ -171,13 +173,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Collapsible, Header, Input, Label, Select, Static, Switch
 
-from . import club_config, global_preferences, i18n, storage, units
+from . import clock, club_config, global_preferences, i18n, storage, units
 from . import theme as theme_module
 from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
@@ -192,6 +195,7 @@ from .scrape_once import (
     DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
     _db_path,
 )
+from .scraper import _holes_from_course_label
 from .search import resolve_buffer_minutes
 from .translated_footer import TranslatedFooter  # noqa: F401 -- re-exported, see that module
 
@@ -395,6 +399,40 @@ def _my_handicap_display(club_id: str | None) -> str:
     return f"{handicap:g}"
 
 
+def course_holes_rows(club_id: str | None) -> tuple[str | None, list[tuple[str, int | None]]]:
+    """(club file slug, [(course, current `course_holes` override or None)]) for the
+    "Course lengths" rows (2026-10-05): the viewed club's courses -- from its own
+    database, still-scraped ones only -- whose name doesn't say how many holes they have
+    (`_holes_from_course_label()` is None; for the rest the name already decides, so an
+    override would have nothing to fix). `(None, [])` when there is no club, it isn't a
+    saved club (no file to write to), or nothing is scraped yet. Read-only: never
+    creates a database. The GUI lists the same courses (Settings > Clubs)."""
+    slug = club_config.slug_for_club_id(club_id) if club_id else None
+    if slug is None:
+        return None, []
+    db_path = _db_path(club_id)
+    if not db_path.exists():
+        return slug, []
+    try:
+        overrides = club_config.course_holes_overrides(club_config.load_club_config(slug))
+    except (OSError, yaml.YAMLError):
+        overrides = {}
+    by_key = {label.strip().lower(): holes for label, holes in overrides.items()}
+    courses = [c for c in storage.upcoming_courses(clock.today(), db_path) if _holes_from_course_label(c) is None]
+    return slug, [(course, by_key.get(course.strip().lower())) for course in courses]
+
+
+def _course_holes_options(current: int | None) -> list[tuple[str, str]]:
+    """Auto / 9 / 18 -- plus the current value when it is something else (a hand-edited 6)."""
+    values = [9, 18]
+    if current is not None and current not in values:
+        values.insert(0, current)
+    return [
+        (i18n.t("settings.course_holes.auto"), ""),
+        *((i18n.t("settings.course_holes.option", n=n), str(n)) for n in values),
+    ]
+
+
 def _save_language(lang: str) -> None:
     """Persist *and* apply — `i18n.save_language()` alone only writes the file, leaving
     the running process on its old language until the next launch. Both are needed here
@@ -482,6 +520,11 @@ FIELDS: list[Field] = [
     # while every other field in that group is a real playability threshold, always
     # stored in metric regardless of what this is set to.
     Field("settings.field.units", ("units",), "str", "settings.group.display", units.DEFAULT_UNITS),
+    # Added 2026-10-05, direct request ("player names including their actual HCP"):
+    # the "(18.4)" after each name in the expanded slot rows. Other golfers' handicaps
+    # are personal data (only ever shown locally, from the club's own member data),
+    # so there is a switch; on by default. Top-level key like `units`, display-only.
+    Field("settings.field.show_handicaps", ("show_handicaps",), "bool", "settings.group.display", True),
     Field("settings.field.avoid_rain", ("preferences", "avoid_rain"), "bool", "settings.group.weather", False),
     Field(
         "settings.field.avoid_rain_probability",
@@ -899,6 +942,10 @@ class SettingsScreen(Screen[dict | None]):
         width: 1;
         content-align: center middle;
     }
+    .course-holes-hint {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
     #status {
         padding: 0 2;
         color: $text-muted;
@@ -952,6 +999,9 @@ class SettingsScreen(Screen[dict | None]):
     # (and `python -m src.settings_screen`) showing the full form.
     FIELDS_SHOWN: list[Field] | None = None
     GROUPS_SHOWN: list[str] | None = None
+    # The per-club "Course lengths" rows (see `course_holes_rows()`) -- a club setting,
+    # so only the app-settings screen shows them, not the preferences one.
+    SHOW_COURSE_HOLES = False
 
     def __init__(
         self,
@@ -978,6 +1028,10 @@ class SettingsScreen(Screen[dict | None]):
         )
         self._on_saved = on_saved
         self.config = global_preferences.load_preferences(self.preferences_file)
+        # Filled by compose() when the Course lengths rows are shown: (course, current
+        # override) in widget order -- row i is the Select `#course-holes-i`.
+        self._course_holes_slug: str | None = None
+        self._course_holes: list[tuple[str, int | None]] = []
 
     def on_mount(self) -> None:
         self._update_narrow_class(self.size.width)
@@ -1118,6 +1172,24 @@ class SettingsScreen(Screen[dict | None]):
                                 )
                             else:
                                 yield Input(value=current, id=widget_id, classes="field-input", compact=True)
+            if self.SHOW_COURSE_HOLES:
+                self._course_holes_slug, self._course_holes = course_holes_rows(self._club_id())
+                if self._course_holes:
+                    with Collapsible(
+                        title=i18n.t("settings.course_holes.title"), collapsed=False, classes="field-group"
+                    ):
+                        yield Static(i18n.t("settings.course_holes.hint"), classes="course-holes-hint")
+                        for index, (course, current) in enumerate(self._course_holes):
+                            with Horizontal(classes="field-row"):
+                                yield Label(course, classes="field-label")
+                                yield Select(
+                                    _course_holes_options(current),
+                                    value="" if current is None else str(current),
+                                    allow_blank=False,
+                                    compact=True,
+                                    id=f"course-holes-{index}",
+                                    classes="field-input",
+                                )
         yield Static("", id="status")
         with Horizontal(id="buttons"):
             # "Cancel," not "Quit" -- this button dismisses just the screen (same
@@ -1147,6 +1219,18 @@ class SettingsScreen(Screen[dict | None]):
                 widget = self.query_one(f"#{widget_id}")
                 widget_values[widget_id] = widget.value
         return widget_values
+
+    def _save_course_holes(self) -> None:
+        """Write each changed Course lengths row to the club's own file (nothing for an
+        unchanged one, so a plain Save never rewrites it)."""
+        if self._course_holes_slug is None:
+            return
+        for index, (course, current) in enumerate(self._course_holes):
+            raw = self.query_one(f"#course-holes-{index}", Select).value
+            chosen = int(raw) if raw else None
+            if chosen != current:
+                club_config.set_course_holes(self._course_holes_slug, course, chosen)
+                self._course_holes[index] = (course, chosen)
 
     def action_cancel(self) -> None:
         self.dismiss(self.config)
@@ -1188,6 +1272,7 @@ class SettingsScreen(Screen[dict | None]):
                 if new_value != field.getter():
                     field.setter(new_value)
             global_preferences.save_preferences(updated, self.preferences_file)
+            self._save_course_holes()
             self.config = updated
             if self._on_saved is not None:
                 self._on_saved(updated)
@@ -1226,6 +1311,7 @@ class AppSettingsScreen(SettingsScreen):
     now that it only holds places to go."""
 
     GROUPS_SHOWN = SETTING_GROUP_ORDER
+    SHOW_COURSE_HOLES = True
 
     def on_mount(self) -> None:
         super().on_mount()

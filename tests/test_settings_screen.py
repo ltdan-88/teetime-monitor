@@ -1068,3 +1068,110 @@ def test_per_club_rows_use_the_club_passed_in_not_the_first_saved_one(tmp_path, 
     texts, opened_for = asyncio.run(scenario(None))
     assert "12.5" in texts
     assert opened_for == "first"
+
+
+def test_show_handicaps_is_a_display_switch_that_defaults_on_and_round_trips():
+    from src.settings_screen import _field_id
+
+    field = next(f for f in FIELDS if f.path == ("show_handicaps",))
+    assert (field.kind, field.group_key, field.default) == ("bool", "settings.group.display", True)
+    key = _field_id(field)
+    # Absent from the file means on.
+    assert config_to_widget_values({}, [field]) == {key: True}
+    off = widget_values_to_config({}, {key: False}, [field])
+    assert off == {"show_handicaps": False}
+    assert config_to_widget_values(off, [field]) == {key: False}
+
+
+# --- Course lengths: per-club `course_holes` rows (2026-10-05) ----------------------
+
+
+def _course_holes_club(tmp_path, monkeypatch, yaml_text="club_id: '0497712'\ndefault_course: ''\n"):
+    """A saved club whose DB holds "18 Loch Tee 1" (name says it) and "Kurzplatz" (doesn't)."""
+    from src import club_config, settings_screen, storage
+    from src.models import Schedule, Slot
+
+    club_config.CLUBS_DIR.mkdir(parents=True, exist_ok=True)
+    (club_config.CLUBS_DIR / "hetzenhof.yaml").write_text(yaml_text, encoding="utf-8")
+    db = tmp_path / "club.db"
+    for course in ("18 Loch Tee 1", "Kurzplatz"):
+        storage.save_schedule(
+            Schedule(date="2099-01-01", course=course, slots=[Slot(time="10:00", booked=0, capacity=4)]), path=db
+        )
+    monkeypatch.setattr(settings_screen, "_db_path", lambda club_id: db)
+    return club_config.CLUBS_DIR / "hetzenhof.yaml"
+
+
+def test_course_holes_rows_list_only_courses_whose_name_has_no_hole_count(tmp_path, monkeypatch):
+    from src.settings_screen import course_holes_rows
+
+    _course_holes_club(tmp_path, monkeypatch, "club_id: '0497712'\ncourse_holes:\n  kurzplatz: 9\n  Elsewhere: 6\n")
+    assert course_holes_rows("0497712") == ("hetzenhof", [("Kurzplatz", 9)])  # case-insensitive match
+    assert course_holes_rows("nope") == (None, [])  # not a saved club: nothing to write to
+    assert course_holes_rows(None) == (None, [])
+
+
+def test_course_holes_rows_never_create_a_database(tmp_path, monkeypatch):
+    from src import club_config, settings_screen
+    from src.settings_screen import course_holes_rows
+
+    club_config.CLUBS_DIR.mkdir(parents=True, exist_ok=True)
+    (club_config.CLUBS_DIR / "hetzenhof.yaml").write_text("club_id: '0497712'\n", encoding="utf-8")
+    missing = tmp_path / "never-scraped.db"
+    monkeypatch.setattr(settings_screen, "_db_path", lambda club_id: missing)
+    assert course_holes_rows("0497712") == ("hetzenhof", [])
+    assert not missing.exists()
+
+
+def test_settings_screen_saves_a_holes_choice_into_the_club_file_and_keeps_its_other_keys(tmp_path, monkeypatch):
+    import yaml
+
+    path = _course_holes_club(
+        tmp_path,
+        monkeypatch,
+        "club_id: '0497712'\ncalendar:\n  vacation_ranges:\n  - {start: '2026-07-04', end: '2026-09-15', label: summer}\n",
+    )
+
+    async def scenario():
+        app = _HostApp(AppSettingsScreen(tmp_path / "preferences.yaml", club_id="0497712"))
+        async with app.run_test(size=(120, 120)) as pilot:
+            await pilot.pause()
+            assert len(app.screen.query("#course-holes-0")) == 1
+            assert len(app.screen.query("#course-holes-1")) == 0  # only Kurzplatz is listed
+            select = app.screen.query_one("#course-holes-0")
+            assert select.value == ""  # Auto
+            assert [label for label, _ in select._options][1:] == ["9 holes", "18 holes"]
+            select.value = "9"
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert saved["course_holes"] == {"Kurzplatz": 9}
+    assert saved["calendar"]["vacation_ranges"] == [{"start": "2026-07-04", "end": "2026-09-15", "label": "summer"}]
+    assert saved["club_id"] == "0497712"
+
+    async def clear():
+        app = _HostApp(AppSettingsScreen(tmp_path / "preferences.yaml", club_id="0497712"))
+        async with app.run_test(size=(120, 120)) as pilot:
+            await pilot.pause()
+            select = app.screen.query_one("#course-holes-0")
+            assert select.value == "9"
+            select.value = ""
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(clear())
+    assert "course_holes" not in yaml.safe_load(path.read_text(encoding="utf-8"))  # Auto leaves no trace
+
+
+def test_course_lengths_rows_are_a_club_setting_not_a_preference(tmp_path, monkeypatch):
+    _course_holes_club(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(PreferencesScreen(tmp_path / "preferences.yaml", club_id="0497712"))
+        async with app.run_test(size=(120, 120)) as pilot:
+            await pilot.pause()
+            return len(app.screen.query("#course-holes-0"))
+
+    assert asyncio.run(scenario()) == 0

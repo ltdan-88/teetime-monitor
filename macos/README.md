@@ -1185,6 +1185,21 @@ Two more direct remarks after the polish round above:
      `SettingsSheet`'s messaging to say "next restart" specifically rather than the
      vaguer, easy-to-misread "next time it opens."
 
+## The Python-helper runner (2026-10-05)
+
+Every helper call goes through `Subprocess.run` (`Sources/Subprocess.swift`):
+- **Timeout per call**, SIGTERM then SIGKILL after 2 s, surfaced as `SubprocessError.timedOut`
+  (picks 60 s, search 90 s, preview 120 s, login / AI verify 30 s, scraper refresh 300 s,
+  directory refresh and add-club 60 s). `Subprocess.Timeout` holds them.
+- **Cancellation**: `run` takes a `SubprocessHandle`; `cancel()` terminates the child and the
+  client's `done` is then never called. `OverviewModel.fetchPicks()` cancels the superseded
+  picks run (latest wins) instead of letting it finish; the search sheet cancels on close.
+- **Executable lookup** is `Subprocess.resolve(name)`: `$TEETIME_MONITOR_BIN_DIR`,
+  `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` (uv tool installs), then one
+  `which` with a 3 s timeout. Hits are cached for the app's lifetime; a miss for 30 s.
+- **SIGPIPE**: the stdin write end is non-signalling and `Main.swift` ignores SIGPIPE, so a
+  helper that exits without reading its input can't kill the app.
+
 ## What it deliberately doesn't do
 
 No scraping (beyond shelling out to the existing scraper binary; login, search, and

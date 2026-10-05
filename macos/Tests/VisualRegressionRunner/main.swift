@@ -101,6 +101,9 @@ enum VisualRegression {
         AppTheme.shared.name = "catppuccin"
         AppScale.shared.option = .small
         AppUnits.shared.value = "metric"
+        // SlotRow reads show_handicaps; pinned so a maintainer who switched it off
+        // still matches the slot-row-hcp reference (2026-10-05).
+        AppShowHandicaps.shared.value = true
         AppLanguage.shared.code = "en"
         // The footer-health case prints local clock times ("since Sat 16:45"); pinned
         // so a contributor's machine and CI render the same text (2026-10-05).

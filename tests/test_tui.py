@@ -6892,3 +6892,111 @@ def test_the_background_scrape_is_tagged_as_the_tui(tmp_path, monkeypatch):
 
     _run(scenario())
     assert sources and set(sources) == {"tui"}
+
+
+# --- players' handicap in brackets (2026-10-05) --------------------------------------------
+
+
+def test_player_name_markup_appends_the_handicap_dimmed_in_brackets():
+    i18n.set_language("en")
+    assert tui._player_name_markup("Max Mustermann", False, None, 18.4) == "Max Mustermann [dim](18.4)[/]"
+    assert tui._player_name_markup("Max Mustermann", False, None, 54.0) == "Max Mustermann [dim](54.0)[/]"
+
+
+def test_player_name_markup_uses_a_decimal_comma_in_german():
+    i18n.set_language("de")
+    try:
+        assert tui._player_name_markup("Max Mustermann", False, None, 18.4) == "Max Mustermann [dim](18,4)[/]"
+    finally:
+        i18n.set_language("en")
+
+
+def test_player_name_markup_without_a_handicap_is_unchanged():
+    assert tui._player_name_markup("Max Mustermann", False, None) == "Max Mustermann"
+    assert tui._player_name_markup("Max Mustermann", False, None, None) == "Max Mustermann"
+    assert tui._player_name_markup("Erika Muster", True, "female", None) == (
+        "[yellow]★[/] [bold][#e36bd0]Erika Muster[/][/]"
+    )
+
+
+def test_player_name_markup_combines_friend_gender_and_handicap():
+    i18n.set_language("en")
+    assert tui._player_name_markup("Erika Muster", True, "female", 7.5) == (
+        "[yellow]★[/] [bold][#e36bd0]Erika Muster[/][/] [dim](7.5)[/]"
+    )
+    assert tui._player_name_markup("Max Mustermann", False, "male", 0.0) == "[#5aa9ff]Max Mustermann[/] [dim](0.0)[/]"
+
+
+def test_player_name_markup_bracket_text_counts_towards_the_one_line_truncation():
+    i18n.set_language("en")
+    markup = tui._player_name_markup("Max Mustermann", False, None, 18.4)
+    assert tui._one_line(markup, 40).plain == "Max Mustermann (18.4)"
+    cut = tui._one_line(markup, 18)
+    assert cut.plain == "Max Mustermann (1…" and cut.cell_len == 18
+    # The dim style survives on the part of the bracket text that is left.
+    assert any("dim" in str(span.style) for span in cut.spans)
+
+
+def test_compute_slot_rows_shows_known_handicaps_after_the_names():
+    i18n.set_language("en")
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=3, capacity=4, players=["Max Mustermann", "Erika Muster"])],
+    )
+    rows = tui._compute_slot_rows(
+        schedule, {}, "metric", "2026-09-06", set(), None,
+        friend_names={"Erika Muster"}, handicaps={"Max Mustermann": 18.4},
+    )
+    # A name with no handicap on record (a guest) renders as before; the anonymous seat stays.
+    assert rows[0].players_cell == (
+        "Max Mustermann [dim](18.4)[/], [yellow]★[/] [bold]Erika Muster[/], [dim italic]anonymous[/]"
+    )
+
+
+def test_overview_screen_shows_handicaps_unless_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    db_path = scrape_once._db_path("0000001")
+    storage.save_schedule(
+        Schedule(
+            date=clock.today(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=2, capacity=4, players=["Max Mustermann", "Gast Eins"])],
+        ),
+        path=db_path,
+    )
+    storage.record_seen_players(
+        [PlayerSighting("Max Mustermann", "male", "member", 18.4), PlayerSighting("Gast Eins", None, "guest", None)],
+        "2026-10-05T10:00:00+00:00",
+        db_path,
+    )
+
+    async def players_text(show: bool | None) -> str:
+        prefs = {} if show is None else {"show_handicaps": show}
+        tui.global_preferences.save_preferences(prefs)
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(160, 24)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {clock.today()}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            table = screen.query_one("#overview-table", DataTable)
+            return table.get_row_at(1)[tui.OverviewScreen._PICK_COLUMN_INDEX].plain
+
+    i18n.set_language("en")
+    assert asyncio.run(players_text(None)) == "Max Mustermann (18.4), Gast Eins"  # default: on
+    assert asyncio.run(players_text(True)) == "Max Mustermann (18.4), Gast Eins"
+    assert asyncio.run(players_text(False)) == "Max Mustermann, Gast Eins"
+
+
+def test_legend_has_the_handicap_line_in_both_languages():
+    assert ("", "legend.hcp") in tui.OVERVIEW_LEGEND
+    i18n.set_language("en")
+    assert "(18.4) = player's handicap" in tui._legend_pairs(tui.OVERVIEW_LEGEND)
+    i18n.set_language("de")
+    try:
+        assert "(18,4) = Handicap des Spielers" in tui._legend_pairs(tui.OVERVIEW_LEGEND)
+    finally:
+        i18n.set_language("en")

@@ -323,3 +323,39 @@ def test_lock_date_wording_is_natural_in_each_language():
     i18n.set_language("de")
     assert i18n.t("lock.date", month=i18n.t("lock.month.10"), day=14) == "14. Okt"
     assert i18n.t("lock.month.3") == "Mär"
+
+
+def test_format_handicap_has_one_decimal_and_a_german_comma():
+    assert i18n.format_handicap(18.4, "en") == "18.4"
+    assert i18n.format_handicap(18.4, "de") == "18,4"
+    assert i18n.format_handicap(54, "en") == "54.0"
+    assert i18n.format_handicap(0.0, "de") == "0,0"
+    assert i18n.format_handicap(-1.25, "en") == "-1.2"
+
+
+def test_handicap_strings_match_the_gui_word_for_word():
+    # The legend line and the Display toggle's label read the same in both apps.
+    from pathlib import Path
+
+    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
+    english, german = swift.split("private let germanStrings", 1)
+    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
+    for lang, table in (("en", english), ("de", german)):
+        swift_strings = dict(entry.findall(table))
+        assert swift_strings["legend.hcp"] == i18n._STRINGS[lang]["legend.hcp"], lang
+        assert swift_strings["settings.show_handicaps"] == i18n._STRINGS[lang]["settings.field.show_handicaps"], lang
+
+
+def test_course_holes_strings_match_the_gui_word_for_word():
+    # 2026-10-05: the per-course "Holes" dropdown (Auto / 9 holes / 18 holes) and its hint
+    # read the same in both apps; same keys on both sides.
+    from pathlib import Path
+
+    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
+    english, german = swift.split("private let germanStrings", 1)
+    keys = tuple(f"settings.course_holes.{name}" for name in ("title", "auto", "option", "hint"))
+    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
+    for lang, table in (("en", english), ("de", german)):
+        swift_strings = dict(entry.findall(table))
+        for key in keys:
+            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)

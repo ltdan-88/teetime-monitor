@@ -536,7 +536,9 @@ def _holes_from_course_label(course: str) -> int | None:
     "18-Loch Schleife (nur erste 9-Loch)"), so an explicit "N Loch"/"N-Loch" mention
     wins over the leading digits, and the smallest one wins when there are several
     (the parenthesised part narrows the loop). Leading digits stay the fallback.
-    Mirrored by `Store.holes(from:)` in macos/Sources/Store.swift."""
+    Mirrored by `Store.holes(from:)` in macos/Sources/Store.swift. Callers that have
+    the club's config go through `recommend.holes_for_course()` instead, which puts the
+    club's `course_holes` override ahead of this (2026-10-05)."""
     mentions = re.findall(r"(\d+)\s*-?\s*Loch", course, flags=re.IGNORECASE)
     if mentions:
         return min(int(m) for m in mentions)

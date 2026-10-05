@@ -194,17 +194,69 @@ SCRAPE_RUN_RETENTION_DAYS = 30
 SCRAPE_ERROR_MESSAGE_MAX_CHARS = 300
 
 
+# How long a statement waits for another process's lock before "database is locked"
+# (2026-10-05). Three processes share each club's file -- the launchd agent's scrape,
+# the TUI's worker and the GUI's refresh/writes -- so a short wait is normal, a failure
+# is not. The GUI's Store.swift uses the same 5000.
+BUSY_TIMEOUT_MS = 5000
+
+# Bumped when the schema changes shape. Stored in `PRAGMA user_version` by init_db() so
+# the GUI (which reads the file directly) can tell, and tolerates a *newer* value than
+# it knows without failing: an older app must keep reading a database a newer one
+# already touched. init_db() never lowers it.
+SCHEMA_VERSION = 1
+
+
+def _open(path: Path, *, wal: bool) -> sqlite3.Connection:
+    """The one place a club-database connection is opened: busy timeout always, and (when `wal`)
+    write-ahead logging. WAL is persistent in the file, so this only switches a
+    database that isn't in it yet -- the readers no longer block the writer, and the
+    writer no longer blocks readers (the old rollback journal let a scrape's commit
+    fail a GUI read). Switching needs a moment of exclusive access; if another process
+    holds the file right then, or the filesystem can't do WAL (network share, read-only),
+    the database just stays in its current mode and the next connection tries again.
+    Note WAL leaves `<db>-wal` / `<db>-shm` beside the file: copy a database with
+    backup_db(), never by copying the bare `.db`."""
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000)
+    try:
+        conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        if wal:
+            try:
+                if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+                    conn.execute("PRAGMA journal_mode = WAL")
+            except sqlite3.OperationalError:
+                pass
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
 @contextmanager
 def _connect(path: Path) -> Iterator[sqlite3.Connection]:
     """`sqlite3.connect()` used as a context manager only commits or rolls back -- it
     never closes the connection, which then lingers (with its file handle) until
-    garbage collection. This commits/rolls back the same way and then closes."""
-    conn = sqlite3.connect(path)
+    garbage collection. This commits/rolls back the same way and then closes. Every
+    club-database connection comes from here (see _open() for the pragmas); the
+    backup destination and paths._is_teetime_db()'s read-only probe are deliberate
+    exceptions."""
+    conn = _open(path, wal=True)
     try:
         with conn:
             yield conn
     finally:
         conn.close()
+
+
+# Public name of _connect() for the other modules that query a club database directly
+# (analytics.py), so they get the same busy timeout and WAL.
+connect = _connect
+
+
+def schema_version(path: Path) -> int:
+    """`PRAGMA user_version` of `path` (0 for a database that predates it)."""
+    with _connect(path) as conn:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
 def init_db(path: Path = DEFAULT_DB_PATH) -> None:
@@ -251,6 +303,9 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
         for column, column_type in (("gender", "TEXT"), ("member_status", "TEXT"), ("handicap", "REAL")):
             if column not in existing_player_columns:
                 conn.execute(f"ALTER TABLE known_players ADD COLUMN {column} {column_type}")
+        # 2026-10-05: stamp the schema version, but never lower a newer app's.
+        if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
 def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
@@ -364,6 +419,22 @@ def courses_scraped_on(date: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
         rows = conn.execute(
             "SELECT DISTINCT course FROM scrapes WHERE date = ? ORDER BY course", (date,)
         ).fetchall()
+    return [row[0] for row in rows]
+
+
+def upcoming_courses(today: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
+    """Courses still being scraped (a scrape for `today` or later), alphabetically --
+    the club's current lineup, which `SELECT DISTINCT course` over all history is not
+    (a club's DB can hold retired names). Falls back to every course ever scraped when
+    nothing is upcoming. Same rule as `Store.courses()` in macos/Sources/Store.swift;
+    what the per-course settings rows list (2026-10-05)."""
+    init_db(path)
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT course FROM scrapes WHERE date >= ? ORDER BY course", (today,)
+        ).fetchall()
+        if not rows:
+            rows = conn.execute("SELECT DISTINCT course FROM scrapes ORDER BY course").fetchall()
     return [row[0] for row in rows]
 
 
@@ -777,6 +848,15 @@ def load_known_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
     return dict(rows)
 
 
+def load_player_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
+    """Name -> most recently seen handicap for every known player who has one (NULL is
+    left out -- guests often have none) -- what shows "(18.4)" after a name in the
+    overview (2026-10-05). The same rows `load_known_handicaps()` reads for ranking;
+    kept as its own name so the display path and the ranking path can diverge (the
+    display one honours the show_handicaps preference at its call sites)."""
+    return load_known_handicaps(path)
+
+
 def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) -> None:
     """Mark (or unmark) one known name as a friend -- the directory screen's own edit
     action. A no-op if `name` was never actually seen (nothing to mark), rather than
@@ -928,7 +1008,10 @@ def backup_db(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".partial")
     partial.unlink(missing_ok=True)
-    src = sqlite3.connect(source)
+    # Not _connect(): a backup must not switch the source's journal mode as a side effect.
+    # The backup API reads one consistent snapshot through the WAL (committed frames
+    # included), so the result is a self-contained file with no -wal/-shm of its own.
+    src = _open(source, wal=False)
     try:
         dst = sqlite3.connect(partial)
         try:

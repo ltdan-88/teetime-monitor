@@ -327,6 +327,7 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var uiLanguage = AppLanguage.shared
     @StateObject private var units = Box(Preferences.load().units)
+    @StateObject private var showHandicaps = Box(Preferences.load().showHandicaps)
     // The normalised code the app is showing, not the raw LANG= value: a hand-edited
     // "de_DE.UTF-8" is no Picker tag and, saved back, switched the GUI to English.
     @StateObject private var language = Box(AppLanguage.shared.code)
@@ -416,24 +417,28 @@ struct SettingsSheet: View {
                 Section {
                     ForEach(model.clubs.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
                             id: \.path) { club in
-                        HStack {
-                            Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
-                            Spacer()
-                            DefaultCoursePicker(club: club, model: model)
-                            // No confirmation dialog -- matches the TUI's own `f`-
-                            // to-unfavorite, a single keypress with no prompt
-                            // either, and the footer below already explains
-                            // up front that this is low-stakes (scrape history
-                            // survives, re-adding picks up where it left off).
-                            Button {
-                                Store.removeClub(slug: club.slug)
-                                model.load()
-                            } label: {
-                                Image(systemName: "trash")
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(club.lastScrape.isEmpty ? "\(club.name) — \(t("overview.never_scraped"))" : club.name)
+                                Spacer()
+                                DefaultCoursePicker(club: club, model: model)
+                                // No confirmation dialog -- matches the TUI's own `f`-
+                                // to-unfavorite, a single keypress with no prompt
+                                // either, and the footer below already explains
+                                // up front that this is low-stakes (scrape history
+                                // survives, re-adding picks up where it left off).
+                                Button {
+                                    Store.removeClub(slug: club.slug)
+                                    model.load()
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.red)
+                                .frame(width: Metrics.clubTrash)
+                                .help(t("settings.remove_club"))
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.red)
-                            .help(t("settings.remove_club"))
+                            CourseHolesRows(club: club, model: model)
                         }
                     }
                     Button { showingAddClub.value = true } label: {
@@ -458,6 +463,8 @@ struct SettingsSheet: View {
                     Picker(t("settings.units"), selection: $units.value) {
                         Text(t("settings.metric")).tag("metric"); Text(t("settings.imperial")).tag("imperial")
                     }
+                    // "(18,4)" after player names; same switch as Settings -> Display in the TUI.
+                    Toggle(t("settings.show_handicaps"), isOn: $showHandicaps.value)
                     Picker(t("settings.scale"), selection: $scaleOption.value) {
                         ForEach(AppScaleOption.allCases, id: \.self) { Text(t("settings.scale.\($0.rawValue)")).tag($0) }
                     }
@@ -568,6 +575,7 @@ struct SettingsSheet: View {
                         // the other sheet); theme/language are the plain config file.
                         var p = Preferences.load()
                         p.units = units.value
+                        p.showHandicaps = showHandicaps.value
                         p.scrapeIntervalMinutes = scrapeIntervalMinutes.value
                         p.scrapeIntervalMinutesBooked = scrapeIntervalMinutesBooked.value
                         p.aiAssistEnabled = aiAssistEnabled.value
@@ -581,6 +589,7 @@ struct SettingsSheet: View {
                         // back (see Units.swift). This is the line that actually
                         // reformats every temperature and wind speed on screen.
                         AppUnits.shared.value = units.value
+                        AppShowHandicaps.shared.value = showHandicaps.value
                         AppLanguage.shared.code = language.value
                         try UserConfig.setValue("THEME", theme.value)
                         try UserConfig.setValue("LANG", language.value)
@@ -639,7 +648,78 @@ struct DefaultCoursePicker: View {
                 Color.clear
             }
         }
-        .frame(width: 190, alignment: .trailing)
+        .frame(width: Metrics.clubPicker, alignment: .trailing)
         .onAppear { selection.value = ClubDefaults.defaultCourse(slug: club.slug) ?? "" }
+    }
+}
+
+
+/// Settings > Clubs, under a club's own row (2026-10-05): one "Holes" dropdown per course
+/// whose name doesn't say how many holes it has ("Kurzplatz") -- Auto / 9 / 18. Nothing
+/// at all for a club without such a course. The same fixed columns as the row above
+/// (`Metrics.clubPicker`, `Metrics.clubTrash`), so the dropdowns line up with the default
+/// course picker. Writes the club's `course_holes` mapping (the TUI's Settings reads and
+/// writes the same key); `recommend.holes_for_course()` applies it, on the Python side.
+struct CourseHolesRows: View {
+    let club: (path: String, id: String, slug: String, name: String, lastScrape: String)
+    @ObservedObject var model: OverviewModel
+    @ObservedObject private var language = AppLanguage.shared
+
+    private var courses: [String] { Store.courses(dbPath: club.path).filter { Store.holes(from: $0) == nil } }
+
+    var body: some View {
+        let unnamed = courses
+        if !unnamed.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(t("settings.course_holes.title"))
+                    .font(scaledFont(.caption)).foregroundStyle(.secondary)
+                ForEach(unnamed, id: \.self) { course in
+                    HStack {
+                        Text(course)
+                        Spacer()
+                        CourseHolesPicker(slug: club.slug, course: course, model: model)
+                        Color.clear.frame(width: Metrics.clubTrash, height: 1)
+                    }
+                }
+                Text(t("settings.course_holes.hint"))
+                    .font(scaledFont(.caption2)).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// One course's Auto / 9 / 18 dropdown. 0 stands for Auto (no `course_holes` entry); a
+/// hand-edited value other than 9/18 (a 6) stays selectable.
+struct CourseHolesPicker: View {
+    let slug: String
+    let course: String
+    @ObservedObject var model: OverviewModel
+    @ObservedObject private var language = AppLanguage.shared
+    @StateObject private var selection = Box(0)
+
+    private func stored() -> Int {
+        let wanted = ClubDefaults.normalizedCourseKey(course)
+        return ClubDefaults.courseHoles(slug: slug)
+            .first { ClubDefaults.normalizedCourseKey($0.0) == wanted }?.1 ?? 0
+    }
+
+    var body: some View {
+        let options = [9, 18] + ([selection.value].filter { $0 > 0 && $0 != 9 && $0 != 18 })
+        Picker(t("settings.course_holes.title"), selection: $selection.value) {
+            Text(t("settings.course_holes.auto")).tag(0)
+            ForEach(options.sorted(), id: \.self) { n in
+                Text(t("settings.course_holes.option", ["n": "\(n)"])).tag(n)
+            }
+        }
+        .labelsHidden()
+        .onChange(of: selection.value) { _, new in
+            // The initial load below also lands here; only a real change is written.
+            guard new != stored() else { return }
+            ClubDefaults.setCourseHoles(slug: slug, course: course, holes: new == 0 ? nil : new)
+            model.reload()  // the picks (round length, shorter-round suggestion) depend on it
+        }
+        .frame(width: Metrics.clubPicker, alignment: .trailing)
+        .help(t("settings.course_holes.hint"))
+        .onAppear { selection.value = stored() }
     }
 }

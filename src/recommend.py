@@ -179,6 +179,42 @@ def _schedule_for(candidate: SlotMatch, schedules: list[Schedule]) -> Schedule |
     return None
 
 
+def course_holes_override(course: str, config: dict | None) -> int | None:
+    """Just the club YAML's `course_holes` override for `course` (first positive match in
+    file order), or None -- without the name-heuristic fallback `holes_for_course()` adds.
+    Split out (2026-10-05) so scrape_once._booking_round_minutes() can let an override
+    beat a booking's stored count while a stored count still beats the heuristic."""
+    overrides = (config or {}).get("course_holes")
+    if isinstance(overrides, dict):
+        wanted = course.strip().lower()
+        for label, holes in overrides.items():
+            if (
+                str(label).strip().lower() == wanted
+                and isinstance(holes, int)
+                and not isinstance(holes, bool)
+                and holes > 0
+            ):
+                return holes
+    return None
+
+
+def holes_for_course(course: str, config: dict | None) -> int | None:
+    """The one place a course's hole count is resolved (2026-10-05): the club YAML's
+    optional `course_holes` override ("Kurzplatz": 9 -- for a course whose name says
+    nothing about its length) -> `scraper._holes_from_course_label()`'s name heuristic
+    -> None (unknown). The override wins over the heuristic when both exist (a club
+    knows its own courses); the label match is exact but case-insensitive and
+    whitespace-trimmed. Only positive ints count -- a hand-edited "nine", 0, a bool or
+    a non-mapping `course_holes` is ignored (falls through to the heuristic), never
+    raises. Mirrored by `Store.holes(from:courseHoles:)` in macos/Sources/Store.swift;
+    every caller that used the heuristic directly goes through here instead
+    (round duration, the shorter-round alternative, the confirm-booking default)."""
+    override = course_holes_override(course, config)
+    if override is not None:
+        return override
+    return _holes_from_course_label(course)
+
+
 def _round_duration_minutes(course: str, config: dict) -> int:
     """config["round_duration_minutes"] only has "nine"/"eighteen" keys (see
     clubs/club.example.yaml) — a genuinely 6-hole course (this club's "6 Loch Platz")
@@ -186,7 +222,7 @@ def _round_duration_minutes(course: str, config: dict) -> int:
     proxy (a 6-hole round takes less time than a 9-hole one anyway, so this only ever
     over-estimates the duration, never under-estimates it into an unsafe recommendation).
 
-    Reuses `scraper._holes_from_course_label()` rather than its own regex (found and
+    Reuses `holes_for_course()` (-> `scraper._holes_from_course_label()`) rather than its own regex (found and
     fixed 2026-09-07: the previous `r"(\\d+)\\s*Loch"` pattern required "Loch"
     immediately after the number with no hyphen — silently failed to match a second
     real club's own naming, e.g. "18-Loch Schleife", falling back to `18` for
@@ -197,7 +233,7 @@ def _round_duration_minutes(course: str, config: dict) -> int:
     shortcut above: overestimating a round's length only ever costs a missed
     recommendation, never approves a genuinely unsafe one — the opposite of what an
     underestimate would risk."""
-    holes = _holes_from_course_label(course)
+    holes = holes_for_course(course, config)
     if holes is None:
         key, default = "eighteen", 240
     else:
@@ -384,7 +420,8 @@ def shorter_round_alternative(
     verdict -- alone or alongside daylight -- gets no alternative. A day that
     had a pick anyway, or no in-window candidates at all, gets none either.
 
-    Siblings are courses whose hole count `scraper._holes_from_course_label()`
+    Siblings are courses whose hole count `holes_for_course()` (the club's
+    `course_holes` override, else the name heuristic)
     actually knows and that is below the selected course's; an unknown count
     (e.g. "Kurzplatz") is skipped, never guessed -- and with the *selected*
     course's own count unknown, there's nothing to compare against, so None.
@@ -410,7 +447,7 @@ def shorter_round_alternative(
         return None
     if unplayable_reasons(candidates, [selected], config) != {"daylight"}:
         return None
-    selected_holes = _holes_from_course_label(selected_course)
+    selected_holes = holes_for_course(selected_course, config)
     if selected_holes is None:
         return None
 
@@ -419,7 +456,7 @@ def shorter_round_alternative(
     for course, schedule in schedules_by_course.items():
         if course == selected_course or schedule.date != date:
             continue
-        holes = _holes_from_course_label(course)
+        holes = holes_for_course(course, config)
         if holes is None or holes >= selected_holes:
             continue
         if schedule.sun_times is None:

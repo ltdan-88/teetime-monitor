@@ -184,6 +184,10 @@ struct LegendButton: View {
                         Text("\u{2605}").foregroundStyle(.yellow).frame(width: 22)
                         Text(t("legend.player_friend"))
                     }
+                    HStack(spacing: 8) {
+                        Color.clear.frame(width: 22, height: 1)
+                        Text(t("legend.hcp"))
+                    }
                 }
                 .padding(12)
             }
@@ -217,6 +221,7 @@ struct SlotRow: View {
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var units = AppUnits.shared
     @ObservedObject private var language = AppLanguage.shared
+    @ObservedObject private var showHandicaps = AppShowHandicaps.shared
     // Same reasoning as HeatStrip: these seat pips are the "occupancy bars in
     // detailed view" the user's report named as unreadable under a light theme.
     @ObservedObject private var theme = AppTheme.shared
@@ -244,32 +249,9 @@ struct SlotRow: View {
     }
 
     private var playersText: Text {
-        var result = AttributedString()
-        for (i, name) in slot.players.enumerated() {
-            if i > 0 {
-                var comma = AttributedString(", "); comma.foregroundColor = .secondary
-                result += comma
-            }
-            // A friend: gold ★ in front and a bold name (the ★ matches the gold friend
-            // pips); the name itself is coloured by gender -- blue / magenta, neutral
-            // when unknown (direct request, 2026-10-03).
-            if model.friendNames.contains(name) {
-                var star = AttributedString("\u{2605} "); star.foregroundColor = .yellow
-                result += star
-            }
-            var part = AttributedString(name)
-            part.foregroundColor = genderColor(model.playerGenders[name])
-            if model.friendNames.contains(name) { part.inlinePresentationIntent = .stronglyEmphasized }
-            result += part
-        }
-        let anonymous = anonymousPlayersText(booked: slot.booked, namedCount: slot.players.count)
-        if !anonymous.isEmpty {
-            var part = AttributedString((slot.players.isEmpty ? "" : ", ") + anonymous)
-            part.foregroundColor = .secondary
-            part.inlinePresentationIntent = .emphasized
-            result += part
-        }
-        return Text(result)
+        Text(slotPlayersAttributed(
+            players: slot.players, booked: slot.booked, friends: model.friendNames, genders: model.playerGenders,
+            handicaps: model.playerHandicaps, showHandicaps: showHandicaps.value, language: language.code))
     }
 
     /// Distinct from the friend's gold ★ in the players cell: the theme accent here, as
@@ -334,9 +316,12 @@ struct SlotRow: View {
                     // AI provider (see ai_assist.py's `_describe_candidate()`), local
                     // display only, same truncated-with-tooltip treatment as
                     // SearchSheet's own players cell.
-                    let names = ([slot.players.joined(separator: ", "),
-                                  anonymousPlayersText(booked: slot.booked, namedCount: slot.players.count)]
-                                 .filter { !$0.isEmpty }).joined(separator: ", ")
+                    // The hover lists each seat as "Name — HCP 18,4 · Member" where known
+                    // (handicaps switched off: just the names, as before).
+                    let names = slotPlayersTooltip(
+                        players: slot.players, booked: slot.booked, handicaps: model.playerHandicaps,
+                        memberStatuses: model.playerMemberStatuses, showHandicaps: showHandicaps.value,
+                        language: language.code)
                     // Friends in bold gold, same gold the player directory's own ★ uses
                     // (direct request, 2026-10-02: "highlight friends when uncollapsing").
                     playersText.font(scaledFont(.caption2)).lineLimit(1)
@@ -467,7 +452,8 @@ struct SlotRow: View {
                 }
             } else {
                 Button(t("booking.confirm")) {
-                    if !Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date, time: slot.time) {
+                    if !Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date,
+                                            time: slot.time, courseHoles: model.courseHoles()) {
                         model.problem = t("error.save_failed")
                     }
                     model.reload()
@@ -834,56 +820,42 @@ struct DayCardBody: View {
 /// one implementation of scraping and it stays in Python. See `macos/README.md`
 /// on why that split is the whole point of the hybrid.
 enum Scraper {
-    /// Homebrew's symlink first, then the Cellar-independent PATH lookup, so this keeps
-    /// working for a source checkout or a non-standard prefix.
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-scrape",
-                          "/usr/local/bin/teetime-monitor-scrape"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-scrape"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    /// Resolved in one place, `Subprocess.resolve` (override dir, Homebrew, ~/.local/bin, `which`).
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-scrape") }
 
     /// A full pass takes roughly 20 seconds against a real club (and much longer if
     /// requests hit their timeouts), so this never blocks the UI -- the caller shows
-    /// progress and `done` fires back on the main queue.
-    static func run(done: @escaping (String?) -> Void) {
+    /// progress and `done` fires back on the main queue. Bounded by
+    /// `Subprocess.Timeout.scrape` (300 s: the child is terminated and the error says so).
+    /// Returns a handle; `cancel()` terminates the pass and `done` is never called.
+    @discardableResult
+    static func run(timeout: TimeInterval = Subprocess.Timeout.scrape,
+                    done: @escaping (String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(t("error.scraper_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
             // --force: an explicit Refresh must actually do something. Without it the
             // scraper's own per-course/date interval usually decides nothing is due,
             // and the button looks broken (see scrape_once.main()'s docstring).
             // --source gui tags this pass's scrape_runs row (2026-10-05, scrape health).
-            task.arguments = ["--force", "--source", "gui"]
-            // stdout (scrape_once's _log lines) is never read, so it goes nowhere rather
-            // than into a pipe: an unread pipe fills at ~64 KB and blocks the scraper.
-            // stderr is drained to EOF *before* waiting for the same reason.
-            let err = Pipe(); task.standardError = err; task.standardOutput = FileHandle.nullDevice
-            do { try task.run() } catch {
+            // stdout (scrape_once's _log lines) is drained by Subprocess and dropped: an
+            // unread pipe fills at ~64 KB and blocks the scraper.
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, ["--force", "--source", "gui"], timeout: timeout, handle: handle) } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(error.localizedDescription) }
                 return
             }
-            let errData = err.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
-            let stderr = String(data: errData, encoding: .utf8) ?? ""
             DispatchQueue.main.async {
-                done(task.terminationStatus == 0 ? nil
-                     : (stderr.isEmpty ? "scrape failed (exit \(task.terminationStatus))" : stderr))
+                done(result.status == 0 ? nil
+                     : (result.stderrText.isEmpty ? "scrape failed (exit \(result.status))" : result.stderrText))
             }
         }
+        return handle
     }
 }
 
@@ -897,6 +869,10 @@ final class OverviewModel: ObservableObject {
     @Published var friendNames: Set<String> = []
     /// Name -> "male"/"female", colours names in expanded slot rows.
     @Published var playerGenders: [String: String] = [:]
+    /// Name -> handicap / member status, shown after names and in the players hover
+    /// (`Store.playerHandicaps`/`playerMemberStatuses`); refreshed with the genders.
+    @Published var playerHandicaps: [String: Double] = [:]
+    @Published var playerMemberStatuses: [String: String] = [:]
     @Published var expanded: Set<String> = []
     @Published var isScraping = false
     @Published var problem: String?
@@ -1254,6 +1230,12 @@ final class OverviewModel: ObservableObject {
         ClubDefaults.overviewDays(slug: clubs.first(where: { $0.path == clubPath })?.slug)
     }
 
+    /// The club's `course_holes` overrides (clubs/<slug>.yaml), for the hole count a
+    /// manual confirm records on a course whose name doesn't say it.
+    func courseHoles() -> [(String, Int)] {
+        ClubDefaults.courseHoles(slug: clubs.first(where: { $0.path == clubPath })?.slug)
+    }
+
     /// `preferDefault`: launch / club switch -- start on the club's default course
     /// (direct request, 2026-10-03: a 9-hole member wants to open on the 9-hole course).
     /// Any other reload keeps the course you're on while it still exists.
@@ -1274,8 +1256,10 @@ final class OverviewModel: ObservableObject {
     func clearClubState() {
         days = []; picks = [:]; verdicts = [:]; alternatives = [:]; locked = [:]; windowHint = nil; banners = []
         pendingJump = nil
-        lastScrape = nil; scrapeHealth = .empty; friendNames = []; playerGenders = [:]; picksRequestKey = nil
+        lastScrape = nil; scrapeHealth = .empty; friendNames = []; playerGenders = [:]
+        playerHandicaps = [:]; playerMemberStatuses = [:]; picksRequestKey = nil
         picksGeneration += 1  // a fetch still running for the old club must not land
+        picksHandle?.cancel(); picksHandle = nil  // ...and its process is killed, not left to finish
     }
 
     /// `picksDelay`: seconds to wait before fetching picks -- the DB watcher passes a
@@ -1295,6 +1279,8 @@ final class OverviewModel: ObservableObject {
                 let loaded = Store.days(dbPath: path, course: course, from: today, days: window)
                 let friends = Store.friendNames(dbPath: path)
                 let genders = Store.playerGenders(dbPath: path)
+                let handicaps = Store.playerHandicaps(dbPath: path)
+                let statuses = Store.playerMemberStatuses(dbPath: path)
                 let scrape = Store.lastScrape(dbPath: path)
                 let health = Store.scrapeHealth(dbPath: path)
                 let bans = Store.banners(dbPath: path)
@@ -1303,6 +1289,8 @@ final class OverviewModel: ObservableObject {
                     self.days = loaded
                     self.friendNames = friends
                     self.playerGenders = genders
+                    self.playerHandicaps = handicaps
+                    self.playerMemberStatuses = statuses
                     self.lastScrape = scrape
                     self.scrapeHealth = health
                     self.banners = bans
@@ -1314,6 +1302,8 @@ final class OverviewModel: ObservableObject {
             days = Store.days(dbPath: clubPath, course: course, from: today, days: overviewDays())
             friendNames = Store.friendNames(dbPath: clubPath)
             playerGenders = Store.playerGenders(dbPath: clubPath)
+            playerHandicaps = Store.playerHandicaps(dbPath: clubPath)
+            playerMemberStatuses = Store.playerMemberStatuses(dbPath: clubPath)
             expanded = keepOpen          // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
             lastScrape = Store.lastScrape(dbPath: clubPath)
@@ -1362,47 +1352,39 @@ final class OverviewModel: ObservableObject {
     /// "Now" for wording a locked day's opening ("today 20:00" vs "Wed 21:00"); a seam so
     /// the visual-regression fixtures render the same text on every day they run.
     var now: () -> Date = { Date() }
-    /// The picks_cli run currently going, if any -- at most one per club/course.
-    private var picksInFlight: (path: String, course: String, generation: Int)?
-    /// A same-club/course request arrived while one was running: run once more after.
-    private var picksRerunQueued = false
+    /// The picks_cli run currently going, if any -- at most one: a newer request
+    /// terminates it (2026-10-05) instead of queueing behind it.
+    private var picksHandle: SubprocessHandle?
     private var picksDebounce: DispatchWorkItem?
 
     /// Fire-and-forget, async -- reload() itself stays synchronous/fast (plain SQLite
     /// reads); this rides the cadence reload() already runs on (the DB-mtime watcher,
-    /// manual Refresh, confirm/cancel). A stale clubPath/course by the time this
-    /// returns (the user switched mid-fetch) is caught below rather than clobbering
-    /// the new selection's own picks.
+    /// manual Refresh, confirm/cancel). Latest wins: a run still going (same club or
+    /// another) is cancelled -- its process is killed, its result never lands -- so a
+    /// burst of changes ends in one fetch of the newest data. A stale clubPath/course by
+    /// the time this returns (the user switched mid-fetch) is caught below rather than
+    /// clobbering the new selection's own picks.
     func fetchPicks() {
         picksDebounce?.cancel(); picksDebounce = nil
         guard !clubPath.isEmpty, !course.isEmpty else { return }
         let requestPath = clubPath, requestCourse = course
-        // Same club/course already running: let it finish, then fetch once more for
-        // whatever changed since -- never a second overlapping process.
-        if let running = picksInFlight, running.path == requestPath, running.course == requestCourse {
-            picksRerunQueued = true
-            return
-        }
+        picksHandle?.cancel()
         picksGeneration += 1
         let generation = picksGeneration
-        picksInFlight = (requestPath, requestCourse, generation)
-        picksRerunQueued = false
         let requestSlug = clubs.first { $0.path == clubPath }?.slug
-        PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today,
-                        days: overviewDays()) { [weak self] result in
+        picksHandle = PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today,
+                                      days: overviewDays()) { [weak self] result in
             guard let self else { return }
-            if self.picksInFlight?.generation == generation { self.picksInFlight = nil }
-            if generation == self.picksGeneration, self.clubPath == requestPath, self.course == requestCourse {
-                self.picksRequestKey = (requestPath, requestCourse)
-                self.picks = result.picks
-                self.verdicts = result.verdicts
-                self.alternatives = result.alternatives
-                self.locked = result.locked
-                self.windowHint = result.hint
-            }
-            if self.picksInFlight == nil, self.picksRerunQueued {
-                self.picksRerunQueued = false
-                self.fetchPicks()
+            if generation == self.picksGeneration {
+                self.picksHandle = nil
+                if self.clubPath == requestPath, self.course == requestCourse {
+                    self.picksRequestKey = (requestPath, requestCourse)
+                    self.picks = result.picks
+                    self.verdicts = result.verdicts
+                    self.alternatives = result.alternatives
+                    self.locked = result.locked
+                    self.windowHint = result.hint
+                }
             }
         }
     }

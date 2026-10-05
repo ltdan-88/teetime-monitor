@@ -152,6 +152,21 @@ private func footerRow(_ model: OverviewModel) -> some View {
     }
 }
 
+/// Players with and without a handicap (2026-10-05): the "(18,4)" brackets sit inside the
+/// one players Text, so the columns before it keep their spots whether or not a seat has one.
+private let hcpSlotDay = Day(
+    date: "2026-09-26",
+    slots: [
+        Slot(time: "09:00", booked: 3, capacity: 4, blockReason: nil,
+             players: ["Max Mustermann", "Erika Beispiel", "Gast Eins"]),
+        Slot(time: "10:00", booked: 4, capacity: 4, blockReason: nil,
+             players: ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]),
+        Slot(time: "11:00", booked: 1, capacity: 4, blockReason: nil, players: []),
+    ],
+    weather: [],
+    sunrise: nil, sunset: nil, events: [], bookedTime: nil
+)
+
 let allCases: [VisualRegressionCase] = [
     // Wide enough that leadingSummary's own natural content and the trailing
     // heat-strip/badge overlay (anchored to leadingSummary's *resolved* frame,
@@ -202,6 +217,23 @@ let allCases: [VisualRegressionCase] = [
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(multiSlotDay.slots) { slot in
                     SlotRow(slot: slot, day: multiSlotDay, model: model)
+                }
+            }
+            .padding(8)
+        )
+    },
+    // Handicaps in brackets after the names; the second row is too long for the canvas and
+    // must truncate rather than push anything.
+    VisualRegressionCase(name: "slot-row-hcp", size: CGSize(width: 520, height: 100)) {
+        let model = OverviewModel()
+        model.friendNames = ["Erika Beispiel"]
+        model.playerGenders = ["Max Mustermann": "male", "Erika Beispiel": "female"]
+        model.playerHandicaps = ["Max Mustermann": 18.4, "Erika Beispiel": 7.5, "Christel Römer-Dold": 36,
+                                 "Gertrud Zimmermann": 24.3, "Geraldine Piper": 11.2, "Margit Kraut": 54]
+        return AnyView(
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(hcpSlotDay.slots) { slot in
+                    SlotRow(slot: slot, day: hcpSlotDay, model: model)
                 }
             }
             .padding(8)

@@ -1215,3 +1215,254 @@ def test_courses_scraped_on_lists_every_course_with_a_scrape_for_that_date(tmp_p
         storage.save_schedule(Schedule(date=day, course=course, slots=[]), path=db)
     assert storage.courses_scraped_on("2026-10-05", path=db) == ["18 Loch Tee 1", "9 Loch Tee 1"]
     assert storage.courses_scraped_on("2026-10-07", path=db) == []
+
+
+def test_upcoming_courses_hides_retired_names_and_falls_back_to_everything(tmp_path):
+    db = tmp_path / "club.db"
+    for course, day in (("Alt", "2026-09-01"), ("Kurzplatz", "2026-10-06"), ("18 Loch Tee 1", "2026-10-05")):
+        storage.save_schedule(Schedule(date=day, course=course, slots=[]), path=db)
+    assert storage.upcoming_courses("2026-10-05", path=db) == ["18 Loch Tee 1", "Kurzplatz"]  # "Alt" is history
+    assert storage.upcoming_courses("2027-01-01", path=db) == ["18 Loch Tee 1", "Alt", "Kurzplatz"]  # none upcoming
+    assert storage.upcoming_courses("2026-10-05", path=tmp_path / "empty.db") == []
+
+
+def test_load_player_handicaps_skips_players_without_one(tmp_path):
+    from src.storage import load_player_handicaps
+
+    db = tmp_path / "club.db"
+    record_seen_players(
+        [
+            _sighting("Max Mustermann", handicap=18.4),
+            _sighting("Erika Mustermann", handicap=0.0),
+            _sighting("Gast Eins"),
+        ],
+        "2026-10-05T10:00:00+00:00",
+        path=db,
+    )
+    # A later sighting without a handicap keeps the recorded one (COALESCE).
+    record_seen_players([_sighting("Max Mustermann")], "2026-10-06T10:00:00+00:00", path=db)
+
+    assert load_player_handicaps(path=db) == {"Max Mustermann": 18.4, "Erika Mustermann": 0.0}
+    assert load_player_handicaps(path=tmp_path / "missing.db") == {}
+
+
+# --- WAL, busy timeout, user_version (2026-10-05): the launchd agent, the TUI worker and
+# the GUI all open the same file ---------------------------------------------------
+
+
+def _one_slot_schedule(course="c", date="2026-09-06"):
+    return Schedule(date=date, course=course, slots=[Slot(time="08:00", booked=1, capacity=4)])
+
+
+def _pragma(db, name):
+    conn = sqlite3.connect(db)
+    try:
+        return conn.execute(f"PRAGMA {name}").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_connections_set_a_busy_timeout(monkeypatch, tmp_path):
+    # A bare sqlite3.connect() already reports 5000 ms, so a test of the default can't
+    # fail. Change the constant and check the pragma follows it: that proves _open()
+    # issues the PRAGMA / passes timeout= rather than inheriting Python's default.
+    assert storage.BUSY_TIMEOUT_MS == 5000
+    monkeypatch.setattr(storage, "BUSY_TIMEOUT_MS", 1234)
+    with storage._connect(tmp_path / "x.db") as conn:
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 1234
+
+
+def test_init_db_switches_to_wal_and_it_persists(tmp_path):
+    db = tmp_path / "club.db"
+    init_db(db)
+    assert _pragma(db, "journal_mode") == "wal"  # a brand-new connection: persisted in the file
+    init_db(db)  # idempotent
+    assert _pragma(db, "journal_mode") == "wal"
+
+
+def test_every_storage_call_leaves_wal_on(tmp_path):
+    db = tmp_path / "club.db"
+    save_schedule(_one_slot_schedule(), path=db)
+    assert _pragma(db, "journal_mode") == "wal"
+
+
+def test_init_db_migrates_an_old_rollback_journal_database(tmp_path):
+    db = tmp_path / "club.db"
+    # An old install: rollback journal, no user_version, an older `scrapes` shape.
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE scrapes (id INTEGER PRIMARY KEY AUTOINCREMENT, course TEXT NOT NULL,"
+        " date TEXT NOT NULL, scraped_at TEXT NOT NULL);"
+        "INSERT INTO scrapes (course, date, scraped_at) VALUES ('c', '2026-09-06', '2026-09-05T08:00:00');"
+    )
+    conn.commit()
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+    conn.close()
+
+    init_db(db)
+    init_db(db)  # twice: idempotent
+
+    assert _pragma(db, "journal_mode") == "wal"
+    assert _pragma(db, "user_version") == storage.SCHEMA_VERSION
+    assert last_scraped_at("c", "2026-09-06", path=db) == "2026-09-05T08:00:00"  # history intact
+    columns = {row[1] for row in sqlite3.connect(db).execute("PRAGMA table_info(scrapes)")}
+    assert {"sunrise", "sunset", "events"} <= columns
+
+
+def test_init_db_stamps_user_version_and_never_lowers_a_newer_one(tmp_path):
+    db = tmp_path / "club.db"
+    init_db(db)
+    assert storage.schema_version(db) == storage.SCHEMA_VERSION >= 1
+    conn = sqlite3.connect(db)
+    conn.execute(f"PRAGMA user_version = {storage.SCHEMA_VERSION + 41}")
+    conn.close()
+    init_db(db)  # a newer app already touched this file: leave its version alone
+    save_schedule(_one_slot_schedule(), path=db)
+    assert storage.schema_version(db) == storage.SCHEMA_VERSION + 41
+
+
+def test_a_reader_is_not_blocked_by_an_open_write_transaction(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    db = tmp_path / "club.db"
+    save_schedule(_one_slot_schedule(), path=db)
+    # The discriminating part: a rollback-journal writer that has only a few dirty pages
+    # holds RESERVED and readers still pass, so the test would be green without WAL.
+    # Spilling dirty pages (tiny cache, a few MB) makes a delete-mode writer take
+    # EXCLUSIVE and the reader fail with "database is locked"; in WAL it returns at once.
+    assert _pragma(db, "journal_mode") == "wal"
+    writer_open = threading.Event()
+    release = threading.Event()
+
+    def hold_write_lock():
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("PRAGMA cache_size = 1")
+            conn.execute("BEGIN IMMEDIATE")
+            for _ in range(2000):
+                conn.execute(
+                    "INSERT INTO scrapes (course, date, scraped_at) VALUES ('c', '2026-09-07', hex(randomblob(2000)))"
+                )
+            writer_open.set()
+            release.wait(10)
+            conn.rollback()
+        finally:
+            conn.close()
+
+    thread = threading.Thread(target=hold_write_lock)
+    thread.start()
+    try:
+        assert writer_open.wait(30)
+        monkeypatch.setattr(storage, "BUSY_TIMEOUT_MS", 300)  # fail fast if it would block
+        started = time.monotonic()
+        schedule = load_latest_schedule("c", "2026-09-06", path=db)
+        dates = distinct_scraped_dates("c", path=db)
+        elapsed = time.monotonic() - started
+        assert schedule is not None and len(schedule.slots) == 1
+        assert dates == ["2026-09-06"]  # the uncommitted row is not visible
+        assert elapsed < 0.25, f"reader waited {elapsed:.1f}s on a writer"
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_concurrent_writers_all_land(tmp_path):
+    import threading
+
+    db = tmp_path / "club.db"
+    init_db(db)
+    errors = []
+
+    def writer(n):
+        try:
+            for i in range(5):
+                save_schedule(_one_slot_schedule(course=f"c{n}", date=f"2026-09-{10 + i}"), path=db)
+                load_latest_schedule(f"c{n}", f"2026-09-{10 + i}", path=db)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM scrapes").fetchone()[0] == 20
+    finally:
+        conn.close()
+
+
+def test_backup_under_wal_is_a_consistent_self_contained_snapshot(tmp_path):
+    db = tmp_path / "club.db"
+    save_schedule(_one_slot_schedule(date="2026-09-06"), path=db)
+    # A second connection stays open, so the commit below still sits in the -wal file
+    # (no checkpoint has folded it into the main file) and a plain file copy would miss it.
+    holder = sqlite3.connect(db)
+    holder.execute("SELECT 1 FROM scrapes").fetchall()
+    try:
+        save_schedule(_one_slot_schedule(date="2026-09-07"), path=db)
+        assert (tmp_path / "club.db-wal").exists()
+        # ...and an in-flight transaction that must NOT appear in the snapshot.
+        writer = sqlite3.connect(db, isolation_level=None)
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT INTO scrapes (course, date, scraped_at) VALUES ('c', '2026-09-08', 'x')")
+        try:
+            destination = tmp_path / "out" / "backup.db"
+            storage.backup_db(db, destination)
+        finally:
+            writer.execute("ROLLBACK")
+            writer.close()
+    finally:
+        holder.close()
+
+    # Self-contained: move it alone, with no sidecars, somewhere else and read it.
+    lone = tmp_path / "elsewhere.db"
+    destination.rename(lone)
+    assert not list((tmp_path / "out").glob("*"))  # no .partial left behind
+    conn = sqlite3.connect(lone)
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        dates = [row[0] for row in conn.execute("SELECT date FROM scrapes ORDER BY date")]
+    finally:
+        conn.close()
+    assert dates == ["2026-09-06", "2026-09-07"]
+    assert distinct_scraped_dates("c", path=lone) == ["2026-09-06", "2026-09-07"]
+
+
+def test_backup_does_not_change_the_sources_journal_mode(tmp_path):
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE scrapes (id INTEGER PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+    storage.backup_db(db, tmp_path / "b.db")
+    assert _pragma(db, "journal_mode") == "delete"
+
+
+def test_legacy_migration_copies_wal_pending_commits(tmp_path, monkeypatch):
+    # paths.migrate_from() used to shutil.copy2() the bare .db; with WAL a recent commit
+    # may live only in the -wal file, so it goes through the backup API instead.
+    from src import paths
+
+    legacy = tmp_path / "old"
+    (legacy / "data").mkdir(parents=True)
+    old_db = legacy / "data" / "0000001.db"
+    save_schedule(_one_slot_schedule(), path=old_db)
+    holder = sqlite3.connect(old_db)  # keeps the commit in the -wal file
+    holder.execute("SELECT 1 FROM scrapes").fetchall()
+    try:
+        data = tmp_path / "new-data"
+        monkeypatch.setattr(paths, "DATA_DIR", data)
+        monkeypatch.setattr(paths, "CONFIG_DIR", tmp_path / "cfg")
+        monkeypatch.setattr(paths, "CLUBS_DIR", tmp_path / "cfg" / "clubs")
+        monkeypatch.setattr(paths, "ENV_FILE", tmp_path / "cfg" / ".env")
+        monkeypatch.setattr(paths, "MANAGED_DIRS", (tmp_path / "cfg", tmp_path / "cfg" / "clubs", data))
+        monkeypatch.setattr(paths, "_write_migration_marker", lambda: None)
+        paths.migrate_from(legacy)
+    finally:
+        holder.close()
+    assert distinct_scraped_dates("c", path=data / "0000001.db") == ["2026-09-06"]

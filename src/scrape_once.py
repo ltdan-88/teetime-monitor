@@ -84,7 +84,7 @@ import httpx
 from . import booking_watch, booking_window, club_config, global_preferences, paths, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking, SunTimes, WeatherPoint
-from .recommend import _round_duration_minutes
+from .recommend import _round_duration_minutes, course_holes_override
 from .scraper import (
     LoginError,
     NoTeeSheetError,
@@ -265,10 +265,15 @@ def _booking_round_minutes(confirmed: ConfirmedBooking, config: dict) -> int:
     """The weather window booking_watch checks for a confirmed booking -- the same
     nine/eighteen mapping and 120/240 defaults as recommend._round_duration_minutes(),
     but from the booking's own hole count when it has one (a 9-hole round booked on an
-    18-hole course). An unknown count falls back to the course label, then to 18."""
-    if confirmed.holes is None:
+    18-hole course). The club's `course_holes` override wins over that stored count
+    (2026-10-05: it is name-derived, so the override is the club's explicit word); an
+    unknown count falls back to the course label, then to 18."""
+    holes = course_holes_override(confirmed.course, config)
+    if holes is None:
+        holes = confirmed.holes
+    if holes is None:
         return _round_duration_minutes(confirmed.course, config)
-    key = "eighteen" if confirmed.holes >= 18 else "nine"
+    key = "eighteen" if holes >= 18 else "nine"
     default = 240 if key == "eighteen" else 120
     return config.get("round_duration_minutes", {}).get(key, default)
 
