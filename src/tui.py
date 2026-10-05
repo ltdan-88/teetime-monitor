@@ -151,6 +151,7 @@ and is imported back here under its old private names; time is read through `clo
 import asyncio
 import importlib.metadata
 import json
+import re
 import sys
 import threading
 from datetime import UTC, datetime, timedelta
@@ -1367,6 +1368,17 @@ class SlotRowCells(NamedTuple):
     precipitation_cell: str
     wind_cell: str
     events_cell: str
+
+
+_HANDICAP_MARKUP = re.compile(r" \[dim\]\(\d+[.,]\d\)\[/\]")
+
+
+def _strip_handicaps(markup_text: str) -> str:
+    """`markup_text` without the dim "(18.4)" handicap runs `_player_name_markup()` adds
+    after names. Used when the table is too narrow to show brackets inline: the cells
+    show names only and the full text (with handicaps) stays in #row-detail (2026-10-05,
+    direct report: at 120 columns the brackets cut the player lists short)."""
+    return _HANDICAP_MARKUP.sub("", markup_text)
 
 
 def _player_name_markup(name: str, is_friend: bool, gender: str | None, handicap: float | None = None) -> str:
@@ -3408,6 +3420,39 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # that function's own docstring.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
         available = _table_width_budget(table, width if width is not None else self.size.width)
+        # Brackets only while they fit (2026-10-05, direct report: at 120 columns the
+        # handicaps cut the player lists short): when the Pick/Players column would be
+        # truncated, the slot rows' "(18.4)" runs leave the cells (more names stay
+        # visible) and the highlighted row's #row-detail carries the full text.
+        original_rows = pending_rows
+        hcp_rows: set[int] = set()
+        if natural_total > available:
+            pick_index = self._PICK_COLUMN_INDEX
+            other_total = (
+                sum(column_widths) - column_widths[self._EVENTS_COLUMN_INDEX] - column_widths[pick_index]
+            )
+            pick_fit, _unused = _fit_pick_and_events(
+                column_widths[pick_index],
+                column_widths[self._EVENTS_COLUMN_INDEX],
+                available - other_total - _table_overhead(len(headers)),
+            )
+            if column_widths[pick_index] > pick_fit:
+                trimmed = [
+                    (*row[:pick_index], _strip_handicaps(row[pick_index]), *row[pick_index + 1 :])
+                    for row in pending_rows
+                ]
+                hcp_rows = {
+                    index
+                    for index, (before, after) in enumerate(zip(pending_rows, trimmed, strict=True))
+                    if before[pick_index] != after[pick_index]
+                }
+                if hcp_rows:
+                    pending_rows = trimmed
+                    column_widths[pick_index] = max(
+                        [_cell_visible_width(headers[pick_index])]
+                        + [_cell_visible_width(row[pick_index]) for row in pending_rows]
+                    )
+                    natural_total = sum(column_widths) + _table_overhead(len(headers))
         events_shown = True
         if natural_total > available:
             other_columns_total = (
@@ -3435,6 +3480,15 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             }
         else:
             full_rows = pending_rows
+        if hcp_rows:
+            # The detail line gets the original cells, handicaps included.
+            pick_index = self._PICK_COLUMN_INDEX
+            full_rows = [
+                (*row[:pick_index], original_rows[index][pick_index], *row[pick_index + 1 :])
+                if index in hcp_rows
+                else row
+                for index, row in enumerate(full_rows)
+            ]
         self._column_widths = column_widths
 
         table.clear(columns=True)
@@ -3459,7 +3513,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 pick = self._PICK_COLUMN_INDEX
                 full_row = (*full_row[:pick], pick_details[index], *full_row[pick + 1 :])
             self._row_full_text.append(
-                self._row_lost_text(full_row, column_widths, always_pick=index in pick_details)
+                self._row_lost_text(full_row, column_widths, always_pick=index in pick_details or index in hcp_rows)
             )
             table.add_row(*cells, height=1)
         self._refresh_footer()

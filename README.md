@@ -110,7 +110,8 @@ With a pc caddie login the names get meaning: players are coloured by gender
 gold ★, and a seat with no public name reads *anonymous* instead of silently
 vanishing. Each name carries the player's handicap in brackets, e.g. *Max Mustermann
 (18.4)* (hover a row in the macOS app for handicap and member status; switch it off under
-Settings → Display). **?** shows the legend for all of it.
+Settings → Display). In a narrow terminal the brackets move out of the table cells — so more
+names stay visible — and the highlighted row's detail line shows them instead. **?** shows the legend for all of it.
 
 <p align="center"><img src="assets/en/expanded.png" alt="A day opened in place, showing each individual tee time with its own occupancy"></p>
 

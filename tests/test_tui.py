@@ -6993,6 +6993,58 @@ def test_overview_screen_shows_handicaps_unless_switched_off(tmp_path, monkeypat
     assert asyncio.run(players_text(False)) == "Max Mustermann, Gast Eins"
 
 
+def test_strip_handicaps_removes_only_the_dim_bracket_runs():
+    marked = "[yellow]★[/] [bold]Max Mustermann[/] [dim](18.4)[/], Gast Eins, Anna Beispiel [dim](26,5)[/]"
+    assert tui._strip_handicaps(marked) == "[yellow]★[/] [bold]Max Mustermann[/], Gast Eins, Anna Beispiel"
+    assert tui._strip_handicaps("2× anonym") == "2× anonym"
+
+
+def test_overview_screen_moves_handicaps_to_the_row_detail_when_the_table_is_narrow(tmp_path, monkeypatch):
+    # 2026-10-05, direct report: at ~120 columns the "(18.4)" brackets cut the player lists
+    # short. Narrow tables show names only in the cells; the highlighted row's #row-detail
+    # keeps the full text. Wide tables keep the brackets inline.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    db_path = scrape_once._db_path("0000001")
+    names = ["Maximilian Mustermann-Beispiel", "Erika Musterfrau-Probe", "Hans Peter Beispielmann", "Karl Test"]
+    storage.save_schedule(
+        Schedule(
+            date=clock.today(),
+            course="18 Loch Tee 1",
+            slots=[Slot(time="09:00", booked=4, capacity=4, players=names)],
+            events=["Ein sehr langer Veranstaltungsname für diesen Tag"],
+        ),
+        path=db_path,
+    )
+    storage.record_seen_players(
+        [PlayerSighting(name, None, "member", 10.0 + i) for i, name in enumerate(names)],
+        "2026-10-05T10:00:00+00:00",
+        db_path,
+    )
+
+    async def render(width: int) -> tuple[str, str]:
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(width, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {clock.today()}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            table = screen.query_one("#overview-table", DataTable)
+            cell = table.get_row_at(1)[tui.OverviewScreen._PICK_COLUMN_INDEX].plain
+            table.move_cursor(row=1)
+            await pilot.pause(0.2)
+            detail = str(screen.query_one("#row-detail").render())
+            return cell, detail
+
+    i18n.set_language("en")
+    narrow_cell, narrow_detail = asyncio.run(render(90))
+    assert "(10.0)" not in narrow_cell and "Maximilian" in narrow_cell
+    assert "(10.0)" in narrow_detail and "(13.0)" in narrow_detail
+    wide_cell, _ = asyncio.run(render(260))
+    assert "(10.0)" in wide_cell
+
+
 def test_legend_has_the_handicap_line_in_both_languages():
     assert ("", "legend.hcp") in tui.OVERVIEW_LEGEND
     i18n.set_language("en")
