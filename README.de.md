@@ -111,7 +111,8 @@ eingefärbt (blau / magenta), ein im Spielerverzeichnis markierter Freund ersche
 fett mit goldenem ★, und ein Platz ohne öffentlichen Namen steht als *anonym* da, statt
 einfach zu fehlen. Hinter jedem Namen steht das Handicap des Spielers in Klammern, z. B.
 *Max Mustermann (18,4)* (in der macOS-App zeigt der Hover Handicap und Mitgliedsstatus; abschaltbar
-unter Einstellungen → Darstellung/Anzeige). **?** zeigt die Legende zu alledem.
+unter Einstellungen → Darstellung/Anzeige). In einem schmalen Terminal wandern die Klammern aus den
+Tabellenzellen — damit bleiben mehr Namen sichtbar — und die Detailzeile der markierten Zeile zeigt sie stattdessen. **?** zeigt die Legende zu alledem.
 
 <p align="center"><img src="assets/de/expanded.png" alt="Ein aufgeklappter Tag mit allen einzelnen Startzeiten und deren Auslastung"></p>
 
