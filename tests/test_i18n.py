@@ -270,6 +270,23 @@ def test_shorter_round_strings_match_the_gui_word_for_word():
             assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
 
 
+def test_quality_reason_strings_match_the_gui_word_for_word():
+    # 2026-10-05: the Pick's "why" (#row-detail here, the badge tooltip in the GUI) is
+    # composed from the same strings in both apps, so parse I18n.swift's tables directly.
+    from pathlib import Path
+
+    from src import quality
+
+    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
+    english, german = swift.split("private let germanStrings", 1)
+    keys = ("overview.pick_reasons", *(f"quality.reason.{key}" for key in quality.REASON_KEYS))
+    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
+    for lang, table in (("en", english), ("de", german)):
+        swift_strings = dict(entry.findall(table))
+        for key in keys:
+            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
+
+
 # --- booking-window lock strings (2026-10-05) ---------------------------------------------
 
 LOCK_KEYS = (

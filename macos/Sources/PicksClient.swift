@@ -1,12 +1,15 @@
 import Foundation
 
 /// One day's recommended pick -- mirrors `picks_cli.py`'s own per-date object shape
-/// exactly (see that script's docstring for the contract). `reasons` is empty
-/// whenever AI ranking is off, same as the TUI's own Pick column.
+/// exactly (see that script's docstring for the contract). `reasons` are
+/// `quality.py`'s reason KEYS ("dry", "room_around", ...; at most three, possibly none),
+/// decoded to text only for display (`pickTooltip()`); `aiReasons` are the AI's own
+/// sentences, present only with AI ranking on. Neither is ever interpreted here.
 struct DayPick {
     let time: String
     let score: Double
     let reasons: [String]
+    var aiReasons: [String] = []
 }
 
 /// Everything `picks_cli.py` says about one day beyond its pick (2026-09-27,
@@ -175,7 +178,8 @@ enum PicksClient {
                 result.picks[date] = DayPick(
                     time: time,
                     score: row["score"] as? Double ?? 0,
-                    reasons: row["reasons"] as? [String] ?? []
+                    reasons: row["reasons"] as? [String] ?? [],
+                    aiReasons: row["ai_reasons"] as? [String] ?? []
                 )
             }
         }

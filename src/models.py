@@ -236,3 +236,8 @@ class SlotMatch:
     slot: Slot
     score: float
     reasons: list[str] = field(default_factory=list)
+    # `quality.py`'s own explanation (2026-10-05): reason KEYS ("dry", "room_around", ...),
+    # localised only at the edges, filled by `ranked_matches(rank_by_quality=True)`.
+    # Separate from `reasons`, which stays what it always was -- the AI's free-text
+    # sentences -- so neither can be mistaken for the other.
+    quality_reasons: list[str] = field(default_factory=list)

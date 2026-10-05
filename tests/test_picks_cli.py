@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from src import clock, global_preferences, picks_cli, pipeline
-from src.models import Schedule, Slot, SunTimes
+from src.models import Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import save_schedule
 
 
@@ -57,7 +57,11 @@ def test_picks_the_best_playable_slot_for_each_date(tmp_path, capsys):
 
     assert code == 0
     assert result["2026-09-27"]["time"] == "09:10"
-    assert result["2026-09-27"]["reasons"] == []  # ai_assist.enabled defaults to off
+    # ai_assist.enabled defaults to off, so these are quality.py's reason keys (2026-10-05:
+    # reasons used to be [] here). No forecast/sunset/history: the only notably good thing is
+    # the empty tee sheet around 09:10 (the full 18:00 slot is 8 hours away).
+    assert result["2026-09-27"]["reasons"] == ["room_around"]
+    assert "ai_reasons" not in result["2026-09-27"]
 
 
 def test_null_for_a_date_with_no_schedule_scraped_yet(tmp_path, capsys):
@@ -187,9 +191,11 @@ def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch
     )
 
     assert code == 0
+    # 2026-10-05: `reasons` stays quality.py's deterministic keys; the AI's own sentences
+    # moved to `ai_reasons` (they used to be `reasons`).
     assert result["2026-09-27"] == {
-        "time": "09:10", "score": 90.0, "reasons": ["dry", "calm"], "window": {"after": None, "before": None},
-        "recommended": ["09:10"],
+        "time": "09:10", "score": 90.0, "reasons": ["room_around"], "ai_reasons": ["dry", "calm"],
+        "window": {"after": None, "before": None}, "recommended": ["09:10"],
     }
 
 
@@ -502,3 +508,32 @@ def test_marker_lists_come_from_the_cached_pipeline_without_a_second_ranking(tmp
     _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
 
     assert len(ranked) == 1  # one ranking for the pick and the ★ list together
+
+
+def test_the_pick_is_the_best_slot_not_the_earliest_and_carries_reason_keys(tmp_path, capsys):
+    """2026-10-05 (`quality.py`): showers around the first slot (still under the limit, so
+    playable) make a later, dry slot the pick; `reasons` are the keys, best first. The
+    per-slot stars stay every playable slot."""
+    global_preferences.save_preferences({
+        "availability": {"weekend_window": {"after": "09:00", "before": "16:00"}},
+        "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 50},
+    })
+    db = tmp_path / "club.db"
+    weather = [
+        WeatherPoint(time=f"{hour:02d}:00", precipitation_probability=45 if hour < 12 else 0,
+                     precipitation_mm=0.0, wind_speed_kph=5.0, temperature_c=15.0)
+        for hour in range(8, 19)
+    ]
+    save_schedule(Schedule(
+        date="2026-10-04", course="9 Loch Tee 1", weather=weather, sun_times=SunTimes(sunrise="07:20", sunset="18:50"),
+        slots=[Slot(time=t, booked=0, capacity=4) for t in ("09:00", "13:00")],
+    ), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "9 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    entry = result["2026-10-04"]
+    assert entry["time"] == "13:00"
+    assert entry["reasons"] == ["dry", "room_around", "daylight_spare"]
+    assert entry["score"] > 0
+    assert entry["recommended"] == ["09:00", "13:00"]
+    assert "ai_reasons" not in entry

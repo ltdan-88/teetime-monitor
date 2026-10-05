@@ -39,10 +39,16 @@ something about it changes.
 1. **Open it.** You land on the next few bookable days, one row each.
 2. **Read the Pick column.** Each day already says what it thinks: a ★ recommended
    time, your confirmed booking, or why nothing there qualifies ("too dark to
-   finish", "no dry picks"). When your course is too dark to finish but a shorter
-   one at the club still fits, the cell suggests that instead — e.g. "★ 16:10 · 9H"
-   (the TUI names the course under the table when you highlight the day; in the
-   GUI, hover it for the course or click it to switch to that course).
+   finish", "no dry picks"). The ★ is the day's best slot, not just the earliest
+   one: it scores every playable slot on the weather over the whole round (rain,
+   wind and temperature, each against your own limits, if you set them), room around
+   your group, a quiet hour and daylight to spare (free, offline, no AI).
+   Highlighting the day (TUI) or hovering the badge (GUI) says why, e.g.
+   "Picked for: dry · room around you · daylight to spare".
+   When your course is too dark to finish but a shorter one at the club still fits,
+   the cell suggests that instead — e.g. "★ 16:10 · 9H" (the TUI names the course
+   under the table when you highlight the day; in the GUI, hover it for the course
+   or click it to switch to that course).
    A day that isn't open for booking yet shows 🔒 and when it opens — e.g.
    "🔒 Wed 21:00" for a club that releases tee times 3 days ahead at 21:00 (club time;
    a club that names no hour just shows the day). The background scraper looks at
@@ -367,6 +373,7 @@ src/
 ├── scrape_once.py            # scheduled scrape + "My Reservations" sync
 ├── storage.py                # SQLite persistence
 ├── search.py / recommend.py  # hard filters, then weather/daylight + AI ranking
+├── quality.py                # the free, explainable slot score behind the ★ Pick
 ├── ai_assist.py              # the three AI calls (classify, rank, summarize), multi-provider
 ├── weather.py                # Open-Meteo client
 ├── booking_watch.py          # did a confirmed booking's situation change?

@@ -5544,6 +5544,34 @@ integration tests driving the real Search screen's new fields, 2 for
 `search_cli.py`'s own payload handling), `ruff check` clean; 229 Swift unit
 tests (4 new, `SearchCriteriaPayload`'s new JSON keys).
 
+## The Pick is the best slot, not the earliest: `quality.py` (2026-10-05)
+
+The old complaint -- "why does it always recommend 16:00?" (see 2026-09-08 above, where
+only paid AI ranking could change it) -- is answered for everyone, offline, by a
+deterministic, explainable score. `quality.score_matches()` rates each playable slot out
+of 100 from data already in hand: weather margin over the *real* round (rain 22, wind 13,
+temperature 10 -- each only when the user switched that threshold on, measured against
+their own limits), room around the group (20: distance to the nearest other flight before
+and after, against the user's own buffer plus 30 minutes), predicted crowd for that hour
+(20, from the analytics heatmap; skipped without enough history), and daylight cushion
+(15, capped at 90 minutes). Unknown factors count as neutral, so they can't tilt anything.
+Up to three notably good factors become reason keys (`dry`, `calm`, `mild`,
+`room_around`, `quiet`, `daylight_spare`), shown as "Picked for: dry · room around you"
+in the TUI's #row-detail and the GUI badge's tooltip (same i18n strings, EN + DE).
+
+- **Order**: friend preference, then handicap preference (both unchanged, still above),
+  then score, then chronological. With AI ranking on, the AI receives the score-sorted
+  list (same single call, same cache) and keeps the last word; its own sentences moved
+  from `picks_cli`'s `reasons` to the optional `ai_reasons`, `reasons` now being the keys.
+- **Unchanged**: every per-slot ★ (all slots matching the rules), the ad hoc Search
+  (still chronological: its results span many days), and the shorter-round alternative
+  (earliest first, no crowd data for the sibling courses).
+- **Not done**: public holidays are ignored for the *score's* crowd factor (the TUI's
+  holiday cache is warm after the first paint, a fresh `picks_cli` process's never is,
+  and the two apps must agree), so a holiday is predicted like its weekday. A persisted
+  holiday cache would lift that. A slot already under way today sorts below every future
+  one (`PAST_SLOT_SCORE`).
+
 ## Considered and dropped
 - **Spreadsheet export of history** — decided against for now (2026-09-05): not enough
   time to actually analyze it. Revisit only if that changes.

@@ -39,9 +39,15 @@ sich an ihr etwas ändert.
 1. **Starten.** Du landest auf den nächsten buchbaren Tagen, einer pro Zeile.
 2. **Spalte „Empfehlung" lesen.** Jeder Tag sagt bereits, was Sache ist: eine empfohlene
    Zeit mit ★, deine bestätigte Buchung, oder warum dort nichts infrage kommt
-   („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit"). Ist es auf deinem
-   Platz zu dunkel, aber auf einem kürzeren Platz des Clubs passt noch eine Runde,
-   schlägt die Zelle diese vor — z. B. „★ 16:10 · 9L" (die TUI nennt den Platz unter
+   („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit"). Das ★ ist der beste
+   Slot des Tages, nicht nur der früheste: Jeder spielbare Slot wird nach dem Wetter
+   über die ganze Runde (Regen, Wind und Temperatur, jeweils gegen deine eigenen
+   Grenzwerte, sofern gesetzt), Platz um deine Gruppe, einer ruhigen Stunde und
+   Tageslicht in Reserve bewertet (kostenlos, offline, ohne KI). Markierst du den
+   Tag (TUI) oder hältst du die Maus über das Symbol (GUI), steht dort warum, z. B.
+   „Gewählt wegen: trocken · viel Platz um dich · Tageslicht in Reserve".
+   Ist es auf deinem Platz zu dunkel, aber auf einem kürzeren Platz des Clubs passt
+   noch eine Runde, schlägt die Zelle diese vor — z. B. „★ 16:10 · 9L" (die TUI nennt den Platz unter
    der Tabelle, sobald der Tag markiert ist; in der GUI zeigt ihn der Tooltip, und ein
    Klick wechselt auf diesen Platz).
    Ein Tag, der noch nicht buchbar ist, zeigt 🔒 und wann er öffnet — z. B. „🔒 Mi 21:00"
@@ -378,6 +384,7 @@ src/
 ├── scrape_once.py            # geplanter Abruf + Abgleich mit „Meine Reservierungen"
 ├── storage.py                # SQLite-Persistenz
 ├── search.py / recommend.py  # harte Filter, dann Wetter/Tageslicht + KI-Bewertung
+├── quality.py                # kostenlose, erklärbare Slot-Bewertung hinter dem ★
 ├── ai_assist.py              # die drei KI-Aufrufe (einordnen, bewerten, zusammenfassen), mehrere Anbieter
 ├── weather.py                # Open-Meteo-Client
 ├── booking_watch.py          # hat sich an einer bestätigten Buchung etwas geändert?

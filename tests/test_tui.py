@@ -2116,6 +2116,108 @@ def test_overview_screen_names_a_single_days_shorter_round_course_in_row_detail(
     _run(scenario())
 
 
+def _showery_then_dry_monday(tmp_path, monkeypatch):
+    """2026-09-28 (a Monday), 9-hole course, window from 16:00: showers (45 % of a 50 %
+    limit -- still playable) at 15:00-16:00, dry after -- so the best slot is the dry
+    17:00 one, not the earliest (quality.py, 2026-10-05)."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-28")
+    monkeypatch.setattr(
+        tui.OverviewScreen, "_config",
+        lambda self: {
+            "availability": {"weekday_window": {"after": "16:00"}},
+            "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 50},
+        },
+    )
+    weather = [
+        WeatherPoint(time=f"{h:02d}:00", precipitation_probability=45 if h < 17 else 0, precipitation_mm=0.0,
+                     wind_speed_kph=5.0, temperature_c=15.0)
+        for h in range(8, 22)
+    ]
+    schedule = Schedule(
+        date="2026-09-28", course="9 Loch Tee 1", weather=weather,
+        slots=[Slot(time="16:00", booked=0, capacity=4), Slot(time="17:00", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="07:20", sunset="21:00"),
+    )
+    storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
+    return schedule
+
+
+def test_the_pick_column_shows_the_best_slot_and_row_detail_says_why(tmp_path, monkeypatch):
+    _showery_then_dry_monday(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "9 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert Text.from_markup(app.screen._row_header_cells["2026-09-28"][2]).plain == "★  17:00"
+            table = app.screen.query_one("#overview-table", DataTable)
+            table.focus()
+            table.move_cursor(row=app.screen._row_index.index(("2026-09-28", None)))
+            await pilot.pause()
+            detail = Text.from_markup(str(app.screen.query_one("#row-detail").content)).plain
+            assert detail == "▸ Picked for: dry · room around you · daylight to spare"
+
+    _run(scenario())
+
+
+def test_the_row_detail_reasons_follow_the_language(tmp_path, monkeypatch):
+    _showery_then_dry_monday(tmp_path, monkeypatch)
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "9 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one("#overview-table", DataTable)
+            table.focus()
+            table.move_cursor(row=app.screen._row_index.index(("2026-09-28", None)))
+            await pilot.pause()
+            detail = Text.from_markup(str(app.screen.query_one("#row-detail").content)).plain
+            assert detail == "▸ Gewählt wegen: trocken · viel Platz um dich · Tageslicht in Reserve"
+
+    _run(scenario())
+
+
+def test_pick_reasons_detail_text_only_for_a_real_pick(tmp_path, monkeypatch):
+    schedule = _showery_then_dry_monday(tmp_path, monkeypatch)
+    config = {
+        "availability": {"weekday_window": {"after": "16:00"}},
+        "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 50},
+    }
+    cache: dict = {}
+    cell = tui._day_pick_text(schedule, config, None, False, "0000001", cache)
+    assert tui._pick_reasons_detail_text(schedule, config, "0000001", cache, cell) == (
+        "Picked for: dry · room around you · daylight to spare"
+    )
+    # a booking, a dash or anything else standing in the cell gets no sentence
+    booked = tui._day_pick_text(schedule, config, ConfirmedBooking(date="2026-09-28", course="9 Loch Tee 1", time="16:00"), False, "0000001", cache)
+    assert tui._pick_reasons_detail_text(schedule, config, "0000001", cache, booked) == ""
+    assert tui._pick_reasons_detail_text(None, config, "0000001", cache, cell) == ""
+    assert tui._pick_reasons_detail_text(schedule, {}, "0000001", cache, cell) == ""
+
+
+def test_pick_reasons_detail_text_appends_the_ais_own_sentences(tmp_path, monkeypatch):
+    schedule = _showery_then_dry_monday(tmp_path, monkeypatch)
+    config = {
+        "availability": {"weekday_window": {"after": "16:00"}},
+        "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 50},
+        "ai_assist": {"enabled": True},
+    }
+
+    def fake_rank_slots(candidates, context, preferences, provider, model, language):
+        for c in candidates:
+            c.score, c.reasons = 90.0, ["emptier [later]"]
+        return candidates
+
+    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
+    cache: dict = {}
+    cell = tui._day_pick_text(schedule, config, None, False, "0000001", cache)
+    detail = tui._pick_reasons_detail_text(schedule, config, "0000001", cache, cell)
+    assert Text.from_markup(detail).plain == "Picked for: dry · room around you · daylight to spare · emptier [later]"
+
+
 def test_expanding_a_day_jumps_to_your_window(tmp_path, monkeypatch):
     """2026-09-27, bundle C: straight to the first slot you'd actually book, not
     left on the summary row with the whole early day in between."""

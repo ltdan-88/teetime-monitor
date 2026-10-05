@@ -181,6 +181,7 @@ from . import (
     global_preferences,
     i18n,
     paths,
+    quality,
     recommend,
     scrape_health,
     scrape_once,
@@ -1579,6 +1580,49 @@ def _locked_detail_text(schedule: Schedule | None, config: dict, pick_cell: str)
     return texts[1] if texts is not None and pick_cell == texts[0] else ""
 
 
+def _pick_star_text(top) -> str:
+    """The Pick cell for the day's best slot `top` (a `SlotMatch`): "★  HH:MM".
+
+    Two spaces: the booked row's 📌 is 2 cells wide, so this keeps both times in one
+    column. Folded straight into this cell, not a separate "This week's picks"
+    section any more (2026-09-14, direct feedback + the redundancy it surfaced: that
+    section only ever repeated this exact same ★ HH:MM per day, one column over — a
+    strict, smaller subset of what this cell already covers, since it dropped
+    confirmed bookings and unplayable days entirely). `reasons` is the AI's own text
+    and stays empty until `ai_assist.enabled` is actually turned on (see
+    `_availability_pipeline()`'s own docstring). The deterministic *why*
+    (`quality_reasons`, 2026-10-05) is not in the cell -- it would crowd the column --
+    but in #row-detail, see `_pick_reasons_detail_text()`."""
+    text = f"[yellow]★[/]  {top.slot.time}"
+    if top.reasons:
+        text += f"  [dim]{markup_escape(', '.join(top.reasons))}[/]"  # AI-written text
+    return text
+
+
+def _pick_reasons_detail_text(
+    schedule: Schedule | None, config: dict, club_id: str, cache: dict | None, pick_cell: str
+) -> str:
+    """The sentence saying why this day's Pick is the Pick ("Picked for: dry · room
+    around you · daylight to spare"), for #row-detail -- the GUI badge's tooltip, same
+    i18n key and reason strings (2026-10-05, `quality.py`). "" unless `pick_cell` really is
+    this day's ★ pick (a booking, a lock or an alternative wins the cell) or it has
+    nothing to say. With AI ranking on, the AI's own prose follows, since the row's
+    detail line replaces the Pick cell's text. Reuses `_availability_pipeline()`'s memo."""
+    if schedule is None or not config.get("availability"):
+        return ""
+    _, playable = _availability_pipeline(schedule, config, club_id, cache)
+    if not playable or pick_cell != _pick_star_text(playable[0]):
+        return ""
+    top = playable[0]
+    sentence = quality.reasons_text(top.quality_reasons)
+    if sentence:
+        sentence = markup_escape(i18n.t("overview.pick_reasons", reasons=sentence))
+    if top.reasons:
+        sentence = f"{sentence} · " if sentence else ""
+        sentence += markup_escape(", ".join(top.reasons))  # AI-written text
+    return sentence
+
+
 def _day_pick_text(
     schedule: Schedule | None,
     config: dict,
@@ -1597,8 +1641,8 @@ def _day_pick_text(
        see `_locked_day_texts()`) -- whether or not availability rules exist.
     2. Otherwise, if availability rules are configured and this day has a schedule to
        check: a recommended "★ HH:MM" (the best still-playable match — AI-ranked once
-       `ai_assist.enabled`, otherwise the earliest, see `_availability_pipeline()`'s
-       own docstring), or a specific "no dry picks"/"too dark to finish"/"nothing
+       `ai_assist.enabled`, otherwise the best-scoring by `quality.py`, see
+       `_availability_pipeline()`'s own docstring), or a specific "no dry picks"/"too dark to finish"/"nothing
        playable" message when
        candidates existed before the weather/daylight check but none survived it —
        worth saying explicitly (and *accurately* — see `recommend.unplayable_reasons()`'s
@@ -1620,20 +1664,7 @@ def _day_pick_text(
     if not candidates:
         return "[dim]—[/]"
     if playable:
-        # Two spaces: the booked row's 📌 is 2 cells wide, so this keeps both times in one column.
-        text = f"[yellow]★[/]  {playable[0].slot.time}"
-        # Folded straight into this cell, not a separate "This week's picks"
-        # section any more (2026-09-14, direct feedback + the redundancy it
-        # surfaced: that section only ever repeated this exact same ★ HH:MM per
-        # day, one column over — a strict, smaller subset of what this cell
-        # already covers, since it dropped confirmed bookings and unplayable
-        # days entirely). `reasons` stays empty until `ai_assist.enabled` is
-        # actually turned on (see `_availability_pipeline()`'s own docstring) —
-        # nothing shows here until then, same as the removed section's own
-        # behavior.
-        if playable[0].reasons:
-            text += f"  [dim]{markup_escape(', '.join(playable[0].reasons))}[/]"  # AI-written text
-        return text
+        return _pick_star_text(playable[0])
     reasons = recommend.unplayable_reasons(candidates, [schedule], config)
     if reasons == {"daylight"}:
         # Too dark for this course's round, but a shorter one on a sibling
@@ -3189,8 +3220,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # {pending_rows index: sentence} for day rows whose Pick is a shorter-round
         # alternative -- the cell itself can't name the course, so #row-detail
         # does whenever that row is highlighted, like the GUI's tooltip on hover
-        # (2026-10-05) -- or a locked day, whose sentence says when it opens.
-        alternative_details: dict[int, str] = {}
+        # (2026-10-05) -- a locked day, whose sentence says when it opens -- or a
+        # real ★ pick, whose sentence says why it is the pick (quality.py).
+        pick_details: dict[int, str] = {}
         # Memo for _availability_pipeline() -- self._pick_cache (see its own
         # docstring in __init__), not a fresh dict per call: a resize/expand/
         # collapse calls this method again for the exact same schedules, and
@@ -3279,11 +3311,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 (day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, heat_cell, event_cell, pick_cell)
             )
             self._row_header_cells[one_date] = pending_rows[-1]
-            alternative_detail = _locked_detail_text(schedule, config, pick_cell) or _alternative_detail_text(
-                schedule, config, self.club_id, pipeline_cache, pick_cell
+            pick_detail = (
+                _locked_detail_text(schedule, config, pick_cell)
+                or _alternative_detail_text(schedule, config, self.club_id, pipeline_cache, pick_cell)
+                or _pick_reasons_detail_text(schedule, config, self.club_id, pipeline_cache, pick_cell)
             )
-            if alternative_detail:
-                alternative_details[len(pending_rows) - 1] = alternative_detail
+            if pick_detail:
+                pick_details[len(pending_rows) - 1] = pick_detail
 
             if can_expand and one_date in self._expanded_dates:
                 if friend_names is None:
@@ -3401,13 +3435,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._row_full_text = []
         for index, (row, full_row) in enumerate(zip(pending_rows, full_rows, strict=True)):
             cells = [_one_line(cell, width) for cell, width in zip(row, column_widths, strict=True)]
-            if index in alternative_details:
+            if index in pick_details:
                 # The sentence stands in for the Pick cell here: it never fits the
                 # column, so _row_lost_text() always keeps it (plus any lost Events).
                 pick = self._PICK_COLUMN_INDEX
-                full_row = (*full_row[:pick], alternative_details[index], *full_row[pick + 1 :])
+                full_row = (*full_row[:pick], pick_details[index], *full_row[pick + 1 :])
             self._row_full_text.append(
-                self._row_lost_text(full_row, column_widths, always_pick=index in alternative_details)
+                self._row_lost_text(full_row, column_widths, always_pick=index in pick_details)
             )
             table.add_row(*cells, height=1)
         self._refresh_footer()

@@ -8,6 +8,7 @@ func runI18nTests() {
         testFallbackChain()
         testRenderBookingChange()
         testLockStringsExistInBothLanguages()
+        testQualityReasonStringsExistInBothLanguages()
         testSlotMarkerLegendStringsExistInBothLanguages()
         testLanguageResolutionOrder()
     }
@@ -152,5 +153,21 @@ private func testSlotMarkerLegendStringsExistInBothLanguages() {
         let table = I18n.strings[language] ?? [:]
         let missing = ["legend.recommended", "legend.too_late"].filter { (table[$0] ?? "").isEmpty }
         Harness.checkEqual("slot marker legend strings present (\(language))", missing, [])
+    }
+}
+
+/// The six reason keys `quality.py` can emit, plus the sentence that wraps them
+/// (2026-10-05): every one in both tables, `{reasons}` in the wrapper in both. The
+/// Python side cross-checks the very text (`test_i18n.py`).
+private func testQualityReasonStringsExistInBothLanguages() {
+    let keys = ["dry", "calm", "mild", "room_around", "quiet", "daylight_spare"].map { "quality.reason.\($0)" }
+        + ["overview.pick_reasons"]
+    for key in keys {
+        Harness.check("\(key) in English", !(I18n.strings["en"]?[key] ?? "").isEmpty)
+        Harness.check("\(key) in German", !(I18n.strings["de"]?[key] ?? "").isEmpty)
+    }
+    for lang in ["en", "de"] {
+        Harness.check("pick_reasons has {reasons} (\(lang))",
+                      (I18n.strings[lang]?["overview.pick_reasons"] ?? "").contains("{reasons}"))
     }
 }

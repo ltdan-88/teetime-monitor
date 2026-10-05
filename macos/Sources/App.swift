@@ -681,8 +681,9 @@ struct DayCardHeader: View {
                 } else if let pick = model.picks[day.date] {
                     // The recommended pick, once there's no real booking to show
                     // instead -- mirrors tui.py's own _day_pick_text() priority
-                    // exactly (confirmed booking beats the pick). Reasons (empty
-                    // unless AI ranking is on) go in a hover tooltip rather than
+                    // exactly (confirmed booking beats the pick). Reasons (why it is
+                    // the best slot, localised from keys; plus the AI's sentences when
+                    // AI ranking is on) go in a hover tooltip rather than
                     // inline text, same "real AI text can be longer than a badge
                     // has room for" reasoning just applied to SearchSheet's own
                     // reasons cell -- there's no natural place for a multi-line
@@ -691,7 +692,7 @@ struct DayCardHeader: View {
                         .font(scaledFont(.caption)).padding(.horizontal, 7).padding(.vertical, 3)
                         .background(Color.yellow.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.yellow)
-                        .help(pick.reasons.isEmpty ? t("tip.pick") : pick.reasons.joined(separator: ", "))
+                        .help(pickTooltip(reasons: pick.reasons, aiReasons: pick.aiReasons))
                 } else if let alternative = model.alternatives[day.date] {
                     // Too dark for this course, but a shorter round on another one
                     // still fits (2026-10-05) -- the TUI's "★ 16:10 · 9H" Pick cell.

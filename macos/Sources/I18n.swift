@@ -80,6 +80,23 @@ func t(_ key: String, _ args: [String: String] = [:]) -> String {
     return text
 }
 
+/// The pick badge's tooltip (2026-10-05): why this slot is the day's best, e.g. "Picked
+/// for: dry · room around you · daylight to spare" -- `quality.py`'s reason keys decoded
+/// through the same `quality.reason.*` strings the TUI's #row-detail uses, joined with
+/// " · ", plus the AI's own sentences when there are any. No reasons at all: the plain
+/// "Recommended pick". Decoding only -- which reasons apply is decided in Python.
+func pickTooltip(reasons: [String], aiReasons: [String] = []) -> String {
+    let known = reasons.map { "quality.reason.\($0)" }.filter { I18n.strings["en"]?[$0] != nil }
+    var parts: [String] = []
+    if !known.isEmpty {
+        parts.append(t("overview.pick_reasons", ["reasons": known.map { t($0) }.joined(separator: " · ")]))
+    }
+    if !aiReasons.isEmpty {
+        parts.append(aiReasons.joined(separator: ", "))
+    }
+    return parts.isEmpty ? t("tip.pick") : parts.joined(separator: " · ")
+}
+
 /// A `Locale` for the current language -- used for date formatting, so weekday and
 /// month names follow the chosen language too rather than the system's.
 func currentLocale() -> Locale {
@@ -161,6 +178,15 @@ private let englishStrings: [String: String] = [
     "overview.hint_alternative": "A shorter round still fits before dark on {courses}.",
     // Same sentence as the TUI's #row-detail; the GUI adds the click hint (2026-10-05).
     "overview.pick_alternative": "Too dark to finish here — a shorter round still fits: {time} on {course} ({holes} holes).",
+    // Why the Pick is the Pick (2026-10-05) -- same keys and text as `src/i18n.py`'s `quality.*`
+    // and `overview.pick_reasons` (cross-checked); reasons are joined with " · ".
+    "overview.pick_reasons": "Picked for: {reasons}",
+    "quality.reason.dry": "dry",
+    "quality.reason.calm": "calm",
+    "quality.reason.mild": "mild",
+    "quality.reason.room_around": "room around you",
+    "quality.reason.quiet": "quiet hour",
+    "quality.reason.daylight_spare": "daylight to spare",
     // A day that isn't bookable yet (2026-10-05) -- the same keys and text as `src/i18n.py`'s
     // `lock.*`/`weekday.*` (cross-checked); {when} is "Wed 21:00", "today 20:00" or "Wed".
     "lock.today": "today",
@@ -597,6 +623,15 @@ private let germanStrings: [String: String] = [
     "overview.pick_holes": "{n}L",
     "overview.hint_alternative": "Eine kürzere Runde passt noch vor Sonnenuntergang auf {courses}.",
     "overview.pick_alternative": "Zu dunkel zum Fertigspielen — eine kürzere Runde passt noch: {time} auf {course} ({holes} Loch).",
+    // Why the Pick is the Pick (2026-10-05) -- same keys and text as `src/i18n.py`'s `quality.*`
+    // and `overview.pick_reasons` (cross-checked); reasons are joined with " · ".
+    "overview.pick_reasons": "Gewählt wegen: {reasons}",
+    "quality.reason.dry": "trocken",
+    "quality.reason.calm": "kaum Wind",
+    "quality.reason.mild": "mild",
+    "quality.reason.room_around": "viel Platz um dich",
+    "quality.reason.quiet": "ruhige Stunde",
+    "quality.reason.daylight_spare": "Tageslicht in Reserve",
     "lock.today": "heute",
     "lock.month.1": "Jan",
     "lock.month.2": "Feb",
