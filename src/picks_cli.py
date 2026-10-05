@@ -30,6 +30,23 @@ this stays a flat map rather than replicating the TUI's three distinct
 "no dry picks"/"too dark to finish"/generic messages. `reasons` is `[]`
 whenever `ai_assist.enabled` is off, same as the TUI's own Pick column.
 
+Since 2026-09-27 a scraped day with no pick is still an object, with `"time":
+null`, its `"window"` and, when candidates existed but none was playable,
+`"unplayable"` (`["daylight"]`/`["weather"]`/both). A reserved `"_hint"` key
+carries `recommend.window_too_late_hint()`'s numbers.
+
+`"alternative"` (2026-10-05, optional -- absent, never null, when there is
+none; older GUI builds ignore it): on a day ruled out by daylight alone, a
+shorter round on another of the club's courses scraped for that date that
+still finishes before dark (`recommend.shorter_round_alternative()`, no AI
+call):
+
+    {"2026-10-06": {"time": null, "window": {"after": "16:00", "before": null},
+                    "unplayable": ["daylight"],
+                    "alternative": {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9}}}
+
+`"_hint"` then also lists those courses as `"alternative_courses"`.
+
 Exit code 0 whenever the script actually ran, even if every date came back
 `null` (that's a normal, valid result, not an error) -- exit code 1 only when
 `--db-path` or `--course` is missing. A `--club-slug` with no clubs/<slug>.yaml
@@ -79,6 +96,10 @@ def main(argv: list[str] | None = None) -> None:
     start = date.fromisoformat(from_date)
     picks: dict[str, dict | None] = {}
     schedules = []
+    alternatives: dict[str, dict] = {}
+    # One memo for the whole run, so _shorter_round_alternative() reuses the
+    # pipeline result computed just above it instead of ranking the day twice.
+    cache: dict = {}
     for offset in range(days):
         one_date = (start + timedelta(days=offset)).isoformat()
         if not has_availability:
@@ -89,7 +110,7 @@ def main(argv: list[str] | None = None) -> None:
             picks[one_date] = None
             continue
         schedules.append(schedule)
-        candidates, playable = tui_module._availability_pipeline(schedule, config, club_id)
+        candidates, playable = tui_module._availability_pipeline(schedule, config, club_id, cache)
         # Every day with a schedule gets an object now, pick or not (2026-09-27,
         # bundle C of the TUI/GUI consistency audit): `window` is what the GUI
         # dims out-of-window slots and scrolls to on expand with -- decided here
@@ -107,12 +128,21 @@ def main(argv: list[str] | None = None) -> None:
             entry.update({"time": top.slot.time, "score": top.score, "reasons": top.reasons})
         elif candidates:
             entry["unplayable"] = sorted(recommend.unplayable_reasons(candidates, [schedule], config))
+            # A shorter round on a sibling course that still finishes before dark
+            # (2026-10-05) -- only ever on a day ruled out by daylight alone. Same
+            # helper the TUI's Pick column calls, against this --db-path.
+            alternative = tui_module._shorter_round_alternative(
+                schedule, config, club_id, cache, db_path=Path(db_path)
+            )
+            if alternative is not None:
+                entry["alternative"] = alternative
+                alternatives[one_date] = alternative
         picks[one_date] = entry
 
     # Not a date -- the GUI's own parsing only reads keys whose value has a
     # "time", so a reserved key here can't be mistaken for one. See
     # recommend.window_too_late_hint() for its own shape.
-    hint = recommend.window_too_late_hint(schedules, config) if has_availability else None
+    hint = recommend.window_too_late_hint(schedules, config, alternatives) if has_availability else None
     if hint is not None:
         picks["_hint"] = hint
     print(json.dumps(picks))

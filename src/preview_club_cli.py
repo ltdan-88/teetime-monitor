@@ -93,7 +93,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     config = {**tui_module._resolved_config(None, club_id, club_name), "club_id": club_id}
-    scrape_once.scrape_due_for_club(None, config, force=True)
+    # The GUI is this script's only caller (OverviewModel.startPreview/refreshNow).
+    scrape_once.scrape_due_for_club(None, config, force=True, source="gui")
     print(json.dumps({"ok": True}))
 
 

@@ -176,7 +176,9 @@ enum Metrics {
     // booking-badge slot in DayCard's header. Fixed rather than sized to its own
     // content so HeatStrip lands at the same x on every row; sized for the widest
     // real value ("HH:MM" plus the flag icon and its padding), not just "wide enough".
-    static let bookingBadge: CGFloat = 74
+    // Widened 74 -> 96 (2026-10-05) for the shorter-round badge ("★ 16:10 · 9H"),
+    // the widest value now, so it renders at full size like the pick beside it.
+    static let bookingBadge: CGFloat = 96
     // Heatmap grid
     static let heatCellWidth: CGFloat = 18
     static let heatCellHeight: CGFloat = 13

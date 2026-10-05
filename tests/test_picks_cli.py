@@ -114,6 +114,51 @@ def test_reports_why_a_day_has_no_pick_and_the_window_too_late_hint(tmp_path, ca
     }
 
 
+def test_offers_a_shorter_round_when_daylight_alone_rules_out_the_selected_course(tmp_path, capsys):
+    """2026-10-05: `alternative` per date plus `alternative_courses` in the hint
+    -- the GUI only displays these, never re-derives them."""
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": "16:00"}}})
+    db = tmp_path / "club.db"
+    sun = SunTimes(sunrise="07:30", sunset="18:50")
+    for day in ("2026-10-05", "2026-10-06"):  # Monday, Tuesday
+        save_schedule(Schedule(date=day, course="18 Loch Tee 1",
+                               slots=[Slot(time="16:00", booked=0, capacity=4)], sun_times=sun), path=db)
+    # A 9-hole course only scraped for Monday, plus a course of unknown length.
+    save_schedule(Schedule(date="2026-10-05", course="9 Loch Tee 1",
+                           slots=[Slot(time="16:10", booked=0, capacity=4)], sun_times=sun), path=db)
+    save_schedule(Schedule(date="2026-10-06", course="Kurzplatz",
+                           slots=[Slot(time="16:10", booked=0, capacity=4)], sun_times=sun), path=db)
+
+    result, code = _run(
+        capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-05", "--days", "2"]
+    )
+
+    assert code == 0
+    assert result["2026-10-05"] == {
+        "time": None, "window": {"after": "16:00", "before": None}, "unplayable": ["daylight"],
+        "alternative": {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9},
+    }
+    assert "alternative" not in result["2026-10-06"]  # absent, not null -- older GUIs never see it
+    assert result["_hint"]["alternative_courses"] == ["9 Loch Tee 1"]
+
+
+def test_no_alternative_on_a_day_that_has_a_pick(tmp_path, capsys):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    sun = SunTimes(sunrise="07:30", sunset="18:50")
+    save_schedule(Schedule(date="2026-10-04", course="18 Loch Tee 1",
+                           slots=[Slot(time="09:00", booked=0, capacity=4)], sun_times=sun), path=db)
+    save_schedule(Schedule(date="2026-10-04", course="9 Loch Tee 1",
+                           slots=[Slot(time="09:10", booked=0, capacity=4)], sun_times=sun), path=db)
+
+    result, _ = _run(
+        capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"]
+    )
+
+    assert result["2026-10-04"]["time"] == "09:00"
+    assert "alternative" not in result["2026-10-04"]
+
+
 def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch, capsys):
     global_preferences.save_preferences({
         "availability": {"weekend_window": {"after": None, "before": None}},

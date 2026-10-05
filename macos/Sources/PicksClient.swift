@@ -27,18 +27,31 @@ struct DayVerdict {
     }
 }
 
+/// A shorter round on another of the club's courses, for a day too dark to
+/// finish the selected one (2026-10-05) -- `picks_cli.py`'s optional per-date
+/// `"alternative"`, decided by `recommend.shorter_round_alternative()` and only
+/// displayed here, never re-derived.
+struct ShorterRound: Equatable {
+    let course: String
+    let time: String
+    let holes: Int
+}
+
 /// `recommend.window_too_late_hint()`'s own numbers -- your window opens after
 /// the latest start that still finishes before dark, on several days running.
+/// `alternativeCourses`: where a shorter round still fits on those days.
 struct WindowHint {
     let windowAfter: String
     let latestStart: String
     let sunset: String
     let roundMinutes: Int
+    var alternativeCourses: [String] = []
 }
 
 struct PicksResult {
     var picks: [String: DayPick] = [:]
     var verdicts: [String: DayVerdict] = [:]
+    var alternatives: [String: ShorterRound] = [:]
     var hint: WindowHint?
 }
 
@@ -103,7 +116,8 @@ enum PicksClient {
            let after = hint["window_after"] as? String, let latest = hint["latest_start"] as? String,
            let sunset = hint["sunset"] as? String {
             result.hint = WindowHint(windowAfter: after, latestStart: latest, sunset: sunset,
-                                     roundMinutes: hint["round_minutes"] as? Int ?? 0)
+                                     roundMinutes: hint["round_minutes"] as? Int ?? 0,
+                                     alternativeCourses: hint["alternative_courses"] as? [String] ?? [])
         }
         for (date, value) in obj where date != "_hint" {
             guard let row = value as? [String: Any] else { continue }
@@ -113,6 +127,11 @@ enum PicksClient {
                 windowBefore: window?["before"] as? String,
                 unplayable: row["unplayable"] as? [String] ?? []
             )
+            if let alternative = row["alternative"] as? [String: Any],
+               let course = alternative["course"] as? String, let time = alternative["time"] as? String,
+               let holes = alternative["holes"] as? Int {
+                result.alternatives[date] = ShorterRound(course: course, time: time, holes: holes)
+            }
             if let time = row["time"] as? String {
                 result.picks[date] = DayPick(
                     time: time,

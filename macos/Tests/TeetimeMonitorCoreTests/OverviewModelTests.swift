@@ -8,6 +8,7 @@ func runOverviewModelTests() {
         testRepicksWhenTheShownClubWasRemoved()
         testClearClubStateBlanksEveryPerClubField()
         testFreshnessThresholdFollowsScrapeInterval()
+        testShorterRoundClickSwitchesCourseThenJumps()
     }
     Harness.group("Overview helpers") {
         testBannerCaptionNamesTheDay()
@@ -34,6 +35,7 @@ private func testClearClubStateBlanksEveryPerClubField() {
     let model = OverviewModel()
     model.windowHint = WindowHint(windowAfter: "17:00", latestStart: "15:30", sunset: "19:30", roundMinutes: 240)
     model.verdicts = ["2026-10-04": DayVerdict(windowAfter: "17:00", windowBefore: nil, unplayable: ["daylight"])]
+    model.alternatives = ["2026-10-04": ShorterRound(course: "9 Loch", time: "16:10", holes: 9)]
     model.lastScrape = Date()
     model.banners = [Banner(id: 1, course: "18 Loch", date: "2026-10-04", time: "14:20",
                             kind: "weather_worsened", paramsJSON: "{}", message: "x")]
@@ -43,6 +45,7 @@ private func testClearClubStateBlanksEveryPerClubField() {
     model.reload()
     Harness.check("hint cleared", model.windowHint == nil)
     Harness.check("verdicts cleared", model.verdicts.isEmpty)
+    Harness.check("shorter-round alternatives cleared", model.alternatives.isEmpty)
     Harness.check("banners cleared", model.banners.isEmpty)
     Harness.check("last scrape cleared", model.lastScrape == nil)
     Harness.check("picks request key cleared", model.picksRequestKey == nil)
@@ -91,4 +94,34 @@ private func testHeatmapHolidayYearsSpanTheHistory() {
                        [2025, 2026, 2027])
     Harness.checkEqual("no history -> the current year",
                        heatmapHolidayYears(dates: [], currentYear: 2026), [2026])
+}
+
+/// Clicking a shorter-round badge (2026-10-05): the course switches (collapsing
+/// every day, like a manual switch), and the jump waits until that course's days
+/// are loaded -- `applyPendingJump()`, which `reload()` calls once they are.
+private func testShorterRoundClickSwitchesCourseThenJumps() {
+    let model = OverviewModel()
+    model.courses = ["18 Loch Tee 1", "9 Loch Tee 1"]
+    model.course = "18 Loch Tee 1"
+    model.expanded = ["2026-10-05"]
+    let alternative = ShorterRound(course: "9 Loch Tee 1", time: "16:10", holes: 9)
+    model.jumpToShorterRound(on: "2026-10-05", alternative)
+    Harness.check("switches the course", model.course == "9 Loch Tee 1")
+    Harness.check("collapses every day", model.expanded.isEmpty)
+    Harness.check("no jump before the new course's days load", model.scrollRequest == nil)
+    model.applyPendingJump()
+    Harness.check("jumps to the slot once loaded",
+                  model.scrollRequest == OverviewModel.ScrollTarget(date: "2026-10-05", time: "16:10"))
+    Harness.check("only once", model.pendingJump == nil)
+
+    model.scrollRequest = nil
+    model.course = "18 Loch Tee 1"
+    model.jumpToShorterRound(on: "2026-10-05", alternative)
+    model.course = "18 Loch Tee 1"  // switched straight back before the load landed
+    model.applyPendingJump()
+    Harness.check("a stale jump is dropped", model.scrollRequest == nil && model.pendingJump == nil)
+
+    model.course = "18 Loch Tee 1"
+    model.jumpToShorterRound(on: "2026-10-05", ShorterRound(course: "Gone", time: "16:10", holes: 9))
+    Harness.check("an unknown course does nothing", model.course == "18 Loch Tee 1" && model.pendingJump == nil)
 }

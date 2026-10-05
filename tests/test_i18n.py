@@ -237,3 +237,34 @@ def test_render_booking_change_reservations_sync_failed_parsing_german():
     i18n.set_language("de")
     text = i18n.render_booking_change("reservations_sync_failed", {"reason": "parsing"})
     assert "geändert" in text
+
+
+def test_scrape_health_strings_match_the_gui_word_for_word():
+    # 2026-10-05: the health line must read the same in both apps (same keys, same
+    # text), so this parses macos/Sources/I18n.swift's two tables directly rather than
+    # trusting that someone remembered to copy an edit across.
+    from pathlib import Path
+
+    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
+    english, german = swift.split("private let germanStrings", 1)
+    entry = re.compile(r'^\s*"(health\.[^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
+    for lang, table in (("en", english), ("de", german)):
+        swift_health = dict(entry.findall(table))
+        python_health = {k: v for k, v in i18n._STRINGS[lang].items() if k.startswith("health.")}
+        assert python_health, "no health.* keys in i18n.py"
+        assert swift_health == python_health, lang
+
+
+def test_shorter_round_strings_match_the_gui_word_for_word():
+    # 2026-10-05: the "★ 16:10 · 9H" cell, its #row-detail sentence (the GUI's
+    # tooltip) and the hint's course list must read the same in both apps.
+    from pathlib import Path
+
+    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
+    english, german = swift.split("private let germanStrings", 1)
+    keys = ("overview.pick_holes", "overview.pick_alternative", "overview.hint_alternative")
+    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
+    for lang, table in (("en", english), ("de", german)):
+        swift_strings = dict(entry.findall(table))
+        for key in keys:
+            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)

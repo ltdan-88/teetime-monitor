@@ -39,7 +39,11 @@ sich an ihr etwas ändert.
 1. **Starten.** Du landest auf den nächsten buchbaren Tagen, einer pro Zeile.
 2. **Spalte „Empfehlung" lesen.** Jeder Tag sagt bereits, was Sache ist: eine empfohlene
    Zeit mit ★, deine bestätigte Buchung, oder warum dort nichts infrage kommt
-   („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit").
+   („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit"). Ist es auf deinem
+   Platz zu dunkel, aber auf einem kürzeren Platz des Clubs passt noch eine Runde,
+   schlägt die Zelle diese vor — z. B. „★ 16:10 · 9L" (die TUI nennt den Platz unter
+   der Tabelle, sobald der Tag markiert ist; in der GUI zeigt ihn der Tooltip, und ein
+   Klick wechselt auf diesen Platz).
 3. **Enter auf einem Tag** klappt dessen Startzeiten direkt auf; Enter auf einer Zeit
    markiert sie als deine, sobald du sie auf pc caddie gebucht hast.
 4. **Laufen lassen.** Der Rest passiert im Hintergrund. Kommt jemand in deinen Flight,
@@ -236,7 +240,13 @@ sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreibe
 ~/.local/share/teetime-monitor/
     <club_id>.db            # Abruf-Verlauf, bestätigte Buchungen (SQLite)
     club-directory.json     # zwischengespeicherte Clubliste
+    backups/<club_id>-JJJJ-MM-TT.db  # tägliche Kopie durch den Hintergrund-Agent, die neuesten 7 bleiben
 ```
+
+Klappt das Abrufen eine Weile nicht — pc caddie lehnt deinen Login ab, oder der
+Startzeitenplan lädt mehrmals hintereinander nicht —, zeigen beide Apps das neben
+„aktualisiert vor …“ an (in der GUI wird der Statuspunkt zusätzlich gelb/rot). Solange
+alles läuft, erscheint nichts zusätzlich.
 
 Umstieg von vor v0.31.0? Beim ersten Start werden `./clubs`, `./data` und `./.env`
 automatisch übernommen — mit Hinweis, was kopiert wurde. Kopiert, nicht verschoben:

@@ -200,6 +200,53 @@ runGroup("store_players") { args in
     ] as [String: Any]
 }
 
+/// `storage.scrape_health()`'s dict shape, from the Swift struct.
+func healthDict(_ h: ScrapeHealth) -> [String: Any] {
+    [
+        "consecutive_failed_runs": h.consecutiveFailedRuns,
+        "failing_since": orNull(h.failingSince),
+        "last_error_kind": orNull(h.lastErrorKind),
+        "last_error_message": orNull(h.lastErrorMessage),
+        "last_run_at": orNull(h.lastRunAt),
+        "last_success_at": orNull(h.lastSuccessAt),
+        "login_rejected_since": orNull(h.loginRejectedSince),
+    ]
+}
+
+// Scrape health (2026-10-05): databases storage.py built and summarized, read back
+// through Store.scrapeHealth() -- the GUI footer must agree with the TUI's #status.
+runGroup("store_scrape_health") { args in
+    let path = NSTemporaryDirectory() + "crosscheck-health-\(UUID().uuidString).db"
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    var db: OpaquePointer?
+    guard sqlite3_open(path, &db) == SQLITE_OK,
+          sqlite3_exec(db, args["sql"] as! String, nil, nil, nil) == SQLITE_OK else {
+        sqlite3_close(db)
+        return "could not load the reference database"
+    }
+    sqlite3_close(db)
+    return healthDict(Store.scrapeHealth(dbPath: path))
+}
+runGroup("scrape_health_warning") { args in
+    AppLanguage.shared.code = args["language"] as! String
+    defer { AppLanguage.shared.code = "en" }
+    let h = args["health"] as! [String: Any]
+    func str(_ key: String) -> String? { h[key] as? String }
+    let health = ScrapeHealth(
+        lastRunAt: str("last_run_at"), lastSuccessAt: str("last_success_at"),
+        lastErrorKind: str("last_error_kind"), lastErrorMessage: str("last_error_message"),
+        consecutiveFailedRuns: (h["consecutive_failed_runs"] as? NSNumber)?.intValue ?? 0,
+        failingSince: str("failing_since"), loginRejectedSince: str("login_rejected_since"))
+    let now = ScrapeHealthRules.parse(args["now"] as? String) ?? Date()
+    let interval = args["interval"] as! Int
+    let status = ScrapeHealthRules.status(health, intervalMinutes: interval, now: now)
+    let warning = ScrapeHealthRules.warning(health, intervalMinutes: interval, now: now)
+    return [orNull(status?.0.rawValue), orNull(warning?.text)]
+}
+runGroup("health_i18n") { args in
+    I18n.strings[args["language"] as! String]?[args["key"] as! String] ?? "<missing>"
+}
+
 // A reference group with no runGroup here would otherwise pass by checking nothing.
 for name in Set(reference.keys).subtracting(ranGroups).sorted() {
     failed += 1

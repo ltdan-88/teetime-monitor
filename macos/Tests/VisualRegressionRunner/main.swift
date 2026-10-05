@@ -100,6 +100,9 @@ enum VisualRegression {
         AppScale.shared.option = .small
         AppUnits.shared.value = "metric"
         AppLanguage.shared.code = "en"
+        // The footer-health case prints local clock times ("since Sat 16:45"); pinned
+        // so a contributor's machine and CI render the same text (2026-10-05).
+        NSTimeZone.default = TimeZone(identifier: "UTC")!
     }
 
     @MainActor

@@ -51,10 +51,11 @@ def test_scrapes_the_unsaved_club_with_no_slug_and_force_true(monkeypatch, capsy
 
     captured = {}
 
-    def spy_scrape_due_for_club(slug, config, force=False):
+    def spy_scrape_due_for_club(slug, config, force=False, source="agent"):
         captured["slug"] = slug
         captured["config"] = config
         captured["force"] = force
+        captured["source"] = source
         return []
 
     monkeypatch.setattr(preview_club_cli.scrape_once, "scrape_due_for_club", spy_scrape_due_for_club)
@@ -65,12 +66,13 @@ def test_scrapes_the_unsaved_club_with_no_slug_and_force_true(monkeypatch, capsy
     assert code == 0
     assert captured["slug"] is None
     assert captured["force"] is True
+    assert captured["source"] == "gui"  # its scrape_runs row is the GUI's (2026-10-05)
     assert captured["config"]["club_id"] == "0000001"
 
 
 def test_works_without_a_club_name(monkeypatch, capsys):
     monkeypatch.setattr(preview_club_cli, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": ""})
-    monkeypatch.setattr(preview_club_cli.scrape_once, "scrape_due_for_club", lambda slug, config, force=False: [])
+    monkeypatch.setattr(preview_club_cli.scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: [])
 
     result, code = _run(capsys, ["--club-id", "0000001"])
 

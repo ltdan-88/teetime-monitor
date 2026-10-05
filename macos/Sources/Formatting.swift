@@ -207,3 +207,19 @@ func hoursText(_ minutes: Int, language: String) -> String {
     let text = String(format: "%g", Double(minutes) / 60)
     return language == "de" ? text.replacingOccurrences(of: ".", with: ",") : text
 }
+
+/// The overview's window-too-late hint line, plus -- when `picks_cli.py` found
+/// one on those days -- where a shorter round still fits (2026-10-05). Same two
+/// sentences as `tui._window_hint_text()`.
+func windowHintText(_ hint: WindowHint) -> String {
+    var text = t("hint.window_too_late", [
+        "after": hint.windowAfter,
+        "hours": hoursText(hint.roundMinutes),
+        "sunset": hint.sunset,
+        "latest": hint.latestStart,
+    ])
+    if !hint.alternativeCourses.isEmpty {
+        text += " " + t("overview.hint_alternative", ["courses": hint.alternativeCourses.joined(separator: ", ")])
+    }
+    return text
+}

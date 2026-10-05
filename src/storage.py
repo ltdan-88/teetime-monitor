@@ -46,6 +46,14 @@ Five tables:
   than buried in whichever day's scrape happened to record it, with `is_friend` the
   one field a person actually edits (via the TUI/GUI's own directory screen) — see
   `models.KnownPlayer`.
+- `scrape_runs` — added 2026-10-05: one row per `scrape_once.scrape_due_for_club()`
+  call (the launchd agent, the TUI's timer, the GUI's Refresh), including passes where
+  nothing was due. Found live: pc caddie rejected the login for both real clubs for ~20
+  hours and every pass silently fell back to anonymous (no player names), and the
+  course list failed intermittently overnight -- the only trace was a log file nobody
+  reads. `scrape_health()` summarizes these rows for both front ends' health line.
+  Pruned to `SCRAPE_RUN_RETENTION_DAYS` on every write -- an operational log, not
+  history worth keeping forever like `scrapes`.
 
 Implemented and tested 2026-09-06. Not yet covered here: a lookup for a *specific*
 historical scrape (e.g. "the schedule as of when this booking was confirmed") — only
@@ -59,7 +67,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .models import (
@@ -147,6 +155,19 @@ CREATE TABLE IF NOT EXISTS known_players (
     handicap REAL              -- most recently seen value, NULL if never shown
 );
 
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,          -- ISO 8601, UTC
+    finished_at TEXT NOT NULL,         -- ISO 8601, UTC
+    source TEXT NOT NULL,              -- 'agent' / 'tui' / 'gui'
+    attempted INTEGER NOT NULL DEFAULT 0,  -- course/date pairs actually tried
+    saved INTEGER NOT NULL DEFAULT 0,      -- schedules saved
+    failed INTEGER NOT NULL DEFAULT 0,
+    authenticated INTEGER,             -- 1/0, NULL = no credentials configured
+    error_kind TEXT,                   -- NULL or one of SCRAPE_ERROR_KINDS
+    error_message TEXT                 -- short, never credentials
+);
+
 -- Every scrape appends a full day of slots and nothing is ever deleted, so without
 -- these each load_latest_schedule() scanned the whole history (the heatmap calls it
 -- once per date, so its cost grew quadratically). IF NOT EXISTS: an existing
@@ -154,7 +175,23 @@ CREATE TABLE IF NOT EXISTS known_players (
 CREATE INDEX IF NOT EXISTS idx_slots_scrape ON slots(scrape_id, time);
 CREATE INDEX IF NOT EXISTS idx_weather_scrape ON weather_points(scrape_id, time);
 CREATE INDEX IF NOT EXISTS idx_scrapes_course_date ON scrapes(course, date);
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_started ON scrape_runs(started_at);
 """
+
+# See the module docstring's `scrape_runs` note.
+SCRAPE_RUN_SOURCES = ("agent", "tui", "gui")
+SCRAPE_ERROR_LOGIN_REJECTED = "login_rejected"
+SCRAPE_ERROR_NETWORK = "network"
+SCRAPE_ERROR_NO_TEE_SHEET = "no_tee_sheet"
+SCRAPE_ERROR_OTHER = "other"
+SCRAPE_ERROR_KINDS = (
+    SCRAPE_ERROR_LOGIN_REJECTED,
+    SCRAPE_ERROR_NETWORK,
+    SCRAPE_ERROR_NO_TEE_SHEET,
+    SCRAPE_ERROR_OTHER,
+)
+SCRAPE_RUN_RETENTION_DAYS = 30
+SCRAPE_ERROR_MESSAGE_MAX_CHARS = 300
 
 
 @contextmanager
@@ -313,6 +350,19 @@ def distinct_scraped_dates(course: str, path: Path = DEFAULT_DB_PATH) -> list[st
     with _connect(path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT date FROM scrapes WHERE course = ? ORDER BY date", (course,)
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def courses_scraped_on(date: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
+    """Every course with at least one scrape saved for `date`, alphabetically.
+    Added 2026-10-05 for `recommend.shorter_round_alternative()`: the club's
+    other courses it may suggest a shorter round on are whatever was actually
+    scraped for that day, not a live course list."""
+    init_db(path)
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT course FROM scrapes WHERE date = ? ORDER BY course", (date,)
         ).fetchall()
     return [row[0] for row in rows]
 
@@ -734,3 +784,157 @@ def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) 
     init_db(path)
     with _connect(path) as conn:
         conn.execute("UPDATE known_players SET is_friend = ? WHERE name = ?", (int(is_friend), name))
+
+
+def record_scrape_run(
+    *,
+    started_at: str,
+    finished_at: str,
+    source: str,
+    attempted: int,
+    saved: int,
+    failed: int,
+    authenticated: bool | None,
+    error_kind: str | None = None,
+    error_message: str | None = None,
+    path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Log one scrape pass (see the module docstring's `scrape_runs` note) and prune
+    rows older than `SCRAPE_RUN_RETENTION_DAYS` in the same transaction. Keyword-only:
+    ten positional fields of mostly ints is an argument-order bug waiting to happen.
+
+    `error_message` is truncated here as a last line of defence; the caller
+    (`scrape_once`) is the one that strips credentials, since only it knows them."""
+    if source not in SCRAPE_RUN_SOURCES:
+        raise ValueError(f"unknown scrape run source {source!r}")
+    if error_kind is not None and error_kind not in SCRAPE_ERROR_KINDS:
+        raise ValueError(f"unknown scrape error kind {error_kind!r}")
+    if error_message is not None:
+        error_message = error_message.strip()[:SCRAPE_ERROR_MESSAGE_MAX_CHARS] or None
+    init_db(path)
+    cutoff = (datetime.now(UTC) - timedelta(days=SCRAPE_RUN_RETENTION_DAYS)).isoformat()
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT INTO scrape_runs (started_at, finished_at, source, attempted, saved, failed, "
+            "authenticated, error_kind, error_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                started_at,
+                finished_at,
+                source,
+                attempted,
+                saved,
+                failed,
+                None if authenticated is None else int(authenticated),
+                error_kind,
+                error_message,
+            ),
+        )
+        conn.execute("DELETE FROM scrape_runs WHERE started_at < ?", (cutoff,))
+
+
+def scrape_run_succeeded(saved: int, attempted: int, error_kind: str | None) -> bool:
+    """A run counts as a success when it saved something, or when nothing was due and
+    nothing went wrong (the agent is alive and simply had no work). A login-rejected run
+    that still saved anonymously *is* a success here -- data arrived; the missing names
+    are `login_rejected_since`'s job, not the failure streak's.
+
+    The same goes for a pass where nothing was due and the login was the *only* thing
+    that went wrong (2026-10-05, review): the agent runs every 15 minutes against a
+    6-hour default interval, so most passes are no-ops, and during a login outage every
+    one of them was counted as a failure -- three in a row turned the amber "login
+    rejected" line into a red "scrapes failing" one while schedules were still saving
+    anonymously. `scrape_once` only records such a pass as `login_rejected` when no
+    other error happened (see its `_RunStats.error()`)."""
+    return saved > 0 or (attempted == 0 and error_kind in (None, SCRAPE_ERROR_LOGIN_REJECTED))
+
+
+def empty_scrape_health() -> dict:
+    """What `scrape_health()` returns for a database with no recorded runs at all (a
+    fresh club, or one whose db predates `scrape_runs`) -- both front ends show nothing
+    for it."""
+    return {
+        "last_run_at": None,
+        "last_success_at": None,
+        "last_error_kind": None,
+        "last_error_message": None,
+        "consecutive_failed_runs": 0,
+        "failing_since": None,
+        "login_rejected_since": None,
+    }
+
+
+def scrape_health(path: Path = DEFAULT_DB_PATH) -> dict:
+    """A summary of this club's recent `scrape_runs`, newest first:
+
+    - `last_run_at` / `last_success_at`: `finished_at` of the newest run / newest
+      successful run (see `scrape_run_succeeded()`).
+    - `last_error_kind` / `last_error_message`: the newest run's own error, None if that
+      run was clean.
+    - `consecutive_failed_runs`: how many of the newest runs in a row were not
+      successes; `failing_since` is the `started_at` of the oldest of them (None when
+      the newest run succeeded). Not in the original spec -- added so the "failing
+      since" line can say when it started rather than when it was last seen.
+    - `login_rejected_since`: `started_at` of the oldest run in the current streak of
+      `login_rejected` runs, else None. A run whose login outcome is unknown
+      (authenticated = 0 with some *other* error, e.g. offline before the login POST)
+      neither extends nor breaks the streak -- one network blip in the middle of a
+      day-long rejection shouldn't reset "since" to an hour ago. A successful login
+      (authenticated = 1) or no credentials at all (NULL) ends it.
+
+    Mirrored by `Store.scrapeHealth()` in the GUI (cross-checked by
+    `scripts/cross_language_reference.py`)."""
+    health = empty_scrape_health()
+    if not path.exists():
+        return health
+    init_db(path)
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT started_at, finished_at, attempted, saved, authenticated, error_kind, error_message "
+            "FROM scrape_runs ORDER BY started_at DESC, id DESC"
+        ).fetchall()
+    if not rows:
+        return health
+    _, newest_finished, _, _, _, newest_kind, newest_message = rows[0]
+    health["last_run_at"] = newest_finished
+    health["last_error_kind"] = newest_kind
+    health["last_error_message"] = newest_message
+
+    failure_streak_open = True
+    login_streak_open = True
+    for started_at, finished_at, attempted, saved, authenticated, error_kind, _message in rows:
+        succeeded = scrape_run_succeeded(saved, attempted, error_kind)
+        if succeeded and health["last_success_at"] is None:
+            health["last_success_at"] = finished_at
+        if failure_streak_open:
+            if succeeded:
+                failure_streak_open = False
+            else:
+                health["consecutive_failed_runs"] += 1
+                health["failing_since"] = started_at
+        if login_streak_open:
+            if error_kind == SCRAPE_ERROR_LOGIN_REJECTED:
+                health["login_rejected_since"] = started_at
+            elif not (authenticated == 0 and error_kind is not None):
+                login_streak_open = False
+        if not failure_streak_open and not login_streak_open and health["last_success_at"] is not None:
+            break
+    return health
+
+
+def backup_db(source: Path, destination: Path) -> None:
+    """A consistent copy of `source` via SQLite's online backup API (safe while another
+    process is writing, unlike a plain file copy). Written to a temporary name and
+    renamed into place, so an interrupted backup never looks like a finished one."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".partial")
+    partial.unlink(missing_ok=True)
+    src = sqlite3.connect(source)
+    try:
+        dst = sqlite3.connect(partial)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    partial.replace(destination)

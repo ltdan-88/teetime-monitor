@@ -63,6 +63,7 @@ accumulating whether or not the TUI is ever opened on a given day, closing out t
 scoped.
 """
 
+import argparse
 import sys
 import time
 from collections.abc import Iterator
@@ -80,6 +81,7 @@ from .models import ConfirmedBooking, SunTimes, WeatherPoint
 from .recommend import _round_duration_minutes
 from .scraper import (
     LoginError,
+    NoTeeSheetError,
     fetch_available_dates,
     fetch_course_aliases,
     login,
@@ -113,6 +115,81 @@ class EmptyScheduleError(Exception):
     not a real change. Raised by run() so that pass is logged and skipped instead of
     saving 0 slots as the new "latest" (which blanks the day and turns every occupied
     neighbour into a false BUFFER_SHRUNK on the next good pass)."""
+
+
+SCRAPE_SOURCES = storage.SCRAPE_RUN_SOURCES  # 'agent' (launchd / main()), 'tui', 'gui'
+
+# Daily database backups (2026-10-05) -- see _daily_backup().
+BACKUPS_KEPT_PER_CLUB = 7
+
+# Which error a pass reports when several went wrong at once. A rejected login ranks
+# last (2026-10-05, review): when the course list also failed, the pass got nothing
+# because of *that*, and "Scrapes failing since ...: login rejected" named the wrong
+# cause. A no-op pass recorded as login_rejected also counts as a success (see
+# storage.scrape_run_succeeded()), so ranking it first would have hidden a real
+# course-list failure entirely. The login streak survives either way: an
+# authenticated=0 run with some other error neither extends nor ends it (see
+# storage.scrape_health()). See _RunStats.error() for the one exception.
+_ERROR_PRIORITY = (
+    storage.SCRAPE_ERROR_NO_TEE_SHEET,
+    storage.SCRAPE_ERROR_NETWORK,
+    storage.SCRAPE_ERROR_OTHER,
+    storage.SCRAPE_ERROR_LOGIN_REJECTED,
+)
+
+
+@dataclass
+class _RunStats:
+    """What one scrape_due_for_club() call did, recorded as one `scrape_runs` row
+    (2026-10-05, see storage.py's module docstring). `logged_in` is None while no
+    credentials are configured, else whether this pass ended up authenticated."""
+
+    attempted: int = 0
+    saved: int = 0
+    failed: int = 0
+    logged_in: bool | None = None
+    login_rejected: bool = False
+    errors: list[tuple[str, str]] = field(default_factory=list)
+    secrets: tuple[str, ...] = ()
+
+    def add_error(self, kind: str, exc: BaseException | str) -> None:
+        self.errors.append((kind, _short_error(exc, self.secrets)))
+
+    def error(self) -> tuple[str | None, str | None]:
+        """The single (kind, message) this run is recorded with -- see _ERROR_PRIORITY.
+        A rejected login only counts while the pass really stayed anonymous.
+
+        Exception: a pass that saved something is a success whatever else went wrong,
+        so its recorded error never feeds the "failing" line -- there the rejected login
+        goes first, since it's the one the user can fix and the login streak needs to
+        see it (one flaky course per pass would otherwise hide a day-long rejection)."""
+        kinds = {kind for kind, _ in self.errors}
+        if self.login_rejected and self.logged_in is False:
+            kinds.add(storage.SCRAPE_ERROR_LOGIN_REJECTED)
+        priority = _ERROR_PRIORITY
+        if self.saved > 0:
+            priority = (storage.SCRAPE_ERROR_LOGIN_REJECTED, *_ERROR_PRIORITY)
+        for kind in priority:
+            if kind in kinds:
+                message = next((m for k, m in self.errors if k == kind), "pc caddie rejected the login")
+                return kind, message
+        return None, None
+
+
+def _short_error(exc: BaseException | str, secrets: tuple[str, ...] = ()) -> str:
+    """One line, credentials masked -- `scrape_runs.error_message` is shown in the GUI's
+    tooltip and must never carry a username/password, whatever an exception's text
+    happened to include."""
+    text = str(exc) if str(exc) else type(exc).__name__
+    text = " ".join(text.split())
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "***")
+    return text[: storage.SCRAPE_ERROR_MESSAGE_MAX_CHARS]
+
+
+def _network_or_other(exc: BaseException) -> str:
+    return storage.SCRAPE_ERROR_NETWORK if isinstance(exc, httpx.TransportError) else storage.SCRAPE_ERROR_OTHER
 
 
 @dataclass
@@ -320,7 +397,7 @@ _RESERVATIONS_SYNC_FAILED_KIND = "reservations_sync_failed"
 
 def _sync_my_reservations(
     club_id: str, slug: str | None, db_path: Path, known_courses: list[str] | None = None
-) -> None:
+) -> str | None:
     """Best-effort: log in and save any confirmed bookings pc caddie shows for this
     account. Called once per `scrape_due_for_club()` pass (moved there 2026-09-16,
     see that function's own docstring) rather than once per course/date — "My
@@ -356,28 +433,32 @@ def _sync_my_reservations(
     booking look cancelled. A mismatch now raises `NotImplementedError`, which this
     function already routes to a visible "parsing" failure banner. `None` (the caller
     couldn't fetch the course list this pass) keeps the old unvalidated behavior rather
-    than skipping the sync entirely."""
+    than skipping the sync entirely.
+
+    Returns how it went (2026-10-05, for the pass's `scrape_runs` row): None when it
+    was skipped (no slug or no credentials), else "ok", "login" (rejected), "parsing"
+    (logged in fine, page unparseable), "network" or "other"."""
     if not slug:
-        return  # can't resolve credentials (keyed by slug) without knowing it
+        return None  # can't resolve credentials (keyed by slug) without knowing it
     username, password = club_config.resolve_credentials(slug)
     if not username or not password:
-        return  # PCC_USER/PCC_PASS not configured yet for this club
+        return None  # PCC_USER/PCC_PASS not configured yet for this club
     try:
         sync = scrape_my_reservations(club_id, username, password, known_courses)
     except LoginError as exc:
         _log(f"[scrape_once] login failed for {club_id}: {exc}")
         _report_reservations_sync_failure("login", db_path)
-        return
+        return "login"
     except NotImplementedError:
         # a real booking exists but scraper.py can't parse its row markup yet
         _report_reservations_sync_failure("parsing", db_path)
-        return
+        return "parsing"
     except Exception as exc:  # noqa: BLE001 — offline, a timeout, a 5xx on login or the page
         # Must not escape: from the TUI's worker it would exit the app, and from main()
         # it would stop every later club's pass.
         _log(f"[scrape_once] reservations sync failed for {club_id}: {exc}")
         _report_reservations_sync_failure("other", db_path)
-        return
+        return "network" if isinstance(exc, httpx.TransportError) else "other"
     for booking in sync.bookings:
         storage.save_confirmed_booking(booking, path=db_path)
     _reconcile_cancelled_reservations(sync.bookings, db_path)
@@ -386,6 +467,7 @@ def _sync_my_reservations(
     if sync.my_handicap is not None:
         storage.save_my_handicap(sync.my_handicap, path=db_path)
     _clear_reservations_sync_failure(db_path)
+    return "ok"
 
 
 def _report_reservations_sync_failure(reason: str, db_path: Path) -> None:
@@ -591,7 +673,9 @@ def _club_lock(club_id: str, wait_seconds: float | None = None) -> Iterator[bool
         handle.close()
 
 
-def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[booking_watch.BookingChange]:
+def scrape_due_for_club(
+    slug: str, config: dict, force: bool = False, source: str = "agent"
+) -> list[booking_watch.BookingChange]:
     """Scrape every course x day in `slug`'s `overview_days` window that's actually
     due per `_should_scrape()`, skipping the rest. Extracted 2026-09-07 from `main()`'s
     own per-club loop so `tui.py` can call this directly too — both once on open and
@@ -630,23 +714,108 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     nothing sees while the TUI has the screen.
 
     The whole pass runs under `_club_lock()` so overlapping processes don't scrape (and
-    write booking-watch banners for) the same club at once."""
+    write booking-watch banners for) the same club at once.
+
+    Records exactly one `scrape_runs` row per call (2026-10-05 -- see storage.py's
+    module docstring for the 20-hour silent login failure that motivated it), tagged
+    with `source` ('agent' from main()/launchd, 'tui', 'gui'): also when nothing was
+    due (a no-op success, so the health line can tell "the agent is alive and idle"
+    from "the agent stopped"). Two exceptions: a config with no club_id at all (there's
+    no database to record into), and a call that gave up waiting for the club lock (the
+    pass holding it records its own row -- see the comment at the lock check). An
+    `agent` pass that succeeded also takes the day's backup (see `_daily_backup()`).
+    Recording or backing up never fails the pass itself."""
+    if source not in SCRAPE_SOURCES:
+        raise ValueError(f"unknown scrape source {source!r}; expected one of {SCRAPE_SOURCES}")
     config = {**config, **global_preferences.load_preferences()}
     club_id = config.get("club_id")
     if not club_id:
         _log(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
-    with _club_lock(club_id) as acquired:
-        if not acquired:
-            _log(f"[scrape_once] {slug}: another pass still running after {CLUB_LOCK_WAIT_SECONDS}s, skipping")
-            return []
-        return _scrape_due_for_club_locked(slug, club_id, config, force)
+    started_at = datetime.now(UTC).isoformat()
+    stats = _RunStats()
+    lock_busy = False
+    try:
+        with _club_lock(club_id) as acquired:
+            if not acquired:
+                # Not recorded (2026-10-05, review): the pass holding the lock records
+                # its own row, and this one -- started later, so sorting as the newest --
+                # used to count as a failure *and* end a login-rejected streak (its
+                # login outcome unknown), making the login warning vanish mid-outage. A
+                # holder that hangs for good still surfaces: no row lands at all, so the
+                # last success goes stale (see scrape_health.health_status()).
+                _log(f"[scrape_once] {slug}: another pass still running after {CLUB_LOCK_WAIT_SECONDS}s, skipping")
+                lock_busy = True
+                return []
+            return _scrape_due_for_club_locked(slug, club_id, config, force, stats)
+    except BaseException as exc:
+        stats.add_error(_network_or_other(exc), exc)
+        raise
+    finally:
+        if not lock_busy:
+            succeeded = _record_run(club_id, source, started_at, stats)
+            if succeeded and source == "agent":
+                _daily_backup(club_id)
+
+
+def _record_run(club_id: str, source: str, started_at: str, stats: _RunStats) -> bool:
+    """Writes this pass's `scrape_runs` row; returns whether the pass counts as a
+    success (see storage.scrape_run_succeeded()). A failed write is logged, never
+    raised -- health bookkeeping must not be what breaks a scrape."""
+    error_kind, error_message = stats.error()
+    try:
+        storage.record_scrape_run(
+            started_at=started_at,
+            finished_at=datetime.now(UTC).isoformat(),
+            source=source,
+            attempted=stats.attempted,
+            saved=stats.saved,
+            failed=stats.failed,
+            authenticated=stats.logged_in,
+            error_kind=error_kind,
+            error_message=error_message,
+            path=_db_path(club_id),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log(f"[scrape_once] {club_id}: couldn't record this scrape run: {exc}")
+    return storage.scrape_run_succeeded(stats.saved, stats.attempted, error_kind)
+
+
+def _daily_backup(club_id: str, today: str | None = None) -> Path | None:
+    """One SQLite online backup of this club's database per day, at
+    DATA_DIR/backups/<club_id>-YYYY-MM-DD.db, keeping the newest
+    BACKUPS_KEPT_PER_CLUB (2026-10-05). The databases are the only record of tee sheets
+    pc caddie hides once they're past -- a corrupted file would lose history that can't
+    be re-scraped. Taken after a successful agent pass only (the TUI/GUI never do it,
+    so an interactive refresh never waits on one). Returns the backup written, None if
+    today's already exists or anything went wrong (logged, never raised)."""
+    try:
+        source = _db_path(club_id)
+        if not source.exists():
+            return None
+        backups = DATA_DIR / "backups"
+        day = today or date_cls.today().isoformat()
+        target = backups / f"{club_id}-{day}.db"
+        if target.exists():
+            return None
+        storage.backup_db(source, target)
+        existing = sorted(backups.glob(f"{club_id}-????-??-??.db"))
+        for stale in existing[:-BACKUPS_KEPT_PER_CLUB]:
+            stale.unlink(missing_ok=True)
+        return target
+    except Exception as exc:  # noqa: BLE001
+        _log(f"[scrape_once] {club_id}: daily backup failed: {exc}")
+        return None
 
 
 def _scrape_due_for_club_locked(
-    slug: str, club_id: str, config: dict, force: bool
+    slug: str, club_id: str, config: dict, force: bool, stats: _RunStats | None = None
 ) -> list[booking_watch.BookingChange]:
-    """scrape_due_for_club()'s body, run while holding that club's `_club_lock()`."""
+    """scrape_due_for_club()'s body, run while holding that club's `_club_lock()`.
+    Fills in `stats` as it goes (see _RunStats)."""
+    stats = stats if stats is not None else _RunStats()
+    username, password = club_config.resolve_credentials(slug) if slug else ("", "")
+    stats.secrets = tuple(secret for secret in (username, password) if secret)
     # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
     # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
     # universal, so a fixed COURSE_ALIASES silently scraped the wrong thing for a
@@ -663,10 +832,18 @@ def _scrape_due_for_club_locked(
     courses = None
     try:
         courses = fetch_course_aliases(club_id)
+    except NoTeeSheetError as exc:
+        _log(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
+        stats.add_error(storage.SCRAPE_ERROR_NO_TEE_SHEET, exc)
     except Exception as exc:  # noqa: BLE001
         _log(f"[scrape_once] {slug}: couldn't load its course list, skipping: {exc}")
+        stats.add_error(_network_or_other(exc), exc)
 
-    _sync_my_reservations(club_id, slug, _db_path(club_id), list(courses) if courses else None)
+    sync_outcome = _sync_my_reservations(club_id, slug, _db_path(club_id), list(courses) if courses else None)
+    if sync_outcome is not None:
+        # Overridden below by the schedule scrape's own login, when that runs.
+        stats.logged_in = sync_outcome in ("ok", "parsing")
+        stats.login_rejected = sync_outcome == "login"
 
     if courses is None:
         return []
@@ -706,22 +883,31 @@ def _scrape_due_for_club_locked(
     # accepted here rather than reworking that function's own established signature
     # for a marginal saving.
     client = None
-    username, password = club_config.resolve_credentials(slug) if slug else ("", "")
     if username and password:
         try:
             client = login(club_id, username, password)
+            stats.logged_in, stats.login_rejected = True, False
         except (LoginError, httpx.HTTPError) as exc:
             _log(f"[scrape_once] {slug}: couldn't log in for the schedule scrape, falling back to anonymous: {exc}")
+            stats.logged_in = False
+            if isinstance(exc, LoginError):
+                stats.login_rejected = True
+                stats.add_error(storage.SCRAPE_ERROR_LOGIN_REJECTED, exc)
+            else:
+                stats.add_error(_network_or_other(exc), exc)
 
     changes: list[booking_watch.BookingChange] = []
     weather_cache = _WeatherCache()
     try:
         for target_date in target_dates:
             for course in courses:
+                counted = False
                 try:
                     # Inside the try: a sqlite "database is locked" here must not end the pass.
                     if not force and not _should_scrape(club_id, course, target_date, config):
                         continue
+                    stats.attempted += 1
+                    counted = True
                     changes.extend(
                         run(
                             club_id,
@@ -734,15 +920,22 @@ def _scrape_due_for_club_locked(
                             weather_cache=weather_cache,
                         )
                     )
+                    stats.saved += 1
                 except httpx.TransportError as exc:
                     # Offline or pc caddie hanging: every remaining course/date would wait
                     # out its own 15 s timeout too. The next pass picks them all up.
                     _log(f"[scrape_once] {slug}/{course}/{target_date} network error, stopping this pass: {exc}")
+                    stats.attempted += 0 if counted else 1
+                    stats.failed += 1
+                    stats.add_error(storage.SCRAPE_ERROR_NETWORK, exc)
                     return changes
                 except Exception as exc:  # noqa: BLE001 — one bad course/date must not
                     # stop the rest of this club's window (or, from main(), every other
                     # saved club).
                     _log(f"[scrape_once] {slug}/{course}/{target_date} failed: {exc}")
+                    stats.attempted += 0 if counted else 1
+                    stats.failed += 1
+                    stats.add_error(storage.SCRAPE_ERROR_OTHER, exc)
     finally:
         if client is not None:
             client.close()
@@ -760,10 +953,21 @@ def main(argv: list[str] | None = None) -> None:
     been bitten by before (see the v0.21.0 reservations-sync banner), so the fix is to
     let an explicit human request actually mean "now", rather than to explain the
     silence afterwards.
+
+    `--source agent|tui|gui` (2026-10-05) tags this pass's `scrape_runs` rows -- the
+    GUI's Refresh passes `--source gui`; launchd passes nothing and gets 'agent' (which
+    is also the only source that takes the daily backup, see `_daily_backup()`).
     """
     paths.force_utf8_stdio()
     argv = argv if argv is not None else sys.argv[1:]
-    force = "--force" in argv or "-f" in argv
+    parser = argparse.ArgumentParser(prog="teetime-monitor-scrape", description="Scrape every saved club once.")
+    parser.add_argument("-f", "--force", action="store_true", help="ignore the per-course/date scrape interval")
+    parser.add_argument("--source", choices=SCRAPE_SOURCES, default="agent", help="who triggered this pass")
+    # parse_known_args: unknown arguments were always ignored here (an older launchd
+    # plist or wrapper passing something extra must not stop the agent); a bad
+    # --source value still errors out.
+    args, _unknown = parser.parse_known_args(argv)
+    force, source = args.force, args.source
     # One-time move off the old working-directory layout (2026-09-17, see paths.py).
     # The launchd agent still runs with a WorkingDirectory set, so an install that
     # predates the move migrates itself on its next scheduled pass without anyone
@@ -774,7 +978,7 @@ def main(argv: list[str] | None = None) -> None:
     paths.ensure_dirs()
     for slug in club_config.list_clubs():
         config = club_config.load_club_config(slug)
-        scrape_due_for_club(slug, config, force=force)
+        scrape_due_for_club(slug, config, force=force, source=source)
 
 
 if __name__ == "__main__":

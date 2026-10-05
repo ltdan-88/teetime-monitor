@@ -178,6 +178,7 @@ from . import (
     paths,
     playability,
     recommend,
+    scrape_health,
     scrape_once,
     storage,
     weather_icons,
@@ -1504,6 +1505,90 @@ def _availability_pipeline(
     return result
 
 
+def _shorter_round_alternative(
+    schedule: Schedule, config: dict, club_id: str, cache: dict | None = None, db_path: Path | None = None
+) -> dict | None:
+    """`recommend.shorter_round_alternative()` for one day of the selected
+    course, with the club's other courses scraped for that date loaded from its
+    own DB (2026-10-05) -- what the Pick column shows instead of "too dark to
+    finish", and what `picks_cli.py` hands the GUI as `"alternative"`.
+
+    Gated on this day's own cached `_availability_pipeline()` result first, so
+    the common case (a day with a pick) never loads a sibling schedule at all;
+    only courses that could qualify (known, smaller hole count) are loaded.
+    Memoized in the same `cache` as the pipeline, under its own
+    ("alternative", date, course) key. `db_path` defaults to the club's own DB;
+    `picks_cli.py` passes its `--db-path`."""
+    key = ("alternative", schedule.date, schedule.course)
+    if cache is not None and key in cache:
+        return cache[key]
+    candidates, playable = _availability_pipeline(schedule, config, club_id, cache)
+    alternative = None
+    selected_holes = _holes_from_course_label(schedule.course)
+    if (
+        candidates
+        and not playable
+        and selected_holes is not None
+        and recommend.unplayable_reasons(candidates, [schedule], config) == {"daylight"}
+    ):
+        path = db_path if db_path is not None else _db_path(club_id)
+        by_course = {schedule.course: schedule}
+        for course in storage.courses_scraped_on(schedule.date, path=path):
+            holes = _holes_from_course_label(course)
+            if course == schedule.course or holes is None or holes >= selected_holes:
+                continue
+            sibling = storage.load_latest_schedule(course, schedule.date, path=path)
+            if sibling is not None:
+                by_course[course] = sibling
+        if len(by_course) > 1:
+            alternative = recommend.shorter_round_alternative(
+                schedule.date,
+                schedule.course,
+                by_course,
+                config,
+                friend_names=storage.load_friend_names(path=path),
+                known_handicaps=storage.load_known_handicaps(path=path),
+                my_handicap=storage.load_my_handicap(path=path),
+            )
+    if cache is not None:
+        cache[key] = alternative
+    return alternative
+
+
+def _alternative_pick_text(alternative: dict) -> str:
+    """The Pick cell for a shorter-round alternative: "★  16:10 · 9H" (DE
+    "9L"), the whole cell dimmed -- matching the GUI badge's secondary tint
+    (2026-10-05), so neither the ★ nor the time reads as this course's own
+    pick. The course is named in #row-detail (`_alternative_detail_text()`)
+    and the GUI's tooltip. Same two spaces after the ★ as the main pick, so
+    the times stay in one column."""
+    holes = i18n.t("overview.pick_holes", n=alternative["holes"])
+    return f"[dim]★  {alternative['time']} · {holes}[/]"
+
+
+def _alternative_detail_text(
+    schedule: Schedule | None, config: dict, club_id: str, cache: dict | None, pick_cell: str
+) -> str:
+    """The sentence naming a shorter-round alternative's course (2026-10-05) --
+    the GUI badge's tooltip minus its click hint, same i18n key -- or "" when
+    `pick_cell` (`_day_pick_text()`'s own result) isn't that alternative, e.g.
+    a booking or a real pick won. Reuses `_shorter_round_alternative()`'s memo,
+    so it's free once the Pick cell has been rendered."""
+    if schedule is None or not config.get("availability"):
+        return ""
+    alternative = _shorter_round_alternative(schedule, config, club_id, cache)
+    if alternative is None or pick_cell != _alternative_pick_text(alternative):
+        return ""
+    return markup_escape(
+        i18n.t(
+            "overview.pick_alternative",
+            time=alternative["time"],
+            course=alternative["course"],
+            holes=alternative["holes"],
+        )
+    )
+
+
 def _too_late_for_daylight(slot_time: str, schedule: Schedule, config: dict) -> bool:
     """Would a round starting at `slot_time`, at this club's own estimated pace for
     the active course (`recommend._round_duration_minutes()`) plus your configured
@@ -1769,6 +1854,11 @@ def _window_hint_text(hint: dict | None) -> str:
         sunset=hint["sunset"],
         latest=hint["latest_start"],
     )
+    # Where a shorter round still fits (2026-10-05) -- the Pick column's
+    # "★ HH:MM · 9H" cells don't name the course themselves (each row's own
+    # #row-detail does, see _alternative_detail_text()).
+    if hint.get("alternative_courses"):
+        text += " " + i18n.t("overview.hint_alternative", courses=", ".join(hint["alternative_courses"]))
     return f"[yellow]💡[/] {text}"
 
 
@@ -1824,6 +1914,12 @@ def _day_pick_text(
         return text
     reasons = recommend.unplayable_reasons(candidates, [schedule], config)
     if reasons == {"daylight"}:
+        # Too dark for this course's round, but a shorter one on a sibling
+        # course still fits (2026-10-05) -- say that instead. The day still
+        # expands to the selected course; nothing switches on its own.
+        alternative = _shorter_round_alternative(schedule, config, club_id, cache)
+        if alternative is not None:
+            return _alternative_pick_text(alternative)
         message_key = "overview.no_daylight_picks"
     elif reasons == {"weather"}:
         message_key = "overview.no_dry_picks"
@@ -2154,6 +2250,39 @@ class _AutoHideStatic(Static):
     def update(self, renderable: object = "") -> None:
         super().update(renderable)
         self.styles.display = "block" if str(renderable) else "none"
+
+
+class _StatusLine(_AutoHideStatic):
+    """`OverviewScreen`'s `#status`: whatever message a call site last wrote, plus the
+    scrape-health warning (2026-10-05, see scrape_health.py) on a line of its own
+    below it while scraping is unhealthy. Lives here, in the existing status area,
+    rather than a new row -- healthy (the normal case) it adds nothing, and like the
+    rest of `#status` it collapses entirely when both parts are empty.
+
+    `update()` keeps its meaning for every existing call site (it sets the message
+    part only), so none of them can wipe the health line by writing an error."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._message = ""
+        self._health = ""
+        super().__init__(*args, **kwargs)
+
+    def update(self, renderable: object = "") -> None:
+        self._message = str(renderable)
+        self._render_parts()
+
+    def set_health(self, warning: str | None, severity: str | None = None) -> None:
+        """`severity` is scrape_health's STATUS_FAILING / STATUS_LOGIN_REJECTED --
+        error vs warning colour, the same red/amber split as the GUI's freshness dot."""
+        if warning:
+            colour = "$error" if severity == scrape_health.STATUS_FAILING else "$warning"
+            self._health = f"[{colour}]{markup_escape(warning)}[/]"
+        else:
+            self._health = ""
+        self._render_parts()
+
+    def _render_parts(self) -> None:
+        super().update("\n".join(part for part in (self._message, self._health) if part))
 
 
 def _render_banner_lines(changes: list[dict], include_date: bool) -> str:
@@ -2888,7 +3017,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # resize event on the real club, almost entirely genai/httpx I/O).
         # Cleared only by load_overview() -- a genuinely fresh dataset -- never by
         # _rerender_preserving_cursor(), which redraws the exact same schedules.
-        self._pick_cache: dict[tuple[str, str], tuple[list, list]] = {}
+        # Also holds _shorter_round_alternative()'s own entries, under
+        # ("alternative", date, course) keys (2026-10-05).
+        self._pick_cache: dict[tuple, object] = {}
         self._overview_generation = 0
         # Every day-summary row's own cell tuple, keyed by date -- the exact
         # `(day_cell, condition_cell, ..., pick_cell)` _render_table() itself
@@ -2935,7 +3066,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         yield Header()
         yield from self._compose_switcher()
         yield _AutoHideStatic("", id="banners")
-        yield _AutoHideStatic("", id="status")
+        yield _StatusLine("", id="status")
         yield _AutoHideStatic("", id="hint")
         with Container(id="table-container"):
             yield DataTable(id="overview-table", header_height=2)
@@ -2982,6 +3113,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # See _update_sticky_header()'s own docstring for why this polls
         # rather than reacting to a real scroll event.
         self.set_interval(0.1, self._update_sticky_header)
+        self.set_interval(self._HEALTH_POLL_SECONDS, self.refresh_health)
 
     def on_resize(self, event: events.Resize) -> None:
         # events.Resize doesn't bubble (same reasoning as SettingsScreen's own
@@ -3042,6 +3174,28 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._shown_banner_ids = [change["id"] for change in changes]
         self._has_banners = bool(changes)
         self._refresh_footer()
+        self.refresh_health()
+
+    # Re-reads scrape health on its own timer too: the launchd agent records its runs
+    # from another process, which nothing on this screen otherwise notices.
+    _HEALTH_POLL_SECONDS = 60
+
+    def refresh_health(self) -> None:
+        """The scrape-health warning under `#status` (2026-10-05, see
+        scrape_health.py) -- shown only while unhealthy, same text and thresholds as
+        the GUI footer's. One small indexed query; never touches the network."""
+        try:
+            health = storage.scrape_health(self.db_path)
+        except Exception:  # noqa: BLE001 -- a locked/corrupt db must not break the screen
+            health = storage.empty_scrape_health()
+        interval = global_preferences.load_preferences().get(
+            "scrape_interval_minutes", scrape_once.DEFAULT_SCRAPE_INTERVAL_MINUTES
+        )
+        now = datetime.now(UTC)
+        status = scrape_health.health_status(health, interval, now)
+        self.query_one("#status", _StatusLine).set_health(
+            scrape_health.health_warning(health, interval, now), status[0] if status else None
+        )
 
     def _refresh_footer(self) -> None:
         """Only list `x` while it'd actually do something -- a banner showing (2026-09-27, bundle D of the TUI/GUI
@@ -3094,6 +3248,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         expanded from the old club/course would mean anything against the new
         one's dates."""
         self._expanded_dates = set()
+        self.refresh_health()
         await self.load_overview()
 
     @property
@@ -3202,6 +3357,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         async def warm(schedule: Schedule) -> None:
             async with gate:
                 await asyncio.to_thread(_availability_pipeline, schedule, config, self.club_id, cache)
+                # The shorter-round alternative too (2026-10-05): a few local SQLite
+                # reads, only on a day ruled out by daylight -- off the event loop.
+                await asyncio.to_thread(_shorter_round_alternative, schedule, config, self.club_id, cache)
 
         pending = []
         for one_date in dates:
@@ -3305,6 +3463,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         schedules: list[Schedule] = []
         pending_rows: list[tuple[str, str, str, str, str, str, str, str]] = []
+        # {pending_rows index: sentence} for day rows whose Pick is a shorter-round
+        # alternative -- the cell itself can't name the course, so #row-detail
+        # does whenever that row is highlighted, like the GUI's tooltip on hover
+        # (2026-10-05).
+        alternative_details: dict[int, str] = {}
         # Memo for _availability_pipeline() -- self._pick_cache (see its own
         # docstring in __init__), not a fresh dict per call: a resize/expand/
         # collapse calls this method again for the exact same schedules, and
@@ -3389,6 +3552,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 (day_cell, condition_cell, temperature_cell, precipitation_cell, wind_cell, heat_cell, event_cell, pick_cell)
             )
             self._row_header_cells[one_date] = pending_rows[-1]
+            alternative_detail = _alternative_detail_text(schedule, config, self.club_id, pipeline_cache, pick_cell)
+            if alternative_detail:
+                alternative_details[len(pending_rows) - 1] = alternative_detail
 
             if can_expand and one_date in self._expanded_dates:
                 if friend_names is None:
@@ -3504,8 +3670,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # instead (see _show_row_detail()), kept only for rows that actually
         # lost something to the "…".
         self._row_full_text = []
-        for row, full_row in zip(pending_rows, full_rows, strict=True):
+        for index, (row, full_row) in enumerate(zip(pending_rows, full_rows, strict=True)):
             cells = [_one_line(cell, width) for cell, width in zip(row, column_widths, strict=True)]
+            if index in alternative_details:
+                # The sentence stands in for the Pick cell here: it never fits the
+                # column, so _row_lost_text() always keeps it (plus any lost Events).
+                pick = self._PICK_COLUMN_INDEX
+                full_row = (*full_row[:pick], alternative_details[index], *full_row[pick + 1 :])
             self._row_full_text.append(self._row_lost_text(full_row, column_widths))
             table.add_row(*cells, height=1)
         self._refresh_footer()
@@ -3726,7 +3897,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 exclusive=True,
                 group="ai-picks",
             )
-        self.query_one("#hint", _AutoHideStatic).update(_window_hint_text(recommend.window_too_late_hint(schedules, config)))
+        alternatives = {
+            schedule.date: _shorter_round_alternative(schedule, config, self.club_id, self._pick_cache)
+            for schedule in schedules
+        }
+        self.query_one("#hint", _AutoHideStatic).update(
+            _window_hint_text(recommend.window_too_late_hint(schedules, config, alternatives))
+        )
         table = self.query_one("#overview-table", DataTable)
 
         if keep_cursor:
@@ -5495,7 +5672,7 @@ class TeetimeApp(App[None]):
                 # background scrape geocode+cache its own location too, not just a
                 # favorited one's.
                 config = {**_resolved_config(club_slug, club_id, club_name), "club_id": club_id}
-                scrape_once.scrape_due_for_club(club_slug, config, force=force)
+                scrape_once.scrape_due_for_club(club_slug, config, force=force, source="tui")
             except Exception as exc:  # noqa: BLE001 -- offline/5xx must not take the app down
                 # A thread worker's uncaught exception exits the whole TUI
                 # (Textual's exit_on_error) -- e.g. a raw httpx.ConnectError from

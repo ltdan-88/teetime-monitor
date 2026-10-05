@@ -22,5 +22,6 @@ runPlayerDirectoryTests()
 runPlayerDirectoryReviewFixTests()
 runOverviewModelTests()
 runClubDefaultsTests()
+runScrapeHealthTests()
 
 Harness.summarizeAndExit()

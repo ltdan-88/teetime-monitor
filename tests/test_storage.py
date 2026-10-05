@@ -1,5 +1,9 @@
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
+import pytest
+
+from src import storage
 from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
@@ -983,3 +987,231 @@ def test_storage_calls_close_their_connections(tmp_path):
         load_latest_schedule("c", "2026-09-06", path=db)
         gc.collect()
     assert not [w for w in caught if issubclass(w.category, ResourceWarning)]
+
+
+# --- scrape_runs / scrape_health() (2026-10-05) -- see storage.py's module docstring:
+# a 20-hour silent login failure nobody noticed ------------------------------------
+
+_T0 = datetime(2026, 10, 3, 16, 45, tzinfo=UTC)
+
+
+def _run(path, minutes, *, saved=1, attempted=None, failed=0, authenticated=None, error_kind=None,
+         error_message=None, source="agent"):
+    """One run `minutes` after _T0 (a pass of about a minute)."""
+    started = _T0 + timedelta(minutes=minutes)
+    storage.record_scrape_run(
+        started_at=started.isoformat(),
+        finished_at=(started + timedelta(minutes=1)).isoformat(),
+        source=source,
+        attempted=saved + failed if attempted is None else attempted,
+        saved=saved,
+        failed=failed,
+        authenticated=authenticated,
+        error_kind=error_kind,
+        error_message=error_message,
+        path=path,
+    )
+
+
+def _iso(minutes, finished=False):
+    return (_T0 + timedelta(minutes=minutes + (1 if finished else 0))).isoformat()
+
+
+def test_init_db_creates_scrape_runs_and_its_index(tmp_path):
+    path = tmp_path / "club.db"
+    init_db(path)
+    with sqlite3.connect(path) as conn:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(scrape_runs)")]
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(scrape_runs)")}
+    assert columns == ["id", "started_at", "finished_at", "source", "attempted", "saved", "failed",
+                       "authenticated", "error_kind", "error_message"]
+    assert "idx_scrape_runs_started" in indexes
+
+
+def test_init_db_adds_scrape_runs_to_a_database_that_predates_it(tmp_path):
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE scrapes (id INTEGER PRIMARY KEY, course TEXT, date TEXT, scraped_at TEXT)")
+    assert storage.scrape_health(path) == storage.empty_scrape_health()
+    _run(path, 0)
+    assert storage.scrape_health(path)["last_run_at"] == _iso(0, finished=True)
+
+
+def test_record_scrape_run_stores_every_field(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=3, failed=1, authenticated=False, error_kind="login_rejected",
+         error_message="  Login failed for club 0000001  ", source="tui")
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT started_at, finished_at, source, attempted, saved, failed, authenticated, error_kind, "
+            "error_message FROM scrape_runs"
+        ).fetchone()
+    assert row == (_iso(0), _iso(0, finished=True), "tui", 4, 3, 1, 0, "login_rejected",
+                   "Login failed for club 0000001")
+
+
+def test_record_scrape_run_keeps_null_for_no_credentials(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, authenticated=None)
+    _run(path, 1, authenticated=True)
+    with sqlite3.connect(path) as conn:
+        assert [r[0] for r in conn.execute("SELECT authenticated FROM scrape_runs ORDER BY id")] == [None, 1]
+
+
+def test_record_scrape_run_truncates_a_long_error_message(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=0, failed=1, error_kind="other", error_message="x" * 5000)
+    with sqlite3.connect(path) as conn:
+        (message,) = conn.execute("SELECT error_message FROM scrape_runs").fetchone()
+    assert len(message) == storage.SCRAPE_ERROR_MESSAGE_MAX_CHARS
+
+
+@pytest.mark.parametrize("field, value", [("source", "cron"), ("error_kind", "timeout")])
+def test_record_scrape_run_rejects_unknown_values(tmp_path, field, value):
+    kwargs = {"started_at": _iso(0), "finished_at": _iso(1), "source": "agent", "attempted": 0, "saved": 0,
+              "failed": 0, "authenticated": None, "path": tmp_path / "club.db"}
+    kwargs[field] = value
+    with pytest.raises(ValueError):
+        storage.record_scrape_run(**kwargs)
+
+
+def test_record_scrape_run_prunes_rows_older_than_the_retention_window(tmp_path):
+    path = tmp_path / "club.db"
+    now = datetime.now(UTC)
+    for days_old in (45, 31, 29, 1):
+        started = now - timedelta(days=days_old)
+        storage.record_scrape_run(started_at=started.isoformat(), finished_at=started.isoformat(), source="agent",
+                                  attempted=0, saved=0, failed=0, authenticated=None, path=path)
+    with sqlite3.connect(path) as conn:
+        kept = [row[0] for row in conn.execute("SELECT started_at FROM scrape_runs ORDER BY started_at")]
+    assert kept == [(now - timedelta(days=d)).isoformat() for d in (29, 1)]
+
+
+def test_scrape_health_is_empty_for_a_missing_database(tmp_path):
+    path = tmp_path / "never-scraped.db"
+    assert storage.scrape_health(path) == storage.empty_scrape_health()
+    assert not path.exists()  # a read must not create the club's database
+
+
+def test_scrape_health_for_a_healthy_history(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6)
+    _run(path, 15, saved=0, attempted=0)  # nothing due -- still a success
+    health = storage.scrape_health(path)
+    assert health == {
+        "last_run_at": _iso(15, finished=True),
+        "last_success_at": _iso(15, finished=True),
+        "last_error_kind": None,
+        "last_error_message": None,
+        "consecutive_failed_runs": 0,
+        "failing_since": None,
+        "login_rejected_since": None,
+    }
+
+
+def test_scrape_health_counts_the_current_failure_streak(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6)
+    _run(path, 15, saved=0, failed=1, error_kind="network", error_message="offline")
+    _run(path, 30, saved=6)  # recovered: the streak before this doesn't count
+    _run(path, 45, saved=0, attempted=0, error_kind="no_tee_sheet", error_message="no table")
+    _run(path, 60, saved=0, attempted=0, error_kind="no_tee_sheet", error_message="no table")
+    _run(path, 75, saved=0, failed=2, error_kind="network", error_message="timed out")
+    health = storage.scrape_health(path)
+    assert health["consecutive_failed_runs"] == 3
+    assert health["failing_since"] == _iso(45)
+    assert health["last_success_at"] == _iso(30, finished=True)
+    assert health["last_error_kind"] == "network"
+    assert health["last_error_message"] == "timed out"
+
+
+def test_scrape_health_with_no_success_ever(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=0, attempted=0, error_kind="no_tee_sheet")
+    _run(path, 15, saved=0, attempted=0, error_kind="no_tee_sheet")
+    health = storage.scrape_health(path)
+    assert health["last_success_at"] is None
+    assert health["consecutive_failed_runs"] == 2
+    assert health["failing_since"] == _iso(0)
+
+
+def test_a_login_rejected_run_that_still_saved_anonymously_is_a_success(tmp_path):
+    # The real 2026-10-03 incident: data kept arriving, only the names were missing.
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=True)
+    _run(path, 15, saved=6, authenticated=False, error_kind="login_rejected")
+    _run(path, 30, saved=0, attempted=0, authenticated=False, error_kind="login_rejected")
+    health = storage.scrape_health(path)
+    # Nothing was due and only the login failed: the agent is alive, so still a success
+    # (2026-10-05, review -- see scrape_run_succeeded()).
+    assert health["consecutive_failed_runs"] == 0
+    assert health["last_success_at"] == _iso(30, finished=True)
+    assert health["login_rejected_since"] == _iso(15)
+
+
+def test_idle_passes_during_a_login_outage_never_become_a_failure_streak(tmp_path):
+    # The agent runs every 15 min against a 6 h interval: most passes have nothing due.
+    # Before the 2026-10-05 review fix, four of them in a row read as "scrapes failing".
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=False, error_kind="login_rejected")
+    for minutes in (15, 30, 45, 60):
+        _run(path, minutes, saved=0, attempted=0, authenticated=False, error_kind="login_rejected")
+    health = storage.scrape_health(path)
+    assert health["consecutive_failed_runs"] == 0 and health["failing_since"] is None
+    assert health["last_success_at"] == _iso(60, finished=True)
+    assert health["login_rejected_since"] == _iso(0)
+
+
+def test_a_course_list_failure_during_a_login_outage_is_a_failure_and_keeps_the_streak(tmp_path):
+    # scrape_once records it as no_tee_sheet with authenticated=0 (the real cause wins).
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=False, error_kind="login_rejected")
+    _run(path, 15, saved=0, attempted=0, authenticated=False, error_kind="no_tee_sheet")
+    health = storage.scrape_health(path)
+    assert health["consecutive_failed_runs"] == 1
+    assert health["last_error_kind"] == "no_tee_sheet"
+    assert health["login_rejected_since"] == _iso(0)
+
+
+def test_login_rejected_streak_survives_a_run_whose_login_outcome_is_unknown(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=True)
+    _run(path, 15, saved=6, authenticated=False, error_kind="login_rejected")
+    _run(path, 30, saved=0, failed=1, authenticated=False, error_kind="network")  # offline blip
+    _run(path, 45, saved=6, authenticated=False, error_kind="login_rejected")
+    assert storage.scrape_health(path)["login_rejected_since"] == _iso(15)
+
+
+def test_login_rejected_streak_holds_while_the_newest_run_could_not_tell(tmp_path):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=False, error_kind="login_rejected")
+    _run(path, 15, saved=0, failed=1, authenticated=False, error_kind="network")
+    assert storage.scrape_health(path)["login_rejected_since"] == _iso(0)
+
+
+@pytest.mark.parametrize("authenticated", [True, None])
+def test_login_rejected_streak_ends_at_a_good_login_or_removed_credentials(tmp_path, authenticated):
+    path = tmp_path / "club.db"
+    _run(path, 0, saved=6, authenticated=False, error_kind="login_rejected")
+    _run(path, 15, saved=6, authenticated=authenticated)
+    assert storage.scrape_health(path)["login_rejected_since"] is None
+    _run(path, 30, saved=6, authenticated=False, error_kind="login_rejected")
+    assert storage.scrape_health(path)["login_rejected_since"] == _iso(30)
+
+
+def test_backup_db_writes_a_consistent_copy(tmp_path):
+    source = tmp_path / "club.db"
+    save_location({"lat": 48.5, "lon": 8.8}, source)
+    target = tmp_path / "backups" / "club-2026-10-05.db"
+    storage.backup_db(source, target)
+    assert load_location(target) == {"lat": 48.5, "lon": 8.8}
+    assert not (tmp_path / "backups" / "club-2026-10-05.db.partial").exists()
+
+
+def test_courses_scraped_on_lists_every_course_with_a_scrape_for_that_date(tmp_path):
+    db = tmp_path / "club.db"
+    for course, day in (("9 Loch Tee 1", "2026-10-05"), ("18 Loch Tee 1", "2026-10-05"),
+                        ("18 Loch Tee 1", "2026-10-05"), ("6 Loch Platz", "2026-10-06")):
+        storage.save_schedule(Schedule(date=day, course=course, slots=[]), path=db)
+    assert storage.courses_scraped_on("2026-10-05", path=db) == ["18 Loch Tee 1", "9 Loch Tee 1"]
+    assert storage.courses_scraped_on("2026-10-07", path=db) == []
