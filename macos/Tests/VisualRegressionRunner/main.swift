@@ -54,6 +54,8 @@ enum VisualRegression {
         prepareDeterministicEnvironment()
         var allPassed = true
         for testCase in allCases {
+            AppLanguage.shared.code = testCase.language
+            defer { AppLanguage.shared.code = "en" }
             guard let pngData = renderPNG(testCase.view(), size: testCase.size) else {
                 print("✗ \(testCase.name): ImageRenderer produced no image")
                 allPassed = false

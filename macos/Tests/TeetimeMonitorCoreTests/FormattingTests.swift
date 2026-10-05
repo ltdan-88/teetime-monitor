@@ -10,6 +10,8 @@ func runFormattingTests() {
         testISODateIsGregorianAndDSTSafe()
         testDayPrecipitationMatchesTUI()
         testSlotPrecipitationCell()
+        testLockWhenText()
+        testLockSentence()
     }
 }
 
@@ -118,4 +120,66 @@ private func testSlotPrecipitationCell() {
                         slotPrecipitationCellText(point("10:00", nil, 1.2), units: "metric"), "0%/1.2mm")
     Harness.checkEqual("flagged", slotPrecipitationCellText(point("10:00", 50), units: "metric"), "🌧 50%")
     Harness.checkEqual("no point", slotPrecipitationCellText(nil, units: "metric"), "")
+}
+
+private func isoDate(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+
+/// `lockWhenText()` against `tui._lock_when_text()` (the cross-language runner pins the
+/// same cases against the real Python function) -- "today"/weekday/date, hour known or not.
+private func testLockWhenText() {
+    let now = isoDate("2026-10-05T16:28:00Z")  // Mon 18:28 in Berlin (+02:00)
+    AppLanguage.shared.code = "en"
+    defer { AppLanguage.shared.code = "en" }
+    Harness.checkEqual("later today", lockWhenText(opensAt: "2026-10-05T20:00:00+02:00", hourKnown: true, now: now),
+                       "today 20:00")
+    Harness.checkEqual("a weekday", lockWhenText(opensAt: "2026-10-07T21:00:00+02:00", hourKnown: true, now: now),
+                       "Wed 21:00")
+    Harness.checkEqual("tomorrow is still a weekday", lockWhenText(opensAt: "2026-10-06T20:00:00+02:00", hourKnown: true, now: now),
+                       "Tue 20:00")
+    Harness.checkEqual("six days out is a weekday", lockWhenText(opensAt: "2026-10-11T08:00:00+02:00", hourKnown: true, now: now),
+                       "Sun 08:00")
+    Harness.checkEqual("seven days out is a date", lockWhenText(opensAt: "2026-10-12T08:00:00+02:00", hourKnown: true, now: now),
+                       "Oct 12 08:00")
+    Harness.checkEqual("no hour: the day only", lockWhenText(opensAt: "2026-10-07T00:00:00+02:00", hourKnown: false, now: now),
+                       "Wed")
+    // The opening's own calendar decides "today", not the machine's: 23:30 UTC is already
+    // Tuesday in Berlin (+02:00), so 2026-10-06 20:00 is today there.
+    Harness.checkEqual("today is the club's calendar day",
+                       lockWhenText(opensAt: "2026-10-06T20:00:00+02:00", hourKnown: true, now: isoDate("2026-10-05T23:30:00Z")),
+                       "today 20:00")
+    Harness.checkEqual("a Z offset parses", lockWhenText(opensAt: "2026-10-05T20:00:00Z", hourKnown: true, now: now),
+                       "today 20:00")
+    Harness.checkEqual("a negative offset parses", lockWhenText(opensAt: "2026-10-05T20:00:00-05:00", hourKnown: true, now: now),
+                       "today 20:00")
+    Harness.check("garbage is nil", lockWhenText(opensAt: "soon", hourKnown: true, now: now) == nil)
+    Harness.check("a bad offset is nil", lockWhenText(opensAt: "2026-10-05T20:00:00+xx", hourKnown: true, now: now) == nil)
+
+    AppLanguage.shared.code = "de"
+    Harness.checkEqual("German today", lockWhenText(opensAt: "2026-10-05T20:00:00+02:00", hourKnown: true, now: now),
+                       "heute 20:00")
+    Harness.checkEqual("German weekday", lockWhenText(opensAt: "2026-10-07T21:00:00+02:00", hourKnown: true, now: now),
+                       "Mi 21:00")
+    Harness.checkEqual("German date, day before month", lockWhenText(opensAt: "2026-10-12T08:00:00+02:00", hourKnown: true, now: now),
+                       "12. Okt 08:00")
+    Harness.checkEqual("German date, March umlaut", lockWhenText(opensAt: "2026-03-09T08:00:00+01:00", hourKnown: false, now: isoDate("2026-03-01T10:00:00Z")),
+                       "9. Mär")
+    Harness.checkEqual("German weekday, Sunday", lockWhenText(opensAt: "2026-10-11T08:00:00+02:00", hourKnown: true, now: now),
+                       "So 08:00")
+}
+
+private func testLockSentence() {
+    let now = isoDate("2026-10-05T16:28:00Z")
+    AppLanguage.shared.code = "en"
+    defer { AppLanguage.shared.code = "en" }
+    Harness.checkEqual("sentence with an hour", lockSentence(opensAt: "2026-10-07T21:00:00+02:00", hourKnown: true, now: now),
+                       "Booking opens Wed 21:00")
+    Harness.checkEqual("sentence without an hour claims no time",
+                       lockSentence(opensAt: "2026-10-07T00:00:00+02:00", hourKnown: false, now: now),
+                       "Booking opens Wed (the club gives no time)")
+    AppLanguage.shared.code = "de"
+    Harness.checkEqual("German sentence", lockSentence(opensAt: "2026-10-07T21:00:00+02:00", hourKnown: true, now: now),
+                       "Buchbar ab Mi 21:00")
+    Harness.checkEqual("German date-level sentence",
+                       lockSentence(opensAt: "2026-10-07T00:00:00+02:00", hourKnown: false, now: now),
+                       "Buchbar ab Mi (Uhrzeit vom Club nicht angegeben)")
 }

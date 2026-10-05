@@ -41,6 +41,13 @@ calendar:
 # How many days ahead the multi-day overview (Phase 4) pulls, including today.
 overview_days: 5
 
+# The club's own timezone (an IANA name), optional -- Europe/Berlin when left out, which
+# is right for the German/Austrian/Swiss clubs on pc caddie. Only used to work out when a
+# not-yet-bookable day opens: a notice like "4 Tage im Voraus ab 20 Uhr buchbar" means
+# 20:00 *club time*, four days before, whatever zone your own machine is in. See
+# booking_window.py.
+# timezone: Europe/Berlin
+
 # Estimated round duration, used to work out whether a tee time finishes before
 # sunset (Phase 2 playability highlight) and how long weather is checked across
 # (Phase 2's own round-length window). Also used to live here per club -- moved

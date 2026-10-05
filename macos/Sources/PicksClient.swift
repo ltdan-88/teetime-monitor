@@ -37,6 +37,16 @@ struct ShorterRound: Equatable {
     let holes: Int
 }
 
+/// A day that isn't bookable yet (2026-10-05) -- `picks_cli.py`'s optional per-date
+/// `"locked"`, decided by `booking_window.day_booking_status()` and only worded here
+/// (`lockWhenText()`), never re-derived. `opensAt` stays the ISO 8601 string with the
+/// club's UTC offset; `hourKnown` false means the club names no hour (date-level
+/// wording, no time).
+struct LockedDay: Equatable {
+    let opensAt: String
+    let hourKnown: Bool
+}
+
 /// `recommend.window_too_late_hint()`'s own numbers -- your window opens after
 /// the latest start that still finishes before dark, on several days running.
 /// `alternativeCourses`: where a shorter round still fits on those days.
@@ -52,6 +62,7 @@ struct PicksResult {
     var picks: [String: DayPick] = [:]
     var verdicts: [String: DayVerdict] = [:]
     var alternatives: [String: ShorterRound] = [:]
+    var locked: [String: LockedDay] = [:]
     var hint: WindowHint?
 }
 
@@ -131,6 +142,9 @@ enum PicksClient {
                let course = alternative["course"] as? String, let time = alternative["time"] as? String,
                let holes = alternative["holes"] as? Int {
                 result.alternatives[date] = ShorterRound(course: course, time: time, holes: holes)
+            }
+            if let locked = row["locked"] as? [String: Any], let opensAt = locked["opens_at"] as? String {
+                result.locked[date] = LockedDay(opensAt: opensAt, hourKnown: locked["hour_known"] as? Bool ?? false)
             }
             if let time = row["time"] as? String {
                 result.picks[date] = DayPick(

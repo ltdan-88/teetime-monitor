@@ -8,6 +8,8 @@ import SwiftUI
 struct VisualRegressionCase {
     let name: String
     let size: CGSize
+    /// The interface language the case renders in (set around the render, then back).
+    var language = "en"
     let view: () -> AnyView
 }
 
@@ -86,11 +88,14 @@ private let multiPlayers: [KnownPlayer] = [
                 isFriend: false, gender: "unknown", memberStatus: "member", handicap: 5.0),
 ]
 
-/// Four days, one per thing the pick badge slot can hold: a booking, the ★ pick, a
-/// shorter round on another course (2026-10-05) and the too-dark moon -- the
-/// fixture that catches the alternative's wider "★ 16:10 · 9H" pushing the
-/// HeatStrip (or anything left of it) out of its column.
-private let badgeDayFixtures: [Day] = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"].map { date in
+/// Seven days, one per thing the pick badge slot can hold: a booking, the ★ pick, a
+/// shorter round on another course (2026-10-05), the too-dark moon, and three locks
+/// (2026-10-05: "today 20:00", a weekday with a time, a date-level one) -- the
+/// fixture that catches a wider badge pushing the HeatStrip (or anything left of it)
+/// out of its column.
+private let badgeDayFixtures: [Day] = [
+    "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11",
+].map { date in
     Day(date: date, slots: [], weather: dayWeather(low: 6, high: 15, code: 3, rainPercent: 10, windKPH: 12),
         sunrise: "07:30", sunset: "18:50", events: [], bookedTime: date == "2026-10-05" ? "10:20" : nil)
 }
@@ -100,6 +105,12 @@ private func badgeModel() -> OverviewModel {
     model.picks = ["2026-10-06": DayPick(time: "16:00", score: 0, reasons: [])]
     model.alternatives = ["2026-10-07": ShorterRound(course: "9 Loch Tee 1", time: "16:10", holes: 9)]
     model.verdicts = ["2026-10-08": DayVerdict(windowAfter: "16:00", windowBefore: nil, unplayable: ["daylight"])]
+    model.locked = [
+        "2026-10-09": LockedDay(opensAt: "2026-10-05T20:00:00+02:00", hourKnown: true),
+        "2026-10-10": LockedDay(opensAt: "2026-10-06T21:00:00+02:00", hourKnown: true),
+        "2026-10-11": LockedDay(opensAt: "2026-10-07T00:00:00+02:00", hourKnown: false),
+    ]
+    model.now = { footerNow }
     return model
 }
 
@@ -158,7 +169,19 @@ let allCases: [VisualRegressionCase] = [
             .padding(8)
         )
     },
-    VisualRegressionCase(name: "day-card-header-badges", size: CGSize(width: 760, height: 220)) {
+    VisualRegressionCase(name: "day-card-header-badges", size: CGSize(width: 760, height: 400)) {
+        let model = badgeModel()
+        return AnyView(
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(badgeDayFixtures) { day in
+                    DayCardHeader(day: day, model: model)
+                }
+            }
+            .padding(8)
+        )
+    },
+    // The same seven days in German: "heute 20:00" is the widest value either language has.
+    VisualRegressionCase(name: "day-card-header-badges-de", size: CGSize(width: 760, height: 400), language: "de") {
         let model = badgeModel()
         return AnyView(
             VStack(alignment: .leading, spacing: 6) {

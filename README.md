@@ -43,6 +43,10 @@ something about it changes.
    one at the club still fits, the cell suggests that instead — e.g. "★ 16:10 · 9H"
    (the TUI names the course under the table when you highlight the day; in the
    GUI, hover it for the course or click it to switch to that course).
+   A day that isn't open for booking yet shows 🔒 and when it opens — e.g.
+   "🔒 Wed 21:00" for a club that releases tee times 3 days ahead at 21:00 (club time;
+   a club that names no hour just shows the day). The background scraper looks at
+   such a day again right after it opens.
 3. **Press enter on a day** to open its actual tee times in place, and enter again
    on one to mark it as yours once you've booked it on pc caddie.
 4. **Forget about it.** It keeps scraping in the background. If someone joins your
@@ -225,7 +229,7 @@ directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course
+    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course, timezone (optional)
     .env                    # PCC_USER / PCC_PASS / an AI provider key (Settings → AI provider)
     preferences.yaml        # availability, weather, AI, pace, interval
     config                  # THEME=, LANG=

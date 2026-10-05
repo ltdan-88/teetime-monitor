@@ -61,6 +61,12 @@ module's own "Auto-refresh" docstring note. Between the two, history keeps
 accumulating whether or not the TUI is ever opened on a given day, closing out the
 "history can't be backfilled" risk this project has flagged since Phase 1 was first
 scoped.
+
+**Booking windows (2026-10-05)**: a day whose latest scrape was entirely "N Tage im Voraus
+ab 20 Uhr buchbar" notices (booking_window.py) is due as soon as that opening time has
+passed since the scrape -- so the 15-minute agent picks a newly opened day up within one
+pass instead of waiting out `scrape_interval_minutes` -- provided the scrape is at least
+`MIN_SCRAPE_AGE_AFTER_OPENING_MINUTES` old, so a day that stays "locked" can't loop.
 """
 
 import argparse
@@ -75,7 +81,7 @@ from pathlib import Path
 
 import httpx
 
-from . import booking_watch, club_config, global_preferences, paths, storage
+from . import booking_watch, booking_window, club_config, global_preferences, paths, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking, SunTimes, WeatherPoint
 from .recommend import _round_duration_minutes
@@ -101,6 +107,9 @@ MAX_OVERVIEW_DAYS = 14
 # scrape_interval_minutes / scrape_interval_minutes_booked in its YAML.
 DEFAULT_SCRAPE_INTERVAL_MINUTES = 360  # 6 hours
 DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED = 60  # 1 hour, once a booking exists for the date
+# A locked day (see booking_window.py) is re-scraped once its opening time passes, but never
+# when its latest scrape is younger than this -- see _should_scrape().
+MIN_SCRAPE_AGE_AFTER_OPENING_MINUTES = 10
 
 # How long scrape_due_for_club() waits for another process's pass on the same club
 # (launchd, the TUI's timer, the GUI's --force) to finish before giving up on its own --
@@ -604,8 +613,38 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
         DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED if is_booked else DEFAULT_SCRAPE_INTERVAL_MINUTES,
     )
 
-    elapsed_minutes = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds() / 60
-    return elapsed_minutes >= interval_minutes
+    now = _utcnow()
+    last_at = datetime.fromisoformat(last)
+    elapsed_minutes = (now - last_at).total_seconds() / 60
+    if elapsed_minutes >= interval_minutes:
+        return True
+    # A day that has opened for booking since its last scrape is due right away, not
+    # after the rest of a 6-hour interval (2026-10-05): its latest scrape was a sheet
+    # of "4 Tage im Voraus ab 20 Uhr buchbar" notices, and the 20:00 that notice names
+    # has passed. Throttled twice over, so it can neither re-scrape every pass nor
+    # loop on a day that stays "locked" after its opening time (a notice misread, a
+    # club whose sheet lags): it needs the opening to fall *after* that scrape, and
+    # the scrape itself to be at least MIN_SCRAPE_AGE_AFTER_OPENING_MINUTES old.
+    if elapsed_minutes < MIN_SCRAPE_AGE_AFTER_OPENING_MINUTES:
+        return False
+    return _opened_since(course, date, last_at, now, config, db_path)
+
+
+def _opened_since(
+    course: str, date: str, last_at: datetime, now: datetime, config: dict, db_path: Path
+) -> bool:
+    """Whether the latest scrape of this course/date was a locked day (see
+    `booking_window.booking_opening()`) whose opening time lies between that scrape
+    and `now`."""
+    schedule = storage.load_latest_schedule(course, date, path=db_path)
+    if schedule is None:
+        return False
+    opening = booking_window.booking_opening(schedule.slots, date, booking_window.club_timezone(config))
+    return opening is not None and last_at < opening[0] <= now
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 def _try_lock(handle) -> bool:

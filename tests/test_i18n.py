@@ -268,3 +268,41 @@ def test_shorter_round_strings_match_the_gui_word_for_word():
         swift_strings = dict(entry.findall(table))
         for key in keys:
             assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
+
+
+# --- booking-window lock strings (2026-10-05) ---------------------------------------------
+
+LOCK_KEYS = (
+    "lock.today",
+    "lock.opens_at",
+    "lock.opens_at_date",
+    "legend.locked",
+    "lock.date",
+    *(f"lock.month.{month}" for month in range(1, 13)),
+)
+
+
+def test_lock_strings_exist_in_both_languages_with_matching_placeholders():
+    for key in LOCK_KEYS:
+        en, de = i18n._STRINGS["en"][key], i18n._STRINGS["de"][key]
+        assert en and de
+        assert set(re.findall(r"{(\w+)}", en)) == set(re.findall(r"{(\w+)}", de)), key
+    for key in ("lock.opens_at", "lock.opens_at_date"):
+        assert "{when}" in i18n._STRINGS["en"][key] and "{when}" in i18n._STRINGS["de"][key]
+
+
+def test_lock_sentences_render_in_both_languages():
+    i18n.set_language("en")
+    assert i18n.t("lock.opens_at", when="Wed 21:00") == "Booking opens Wed 21:00"
+    assert i18n.t("lock.opens_at_date", when="Tue") == "Booking opens Tue (the club gives no time)"
+    i18n.set_language("de")
+    assert i18n.t("lock.opens_at", when="Mi 21:00") == "Buchbar ab Mi 21:00"
+    assert i18n.t("lock.today") == "heute"
+
+
+def test_lock_date_wording_is_natural_in_each_language():
+    month = i18n.t("lock.month.10")
+    assert i18n.t("lock.date", month=month, day=14) == "Oct 14"
+    i18n.set_language("de")
+    assert i18n.t("lock.date", month=i18n.t("lock.month.10"), day=14) == "14. Okt"
+    assert i18n.t("lock.month.3") == "Mär"

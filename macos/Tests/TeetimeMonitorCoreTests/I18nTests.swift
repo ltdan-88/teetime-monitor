@@ -7,6 +7,7 @@ func runI18nTests() {
         testLookupAndInterpolation()
         testFallbackChain()
         testRenderBookingChange()
+        testLockStringsExistInBothLanguages()
         testLanguageResolutionOrder()
     }
 }
@@ -126,4 +127,19 @@ private func testLanguageResolutionOrder() {
                        resolve(["LANG": "en_US.UTF-8"], nil, ["de-DE"]), "en")
     Harness.checkEqual("a saved full locale isn't a code (Python rejects it too)",
                         resolve(["LANG": "en_US.UTF-8"], "de_DE"), "en")
+}
+
+/// The lock strings (2026-10-05) are shared with `src/i18n.py` (whose `lock.*`/`weekday.*` the
+/// cross-check compares text-for-text); here, that both languages carry every one, with
+/// `{when}` where the sentences need it, and all seven weekdays.
+private func testLockStringsExistInBothLanguages() {
+    for language in ["en", "de"] {
+        let table = I18n.strings[language] ?? [:]
+        let keys = ["lock.today", "lock.opens_at", "lock.opens_at_date", "legend.locked"]
+            + (0..<7).map { "weekday.\($0)" }
+        let missing = keys.filter { (table[$0] ?? "").isEmpty }
+        Harness.checkEqual("lock/weekday strings present (\(language))", missing, [])
+        Harness.check("sentences take {when} (\(language))",
+                      (table["lock.opens_at"] ?? "").contains("{when}") && (table["lock.opens_at_date"] ?? "").contains("{when}"))
+    }
 }

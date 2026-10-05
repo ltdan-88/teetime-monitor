@@ -47,6 +47,20 @@ call):
 
 `"_hint"` then also lists those courses as `"alternative_courses"`.
 
+`"locked"` (2026-10-05 -- optional, absent, never null, unless the day is not
+bookable yet; older GUI builds ignore it): every slot of that day's latest scrape
+carries an advance-booking notice ("4 Tage im Voraus ab 20 Uhr buchbar", see
+`booking_window.py`) and its opening time is still ahead. `opens_at` is ISO 8601 with
+the club's UTC offset; `hour_known` false means the club names no hour (opens_at is then
+00:00 of the opening day and the UI shows the date only). The day then carries no pick:
+no pipeline runs for it, and it is not an `alternative` either, even without any
+`availability` rules (then `"window"` is null). `window`/`time` stay as above:
+
+    {"2026-10-09": {"time": null, "window": null,
+                    "locked": {"opens_at": "2026-10-05T20:00:00+02:00", "hour_known": true}}}
+
+The club's timezone is its YAML's optional `timezone:` (default Europe/Berlin).
+
 Exit code 0 whenever the script actually ran, even if every date came back
 `null` (that's a normal, valid result, not an error) -- exit code 1 only when
 `--db-path` or `--course` is missing. A `--club-slug` with no clubs/<slug>.yaml
@@ -60,11 +74,13 @@ the same rules `_availability_pipeline()` itself checks against.
 
 import json
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from . import recommend, storage
+from . import booking_window, recommend, storage
 from . import tui as tui_module
+
+_NOW = lambda: datetime.now(UTC)  # noqa: E731 — patched in tests, like tui._NOW_UTC
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -100,13 +116,27 @@ def main(argv: list[str] | None = None) -> None:
     # One memo for the whole run, so _shorter_round_alternative() reuses the
     # pipeline result computed just above it instead of ranking the day twice.
     cache: dict = {}
+    tz = booking_window.club_timezone(config)
+    now = _NOW()
     for offset in range(days):
         one_date = (start + timedelta(days=offset)).isoformat()
-        if not has_availability:
-            picks[one_date] = None
-            continue
         schedule = storage.load_latest_schedule(course, one_date, path=Path(db_path))
         if schedule is None:
+            picks[one_date] = None
+            continue
+        # A day that isn't bookable yet has no pick to make -- say when it opens instead
+        # (2026-10-05), the TUI's "🔒 Wed 21:00". Decided before the availability check:
+        # it's worth knowing with no rules configured too.
+        status = booking_window.day_booking_status(schedule.slots, one_date, now, tz)
+        if status["locked"]:
+            window = recommend.window_for_date(one_date, config)
+            picks[one_date] = {
+                "time": None,
+                "window": {"after": window.after, "before": window.before} if window is not None else None,
+                "locked": {"opens_at": status["opens_at"].isoformat(), "hour_known": status["hour_known"]},
+            }
+            continue
+        if not has_availability:
             picks[one_date] = None
             continue
         schedules.append(schedule)

@@ -8,6 +8,7 @@ func runPicksClientTests() {
         testParsesTheShorterRoundAlternative()
         testWindowHintTextNamesTheShorterRoundCourse()
         testVisibleSlotsRunSunriseRowToSunsetRow()
+        testParsesTheLockedDay()
     }
 }
 
@@ -95,4 +96,28 @@ private func testWindowHintTextNamesTheShorterRoundCourse() {
     Harness.check("German holes suffix is L", t("overview.pick_holes", ["n": "9"]) == "9L")
     AppLanguage.shared.code = "en"
     Harness.check("English holes suffix is H", t("overview.pick_holes", ["n": "9"]) == "9H")
+}
+
+/// `picks_cli.py`'s optional per-date `"locked"` (2026-10-05): decoded as-is -- the opening
+/// time stays the ISO string Python wrote, worded later by `lockWhenText()`.
+private func testParsesTheLockedDay() {
+    let result = PicksClient.parse([
+        "2026-10-09": ["time": NSNull(), "window": NSNull(),
+                       "locked": ["opens_at": "2026-10-05T20:00:00+02:00", "hour_known": true]],
+        "2026-10-08": ["time": NSNull(), "window": NSNull(),
+                       "locked": ["opens_at": "2026-10-07T00:00:00+02:00", "hour_known": false]],
+        "2026-10-10": ["time": "09:10", "window": NSNull()],
+        "2026-10-11": ["time": NSNull(), "window": NSNull(), "locked": ["hour_known": true]],
+        "2026-10-12": NSNull(),
+    ])
+    Harness.checkEqual("a locked day decodes", result.locked["2026-10-09"],
+                       LockedDay(opensAt: "2026-10-05T20:00:00+02:00", hourKnown: true))
+    Harness.checkEqual("hour_known false decodes", result.locked["2026-10-08"],
+                       LockedDay(opensAt: "2026-10-07T00:00:00+02:00", hourKnown: false))
+    Harness.check("an open day has no lock", result.locked["2026-10-10"] == nil)
+    Harness.check("a lock without opens_at is ignored, not guessed", result.locked["2026-10-11"] == nil)
+    Harness.check("a null day has no lock", result.locked["2026-10-12"] == nil)
+    Harness.check("a locked day carries no pick", result.picks["2026-10-09"] == nil)
+    Harness.check("an old picks_cli without the key decodes with no locks",
+                  PicksClient.parse(["2026-10-10": ["time": "09:10"]]).locked.isEmpty)
 }
