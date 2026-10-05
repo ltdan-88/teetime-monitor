@@ -5671,6 +5671,7 @@ which only ever matches a leading digit and so handles both naming styles.
   actually wired to real data. See the dated entry below.
 
 ## Out of scope (all phases)
-Booking/auto-booking, notifications, packaging/distribution, mobile support (pc
-caddie's own app already covers that). Multi-club support was on this list originally;
-reversed 2026-09-05 — see Phase 0.
+Booking/auto-booking, notifications, mobile support (pc caddie's own app already
+covers that). Multi-club support was on this list originally; reversed 2026-09-05 —
+see Phase 0. ~~Packaging/distribution~~ was too; reversed 2026-09-09 with the Homebrew
+formula (and later `uv tool install` on Windows) — see "Distribution".

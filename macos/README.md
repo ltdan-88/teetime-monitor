@@ -4,9 +4,11 @@ A native SwiftUI companion to the terminal app, reaching the same real backend �
 same scrape history, same config, same console scripts — through a second,
 graphical front end. `brew install`/`upgrade` on macOS builds it straight into
 the Cellar alongside the TUI (see the root
-[`README.md`](../README.md#a-macos-companion-app-macos-only)), and as of
-v0.40.0 it has full feature parity with the terminal app: nothing left on
-either side that the other can't do.
+[`README.md`](../README.md#a-macos-companion-app-macos-only)), and since
+v0.40.0 it covers what the terminal app does, with two known differences: the
+heatmap's per-weekday readiness screen (`s` in the TUI heatmap) is TUI-only, and
+a club's default course can only be set here (Settings → Clubs) — the TUI reads
+`default_course:` from the club's YAML but has no field for it.
 
 Not a rewrite, and moved out of `prototypes/` (2026-09-25) once it stopped
 being one in every sense that mattered — see "Promoted out of `prototypes/`"
@@ -19,7 +21,8 @@ is still a sketch.
 
 ## What it does
 
-Shows the multi-day overview — one card per bookable day, with the noon forecast, the
+Shows the multi-day overview — one card per bookable day, with the day's 08:00–20:00
+weather summary (worst condition, high/low, average rain chance, peak wind), the
 six-bucket occupancy heat strip, day events, and your confirmed booking. Click a day to
 expand its tee times in place: seat pips, free count, per-slot weather, your own slot
 flagged, and post-sunset slots dimmed.
@@ -66,10 +69,13 @@ the same way. That shared convention is what makes the GUI possible at all: an a
 launched from Finder gets `cwd = "/"`, so nothing working-directory-relative could
 ever be found.
 
-Point it at a copy instead with `--db`:
+To point it at a copy instead, put the copy in its own directory (keeping the
+`<club_id>.db` name) and launch with `TEETIME_MONITOR_DATA_DIR` set — there is no
+`--db` flag any more (dropped in the club-picker rework, f4ffb12):
 
 ```bash
-./TeetimeMonitor.app/Contents/MacOS/TeetimeMonitor --db /path/to/0497758.db
+mkdir -p /tmp/tm-copy && cp ~/.local/share/teetime-monitor/0497758.db /tmp/tm-copy/
+TEETIME_MONITOR_DATA_DIR=/tmp/tm-copy ./TeetimeMonitor.app/Contents/MacOS/TeetimeMonitor
 ```
 
 ## Tests (2026-09-19)

@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 @testable import TeetimeMonitorCore
 
 // Reads the reference JSON `scripts/cross_language_reference.py` generates from
@@ -33,17 +34,28 @@ var failed = 0
 /// vs a native Swift numeric, `NSNull`/JSON `null` vs Swift's own `nil`, and
 /// array-of-array for the directory search results.
 func jsonEqual(_ actual: Any, _ expected: Any) -> Bool {
-    if expected is NSNull, "\(actual)" == "nil" { return true }
+    if expected is NSNull { return actual is NSNull || "\(actual)" == "nil" }
+    if actual is NSNull { return false }
+    if type(of: actual) == Bool.self { return (expected as? Bool) == (actual as! Bool) }
     if let da = actual as? Double, let de = expected as? Double { return abs(da - de) < 1e-6 }
     if let sa = actual as? String, let se = expected as? String { return sa == se }
-    if let aa = actual as? [[String]], let ea = expected as? [[Any]] {
-        guard aa.count == ea.count else { return false }
-        return zip(aa, ea).allSatisfy { rowA, rowE in (rowE as? [String]) == rowA }
+    if let aa = actual as? [Any], let ea = expected as? [Any] {
+        return aa.count == ea.count && zip(aa, ea).allSatisfy { jsonEqual($0, $1) }
+    }
+    if let ma = actual as? [String: Any], let me = expected as? [String: Any] {
+        return Set(ma.keys) == Set(me.keys) && ma.allSatisfy { key, value in jsonEqual(value, me[key]!) }
     }
     return "\(actual)" == "\(expected)"
 }
 
+/// An optional as its JSON shape: the value itself, or NSNull for nil (a bare
+/// `x ?? NSNull()` keeps the Optional wrapper inside the `Any`).
+func orNull<T>(_ value: T?) -> Any { value.map { $0 as Any } ?? NSNull() }
+
+var ranGroups: Set<String> = []
+
 func runGroup(_ name: String, _ compute: ([String: Any]) -> Any) {
+    ranGroups.insert(name)
     for row in reference[name] ?? [] {
         guard let args = row["args"] as? [String: Any] else { continue }
         checked += 1
@@ -92,6 +104,106 @@ runGroup("family_name") { args in
 }
 runGroup("whole_number") { args in
     wholeNumber(args["value"] as! Double)
+}
+
+runGroup("hours_text") { args in
+    hoursText(args["minutes"] as! Int, language: args["language"] as! String)
+}
+runGroup("holes_from_label") { args in
+    orNull(Store.holes(from: args["course"] as! String))
+}
+
+/// A `Day` holding just `args["weather"]` -- the payload `_weather_payload()` writes.
+func weatherDay(_ args: [String: Any], slots: [Slot] = []) -> Day {
+    let points = (args["weather"] as! [[String: Any]]).map { w in
+        WeatherPoint(time: w["time"] as! String, precipitationProbability: w["p"] as? Double,
+                     precipitationMM: w["mm"] as? Double, windKPH: w["wind"] as? Double,
+                     temperatureC: w["temp"] as? Double, code: w["code"] as? Int)
+    }
+    return Day(date: "2026-10-05", slots: slots, weather: points, sunrise: nil, sunset: nil, events: [], bookedTime: nil)
+}
+
+runGroup("day_temperature_cell") { args in
+    weatherDay(args).temperatureCellText(units: args["units"] as! String)
+}
+runGroup("day_wind_cell") { args in
+    weatherDay(args).windCellText(units: args["units"] as! String)
+}
+runGroup("day_precipitation_cell") { args in
+    AppLanguage.shared.code = args["language"] as! String
+    defer { AppLanguage.shared.code = "en" }
+    return weatherDay(args).precipitationCellText(units: args["units"] as! String)
+}
+runGroup("slot_precipitation_cell") { args in
+    slotPrecipitationCellText(weatherDay(args).weather(at: args["time"] as! String), units: args["units"] as! String)
+}
+// The GUI draws SF Symbols where the TUI draws emoji, so the code Day picks is
+// mapped through the TUI's own emoji table: same emoji <=> same severity pick.
+runGroup("day_condition_code") { args in
+    let icons = args["icons"] as! [String: String]
+    return weatherDay(args).conditionCode.flatMap { icons[String($0)] } ?? ""
+}
+runGroup("severity_order") { _ in Day.severityOrder }
+runGroup("condition_icon_groups") { args in
+    let symbols = Set((args["codes"] as! [Int]).map { icon(for: $0) })
+    return symbols.count == 1 && !symbols.contains("questionmark")
+}
+
+runGroup("closest_slot_time") { args in
+    let slots = (args["times"] as! [String]).map {
+        Slot(time: $0, booked: 0, capacity: 4, blockReason: nil, players: [])
+    }
+    let target = args["target"] as! String
+    let day = Day(date: "2026-10-05", slots: slots, weather: [], sunrise: target, sunset: target,
+                  events: [], bookedTime: nil)
+    return orNull(day.sunriseRowTime)
+}
+runGroup("anonymous_players_text") { args in
+    AppLanguage.shared.code = args["language"] as! String
+    defer { AppLanguage.shared.code = "en" }
+    return anonymousPlayersText(booked: args["booked"] as! Int, namedCount: args["named"] as! Int)
+}
+runGroup("render_booking_change") { args in
+    AppLanguage.shared.code = args["language"] as! String
+    defer { AppLanguage.shared.code = "en" }
+    return orNull(renderBookingChange(kind: args["kind"] as! String, paramsJSON: args["params"] as! String))
+}
+
+runGroup("club_yaml_scalars") { args in
+    let text = args["text"] as! String
+    let (id, name) = Store.clubIDAndName(in: text)
+    return [id ?? "", name ?? "", ClubDefaults.parseDefaultCourse(in: text) ?? ""]
+}
+
+// A database `storage.py` built with its real schema and writers, read back through
+// Store's own SQL -- a renamed column or a typo there fails here rather than
+// silently emptying the player directory.
+runGroup("store_players") { args in
+    let path = NSTemporaryDirectory() + "crosscheck-\(UUID().uuidString).db"
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    var db: OpaquePointer?
+    guard sqlite3_open(path, &db) == SQLITE_OK,
+          sqlite3_exec(db, args["sql"] as! String, nil, nil, nil) == SQLITE_OK else {
+        sqlite3_close(db)
+        return "could not load the reference database"
+    }
+    sqlite3_close(db)
+    let players: [[Any]] = Store.knownPlayers(dbPath: path).map {
+        [$0.name, $0.lastSeen, $0.isFriend, orNull($0.gender), orNull($0.memberStatus),
+         orNull($0.handicap)]
+    }
+    return [
+        "friend_names": Store.friendNames(dbPath: path).sorted(),
+        "player_genders": Store.playerGenders(dbPath: path),
+        "known_players": players,
+        "my_handicap": orNull(Store.myHandicap(dbPath: path)),
+    ] as [String: Any]
+}
+
+// A reference group with no runGroup here would otherwise pass by checking nothing.
+for name in Set(reference.keys).subtracting(ranGroups).sorted() {
+    failed += 1
+    print("UNCHECKED reference group [\(name)] -- add a runGroup for it")
 }
 
 print("")

@@ -128,21 +128,15 @@ enum DirectoryClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
-            task.arguments = fallbackClubID.map { ["--club-id", $0] } ?? []
-            let stdout = Pipe(), stderr = Pipe()
-            task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, fallbackClubID.map { ["--club-id", $0] } ?? []) } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
-                guard let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    done(nil, stderrText.isEmpty ? "refresh failed (exit \(task.terminationStatus))" : stderrText)
+                guard let obj = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
+                    let stderrText = result.stderrText
+                    done(nil, stderrText.isEmpty ? "refresh failed (exit \(result.status))" : stderrText)
                     return
                 }
                 if obj["ok"] as? Bool == true {
@@ -185,21 +179,15 @@ enum AddClubClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
-            task.arguments = ["--club-id", clubID, "--name", name]
-            let stdout = Pipe(), stderr = Pipe()
-            task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, ["--club-id", clubID, "--name", name]) } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
-                guard let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    done(nil, stderrText.isEmpty ? "add failed (exit \(task.terminationStatus))" : stderrText)
+                guard let obj = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
+                    let stderrText = result.stderrText
+                    done(nil, stderrText.isEmpty ? "add failed (exit \(result.status))" : stderrText)
                     return
                 }
                 if obj["ok"] as? Bool == true, let slug = obj["slug"] as? String {

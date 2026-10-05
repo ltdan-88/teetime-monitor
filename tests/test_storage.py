@@ -900,3 +900,86 @@ def test_purge_never_deletes_a_friend_row(tmp_path):
             ("Odd Name 2",),
         )
     assert storage.purge_non_player_names(db) == 0
+
+
+def test_init_db_migrates_a_known_players_table_from_before_gender_existed(tmp_path):
+    # Same shape as the scrapes/weather_points migration tests above: a real directory
+    # (373 names) predates gender/member_status/handicap, and init_db() has to ALTER
+    # the table in place without losing a friend flag.
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE known_players (name TEXT PRIMARY KEY, first_seen TEXT NOT NULL, "
+            "last_seen TEXT NOT NULL, is_friend INTEGER NOT NULL DEFAULT 0)"
+        )
+        conn.execute(
+            "INSERT INTO known_players VALUES (?, ?, ?, 1)",
+            ("Max Mustermann", "2026-09-01T10:00:00+00:00", "2026-09-01T10:00:00+00:00"),
+        )
+    conn.close()
+
+    record_seen_players(
+        [_sighting("Max Mustermann", gender="male", member_status="member", handicap=25.1)],
+        "2026-09-28T10:00:00+00:00",
+        path=db,
+    )
+
+    player = load_known_players(path=db)[0]
+    assert player.is_friend is True
+    assert player.first_seen == "2026-09-01T10:00:00+00:00"
+    assert (player.gender, player.member_status, player.handicap) == ("male", "member", 25.1)
+
+
+def test_load_player_genders_returns_only_male_and_female(tmp_path):
+    from src.storage import load_player_genders
+
+    db = tmp_path / "club.db"
+    record_seen_players(
+        [
+            _sighting("Max Mustermann", gender="male"),
+            _sighting("Erika Mustermann", gender="female"),
+            _sighting("Kim Muster", gender="unknown"),
+            _sighting("Alex Muster"),
+        ],
+        "2026-09-27T10:00:00+00:00",
+        path=db,
+    )
+
+    assert load_player_genders(path=db) == {"Max Mustermann": "male", "Erika Mustermann": "female"}
+    assert load_player_genders(path=tmp_path / "missing.db") == {}
+
+
+def test_history_lookups_use_indexes_not_full_scans(tmp_path):
+    # Every scrape appends a day of slots forever; without an index each
+    # load_latest_schedule() scanned the whole table.
+    db = tmp_path / "club.db"
+    init_db(db)
+    with sqlite3.connect(db) as conn:
+        plans = {
+            sql: " ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {sql}", params))
+            for sql, params in (
+                ("SELECT time FROM slots WHERE scrape_id = ? ORDER BY time", (1,)),
+                ("SELECT time FROM weather_points WHERE scrape_id = ? ORDER BY time", (1,)),
+                ("SELECT id FROM scrapes WHERE course = ? AND date = ? ORDER BY id DESC LIMIT 1", ("c", "d")),
+            )
+        }
+    conn.close()
+    for sql, plan in plans.items():
+        assert "USING INDEX" in plan or "USING COVERING INDEX" in plan, (sql, plan)
+        assert "TEMP B-TREE" not in plan, (sql, plan)
+
+
+def test_storage_calls_close_their_connections(tmp_path):
+    # `with sqlite3.connect(...)` only commits; the connection stayed open until GC
+    # and Python warned "unclosed database" on every call.
+    import gc
+    import warnings
+
+    db = tmp_path / "club.db"
+    save_schedule(Schedule(date="2026-09-06", course="c", slots=[Slot(time="08:00", booked=0, capacity=4)]), path=db)
+    gc.collect()  # other tests' own unclosed connections must not be counted here
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        load_latest_schedule("c", "2026-09-06", path=db)
+        gc.collect()
+    assert not [w for w in caught if issubclass(w.category, ResourceWarning)]

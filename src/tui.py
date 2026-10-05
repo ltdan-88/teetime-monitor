@@ -146,11 +146,14 @@ import asyncio
 import importlib.metadata
 import json
 import sys
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from pathlib import Path
 from typing import NamedTuple
 
+import yaml
 from rich.cells import cell_len
 from rich.markup import escape as markup_escape
 from rich.text import Text
@@ -454,7 +457,20 @@ def _slot_event_cell(slot: Slot) -> str:
     screens."""
     if slot.block_reason is None:
         return ""
-    return f"📋 {slot.block_reason or i18n.t('table.not_bookable')}"
+    # Escaped: this is the club's own text, rendered as markup -- "[/Jugend]"
+    # raised MarkupError on every render and "[m/w]" silently vanished.
+    return f"📋 {markup_escape(slot.block_reason) or i18n.t('table.not_bookable')}"
+
+
+def _load_club_config_safely(slug: str) -> dict:
+    """`club_config.load_club_config(slug)`, or {} when the file is missing,
+    unreadable, not valid YAML, or not a mapping -- the same tolerance
+    `club_config.slug_for_club_id()` gives a malformed favorite."""
+    try:
+        config = club_config.load_club_config(slug)
+    except (OSError, yaml.YAMLError):
+        return {}
+    return config if isinstance(config, dict) else {}
 
 
 def _favorite_clubs() -> list[tuple[str, str]]:
@@ -473,10 +489,13 @@ def _favorite_clubs() -> list[tuple[str, str]]:
     into on an un/re-favorite from ClubBrowserScreen's own list), and this project's
     own no-op geocoding tests for a "typed-in id, no known name" club would have
     caught it immediately had the slug not looked so plausibly name-shaped. Falls
-    back to `slug` only for a favorite saved before this fix existed."""
+    back to `slug` only for a favorite saved before this fix existed.
+
+    A malformed clubs/*.yaml is skipped (see `_load_club_config_safely()`), so one
+    broken file can't crash the home screen and lock you out of every club."""
     entries = []
     for slug in club_config.list_clubs():
-        config = club_config.load_club_config(slug)
+        config = _load_club_config_safely(slug)
         club_id = config.get("club_id")
         if club_id:
             entries.append((str(club_id), config.get("name") or slug))
@@ -555,6 +574,9 @@ class ClubBrowserScreen(Screen[str | None]):
         ("l", "login", "Login"),
         ("escape", "cancel", "Back"),
         ("q", "quit", "Quit"),
+        # The search box doesn't use down itself, so it reaches this binding;
+        # once the list has focus, OptionList's own down binding wins.
+        ("down", "focus_results", "Results"),
     ]
     _FOOTER_BINDINGS = [
         ("enter", "binding.open"),
@@ -563,6 +585,15 @@ class ClubBrowserScreen(Screen[str | None]):
         ("l", "binding.login"),
         ("escape", "binding.cancel"),
         ("q", "binding.quit"),
+    ]
+    # While the search box has focus it takes every printable key, so f/r/l/q
+    # only type into it -- the footer listed them anyway, on the screen every
+    # fresh install lands on. It now says how to reach them instead.
+    _SEARCH_FOOTER_BINDINGS = [
+        ("enter", "binding.open"),
+        ("↓", "binding.to_list"),
+        ("escape", "binding.cancel"),
+        ("ctrl+q", "binding.quit"),
     ]
 
     def __init__(self, allow_cancel: bool = True, initial_status: str = "") -> None:
@@ -577,6 +608,10 @@ class ClubBrowserScreen(Screen[str | None]):
         # identically.
         self._directory_is_seed = False
         self._names: dict[str, str] = {}
+        # Club ids whose add_favorite() is still geocoding off-thread -- a second
+        # `f` meanwhile would pass its "already saved?" check too and write a
+        # duplicate clubs/*.yaml.
+        self._favoriting: set[str] = set()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -584,7 +619,19 @@ class ClubBrowserScreen(Screen[str | None]):
         yield Input(placeholder=i18n.t("picker.club_search_placeholder"), id="club-search")
         yield OptionList(id="club-results")
         yield Static("", id="club-status")
-        yield TranslatedFooter(self._FOOTER_BINDINGS)
+        yield TranslatedFooter(self._SEARCH_FOOTER_BINDINGS)
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        in_search = isinstance(event.widget, Input)
+        self.query_one(TranslatedFooter).set_bindings(
+            self._SEARCH_FOOTER_BINDINGS if in_search else self._FOOTER_BINDINGS
+        )
+
+    def action_focus_results(self) -> None:
+        results = self.query_one("#club-results", OptionList)
+        results.focus()
+        if results.highlighted is None and results.option_count:
+            results.highlighted = 0
 
     def on_mount(self) -> None:
         self._directory = club_directory.load_cached_directory()
@@ -690,10 +737,11 @@ class ClubBrowserScreen(Screen[str | None]):
 
     def _highlighted_club_id(self) -> str | None:
         """The club `f` should act on. Falls back to the first result when nothing is
-        explicitly highlighted — with focus still in the search box (the normal case
-        right after typing) Textual highlights nothing, and without this fallback `f`
-        silently did nothing at exactly the moment the one obvious target was on
-        screen. Same reasoning as `on_input_submitted()`."""
+        explicitly highlighted (e.g. the list was focused by Tab or a click, which
+        highlights nothing) -- without this fallback `f` silently did nothing at
+        exactly the moment the one obvious target was on screen. Same reasoning as
+        `on_input_submitted()`. (`f` itself can't come from the search box: it
+        types into it -- see `_SEARCH_FOOTER_BINDINGS`.)"""
         results = self.query_one("#club-results", OptionList)
         if results.option_count == 0:
             return None
@@ -707,13 +755,26 @@ class ClubBrowserScreen(Screen[str | None]):
         club_id = self._highlighted_club_id()
         if club_id is None:
             return
-        status = self.query_one("#club-status", Static)
         if club_config.is_favorite(club_id):
             club_config.remove_favorite(club_id)
-            status.update(i18n.t("picker.unfavorited", club_id=club_id))
-        else:
-            club_config.add_favorite(club_id, self._names.get(club_id, ""))
-            status.update(i18n.t("picker.favorited", club_id=club_id))
+            self.query_one("#club-status", Static).update(i18n.t("picker.unfavorited", club_id=club_id))
+            self._reshow_list()
+        elif club_id not in self._favoriting:
+            self._favoriting.add(club_id)
+            self.run_worker(self._add_favorite(club_id))
+
+    async def _add_favorite(self, club_id: str) -> None:
+        # add_favorite() geocodes a new club (two sequential Nominatim requests,
+        # 15 s timeout each) -- off the event loop, so a slow network can't freeze
+        # the whole TUI.
+        try:
+            await asyncio.to_thread(club_config.add_favorite, club_id, self._names.get(club_id, ""))
+        finally:
+            self._favoriting.discard(club_id)
+        self.query_one("#club-status", Static).update(i18n.t("picker.favorited", club_id=club_id))
+        self._reshow_list()
+
+    def _reshow_list(self) -> None:
         # Re-render so the ★ updates, keeping whatever list is currently shown.
         query = self.query_one("#club-search", Input).value.strip()
         if query:
@@ -772,11 +833,18 @@ class ClubBrowserScreen(Screen[str | None]):
             )
             return
         status.update(i18n.t("club_picker.fetching"))
+        self.run_worker(self._fetch_directory(club_id, username, password), exclusive=True, group="directory")
+
+    async def _fetch_directory(self, club_id: str, username: str, password: str) -> None:
+        # A login POST plus a GET (15 s timeout each) -- off the event loop, so the
+        # "Fetching…" status above actually paints and the TUI stays responsive.
+        status = self.query_one("#club-status", Static)
         try:
-            self._directory = club_directory.refresh_directory(club_id, username, password)
+            directory = await asyncio.to_thread(club_directory.refresh_directory, club_id, username, password)
         except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
             status.update(i18n.t("club_picker.fetch_failed", error=exc))
             return
+        self._directory = directory
         self._directory_is_seed = False  # a real fetch always wins over the bundled seed
         status.update(i18n.t("picker.directory_refreshed", count=len(self._directory)))
 
@@ -850,6 +918,18 @@ class CoursePickerScreen(Screen[str | None]):
         self.app.exit()
 
 
+def _normalized_tee_time(text: str) -> str | None:
+    """`text` as zero-padded "HH:MM", accepting H:MM, HH:MM and the German-style
+    H.MM/HH.MM; None for anything else. Slot rows and booking-watch match a
+    confirmed booking by exact string, so a saved "9.00" or "9:00" silently never
+    matched the "09:00" slot -- no 📌 marker and no booking-change warnings."""
+    try:
+        parsed = datetime.strptime(text.replace(".", ":"), "%H:%M")
+    except ValueError:
+        return None
+    return parsed.strftime("%H:%M")
+
+
 class ConfirmBookingScreen(Screen[bool]):
     """Manual confirm-your-tee-time form — the fallback for the same-day-booking timing
     gap (ROADMAP.md Phase 1), not the primary source (scrape_my_reservations() is,
@@ -920,21 +1000,28 @@ class ConfirmBookingScreen(Screen[bool]):
             self.dismiss(False)
             return
 
-        time = self.query_one("#time", Input).value.strip()
+        time_text = self.query_one("#time", Input).value.strip()
         holes_text = self.query_one("#holes", Input).value.strip()
-        if not time:
+        if not time_text:
             self.query_one("#confirm-status", Static).update(i18n.t("confirm.enter_time"))
+            return
+        tee_time = _normalized_tee_time(time_text)
+        if tee_time is None:
+            self.query_one("#confirm-status", Static).update(i18n.t("confirm.invalid_time"))
             return
         try:
             holes = int(holes_text) if holes_text else None
         except ValueError:
             self.query_one("#confirm-status", Static).update(i18n.t("confirm.holes_number"))
             return
+        if holes is not None and holes <= 0:
+            self.query_one("#confirm-status", Static).update(i18n.t("confirm.holes_number"))
+            return
 
         booking = ConfirmedBooking(
             date=self.date,
             course=self.course,
-            time=time,
+            time=tee_time,
             holes=holes,
             source="manual",
             confirmed_at=datetime.now(UTC).isoformat(),
@@ -1175,8 +1262,24 @@ def _event_cell(schedule: Schedule) -> str:
     which a legend listing icon meanings would have had to show twice with two
     different meanings."""
     if schedule.events:
-        return f"📋 {schedule.events[0]}"
+        # Escaped -- scraped text, see _slot_event_cell().
+        return f"📋 {markup_escape(schedule.events[0])}"
     return ""
+
+
+# {(db path, club name): time.monotonic() of a failed geocode} -- see
+# _location_for_club(). Keyed by db path so it follows the per-club db the
+# successful result would have been saved into.
+_GEOCODE_FAILURES: dict[tuple[str, str], float] = {}
+_GEOCODE_RETRY_SECONDS = 3600.0
+
+
+def _looks_like_slug_fallback(name: str) -> bool:
+    """True for the `club-0000001`-style slug `_favorite_clubs()` falls back to
+    for a favorite saved without a name -- not a real club name, so never worth
+    sending to Nominatim."""
+    prefix, _, digits = name.partition("-")
+    return prefix == "club" and digits.isdigit()
 
 
 def _location_for_club(club_id: str, club_name: str) -> dict | None:
@@ -1195,10 +1298,19 @@ def _location_for_club(club_id: str, club_name: str) -> dict | None:
     cached = storage.load_location(path=path)
     if cached is not None:
         return cached
-    if not club_name:
+    if not club_name or _looks_like_slug_fallback(club_name):
+        return None
+    # A failed lookup is remembered for _GEOCODE_RETRY_SECONDS: this runs on the
+    # UI thread from every redraw (resize, expand, confirm), and an un-geocodable
+    # name used to mean a fresh Nominatim request each time -- a frozen UI on a
+    # slow network, and a burst against Nominatim's 1 request/second policy.
+    failure_key = (str(path), club_name)
+    failed_at = _GEOCODE_FAILURES.get(failure_key)
+    if failed_at is not None and time.monotonic() - failed_at < _GEOCODE_RETRY_SECONDS:
         return None
     location = geocode.find_club_location(club_name)
     if location is None:
+        _GEOCODE_FAILURES[failure_key] = time.monotonic()
         return None
     lat, lon = location
     found = {"lat": lat, "lon": lon}
@@ -1224,12 +1336,7 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
     whether because the club was never saved at all, or because it was saved before a
     location could be found. Both default to falsy so every existing caller that
     doesn't pass them keeps behaving exactly as before."""
-    club_settings = {}
-    if club_slug is not None:
-        try:
-            club_settings = club_config.load_club_config(club_slug)
-        except FileNotFoundError:
-            club_settings = {}
+    club_settings = _load_club_config_safely(club_slug) if club_slug is not None else {}
     if "location" not in club_settings and club_id is not None:
         location = _location_for_club(club_id, club_name)
         if location is not None:
@@ -1238,7 +1345,11 @@ def _resolved_config(club_slug: str | None, club_id: str | None = None, club_nam
 
 
 def _compute_crowd_estimates(
-    schedules: list[Schedule], config: dict, club_id: str, db_path: Path | None = None
+    schedules: list[Schedule],
+    config: dict,
+    club_id: str,
+    db_path: Path | None = None,
+    fetch_holidays: bool = True,
 ) -> dict[tuple[str, str, str], float]:
     """{(date, course, time): predicted occupancy 0-1} for every slot across
     `schedules` — the actual `analytics.crowd_heatmap()`/`predict_crowding()` work,
@@ -1268,8 +1379,11 @@ def _compute_crowd_estimates(
     which already resolves its own `--db-path` (not necessarily this club's
     canonical one, e.g. an isolated copy under test) and would otherwise have no
     way to make this scan the same database its search results themselves come
-    from."""
-    holidays = _holidays_for_club(config)
+    from.
+
+    `fetch_holidays=False` (the overview's synchronous render) uses only the
+    holidays already cached -- see `_holidays_for_club()`."""
+    holidays = _holidays_for_club(config, fetch=fetch_holidays)
     vacation_ranges = _vacation_ranges_for_club(config)
     resolved_db_path = db_path if db_path is not None else _db_path(club_id)
     heatmaps: dict[str, dict] = {}
@@ -1281,7 +1395,10 @@ def _compute_crowd_estimates(
             )
         heatmap = heatmaps[schedule.course]
         day_type = calendar_context.classify_day(
-            schedule.date, holidays, vacation_ranges, has_tournament=bool(schedule.events)
+            schedule.date,
+            holidays,
+            vacation_ranges,
+            has_tournament=calendar_context.is_tournament_day(schedule.events, schedule.slots),
         )
         key = (
             day_type
@@ -1681,7 +1798,7 @@ def _day_pick_text(
     3. A plain dash otherwise — no rules configured, no schedule yet, or genuinely no
        candidates for the day (e.g. outside every configured time window)."""
     if confirmed is not None and confirmed.time:
-        text = f"📌 {confirmed.time} {i18n.t('overview.booked')}"
+        text = f"📌 {markup_escape(confirmed.time)} {i18n.t('overview.booked')}"
         if has_pending_change:
             text += " [red]⚠[/]"
         return text
@@ -1703,7 +1820,7 @@ def _day_pick_text(
         # nothing shows here until then, same as the removed section's own
         # behavior.
         if playable[0].reasons:
-            text += f"  [dim]{', '.join(playable[0].reasons)}[/]"
+            text += f"  [dim]{markup_escape(', '.join(playable[0].reasons))}[/]"  # AI-written text
         return text
     reasons = recommend.unplayable_reasons(candidates, [schedule], config)
     if reasons == {"daylight"}:
@@ -2356,14 +2473,16 @@ class _ClubCourseSwitcher:
         here is what actually leaves `_RefreshStatus` its fair share."""
         w = (width if width is not None else self.size.width) - self._SWITCHER_PADDING
         club_label_text = self.club_name or self.club_slug or self.club_id
+        # Names are measured escaped -- they're plain text, not markup.
         club_select_width = min(
-            _cell_visible_width(club_label_text) + self._SELECT_CHROME_WIDTH, self._SELECT_MAX_WIDTH
+            _cell_visible_width(markup_escape(club_label_text)) + self._SELECT_CHROME_WIDTH, self._SELECT_MAX_WIDTH
         )
         # Sized for the longest course the dropdown can show, not just the
         # selected one -- the list itself is what the dropdown's width has to
         # fit once opened (2026-09-27, one-row switcher; see _compose_switcher()).
         course_select_width = min(
-            max(_cell_visible_width(course) for course in self._known_courses) + self._SELECT_CHROME_WIDTH,
+            max(_cell_visible_width(markup_escape(course)) for course in self._known_courses)
+            + self._SELECT_CHROME_WIDTH,
             self._SELECT_MAX_WIDTH,
         )
         club_pair_width = self._SWITCHER_LABEL_WIDTH + club_select_width
@@ -2421,8 +2540,13 @@ class _ClubCourseSwitcher:
             # event loop for the live round trip, despite this coroutine already
             # running inside a run_worker() -- a worker without thread=True still
             # executes on the same event loop, it doesn't parallelize on its own.
-            courses = list(await asyncio.to_thread(fetch_course_aliases, self.club_id))
+            club_id = self.club_id
+            courses = list(await asyncio.to_thread(fetch_course_aliases, club_id))
         except Exception:  # noqa: BLE001 — see docstring
+            return
+        if club_id != self.club_id:
+            # A club switch landed during the fetch -- these are the old club's
+            # courses, and _switch_club() has already filled in the new ones.
             return
         courses = [self.course, *(c for c in courses if c != self.course)]
         select = self.query_one("#course-select", Select)
@@ -2447,7 +2571,7 @@ class _ClubCourseSwitcher:
         step fixed once before), but updates this same screen's state and reloads
         in place instead of pushing a new one."""
         slug = club_config.slug_for_club_id(club_id)
-        config = club_config.load_club_config(slug) if slug else {}
+        config = _load_club_config_safely(slug) if slug else {}
         name = dict(_favorite_clubs()).get(club_id, "")
         try:
             # See _refresh_course_options()'s own comment for why asyncio.to_thread,
@@ -2469,15 +2593,18 @@ class _ClubCourseSwitcher:
         self.club_name = name
         self.course = course
         course_select = self.query_one("#course-select", Select)
+        # `course` first, for the same reason as in _refresh_course_options(): with
+        # courses[0] first, set_options() fired a real Select.Changed(courses[0]),
+        # which started _switch_course(courses[0]) in this same exclusive "switch"
+        # group -- cancelling this worker mid-_reload() and landing on the wrong
+        # course whenever a club's default_course wasn't its first one.
+        courses = [course, *(c for c in courses if c != course)]
         course_select.set_options((c, c) for c in courses)
         self._known_courses = list(courses)
         course_select.value = course
-        await self._reload()
-        # A switch to a club whose name is a very different length can flip
-        # whether the refresh-status readout still fits beside it.
-        # self.club_name is already updated above by the time this runs.
-        self._apply_switcher_layout()
 
+        # App-level bookkeeping before the slow _reload(), so a reload that's
+        # cancelled or fails can't leave the background scrape on the old club.
         app = self.app
         app._club_slug = slug
         app._club_config = {**config, "club_id": club_id}
@@ -2485,6 +2612,12 @@ class _ClubCourseSwitcher:
         # So the *next* launch resumes here too, not back at the club/course
         # pickers -- see global_preferences.load_last_active_club()'s own docstring.
         global_preferences.save_last_active_club(club_id, slug, course)
+
+        await self._reload()
+        # A switch to a club whose name is a very different length can flip
+        # whether the refresh-status readout still fits beside it.
+        # self.club_name is already updated above by the time this runs.
+        self._apply_switcher_layout()
 
     async def _switch_course(self, course: str) -> None:
         """No network, no App-level bookkeeping needed -- `scrape_due_for_club()`
@@ -2779,6 +2912,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._row_full_text: list[str] = []
         # Whether #banners has anything in it -- _refresh_footer() lists `x` only then.
         self._has_banners = False
+        # The booking_changes ids #banners is showing right now -- what `x`
+        # acknowledges, so a change the scrape thread saved after the last
+        # refresh_banners() can't be dismissed unseen.
+        self._shown_banner_ids: list[int] = []
+        # Set by TeetimeApp._finish_periodic_scrape() when a pass lands while
+        # another screen is on top; on_screen_resume() reloads then.
+        self._reload_on_resume = False
         # Which date the sticky header is currently showing, if any -- lets
         # _update_sticky_header() skip re-declaring columns/re-adding its one
         # row on every single poll tick, only doing that work when the shown
@@ -2899,6 +3039,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         change was about; here it does (`include_date=True`)."""
         changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
         self.query_one("#banners", Static).update(_render_banner_lines(changes, include_date=True))
+        self._shown_banner_ids = [change["id"] for change in changes]
         self._has_banners = bool(changes)
         self._refresh_footer()
 
@@ -2915,9 +3056,26 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         footer.set_bindings([(key, label) for key, label in self._FOOTER_BINDINGS if key not in hidden])
 
     def action_dismiss_banners(self) -> None:
-        changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
-        storage.acknowledge_booking_changes([change["id"] for change in changes], path=self.db_path)
+        # Only what's on screen -- re-querying here also acknowledged changes the
+        # background scrape saved since the last refresh, which were never shown.
+        storage.acknowledge_booking_changes(self._shown_banner_ids, path=self.db_path)
         self.refresh_banners()
+
+    def on_screen_resume(self) -> None:
+        """Back on top after Search, the Player directory, Heatmap, Settings or the
+        Actions palette. Those can confirm a booking or change friends, which the
+        table only reads when it renders -- so redraw from local data (no network).
+        A background refresh that landed meanwhile reloads properly instead (see
+        TeetimeApp._finish_periodic_scrape())."""
+        if self._reload_on_resume:
+            self._reload_on_resume = False
+            self.run_worker(self.load_overview(keep_cursor=True), exclusive=True)
+            self.run_worker(self._refresh_course_options(), exclusive=True, group="course-options")
+            return
+        if not self._cached_dates:
+            return  # the first resume, before load_overview() has painted anything
+        self.refresh_banners()
+        self._rerender_preserving_cursor(self.query_one("#overview-table", DataTable).cursor_row)
 
     def action_refresh(self) -> None:
         """`r` -- the same manual "scrape this right now, don't wait for the
@@ -3238,7 +3396,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                     genders = storage.load_player_genders(path=self.db_path)
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
-                crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id)
+                # Cache-only holidays: this runs on the event loop on every redraw.
+                crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id, fetch_holidays=False)
                 for slot_row in _compute_slot_rows(
                     schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates,
                     friend_names, genders,
@@ -3496,14 +3655,28 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         fresh open, a periodic/forced refresh) is exactly the "start from an
         empty one" case `_availability_pipeline()`'s own docstring already
         describes; `_rerender_preserving_cursor()` deliberately does *not* do
-        this, since it redraws the same schedules this call just loaded."""
-        self._pick_cache = {}
-        config = self._config()
-        previous = None
-        if keep_cursor and self._row_index:
-            cursor_row = self.query_one("#overview-table", DataTable).cursor_row
-            if 0 <= cursor_row < len(self._row_index):
-                previous = self._row_index[cursor_row]
+        this, since it redraws the same schedules this call just loaded.
+
+        The new pick cache is built in a local dict and swapped in only right
+        before `_render_table()`: emptying `self._pick_cache` up front meant a
+        resize or expand during the awaits below re-ran every day's live AI call
+        synchronously on the event loop. Every load bumps `_overview_generation`
+        and is dropped after an await if a newer one started -- a background
+        refresh that overlapped a club switch used to resume and redraw the new
+        club with the old club's config and open-date window."""
+        self._overview_generation += 1
+        generation = self._overview_generation
+
+        def stale() -> bool:
+            # app.is_running: during shutdown the table is already gone while the
+            # screen still counts as attached.
+            return generation != self._overview_generation or not self.is_attached or not self.app.is_running
+
+        # Off the event loop: _config() may geocode a club with no saved
+        # location (a live Nominatim request) the first time it's resolved.
+        config = await asyncio.to_thread(self._config)
+        if stale():
+            return
         # A fresh open paints from local data only (remembered open dates, local
         # ranking) and finishes the slow network/AI work in `_finish_fresh_load()`.
         fresh = not keep_cursor
@@ -3512,7 +3685,12 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             open_dates = self._remembered_open_dates(dates)
         else:
             dates, open_dates = await self._display_dates(config)
-        self._cached_dates, self._cached_open_dates = dates, open_dates
+            # Warms the holiday cache off-thread for the crowd markers, which
+            # _render_table() reads cache-only. A fresh open does this after
+            # painting instead, in _finish_fresh_load().
+            await asyncio.to_thread(_holidays_for_club, config)
+            if stale():
+                return
         # Warms self._pick_cache off-thread *before* the synchronous _render_table()
         # call below reaches it -- otherwise a genuinely fresh load (this call) still
         # blocks the event loop on every day's own live AI ranking call, same "one
@@ -3528,12 +3706,23 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # old blocking behavior -- they don't gate anything the user is waiting on.
         ai_on = bool(config.get("availability")) and config.get("ai_assist", {}).get("enabled", False)
         local_config = {**config, "ai_assist": {**config.get("ai_assist", {}), "enabled": False}}
-        await self._prewarm_pick_cache(local_config if (fresh and ai_on) else config, dates, open_dates)
+        pick_cache: dict = {}
+        await self._prewarm_pick_cache(local_config if (fresh and ai_on) else config, dates, open_dates, pick_cache)
+        if stale():
+            return
+        # Captured only now, after every await, so a cursor moved while this load
+        # was waiting stays where it was moved to.
+        previous = None
+        if keep_cursor and self._row_index:
+            cursor_row = self.query_one("#overview-table", DataTable).cursor_row
+            if 0 <= cursor_row < len(self._row_index):
+                previous = self._row_index[cursor_row]
+        self._pick_cache = pick_cache
+        self._cached_dates, self._cached_open_dates = dates, open_dates
         schedules = self._render_table(config, dates, open_dates)
         if fresh:
-            self._overview_generation += 1
             self.run_worker(
-                self._finish_fresh_load(config, local_config, dates, open_dates, ai_on, self._overview_generation),
+                self._finish_fresh_load(config, local_config, dates, open_dates, ai_on, generation),
                 exclusive=True,
                 group="ai-picks",
             )
@@ -3576,7 +3765,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         on) or the screen went away -- the newer load owns the state now."""
 
         def stale() -> bool:
-            return generation != self._overview_generation or not self.is_attached
+            return generation != self._overview_generation or not self.is_attached or not self.app.is_running
 
         def rerender() -> None:
             table = self.query_one("#overview-table", DataTable)
@@ -3584,6 +3773,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         try:
             await asyncio.sleep(_FIRST_SCRAPE_DELAY_SECONDS)
+            # The first paint drew crowd markers from cached holidays only (see
+            # _holidays_for_club()); fetch them off-thread now, redraw if that
+            # changed anything.
+            cached_holidays = _holidays_for_club(config, fetch=False)
+            if await asyncio.to_thread(_holidays_for_club, config) != cached_holidays:
+                if stale():
+                    return
+                rerender()
             real_dates, real_open, fetched = await self._display_dates_checked(config)
             if stale():
                 return
@@ -4076,27 +4273,38 @@ class SearchScreen(Screen[None]):
             buffer_after_minutes=int(self.query_one("#search-buffer-after").value),
         )
 
-    def _run_search(self) -> None:
+    async def _run_search(self) -> None:
+        """Run from a worker (see on_button_pressed()). The matching itself runs in a
+        thread: with AI ranking on, `ranked_matches()` makes a live AI request (SDK
+        default timeout ~600 s, plus a retry), and the crowd estimates may fetch
+        holidays -- both used to freeze the whole TUI while they ran."""
         criteria = self._build_criteria()
-        crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
-        friend_names = storage.load_friend_names(path=_db_path(self.club_id))
-        known_handicaps = storage.load_known_handicaps(path=_db_path(self.club_id))
-        my_handicap = storage.load_my_handicap(path=_db_path(self.club_id))
-        matches = recommend.ranked_matches(
-            self.schedules,
-            criteria,
-            self.config,
-            crowd_estimates,
-            friend_names,
-            known_handicaps=known_handicaps,
-            my_handicap=my_handicap,
-        )
-        if self.query_one("#search-friends-only", Switch).value:
-            matches = recommend.only_with_friend(matches, friend_names)
-        if self._player_filter:
-            matches = recommend.only_with_player(matches, self._player_filter)
-        self._row_matches = []
+        friends_only = self.query_one("#search-friends-only", Switch).value
+        player_filter = self._player_filter
         status = self.query_one("#search-status", Static)
+        status.update(i18n.t("search.searching"))
+
+        def find_matches() -> list[SlotMatch]:
+            db_path = _db_path(self.club_id)
+            crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
+            friend_names = storage.load_friend_names(path=db_path)
+            matches = recommend.ranked_matches(
+                self.schedules,
+                criteria,
+                self.config,
+                crowd_estimates,
+                friend_names,
+                known_handicaps=storage.load_known_handicaps(path=db_path),
+                my_handicap=storage.load_my_handicap(path=db_path),
+            )
+            if friends_only:
+                matches = recommend.only_with_friend(matches, friend_names)
+            if player_filter:
+                matches = recommend.only_with_player(matches, player_filter)
+            return matches
+
+        matches = await asyncio.to_thread(find_matches)
+        self._row_matches = []
         if not matches:
             self._declare_result_columns([])
             status.update(i18n.t("search.no_matches"))
@@ -4121,11 +4329,11 @@ class SearchScreen(Screen[None]):
                 match.slot.time,
                 _slot_condition_cell(weather, match.slot.time),
                 occupancy,
-                players,
+                markup_escape(players),  # scraped names / AI text, not markup
                 _slot_temperature_cell(weather, match.slot.time, units),
                 _slot_precipitation_cell(weather, match.slot.time, units),
                 _slot_wind_cell(weather, match.slot.time, units),
-                ", ".join(match.reasons),
+                markup_escape(", ".join(match.reasons)),
             ))
         # Declared from these same rows' own real content -- see this method's
         # own docstring on _declare_result_columns() for why, not from the flat
@@ -4156,7 +4364,7 @@ class SearchScreen(Screen[None]):
             self.action_cancel()
             return
         if event.button.id == "run":
-            self._run_search()
+            self.run_worker(self._run_search(), exclusive=True, group="search")
         elif event.button.id == "reset":
             self._reset_filters()
         elif event.button.id == "search-player":
@@ -4216,34 +4424,58 @@ class SearchScreen(Screen[None]):
 # uncached version would mean one live Nager.Date fetch per expanded day on
 # every load/refresh/expand/collapse/resize. A year's public holidays for a
 # given country don't change mid-session, so caching them is exact, not an
-# approximation. Only successful fetches are cached (see _holidays_for_club()
-# below) -- a transient network failure stays retryable on the next call
-# rather than becoming a sticky "no holidays" for the rest of the session.
-_HOLIDAY_CACHE: dict[tuple[str, int], list[str]] = {}
+# approximation. A failed fetch is cached too, as a float (time.monotonic() of
+# the failure) instead of a list, and retried only after _HOLIDAY_RETRY_SECONDS --
+# render paths call this synchronously, so an uncached failure (offline, Nager
+# down, a 404 for a bad country code) used to cost a fresh network attempt on the
+# UI thread on every redraw.
+_HOLIDAY_CACHE: dict[tuple[str, int], list[str] | float] = {}
+_HOLIDAY_RETRY_SECONDS = 600.0
 
 
-def _holidays_for_club(config: dict) -> list[str]:
-    """This year's public holidays for a club's configured `calendar.country_code`,
-    via the free Nager.Date API (calendar_context.fetch_public_holidays()), cached
-    in `_HOLIDAY_CACHE` for the rest of this process's lifetime once fetched
-    successfully (see that cache's own docstring). Empty list — not an error —
-    with no country_code configured, or if the fetch fails; day-type
-    classification still works with just tournament/weekend/workday in that case,
-    the same graceful-degradation every other optional-config feature here already
-    follows (e.g. `_location_for_club()`'s own None-on-failure)."""
-    country_code = config.get("calendar", {}).get("country_code")
-    if not country_code:
-        return []
-    cache_key = (country_code, date_cls.fromisoformat(_TODAY()).year)
+def _holidays_for_year(country_code: str, year: int, fetch: bool = True) -> list[str]:
+    """One (country, year) entry of `_HOLIDAY_CACHE`, fetched on a miss or once a
+    cached failure is older than `_HOLIDAY_RETRY_SECONDS` -- unless `fetch` is
+    False, which never touches the network (see `_holidays_for_club()`)."""
+    cache_key = (country_code, year)
     cached = _HOLIDAY_CACHE.get(cache_key)
-    if cached is not None:
+    if isinstance(cached, list):
         return cached
+    if not fetch or (cached is not None and time.monotonic() - cached < _HOLIDAY_RETRY_SECONDS):
+        return []
     try:
-        holidays = calendar_context.fetch_public_holidays(*cache_key)
+        holidays = calendar_context.fetch_public_holidays(country_code, year)
     except Exception:
+        _HOLIDAY_CACHE[cache_key] = time.monotonic()
         return []
     _HOLIDAY_CACHE[cache_key] = holidays
     return holidays
+
+
+def _holidays_for_club(config: dict, fetch: bool = True) -> list[str]:
+    """Public holidays for a club's configured `calendar.country_code`, via the
+    free Nager.Date API (calendar_context.fetch_public_holidays()), cached per
+    (country, year) in `_HOLIDAY_CACHE` (see that cache's own comment). Empty list
+    — not an error — with no country_code configured, or if every fetch fails;
+    day-type classification still works with just tournament/weekend/workday in
+    that case, the same graceful-degradation every other optional-config feature
+    here already follows (e.g. `_location_for_club()`'s own None-on-failure).
+
+    Covers last year through next year, not just this one: the overview window
+    crosses into January in late December, and the heatmap classifies the whole
+    scrape history, which still holds last year's holidays after New Year.
+
+    `fetch=False` returns only what's already cached -- for the overview's
+    synchronous render, whose holidays `load_overview()`/`_finish_fresh_load()`
+    warm off-thread, so a redraw never waits on Nager.Date."""
+    country_code = config.get("calendar", {}).get("country_code")
+    if not country_code:
+        return []
+    year = date_cls.fromisoformat(_TODAY()).year
+    holidays: set[str] = set()
+    for each_year in (year - 1, year, year + 1):
+        holidays.update(_holidays_for_year(country_code, each_year, fetch=fetch))
+    return sorted(holidays)
 
 
 # {(db path, course): (inputs fingerprint, heatmap)} -- one entry per course, so this
@@ -4918,7 +5150,7 @@ class TeetimeApp(App[None]):
         new one. `allow_course_picker` just threads through to `_pick_course()`'s
         own identically-named parameter -- see its docstring."""
         slug = club_config.slug_for_club_id(club_id)
-        config = club_config.load_club_config(slug) if slug else {}
+        config = _load_club_config_safely(slug) if slug else {}
         course = await self._pick_course(
             club_id, config, always_ask=always_ask_course, allow_picker=allow_course_picker
         )
@@ -5054,10 +5286,7 @@ class TeetimeApp(App[None]):
         # same fallback `_resolved_config()` already uses for a load_club_config()
         # miss -- since the live fetch_course_aliases() check just below is what
         # actually decides whether this remembered club/course is still good.
-        try:
-            config = club_config.load_club_config(slug) if slug else {}
-        except FileNotFoundError:
-            config = {}
+        config = _load_club_config_safely(slug) if slug else {}
         # The club's own `default_course` wins over the remembered one -- the GUI
         # launches on it the same way (a 9-hole member should land on the 9-hole
         # course every time); a stale value is caught by the validation below.
@@ -5165,7 +5394,9 @@ class TeetimeApp(App[None]):
         )
 
     async def _do_edit_settings(self, screen_class=AppSettingsScreen, via_palette: bool = True) -> None:
-        await self.push_screen_wait(screen_class())
+        # The active club, so Settings' per-club rows (Player directory, Your
+        # handicap) read the club being viewed, not the first saved one.
+        await self.push_screen_wait(screen_class(club_id=getattr(self, "_club_config", {}).get("club_id")))
         # Theme and language are saved by the settings form itself, but saving only
         # *persists* them -- `theme.save_theme()` writes the file and nothing more, so
         # without this a theme picked in Settings wouldn't actually show until the next
@@ -5235,10 +5466,19 @@ class TeetimeApp(App[None]):
         if self._periodic_scrape_running:
             return
         self._periodic_scrape_running = True
-        if isinstance(self.screen, OverviewScreen):
-            self.screen.query_one(_RefreshStatus).start_refreshing()
+        overview = self._overview_screen()
+        if overview is not None:
+            overview.query_one(_RefreshStatus).start_refreshing()
+        # Snapshotted here, on the main thread: the thread used to read these
+        # itself and write the resolved config back into self._club_config, which
+        # could revert a club switch that landed mid-pass to the old club for
+        # every later pass.
+        club_slug = self._club_slug
+        club_id = self._club_config.get("club_id")
+        club_name = self._club_names.get(club_id, "")
 
         def scrape_then_reload() -> None:
+            error: Exception | None = None
             try:
                 # Re-resolved fresh on every pass, not the dict snapshotted once in
                 # _open_club() -- a location (or any other per-club YAML fact) added
@@ -5254,22 +5494,56 @@ class TeetimeApp(App[None]):
                 # club in order to see weather forecast") lets an unsaved club's
                 # background scrape geocode+cache its own location too, not just a
                 # favorited one's.
-                club_id = self._club_config.get("club_id")
-                config = {
-                    **_resolved_config(self._club_slug, club_id, self._club_names.get(club_id, "")),
-                    "club_id": club_id,
-                }
-                self._club_config = config
-                scrape_once.scrape_due_for_club(self._club_slug, config, force=force)
+                config = {**_resolved_config(club_slug, club_id, club_name), "club_id": club_id}
+                scrape_once.scrape_due_for_club(club_slug, config, force=force)
+            except Exception as exc:  # noqa: BLE001 -- offline/5xx must not take the app down
+                # A thread worker's uncaught exception exits the whole TUI
+                # (Textual's exit_on_error) -- e.g. a raw httpx.ConnectError from
+                # the reservations-sync login when offline. Shown in #status instead.
+                error = exc
             finally:
-                self.call_from_thread(self._finish_periodic_scrape)
+                try:
+                    self.call_from_thread(self._finish_periodic_scrape, club_id, error)
+                except RuntimeError:
+                    pass  # the app already exited
 
-        self.run_worker(scrape_then_reload, thread=True)
+        # A daemon thread, not run_worker(thread=True): a worker thread runs on the
+        # default executor, which is joined at shutdown -- quitting mid-pass left
+        # the terminal hanging until the scrape finished (up to minutes on a
+        # stalled network). A daemon thread is simply abandoned on exit.
+        threading.Thread(target=scrape_then_reload, name="periodic-scrape", daemon=True).start()
 
-    def _finish_periodic_scrape(self) -> None:
+    def _overview_screen(self) -> "OverviewScreen | None":
+        """The topmost OverviewScreen in the stack, even with another screen (the
+        Actions palette, Search, Heatmap, a modal) open on top of it."""
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, OverviewScreen):
+                return screen
+        return None
+
+    def _finish_periodic_scrape(self, scraped_club_id: str | None = None, error: Exception | None = None) -> None:
         self._periodic_scrape_running = False
-        screen = self.screen
-        if isinstance(screen, OverviewScreen):
+        if not self.is_running:
+            return  # the daemon scrape thread finished while the app was shutting down
+        screen = self._overview_screen()
+        if screen is not None:
+            if error is not None:
+                screen.query_one("#status", Static).update(i18n.t("status.refresh_failed", error=error))
+            screen.refresh_banners()
+            screen.query_one(_RefreshStatus).finish_refreshing()
+        # The club was switched while this pass ran -- _switch_club()'s own
+        # _periodic_scrape() call was a no-op then, so start the new club's pass now
+        # rather than leaving it unscraped until the next interval.
+        if scraped_club_id is not None and self._club_config.get("club_id") != scraped_club_id:
+            self._periodic_scrape()
+        if screen is not None and screen is not self.screen:
+            # Buried under another screen (Actions palette, Search, a modal): reload
+            # once it's back on top (see OverviewScreen.on_screen_resume()). Used to
+            # be skipped entirely, leaving "Refreshing…" spinning and the rows stale
+            # until the next pass.
+            screen._reload_on_resume = True
+            return
+        if screen is not None:
             # keep_cursor: a refresh landing while you're reading row 4 must not throw
             # you back to today -- see load_overview()'s own docstring. run_worker(),
             # not a bare call, since load_overview() is now a coroutine (2026-09-27)
@@ -5277,8 +5551,6 @@ class TeetimeApp(App[None]):
             # call_from_thread() above) -- same pattern the _refresh_course_options()
             # call two lines down already used.
             screen.run_worker(screen.load_overview(keep_cursor=True), exclusive=True)
-            screen.refresh_banners()
-            screen.query_one(_RefreshStatus).finish_refreshing()
             # Retries the course dropdown's own fetch too, not just on the initial
             # on_mount() -- real reliability gap found live 2026-09-16, direct
             # follow-up after a report of only one course showing: on_mount()'s own

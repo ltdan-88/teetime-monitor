@@ -57,6 +57,8 @@ scrape_once.py is wired up.
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -144,7 +146,28 @@ CREATE TABLE IF NOT EXISTS known_players (
     member_status TEXT,        -- "member" / "guest" / NULL
     handicap REAL              -- most recently seen value, NULL if never shown
 );
+
+-- Every scrape appends a full day of slots and nothing is ever deleted, so without
+-- these each load_latest_schedule() scanned the whole history (the heatmap calls it
+-- once per date, so its cost grew quadratically). IF NOT EXISTS: an existing
+-- database picks them up on its next init_db().
+CREATE INDEX IF NOT EXISTS idx_slots_scrape ON slots(scrape_id, time);
+CREATE INDEX IF NOT EXISTS idx_weather_scrape ON weather_points(scrape_id, time);
+CREATE INDEX IF NOT EXISTS idx_scrapes_course_date ON scrapes(course, date);
 """
+
+
+@contextmanager
+def _connect(path: Path) -> Iterator[sqlite3.Connection]:
+    """`sqlite3.connect()` used as a context manager only commits or rolls back -- it
+    never closes the connection, which then lingers (with its file handle) until
+    garbage collection. This commits/rolls back the same way and then closes."""
+    conn = sqlite3.connect(path)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db(path: Path = DEFAULT_DB_PATH) -> None:
@@ -173,7 +196,7 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
     existed just reads back with `weather_code=None` — no icon shown, same
     "no migration needed for the actual data" stance as `events` above.)"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.executescript(SCHEMA)
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(scrapes)")}
         for column in ("sunrise", "sunset", "events"):
@@ -200,7 +223,7 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
     scraped_at = datetime.now(UTC).isoformat()
     sunrise = schedule.sun_times.sunrise if schedule.sun_times is not None else None
     sunset = schedule.sun_times.sunset if schedule.sun_times is not None else None
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         cursor = conn.execute(
             "INSERT INTO scrapes (course, date, scraped_at, sunrise, sunset, events) VALUES (?, ?, ?, ?, ?, ?)",
             (schedule.course, schedule.date, scraped_at, sunrise, sunset, json.dumps(schedule.events)),
@@ -248,7 +271,7 @@ def last_scraped_at(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> str
     run — the mechanism behind the adjustable scrape interval (see ROADMAP.md Phase 1,
     "Adjustable scrape interval")."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute(
             "SELECT scraped_at FROM scrapes WHERE course = ? AND date = ? "
             "ORDER BY id DESC LIMIT 1",
@@ -272,7 +295,7 @@ def first_confirmed_at(course: str, date: str, time: str, path: Path = DEFAULT_D
     predates this timestamp, since any growth across that boundary can't be told apart
     from your own booking appearing for the first time."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute(
             "SELECT MIN(confirmed_at) FROM confirmed_bookings WHERE course = ? AND date = ? AND time = ?",
             (course, date, time),
@@ -287,7 +310,7 @@ def distinct_scraped_dates(course: str, path: Path = DEFAULT_DB_PATH) -> list[st
     the *latest* scrape per date, not every scrape ever made for it, is what a
     historical heatmap should count)."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT date FROM scrapes WHERE course = ? ORDER BY date", (course,)
         ).fetchall()
@@ -317,7 +340,7 @@ def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -
     anyway, same "no migration needed yet" stance as everywhere else in this
     project."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute(
             "SELECT id, sunrise, sunset, events FROM scrapes WHERE course = ? AND date = ? "
             "ORDER BY id DESC LIMIT 1",
@@ -403,7 +426,7 @@ def save_confirmed_booking(booking: ConfirmedBooking, path: Path = DEFAULT_DB_PA
     each confirmation (including a re-confirmation) is its own row, matching how
     scrapes are never overwritten either."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.execute(
             "INSERT INTO confirmed_bookings "
             "(course, date, time, holes, source, confirmed_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -423,7 +446,7 @@ def load_confirmed_booking(course: str, date: str, path: Path = DEFAULT_DB_PATH)
     confirmed. If confirmed more than once (e.g. an automatic "my_reservations" read
     following an earlier manual `c` confirmation), the latest row wins."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute(
             "SELECT course, date, time, holes, source, confirmed_at "
             "FROM confirmed_bookings WHERE course = ? AND date = ? "
@@ -445,7 +468,7 @@ def load_all_confirmed_bookings(path: Path = DEFAULT_DB_PATH) -> list[ConfirmedB
     personal_stats() — that spans every course at a club, not just one, so it needs
     this instead of looping load_confirmed_booking() over guessed course/date pairs."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute(
             "SELECT course, date, time, holes, source, confirmed_at FROM confirmed_bookings "
             "WHERE id IN (SELECT MAX(id) FROM confirmed_bookings GROUP BY course, date) "
@@ -473,7 +496,7 @@ def save_booking_change(
     `{}` if not given, so old-style callers that only pass `message` still work."""
     init_db(path)
     detected_at = datetime.now(UTC).isoformat()
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.execute(
             "INSERT INTO booking_changes (course, date, time, kind, message, params, detected_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -488,7 +511,7 @@ def load_unacknowledged_booking_changes(path: Path = DEFAULT_DB_PATH) -> list[di
     full BookingChange (which would need a full ConfirmedBooking round-tripped back
     out too) — display only needs these fields."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute(
             "SELECT id, course, date, time, kind, message, params, detected_at FROM booking_changes "
             "WHERE acknowledged = 0 ORDER BY id"
@@ -514,7 +537,7 @@ def acknowledge_booking_changes(ids: list[int], path: Path = DEFAULT_DB_PATH) ->
     if not ids:
         return
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.executemany("UPDATE booking_changes SET acknowledged = 1 WHERE id = ?", [(i,) for i in ids])
 
 
@@ -528,7 +551,7 @@ def save_location(location: dict, path: Path = DEFAULT_DB_PATH) -> None:
     persists across restarts the same way a favorited club's location does, just
     without requiring the favorite."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.execute(
             "INSERT INTO club_meta (key, value) VALUES ('location', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -542,7 +565,7 @@ def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
     if not path.exists():
         return None
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute("SELECT value FROM club_meta WHERE key = 'location'").fetchone()
     return json.loads(row[0]) if row else None
 
@@ -557,7 +580,7 @@ def save_my_handicap(handicap: float, path: Path = DEFAULT_DB_PATH) -> None:
     split already works, and harmless: `scraper._parse_my_handicap_html()` re-reads
     the real value on every sync pass regardless of which club triggered it."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.execute(
             "INSERT INTO club_meta (key, value) VALUES ('my_handicap', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -571,7 +594,7 @@ def load_my_handicap(path: Path = DEFAULT_DB_PATH) -> float | None:
     if not path.exists():
         return None
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         row = conn.execute("SELECT value FROM club_meta WHERE key = 'my_handicap'").fetchone()
     return json.loads(row[0]) if row else None
 
@@ -586,7 +609,7 @@ def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
     if not path.exists():
         return 0
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         junk = [
             (name,)
             for (name,) in conn.execute("SELECT name FROM known_players WHERE is_friend = 0").fetchall()
@@ -620,7 +643,7 @@ def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Pat
     if str(path) not in _PURGED_PATHS:  # a one-time legacy cleanup, not per scrape
         _PURGED_PATHS.add(str(path))
         purge_non_player_names(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.executemany(
             "INSERT INTO known_players (name, first_seen, last_seen, gender, member_status, handicap) "
             "VALUES (?, ?, ?, ?, ?, ?) "
@@ -646,7 +669,7 @@ def load_known_players(path: Path = DEFAULT_DB_PATH) -> list[KnownPlayer]:
     if not path.exists():
         return []
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute(
             "SELECT name, first_seen, last_seen, is_friend, gender, member_status, handicap FROM known_players"
         ).fetchall()
@@ -672,7 +695,7 @@ def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:
     if not path.exists():
         return set()
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute("SELECT name FROM known_players WHERE is_friend = 1").fetchall()
     return {name for (name,) in rows}
 
@@ -683,7 +706,7 @@ def load_player_genders(path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
     if not path.exists():
         return {}
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute(
             "SELECT name, gender FROM known_players WHERE gender IN ('male', 'female')"
         ).fetchall()
@@ -699,7 +722,7 @@ def load_known_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
     if not path.exists():
         return {}
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         rows = conn.execute("SELECT name, handicap FROM known_players WHERE handicap IS NOT NULL").fetchall()
     return dict(rows)
 
@@ -709,5 +732,5 @@ def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) 
     action. A no-op if `name` was never actually seen (nothing to mark), rather than
     inserting a friend with no real sighting behind it."""
     init_db(path)
-    with sqlite3.connect(path) as conn:
+    with _connect(path) as conn:
         conn.execute("UPDATE known_players SET is_friend = ? WHERE name = ?", (int(is_friend), name))

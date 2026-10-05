@@ -86,15 +86,26 @@ enum YAML {
         if raw == "null" || raw == "~" { return .null }
         if raw == "true" { return .bool(true) }
         if raw == "false" { return .bool(false) }
-        if raw.hasPrefix("'") && raw.hasSuffix("'") && raw.count >= 2 {
-            return .string(String(raw.dropFirst().dropLast()).replacingOccurrences(of: "''", with: "'"))
-        }
-        if raw.hasPrefix("\"") && raw.hasSuffix("\"") && raw.count >= 2 {
-            return .string(decodeDoubleQuotedEscapes(String(raw.dropFirst().dropLast())))
-        }
+        if let quoted = unquoted(raw) { return .string(quoted) }
         if let i = Int(raw) { return .int(i) }
         if let d = Double(raw) { return .double(d) }
         return .string(raw)
+    }
+
+    /// One `key: value` line's value as the string `yaml.safe_load` would read --
+    /// quotes removed and escapes decoded, a plain value just trimmed. For the
+    /// line-scanned club-file keys (`name:`, `club_id:`, `default_course:`), which
+    /// used to trim quote characters and keep escapes like `\xFC` as literal text.
+    static func scalarText(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        return unquoted(trimmed) ?? trimmed
+    }
+
+    /// The contents of a single- or double-quoted scalar, or nil when `raw` isn't one.
+    private static func unquoted(_ raw: String) -> String? {
+        guard raw.count >= 2, let first = raw.first, first == "'" || first == "\"", raw.last == first else { return nil }
+        let inner = String(raw.dropFirst().dropLast())
+        return first == "'" ? inner.replacingOccurrences(of: "''", with: "'") : decodeDoubleQuotedEscapes(inner)
     }
 
     /// Decodes the handful of double-quoted-scalar escapes this schema's own
@@ -110,32 +121,48 @@ enum YAML {
     /// render "ä". Both `save_*()` calls now pass `allow_unicode=True` so this
     /// shouldn't be produced going forward -- this half fixes reading a file an
     /// older version already wrote, without requiring a re-save to un-break it.
-    /// Not a full YAML 1.1 escape table (no `\xXX`/`\UXXXXXXXX`/named-control
-    /// escapes) -- this parser's own scope is "sufficient for this schema," and
-    /// nothing this app writes or PyYAML emits for it needs those.
+    /// `\xXX` matters too: without `allow_unicode`, PyYAML writes every Latin-1
+    /// character (ä ö ü ß, U+0080-U+00FF) that way -- `"Golfclub W\xFCrzburg"` --
+    /// and only characters above that as `\uXXXX`. `\UXXXXXXXX` and the named
+    /// controls are decoded as well; anything else keeps its literal character.
+    ///
+    /// Decoded scalar by scalar, not Character by Character: a `̈` combining
+    /// mark has to join the letter before it, which a String append does anyway.
     private static func decodeDoubleQuotedEscapes(_ s: String) -> String {
         guard s.contains("\\") else { return s }
         var result = ""
-        var chars = s.makeIterator()
-        while let c = chars.next() {
-            guard c == "\\", let next = chars.next() else { result.append(c); continue }
+        var scalars = s.unicodeScalars.makeIterator()
+        func hexEscape(_ letter: Character, _ digits: Int) {
+            var hex = ""
+            for _ in 0..<digits { if let h = scalars.next() { hex.unicodeScalars.append(h) } }
+            if hex.count == digits, let value = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(value) {
+                result.unicodeScalars.append(scalar)
+            } else {
+                result += "\\\(letter)\(hex)"  // malformed -- keep it visible rather than dropping it
+            }
+        }
+        while let c = scalars.next() {
+            guard c == "\\", let next = scalars.next() else { result.unicodeScalars.append(c); continue }
             switch next {
             case "n": result.append("\n")
-            case "t": result.append("\t")
+            case "t", "\t": result.append("\t")
             case "r": result.append("\r")
             case "0": result.append("\0")
-            case "\"": result.append("\"")
-            case "\\": result.append("\\")
-            case "u":
-                var hex = ""
-                for _ in 0..<4 { if let h = chars.next() { hex.append(h) } }
-                if let scalarValue = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(scalarValue) {
-                    result.append(Character(scalar))
-                } else {
-                    result.append("\\u\(hex)")  // malformed -- keep it visible rather than dropping it
-                }
+            case "a": result.append("\u{07}")
+            case "b": result.append("\u{08}")
+            case "v": result.append("\u{0B}")
+            case "f": result.append("\u{0C}")
+            case "e": result.append("\u{1B}")
+            case " ": result.append(" ")
+            case "N": result.append("\u{85}")
+            case "_": result.append("\u{A0}")
+            case "L": result.append("\u{2028}")
+            case "P": result.append("\u{2029}")
+            case "x": hexEscape("x", 2)
+            case "u": hexEscape("u", 4)
+            case "U": hexEscape("U", 8)
             default:
-                result.append(next)  // an escape this scoped parser doesn't know -- keep the literal character
+                result.unicodeScalars.append(next)  // `\"`, `\\`, `\/`, or unknown -- the literal character
             }
         }
         return result

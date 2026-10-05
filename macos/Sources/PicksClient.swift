@@ -80,21 +80,14 @@ enum PicksClient {
                      done: @escaping (PicksResult) -> Void) {
         guard let exe = executable() else { done(PicksResult()); return }
         DispatchQueue.global(qos: .utility).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
             var args = ["--db-path", dbPath, "--course", course, "--from", from, "--days", String(days)]
             if let clubSlug { args += ["--club-slug", clubSlug] }
-            task.arguments = args
-            let stdout = Pipe(), stderr = Pipe()
-            task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            guard let result = try? Subprocess.run(exe, args) else {
                 DispatchQueue.main.async { done(PicksResult()) }
                 return
             }
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
-                guard let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
+                guard let obj = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
                     done(PicksResult())
                     return
                 }

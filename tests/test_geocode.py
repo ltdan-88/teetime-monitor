@@ -1,3 +1,5 @@
+import pytest
+
 from src import geocode
 from src.geocode import _normalize_query, find_club_country_code, find_club_location
 
@@ -159,6 +161,22 @@ def test_find_club_country_code_returns_none_on_request_failure(monkeypatch):
 
 def test_find_club_country_code_returns_none_when_address_has_no_country(monkeypatch):
     payload = [{"address": {}}]
+    monkeypatch.setattr(geocode.httpx, "get", lambda url, params, headers, timeout: _FakeResponse(payload))
+
+    assert find_club_country_code("Golf Club Sonnenberg e.V.") is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"error": "Too many requests"},  # Nominatim's own error object, still a 200
+        ["not a dict"],
+        [{"address": None}],
+        [{"address": "de"}],
+    ],
+)
+def test_find_club_country_code_returns_none_on_malformed_body(monkeypatch, payload):
+    # Same forgiving contract as find_club_location(): never raises into the add-club flow.
     monkeypatch.setattr(geocode.httpx, "get", lambda url, params, headers, timeout: _FakeResponse(payload))
 
     assert find_club_country_code("Golf Club Sonnenberg e.V.") is None

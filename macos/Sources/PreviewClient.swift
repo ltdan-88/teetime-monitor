@@ -40,35 +40,32 @@ enum PreviewClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
-            task.arguments = ["--club-id", clubID, "--club-name", clubName]
-            let stdout = Pipe(), stderr = Pipe()
-            task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, ["--club-id", clubID, "--club-name", clubName]) } catch {
                 DispatchQueue.main.async { done(error.localizedDescription) }
                 return
             }
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-            DispatchQueue.main.async {
-                guard let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    done(stderrText.isEmpty ? "preview failed (exit \(task.terminationStatus))" : stderrText)
-                    return
-                }
-                if obj["ok"] as? Bool == true {
-                    done(nil)
-                    return
-                }
-                switch obj["reason"] as? String {
-                case "missing_club_id": done(t("error.generic"))
-                case "no_tee_sheet": done(t("error.preview_no_tee_sheet"))
-                case "course_fetch_failed":
-                    done(t("error.preview_fetch_failed", ["error": obj["error"] as? String ?? "?"]))
-                default: done(t("error.generic"))
-                }
-            }
+            let message = parse(result)
+            DispatchQueue.main.async { done(message) }
+        }
+    }
+
+    /// Split out of `run()` so it's testable without a subprocess. The result JSON
+    /// is the *last* line of stdout: `scrape_once._log()` prints a best-effort
+    /// failure (a weather fetch, one course/date) ahead of it, and parsing the whole
+    /// of stdout reported "preview failed (exit 0)" for a preview that worked.
+    static func parse(_ result: SubprocessResult) -> String? {
+        guard let obj = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
+            let stderrText = result.stderrText
+            return stderrText.isEmpty ? "preview failed (exit \(result.status))" : stderrText
+        }
+        if obj["ok"] as? Bool == true { return nil }
+        switch obj["reason"] as? String {
+        case "missing_club_id": return t("error.generic")
+        case "no_tee_sheet": return t("error.preview_no_tee_sheet")
+        case "course_fetch_failed":
+            return t("error.preview_fetch_failed", ["error": obj["error"] as? String ?? "?"])
+        default: return t("error.generic")
         }
     }
 }

@@ -48,13 +48,18 @@ plain completion call instead — there's no fixed schema to hold open-ended com
 to.
 """
 
+import contextlib
+import hashlib
 import json
 import os
 import time
+from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+import httpx
+from pydantic import BaseModel, ValidationError
 
+from . import paths
 from . import weather as weather_module
 from .models import SlotMatch
 
@@ -190,20 +195,41 @@ def _language_instruction(language: str) -> str:
     return f"\n\nRespond in {name}."
 
 
+# Per-request timeout for every provider. The SDK defaults are 600s (anthropic/openai)
+# and no timeout at all (google-genai), so a stalled connection could hang a picks
+# run or a TUI worker indefinitely. SDK-level retries are off: `_with_retry()` below
+# is the one retry layer, so attempts don't stack.
+REQUEST_TIMEOUT_SECONDS = 60
+
+
 def _client_for(provider: str):
     """Construct the right SDK client for `provider`. Grok is the `openai` package
     pointed at xAI's OpenAI-compatible endpoint with its own key -- not a separate SDK
-    (see module docstring)."""
+    (see module docstring).
+
+    Grok's key is read explicitly and must be present: the `openai` SDK falls back to
+    `OPENAI_API_KEY` when handed `api_key=None`, which would send the OpenAI key to
+    api.x.ai."""
     if provider == "anthropic":
-        return _anthropic_module().Anthropic()
+        return _anthropic_module().Anthropic(timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0)
     if provider == "openai":
-        return _openai_module().OpenAI()
+        return _openai_module().OpenAI(timeout=REQUEST_TIMEOUT_SECONDS, max_retries=0)
     if provider == "grok":
+        api_key = os.environ.get("XAI_API_KEY")
+        if not api_key:
+            raise ValueError("XAI_API_KEY is not set")
         return _openai_module().OpenAI(
-            api_key=os.environ.get("XAI_API_KEY"), base_url="https://api.x.ai/v1"
+            api_key=api_key,
+            base_url="https://api.x.ai/v1",
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            max_retries=0,
         )
     if provider == "gemini":
-        return _genai_module().Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        genai = _genai_module()
+        return genai.Client(
+            api_key=os.environ.get("GEMINI_API_KEY"),
+            http_options=genai.types.HttpOptions(timeout=REQUEST_TIMEOUT_SECONDS * 1000),
+        )
     raise ValueError(f"unknown ai_assist provider: {provider!r}")
 
 
@@ -239,8 +265,30 @@ def _is_auth_failure(provider: str, exc: Exception) -> bool:
         return isinstance(exc, _openai_module().AuthenticationError)
     if provider == "gemini":
         client_error = _genai_module().errors.ClientError
-        return isinstance(exc, client_error) and getattr(exc, "code", None) in (401, 403)
+        if not isinstance(exc, client_error):
+            return False
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            return True
+        # Gemini answers a mistyped key with 400 INVALID_ARGUMENT, reason
+        # API_KEY_INVALID -- matched narrowly so other 400s stay retryable errors.
+        if code == 400:
+            text = f"{getattr(exc, 'message', '')} {getattr(exc, 'details', '')}"
+            return "API_KEY_INVALID" in text or "API key not valid" in text
+        return False
     raise ValueError(f"unknown ai_assist provider: {provider!r}")
+
+
+def _is_timeout(exc: Exception) -> bool:
+    """A request that hit `REQUEST_TIMEOUT_SECONDS`. Not retried: a second full-length
+    wait mostly doubles how long the caller sits on a stalled connection."""
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return True
+    for module_name in ("anthropic", "openai"):
+        module = globals().get(module_name)
+        if module is not None and isinstance(exc, module.APITimeoutError):
+            return True
+    return False
 
 
 def _with_retry(provider: str, call):
@@ -261,7 +309,7 @@ def _with_retry(provider: str, call):
     try:
         return call()
     except Exception as exc:
-        if _is_auth_failure(provider, exc):
+        if _is_auth_failure(provider, exc) or _is_timeout(exc):
             raise
         time.sleep(1.5)
         return call()
@@ -409,6 +457,26 @@ class _SlotRanking(BaseModel):
     ranked: list[_RankedSlot]
 
 
+def _describe_conditions(conditions) -> str:
+    """The weather part of one candidate line. A metric the forecast has no value
+    for is left out rather than printed as a literal "None"."""
+    parts = []
+    rain = []
+    if conditions.max_precipitation_probability is not None:
+        rain.append(f"{conditions.max_precipitation_probability}%")
+    if conditions.max_precipitation_mm is not None:
+        rain.append(f"{conditions.max_precipitation_mm}mm")
+    if rain:
+        parts.append("rain up to " + " / ".join(rain))
+    if conditions.max_wind_speed_kph is not None:
+        parts.append(f"wind up to {conditions.max_wind_speed_kph}kph")
+    if conditions.min_temperature_c is not None and conditions.max_temperature_c is not None:
+        parts.append(f"{conditions.min_temperature_c}-{conditions.max_temperature_c}°C")
+    if not parts:
+        return ""
+    return ", " + ", ".join(parts) + " during the round"
+
+
 def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
     # `slot.players` itself is never *sent* to the model here -- real authenticated
     # scraping (scraper.py's `scrape_schedule(..., client=...)`) can populate it with
@@ -444,14 +512,13 @@ def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
 
     schedule = context.get("schedules", {}).get((candidate.date, candidate.course))
     if schedule is not None:
+        # recommend.ranked_matches() passes {course: minutes}; a plain int still works.
         duration = context.get("round_duration_minutes", 240)
+        if isinstance(duration, dict):
+            duration = duration.get(candidate.course, 240)
         conditions = weather_module.conditions_during_round(schedule.weather, slot.time, duration)
         if conditions is not None:
-            line += (
-                f", rain up to {conditions.max_precipitation_probability}% / "
-                f"{conditions.max_precipitation_mm}mm, wind up to {conditions.max_wind_speed_kph}kph, "
-                f"{conditions.min_temperature_c}-{conditions.max_temperature_c}°C during the round"
-            )
+            line += _describe_conditions(conditions)
 
     # Only present at all once `ai_assist.avoid_predicted_crowd` is on (recommend.py
     # skips the analytics.crowd_heatmap() work entirely otherwise -- see
@@ -462,6 +529,61 @@ def _describe_candidate(index: int, candidate: SlotMatch, context: dict) -> str:
     if estimate is not None:
         line += f", historically ~{estimate:.0%} full at this time"
     return line
+
+
+# rank_slots() result cache. The TUI re-ranks every displayed day on each refresh
+# and picks_cli runs as a fresh process per GUI reload, so without this the same
+# prompt went to the (paid, often quota-capped) provider over and over. Keyed on a
+# hash of provider + model + the full prompt: any change in candidates, weather,
+# crowd estimates, preferences or language is a new key. On disk, so separate
+# picks_cli processes share it; holds only indices, scores and reasons.
+RANK_CACHE_FILE_NAME = "ai_rank_cache.json"
+RANK_CACHE_MAX_ENTRIES = 200
+
+
+def _rank_cache_path() -> Path:
+    return paths.DATA_DIR / RANK_CACHE_FILE_NAME
+
+
+def _rank_cache_key(provider: str, model: str, prompt: str) -> str:
+    return hashlib.sha256(json.dumps([provider, model, prompt]).encode("utf-8")).hexdigest()
+
+
+def _load_rank_cache() -> dict:
+    try:
+        data = json.loads(_rank_cache_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _cached_ranking(key: str) -> "_SlotRanking | None":
+    entry = _load_rank_cache().get(key)
+    if entry is None:
+        return None
+    try:
+        return _SlotRanking.model_validate(entry)
+    except ValidationError:
+        return None
+
+
+def _store_ranking(key: str, ranking: "_SlotRanking") -> None:
+    """Best effort: a cache that can't be written just means the next identical
+    call goes to the provider again."""
+    cache = _load_rank_cache()
+    cache.pop(key, None)
+    cache[key] = ranking.model_dump()
+    while len(cache) > RANK_CACHE_MAX_ENTRIES:
+        cache.pop(next(iter(cache)))  # oldest first (dicts keep insertion order)
+    path = _rank_cache_path()
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(cache), encoding="utf-8")
+        os.replace(tmp, path)  # atomic, so a concurrent picks_cli never reads half a file
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 def rank_slots(
@@ -476,7 +598,8 @@ def rank_slots(
     and return them sorted best-first with `reasons` filled in.
 
     `context` may optionally carry `schedules` (a `{(date, course): Schedule}` dict)
-    and `round_duration_minutes` to describe weather to the model — recommend.py's
+    and `round_duration_minutes` (minutes, either one int or a `{course: minutes}`
+    dict) to describe weather to the model — recommend.py's
     exclude_unplayable() already filtered out anything unplayable, so this is purely
     about the nuanced trade-offs *between* candidates that all already passed that
     check (e.g. "slightly more rain but much emptier"), not a second playability pass.
@@ -494,10 +617,15 @@ def rank_slots(
         "short, plain-language reasons.\n\n" + descriptions + _language_instruction(language)
     )
 
-    client = _client_for(provider)
-    ranking = _structured(client, provider, _model_for(provider, model), prompt, _SlotRanking)
+    resolved_model = _model_for(provider, model)
+    cache_key = _rank_cache_key(provider, resolved_model, prompt)
+    ranking = _cached_ranking(cache_key)
     if ranking is None:
-        return candidates  # fall back to the unranked order rather than losing results
+        client = _client_for(provider)
+        ranking = _structured(client, provider, resolved_model, prompt, _SlotRanking)
+        if ranking is None:
+            return candidates  # fall back to the unranked order rather than losing results
+        _store_ranking(cache_key, ranking)
 
     ranked: list[SlotMatch] = []
     seen_indices: set[int] = set()

@@ -19,6 +19,31 @@ enum CalendarContext {
     static let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     static let specialDayTypes = ["tournament", "public_holiday", "vacation"]
 
+    /// Mirrors `calendar_context._TOURNAMENT_NAME_RE`: event names that read like a
+    /// competition rather than a recurring group, lesson, guest block or instructor.
+    private static let tournamentNamePattern = try! NSRegularExpression(
+        pattern: #"turnier|meisterschaft|championship|troph|matchplay|match play|pokal|wettspiel|liga|scramble|\bcup\b|\bopen\b|\bpreis\b"#,
+        options: [.caseInsensitive])
+
+    /// Mirrors `calendar_context.TOURNAMENT_BLOCKED_SHARE`.
+    static let tournamentBlockedShare = 0.5
+
+    /// Mirrors `calendar_context.is_tournament_day()` exactly: a competition-like
+    /// event name, or event blocks covering at least `tournamentBlockedShare` of the
+    /// day's slots. Any block-time row at all (the old rule) also caught weekly
+    /// groups and lessons, moving ordinary weekdays out of the heatmap's columns.
+    static func isTournamentDay(events: [String], slots: [Slot]) -> Bool {
+        guard !events.isEmpty else { return false }
+        for name in events {
+            let range = NSRange(name.startIndex..., in: name)
+            if tournamentNamePattern.firstMatch(in: name, range: range) != nil { return true }
+        }
+        guard !slots.isEmpty else { return false }
+        let names = Set(events)
+        let blocked = slots.filter { $0.blockReason.map(names.contains) ?? false }.count
+        return Double(blocked) / Double(slots.count) >= tournamentBlockedShare
+    }
+
     private static func inVacation(_ date: String, _ ranges: [VacationRange]) -> Bool {
         ranges.contains { $0.start <= date && date <= $0.end }
     }
@@ -30,11 +55,11 @@ enum CalendarContext {
         if hasTournament { return "tournament" }
         if holidays.contains(date) { return "public_holiday" }
         if inVacation(date, vacationRanges) { return "vacation" }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.locale = Locale(identifier: "en_US_POSIX")
-        guard let d = f.date(from: date) else { return "workday" }
+        guard let d = ISODate.parse(date) else { return "workday" }
         // Gregorian .weekday is 1=Sunday...7=Saturday, matching Python's
         // date.weekday() >= 5 (Sat=5, Sun=6) check by a different numbering.
-        let weekday = Calendar(identifier: .gregorian).component(.weekday, from: d)
+        // UTC calendar, matching ISODate.parse's UTC midnight.
+        let weekday = ISODate.utcCalendar.component(.weekday, from: d)
         return (weekday == 1 || weekday == 7) ? "weekend" : "workday"
     }
 
@@ -185,7 +210,9 @@ final class HolidaysCache {
                   let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 done([]); return
             }
-            let dates = rows.compactMap { $0["date"] as? String }
+            // Nationwide only, same as `calendar_context.holidays_from_nager()`
+            // without a region: a `"global": false` entry is a state holiday.
+            let dates = rows.filter { ($0["global"] as? Bool) ?? true }.compactMap { $0["date"] as? String }
             self?.lock.lock(); self?.cache[key] = dates; self?.lock.unlock()
             done(dates)
         }.resume()

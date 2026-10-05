@@ -312,10 +312,12 @@ class Field:
 
     `kind="action"` is a field that isn't a value at all — it renders a button that
     opens another screen (currently just Login, which opens `CredentialsScreen`).
-    `open_screen` supplies the screen to push.
+    `open_screen` supplies the screen to push; it's called with the active club_id
+    (see `SettingsScreen.club_id`), since some of these screens read per-club data.
 
     `kind="display"` is also not a value — a read-only row showing whatever
-    `getter()` returns as plain text, with no widget to edit and nothing to save.
+    `getter(club_id)` returns as plain text, with no widget to edit and nothing to
+    save. It gets the active club_id for the same reason `open_screen` does.
     Added 2026-09-27 for "Your handicap" (see `_my_handicap_display()`): a value this
     app only ever reads (auto-scraped, never entered here), so a row that lets you
     see it beats one that pretends you can type over it.
@@ -327,9 +329,9 @@ class Field:
     group_key: str
     default: Any = None
     choices: list[tuple[str, str]] | None = None
-    getter: Callable[[], str] | None = None
+    getter: Callable[..., str] | None = None
     setter: Callable[[str], None] | None = None
-    open_screen: Callable[[], Screen] | None = None
+    open_screen: Callable[[str | None], Screen] | None = None
 
 
 # Split into two screens 2026-09-17, direct request: "we should separate preferences
@@ -347,7 +349,9 @@ class Field:
 def _any_favorite_club_id() -> str | None:
     """A real club_id to verify a login attempt against, if any club is saved — see
     `credentials_screen.py` for what `verify_against_club_id` does with it (one pc
-    caddie login is platform-wide, so any saved club works).
+    caddie login is platform-wide, so any saved club works). Only the fallback for
+    `SettingsScreen.club_id` when no club is open: friends and my_handicap are per
+    club, so the club being viewed is what the caller should pass.
 
     Deliberately a small local reimplementation rather than importing `tui.
     _any_favorite_club_id()`: `tui.py` imports *this* module, so reaching back into it
@@ -374,15 +378,17 @@ def _current_theme() -> str:
     return theme_module.load_saved_theme() or theme_module.resolve_theme_name()
 
 
-def _my_handicap_display() -> str:
+def _my_handicap_display(club_id: str | None) -> str:
     """Read-only text for the "Your handicap" row next to hcp_preference — added for
     transparency (2026-09-27, direct follow-up to "auto scrape is very accurate since
     it is entered by my club"): the preference silently uses whatever
     `storage.load_my_handicap()` has cached, so this row is the only place that value
     is ever actually shown. `i18n.t("settings.field.my_handicap.unsynced")` until the
     first real sync fills it in — see `scrape_once._sync_my_reservations()`, which
-    only ever writes it, never this screen."""
-    club_id = _any_favorite_club_id()
+    only ever writes it, never this screen.
+
+    `club_id` is the club being viewed (see `SettingsScreen.club_id`) -- my_handicap
+    is stored per club DB, so the first saved club's value could be stale or unset."""
     handicap = storage.load_my_handicap(path=_db_path(club_id)) if club_id else None
     if handicap is None:
         return i18n.t("settings.field.my_handicap.unsynced")
@@ -553,7 +559,7 @@ FIELDS: list[Field] = [
         ("__player_directory__",),
         "action",
         "settings.group.priorities",
-        open_screen=lambda: KnownPlayersScreen(_any_favorite_club_id()),
+        open_screen=lambda club_id: KnownPlayersScreen(club_id),
     ),
     # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
     # be an option in the settings menu" -- ai_assist was originally kept per-club
@@ -588,7 +594,7 @@ FIELDS: list[Field] = [
         ("__ai_credentials__",),
         "action",
         "settings.group.ai",
-        open_screen=lambda: AICredentialsScreen(),
+        open_screen=lambda _club_id: AICredentialsScreen(),
     ),
     # Moved here from "Priorities" (2026-09-10, direct follow-up after finding it had
     # zero actual effect: "make avoid crowds a child of AI option") -- it only ever
@@ -610,7 +616,9 @@ FIELDS: list[Field] = [
         ("daylight_buffer_minutes",),
         "int",
         "settings.group.pace",
-        30,
+        # 0, the same fallback recommend.py/tui.py and the GUI use for a missing
+        # key -- 30 here showed (and on save, wrote) a buffer nobody chose.
+        0,
         choices=DAYLIGHT_BUFFER_CHOICES,
     ),
     # Moved here from clubs/*.yaml, 2026-09-09 direct request ("make pace speed
@@ -666,7 +674,7 @@ FIELDS: list[Field] = [
         ("__login__",),
         "action",
         "settings.group.account",
-        open_screen=lambda: CredentialsScreen(verify_against_club_id=_any_favorite_club_id()),
+        open_screen=lambda club_id: CredentialsScreen(verify_against_club_id=club_id),
     ),
     Field(
         "settings.field.language",
@@ -738,6 +746,12 @@ def config_to_widget_values(config: dict, fields: list[Field] | None = None) -> 
             raw = resolve_buffer_minutes(config.get("availability", {}), _BUFFER_PATHS[field.path], field.default)
         else:
             raw = _get_path(config, field.path, field.default)
+        if field.kind == "optional_time" and isinstance(raw, int) and not isinstance(raw, bool):
+            # A hand-edited, unquoted `after: 17:00` loads as 1020 (YAML 1.1 reads it
+            # as base-60 minutes) -- show it as the "HH:MM" it was meant to be, not
+            # an hour of "1020" that Save would write back as "1020:00".
+            hours, minutes = divmod(raw, 60)
+            raw = f"{hours:02d}:{minutes:02d}"
         if field.kind == "bool":
             values[_field_id(field)] = bool(raw)
         elif raw is None:
@@ -943,8 +957,12 @@ class SettingsScreen(Screen[dict | None]):
         self,
         preferences_file: Path | None = None,
         on_saved: Callable[[dict], None] | None = None,
+        club_id: str | None = None,
     ) -> None:
         super().__init__()
+        # The club being viewed, for the per-club rows (Player directory, Your
+        # handicap) -- None falls back to the first saved club, see `_club_id()`.
+        self.club_id = club_id
         self.groups_shown = self.GROUPS_SHOWN if self.GROUPS_SHOWN is not None else GROUP_ORDER
         self.fields_shown = (
             self.FIELDS_SHOWN
@@ -974,6 +992,9 @@ class SettingsScreen(Screen[dict | None]):
     def _update_narrow_class(self, width: int) -> None:
         self.set_class(width < self.NARROW_WIDTH_THRESHOLD, "-narrow")
 
+    def _club_id(self) -> str | None:
+        return self.club_id if self.club_id is not None else _any_favorite_club_id()
+
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll(id="fields"):
@@ -995,7 +1016,7 @@ class SettingsScreen(Screen[dict | None]):
                             if field.kind == "display":
                                 # Not a value -- read-only text, see Field's own
                                 # docstring on this kind.
-                                yield Static(field.getter(), classes="field-input")
+                                yield Static(field.getter(self._club_id()), classes="field-input")
                             elif field.kind == "action":
                                 # Not a value -- a button that opens another screen.
                                 yield Button(
@@ -1139,14 +1160,19 @@ class SettingsScreen(Screen[dict | None]):
                 # Generic as of 2026-09-26 (was hardcoded to CredentialsScreen, the
                 # only "action" field that existed yet) -- open_screen is what each
                 # such field's own FIELDS entry supplies, see Field's own docstring.
-                self.app.push_screen(field.open_screen())
+                self.app.push_screen(field.open_screen(self._club_id()))
                 return
         if event.button.id == "cancel":
             self.action_cancel()
             return
         if event.button.id == "save":
+            # Re-read the file rather than reusing self.config from __init__: a
+            # sub-screen pushed from here (AI provider writes ai_assist.provider) or
+            # the GUI may have written keys this form doesn't show since it opened,
+            # and saving the stale copy would silently drop them.
+            base = global_preferences.load_preferences(self.preferences_file)
             try:
-                updated = widget_values_to_config(self.config, self._read_widget_values(), self.fields_shown)
+                updated = widget_values_to_config(base, self._read_widget_values(), self.fields_shown)
             except ValueError as exc:
                 self.query_one("#status", Static).update(i18n.t("settings.not_saved", error=exc))
                 return

@@ -37,7 +37,7 @@ private func testParsesTheWindowHint() {
     ])
     Harness.check("hint parses", result.hint?.latestStart == "14:40" && result.hint?.roundMinutes == 240)
     Harness.check("_hint is never mistaken for a date", result.verdicts["_hint"] == nil)
-    Harness.check("whole hours read without a decimal", hoursText(240) == "4")
+    Harness.check("whole hours read without a decimal", hoursText(240, language: "en") == "4")
 }
 
 /// Same rule as `tui._compute_slot_rows()`: nothing before the sunrise row or

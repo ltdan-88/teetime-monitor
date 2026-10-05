@@ -37,7 +37,7 @@ sich an ihr etwas ändert.
 ## Wie man damit arbeitet
 
 1. **Starten.** Du landest auf den nächsten buchbaren Tagen, einer pro Zeile.
-2. **Spalte „Empf." lesen.** Jeder Tag sagt bereits, was Sache ist: eine empfohlene
+2. **Spalte „Empfehlung" lesen.** Jeder Tag sagt bereits, was Sache ist: eine empfohlene
    Zeit mit ★, deine bestätigte Buchung, oder warum dort nichts infrage kommt
    („zu dunkel zum Fertigspielen", „keine trockene Tee-Zeit").
 3. **Enter auf einem Tag** klappt dessen Startzeiten direkt auf; Enter auf einer Zeit
@@ -53,9 +53,10 @@ brew install ltdan-88/teetime-monitor/teetime-monitor
 teetime-monitor
 ```
 
-Club-ID eintippen (oder den pc-caddie-Buchungslink einfügen) — fertig, die Startliste
-steht da. Vorher ist nichts einzurichten, und ein Konto braucht es auch nicht: die
-Startliste ist öffentlich.
+Solange kein Login eingerichtet ist, öffnet sich zuerst die pc-caddie-Anmeldung —
+**Escape** überspringt sie. Dann den Club nach Namen suchen, die Club-ID eintippen oder
+den pc-caddie-Buchungslink einfügen — fertig, die Startliste steht da. Ein Konto
+braucht es nicht: die Startliste ist öffentlich.
 
 <details>
 <summary><strong>Was optional dazukommt — und wofür</strong></summary>
@@ -64,7 +65,7 @@ Alles oben funktioniert ohne jede dieser Zutaten. Jede bringt nur etwas dazu:
 
 | Zusatz | Bringt |
 |---|---|
-| pc-caddie-Login (`l` in der Club-Suche) | Clubs nach Namen durchsuchen, eigene Buchungen und Handicap automatisch übernehmen, echte Spielernamen (falls dein Club sie teilt), ein durchsuchbares Spielerverzeichnis, und Zeiten mit Freunden oder ähnlichem/besserem Handicap bevorzugen |
+| pc-caddie-Login (`l` in der Club-Suche) | Das Live-Clubverzeichnis aktualisieren (eine mitgelieferte Momentaufnahme lässt sich auch ohne Login nach Namen durchsuchen), eigene Buchungen und Handicap automatisch übernehmen, echte Spielernamen (falls dein Club sie teilt), ein durchsuchbares Spielerverzeichnis, und Zeiten mit Freunden oder ähnlichem/besserem Handicap bevorzugen |
 | API-Key eines KI-Anbieters ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini oder Grok) | KI-bewertete Empfehlungen (standardmäßig aus, kostenpflichtig pro Empfehlung) |
 
 **Voraussetzungen:** macOS oder Linux und [Homebrew](https://brew.sh/). Die Terminal-App läuft
@@ -111,7 +112,7 @@ Zeiten bevorzugen, in denen ein markierter Freund schon gebucht ist, oder in den
 Feld ein ähnliches (oder besseres) Handicap hat als du selbst — automatisch erfasst,
 nie eingetippt.
 
-<p align="center"><img src="assets/de/settings.png" alt="Die Einstellungen, nach Verfügbarkeit, Wetter und Prioritäten gruppiert"></p>
+<p align="center"><img src="assets/de/settings.png" alt="Die Präferenzen, nach Verfügbarkeit, Wetter und Prioritäten gruppiert"></p>
 
 ### Suche für die Ausnahmen
 
@@ -145,8 +146,8 @@ jeder Wochentag schon ist.
 ### Ein Menü, zwei Sprachen, elf Designs
 
 **t** öffnet die **Aktionen** — Club hinzufügen, Suchen, Auslastung, Spieler, Präferenzen,
-Einstellungen, Sprache, Design. Jeder dieser Punkte hat zusätzlich eine eigene Taste (siehe
-[Tasten](#tasten)). Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
+Einstellungen. Jeder dieser Punkte hat zusätzlich eine eigene Taste (siehe
+[Tasten](#tasten)). Sprache und Design stehen unter **Einstellungen → Darstellung**. Die gesamte Oberfläche läuft auf Deutsch oder Englisch (inklusive dieses Menüs
 und aller Hinweise) und bringt elf Farbdesigns mit: dieselben zehn wie
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), dazu Catppuccin Latte
 für alle, die ein helles Design abseits von Solarized möchten.
@@ -227,7 +228,7 @@ sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreibe
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-id>.yaml    # pro Club: Koordinaten, overview_days, Standardplatz
+    clubs/<club-name>.yaml  # pro Club: club_id, Koordinaten, overview_days, Standardplatz
     .env                    # PCC_USER / PCC_PASS / API-Key eines KI-Anbieters (Einstellungen → KI-Anbieter)
     preferences.yaml        # Verfügbarkeit, Wetter, KI, Tempo, Intervall
     config                  # THEME=, LANG=
@@ -241,8 +242,11 @@ Umstieg von vor v0.31.0? Beim ersten Start werden `./clubs`, `./data` und `./.en
 automatisch übernommen — mit Hinweis, was kopiert wurde. Kopiert, nicht verschoben:
 das alte Verzeichnis bleibt als Sicherung liegen, bis du es löschst.
 
-Verfügbarkeit und Vorgaben bearbeitest du über **Aktionen → Einstellungen**, nicht von
-Hand. `f` auf einem Club legt dessen YAML an; `clubs/club.example.yaml` ist die
+Vorgaben und Einstellungen bearbeitest du in der App, nicht von Hand: Verfügbarkeit,
+Wetter, Spieltempo und Prioritäten unter **Aktionen → Präferenzen** (`,`); Login,
+Darstellung, Abruf und KI unter **Aktionen → Einstellungen** (`s`). `f` auf einem Club
+legt dessen YAML an, benannt nach dem Club (z. B. `golfclub-musterhausen-e-v.yaml`) und
+ihm über das `club_id:` darin zugeordnet; `clubs/club.example.yaml` ist die
 kommentierte Vorlage (Wetter-Koordinaten, Länderkürzel für Feiertage, Ferienzeiträume).
 
 ### Damit der Verlauf lückenlos bleibt
@@ -283,12 +287,12 @@ plist-Datei.
 ### Windows (experimentell)
 
 Die Terminal-App läuft unter Windows ohne Administratorrechte — alles wird ins
-Benutzerprofil installiert. Die Testsuite läuft bei jeder Änderung in CI auch auf Windows;
-die App selbst wurde dort weniger im Alltag erprobt als unter macOS. (Die macOS-Begleit-App
-gibt es nur für macOS.)
+Benutzerprofil installiert. Die Testsuite läuft in CI auch auf Windows, in einem nächtlichen
+Lauf (und auf Abruf), nicht bei jeder Änderung; die App selbst wurde dort weniger im Alltag
+erprobt als unter macOS. (Die macOS-Begleit-App gibt es nur für macOS.)
 
 ```powershell
-scoop install uv                       # pro Benutzer, ohne Admin
+scoop install git uv                   # pro Benutzer, ohne Admin; uv braucht git für die Installation unten
 scoop bucket add extras
 scoop install windows-terminal         # empfohlen: das alte Konsolenfenster stellt sie schlecht dar
 uv tool install git+https://github.com/ltdan-88/teetime-monitor
@@ -296,7 +300,8 @@ teetime-monitor                        # im Windows Terminal
 ```
 
 Aktualisieren mit `uv tool upgrade teetime-monitor`. Kein Scoop? `winget install astral-sh.uv
---scope user` oder der [uv-Installer](https://docs.astral.sh/uv/) gehen genauso.
+--scope user` oder der [uv-Installer](https://docs.astral.sh/uv/) gehen genauso — dazu
+`winget install --id Git.Git -e --scope user`, denn `uv tool install git+…` braucht git.
 
 Der Zustand liegt in `%APPDATA%\teetime-monitor` (Clubs, Login, Präferenzen) und
 `%LOCALAPPDATA%\teetime-monitor` (Scrape-Verlauf); `TEETIME_MONITOR_CONFIG_DIR` /
@@ -304,16 +309,38 @@ Der Zustand liegt in `%APPDATA%\teetime-monitor` (Clubs, Login, Präferenzen) un
 `.env`-Datei — auf einem gemeinsam genutzten oder verwalteten PC sollte man das bedenken.
 
 Für zusätzliches Scrapen im Hintergrund braucht eine geplante Aufgabe pro Benutzer keine
-Admin-Rechte (sie läuft, solange du angemeldet bist):
+Admin-Rechte (sie läuft, solange du angemeldet bist, auch im Akkubetrieb). `conhost
+--headless` verhindert, dass sich alle 15 Minuten ein Konsolenfenster öffnet, und die
+Ausgabe landet in einer Logdatei:
 
 ```powershell
 $exe = Join-Path (uv tool dir --bin) "teetime-monitor-scrape.exe"
-schtasks /Create /SC MINUTE /MO 15 /TN "teetime-monitor-scrape" /TR "`"$exe`""
-# wieder entfernen: schtasks /Delete /TN "teetime-monitor-scrape" /F
+$log = Join-Path $env:LOCALAPPDATA "teetime-monitor\scrape.log"
+New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+$action   = New-ScheduledTaskAction -Execute "conhost.exe" `
+              -Argument "--headless cmd.exe /s /c `"`"$exe`" >> `"$log`" 2>&1`""
+$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+              -RepetitionInterval (New-TimeSpan -Minutes 15)
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+              -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName "teetime-monitor-scrape" -Action $action `
+    -Trigger $trigger -Settings $settings
+# wieder entfernen: Unregister-ScheduledTask -TaskName "teetime-monitor-scrape" -Confirm:$false
 ```
 
+Ist `scrape.log` leer, gab es keine Fehler.
+
 Prüft deine Firma den HTTPS-Verkehr und der Start scheitert mit einem Zertifikatsfehler,
-verweise die App auf das CA-Bundle der Firma: `$env:SSL_CERT_FILE = "C:\pfad\ca-bundle.pem"`.
+verweise die App über eine Umgebungsvariable pro Benutzer (ohne Admin) auf das CA-Bundle
+der Firma — dann sehen sie auch neue Terminals und die geplante Aufgabe, nicht nur das
+aktuelle Fenster:
+
+```powershell
+[Environment]::SetEnvironmentVariable("SSL_CERT_FILE", "C:\pfad\ca-bundle.pem", "User")
+```
+
+Danach ein neues Terminal öffnen; einmal ab- und wieder anmelden, damit auch die geplante
+Aufgabe sie übernimmt.
 
 ### Aus dem Quellcode
 
@@ -368,8 +395,8 @@ nicht als Fehler. Club-ID am besten mit dem eigenen Buchungslink abgleichen.
 
 **Das Wetter stimmt nicht.** Die Koordinaten stammen aus einer Namenssuche bei
 OpenStreetMap und werden nach dem ersten Treffer zwischengespeichert — nah dran, aber
-nicht zwingend das Clubhaus selbst. Exakt wird es über `location:` in
-`clubs/<id>.yaml`.
+nicht zwingend das Clubhaus selbst. Exakt wird es über `location:` in der Datei des
+Clubs unter `~/.config/teetime-monitor/clubs/` (benannt nach dem Club).
 
 **Eine Buchung taucht nicht auf.** Bestätigte Buchungen kommen bei jedem geplanten
 Abruf aus „Meine Reservierungen", nicht in Echtzeit — **r** erzwingt es sofort. Eine

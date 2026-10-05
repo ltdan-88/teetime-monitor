@@ -92,7 +92,7 @@ def test_new_club_stub_fills_only_club_id():
     stub = new_club_stub("0000001")
     assert stub["club_id"] == "0000001"
     assert stub["default_course"] == ""
-    assert stub["default_date"] == "today"
+    assert "default_date" not in stub
 
 
 def test_new_club_stub_is_saveable_and_loadable(tmp_path):
@@ -132,7 +132,7 @@ def test_module_import_loads_the_one_fixed_dotenv(monkeypatch):
     load_dotenv_calls = []
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: load_dotenv_calls.append((a, k)))
     importlib.reload(club_config_module)
-    assert load_dotenv_calls == [((paths.ENV_FILE,), {})]
+    assert load_dotenv_calls == [((paths.ENV_FILE,), {"interpolate": False})]
 
 
 def test_env_file_is_not_relative_to_the_working_directory():

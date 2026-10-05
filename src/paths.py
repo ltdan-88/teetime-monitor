@@ -104,6 +104,39 @@ def ensure_dirs() -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+def atomic_write_text(path: Path, text: str, mode: int | None = None) -> None:
+    """Replace `path` with `text` all at once: write a temp file beside it, fsync,
+    then `os.replace()`. A plain `open("w")` truncates first, so a crash, a full disk
+    or a reader in another process (the background scrape, the GUI) could see an
+    empty or half-written file -- an empty club YAML loads as `{}` and the club drops
+    out of favorites. The GUI already writes these same files atomically.
+
+    `mode` sets the permission bits (0o600 for `.env`); without it an existing file
+    keeps its own mode and a new one gets 0o644. Ignored on Windows."""
+    import contextlib
+    import stat
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if mode is None:
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
+    # mkstemp creates the file 0600, so a credentials file is never readable by
+    # others even for the moment before the chmod below.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        if sys.platform != "win32":
+            os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+
+
 # --- Migration off the old working-directory layout ---------------------------------
 
 LEGACY_CLUBS_DIR = Path("clubs")
@@ -111,13 +144,81 @@ LEGACY_DATA_DIR = Path("data")
 LEGACY_ENV_FILE = Path(".env")
 
 
+def _migration_marker() -> Path:
+    """Written once the old layout is settled (migrated, or the new location found
+    already set up). Resolved at call time so tests that patch CONFIG_DIR reach it."""
+    return CONFIG_DIR / ".migrated"
+
+
+def _legacy_clubs(directory: Path) -> list[Path]:
+    """Saved-club YAMLs in an old `clubs/` folder: any *.yaml except the repo's
+    template that has a top-level `club_id:` key."""
+    clubs_dir = directory / LEGACY_CLUBS_DIR
+    if not clubs_dir.is_dir():
+        return []
+    found = []
+    for club in sorted(clubs_dir.glob("*.yaml")):
+        if club.name == "club.example.yaml" or not club.is_file():
+            continue  # a template shipped with the repo, not anyone's saved club
+        try:
+            text = club.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if any(line.startswith("club_id:") for line in text.splitlines()):
+            found.append(club)
+    return found
+
+
+def _is_teetime_db(path: Path) -> bool:
+    """A SQLite file with this app's `scrapes` table. Opened read-only."""
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scrapes'").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
+
+def _legacy_data_files(directory: Path) -> list[Path]:
+    """The old `data/` folder's databases (only ones with a `scrapes` table) and,
+    when at least one such database is there, the JSON caches beside them."""
+    data_dir = directory / LEGACY_DATA_DIR
+    if not data_dir.is_dir():
+        return []
+    files = sorted(item for item in data_dir.iterdir() if item.is_file())
+    databases = [item for item in files if item.suffix == ".db" and _is_teetime_db(item)]
+    if not databases:
+        return []
+    return databases + [item for item in files if item.suffix == ".json"]
+
+
+def _legacy_env_file(directory: Path) -> Path | None:
+    """An old `.env` that holds pc caddie credentials (a PCC_USER/PCC_PASS key)."""
+    env = directory / LEGACY_ENV_FILE
+    if not env.is_file():
+        return None
+    try:
+        text = env.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in text.splitlines():
+        key = line.strip().partition("=")[0].strip().removeprefix("export ").strip()
+        if key.startswith(("PCC_USER", "PCC_PASS")):  # `export KEY=` is valid dotenv too
+            return env
+    return None
+
+
 def legacy_state_in(directory: Path) -> bool:
     """Does `directory` look like a pre-2026-09-17 install — i.e. does it hold state
-    this app would previously have read from there?"""
-    return any(
-        (directory / legacy).exists()
-        for legacy in (LEGACY_CLUBS_DIR, LEGACY_DATA_DIR, LEGACY_ENV_FILE)
-    )
+    this app would previously have read from there? Checks contents, not just names:
+    any web project has a `.env` and a `data/` folder, and copying those in would
+    load someone else's secrets into every run."""
+    return bool(_legacy_clubs(directory) or _legacy_data_files(directory) or _legacy_env_file(directory))
 
 
 def needs_migration(cwd: Path | None = None) -> bool:
@@ -127,10 +228,25 @@ def needs_migration(cwd: Path | None = None) -> bool:
     Deliberately conservative on both halves: it never fires once the new location has
     any clubs in it (so it can't overwrite a real setup), and never fires in a directory
     that has no old state (so an ordinary run from an unrelated directory says nothing).
+    It also never fires again after a migration: favorites are optional, so "no clubs
+    saved" alone would otherwise re-import clubs the user has since removed.
     """
-    cwd = cwd if cwd is not None else Path.cwd()
+    if _migration_marker().exists():
+        return False
     already_set_up = CLUBS_DIR.exists() and any(CLUBS_DIR.glob("*.yaml"))
-    return not already_set_up and legacy_state_in(cwd)
+    if already_set_up:
+        _write_migration_marker()
+        return False
+    cwd = cwd if cwd is not None else Path.cwd()
+    return legacy_state_in(cwd)
+
+
+def _write_migration_marker() -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        _migration_marker().write_text("", encoding="utf-8")
+    except OSError:
+        pass  # only an optimisation; the content checks still apply without it
 
 
 def migrate_from(cwd: Path | None = None) -> list[str]:
@@ -153,29 +269,26 @@ def migrate_from(cwd: Path | None = None) -> list[str]:
     ensure_dirs()
     moved: list[str] = []
 
-    for club in sorted((cwd / LEGACY_CLUBS_DIR).glob("*.yaml")) if (cwd / LEGACY_CLUBS_DIR).is_dir() else []:
-        if club.name == "club.example.yaml":
-            continue  # a template shipped with the repo, not anyone's saved club
+    for club in _legacy_clubs(cwd):
         target = CLUBS_DIR / club.name
         if not target.exists():
             shutil.copy2(club, target)
             moved.append(f"club {club.stem}")
 
-    legacy_data = cwd / LEGACY_DATA_DIR
-    if legacy_data.is_dir():
-        for item in sorted(legacy_data.iterdir()):
-            if item.suffix not in {".db", ".json"} or not item.is_file():
-                continue  # skip backups, journals, anything not real state
-            target = DATA_DIR / item.name
-            if not target.exists():
-                shutil.copy2(item, target)
-                moved.append(f"{item.name} ({item.stat().st_size // 1024} KB)")
+    # Only .db files with this app's tables (and the JSON caches beside them) --
+    # skips backups, journals, and anything that isn't real state.
+    for item in _legacy_data_files(cwd):
+        target = DATA_DIR / item.name
+        if not target.exists():
+            shutil.copy2(item, target)
+            moved.append(f"{item.name} ({item.stat().st_size // 1024} KB)")
 
-    legacy_env = cwd / LEGACY_ENV_FILE
-    if legacy_env.is_file() and not ENV_FILE.exists():
+    legacy_env = _legacy_env_file(cwd)
+    if legacy_env is not None and not ENV_FILE.exists():
         shutil.copy2(legacy_env, ENV_FILE)
         if sys.platform != "win32":  # no POSIX permission bits on Windows
             ENV_FILE.chmod(0o600)  # it holds credentials; the old one may have been 644
         moved.append("credentials (.env)")
 
+    _write_migration_marker()
     return moved

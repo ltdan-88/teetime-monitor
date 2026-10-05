@@ -48,6 +48,8 @@ def test_config_to_widget_values_uses_defaults_on_empty_config():
     )
     assert values[_id("scrape_interval_minutes")] == str(DEFAULT_SCRAPE_INTERVAL_MINUTES)
     assert values[_id("availability", "weekday_window", "after")] == ""
+    # The same 0 recommend.py falls back to for a missing key (and the GUI shows).
+    assert values[_id("daylight_buffer_minutes")] == "0"
 
 
 def test_config_to_widget_values_reflects_existing_config():
@@ -990,3 +992,79 @@ def test_action_fields_have_no_value_to_round_trip(tmp_path):
     values = config_to_widget_values({}, action_fields)
     assert values == {}
     assert widget_values_to_config({"units": "metric"}, {}, action_fields) == {"units": "metric"}
+
+
+# --- Review fixes ------------------------------------------------------------------
+
+
+def test_save_keeps_keys_written_to_the_file_after_the_screen_opened(tmp_path):
+    # The AI provider sub-screen (or the GUI) writes preferences.yaml while this
+    # screen is open -- Save must merge onto the file as it is now, not onto the copy
+    # loaded in __init__, or ai_assist.provider is silently dropped.
+    from textual.widgets import Switch
+
+    preferences_file = tmp_path / "preferences.yaml"
+    global_preferences.save_preferences({"ai_assist": {"enabled": False}}, preferences_file)
+
+    async def scenario():
+        app = _HostApp(AppSettingsScreen(preferences_file))
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            # What AICredentialsScreen._save() does behind this screen's back.
+            prefs = global_preferences.load_preferences(preferences_file)
+            prefs["ai_assist"]["provider"] = "openai"
+            global_preferences.save_preferences(prefs, preferences_file)
+
+            app.screen.query_one(f"#{_id('ai_assist', 'enabled')}", Switch).value = True
+            await pilot.click("#save")
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+    saved = global_preferences.load_preferences(preferences_file)
+    assert saved["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False, "provider": "openai"}
+
+
+def test_config_to_widget_values_turns_an_unquoted_yaml_time_back_into_hh_mm():
+    # `after: 17:00` unquoted loads as the base-60 int 1020 -- shown (and so saved
+    # back) as "17:00", never as an hour of "1020".
+    from src import yaml_util
+
+    config = yaml_util.safe_load("availability:\n  weekday_window: {after: 17:00, before: 7:30}\n")
+    values = config_to_widget_values(config)
+    assert values[_id("availability", "weekday_window", "after")] == "17:00"
+    assert values[_id("availability", "weekday_window", "before")] == "07:30"
+
+
+def test_per_club_rows_use_the_club_passed_in_not_the_first_saved_one(tmp_path, monkeypatch):
+    # Player directory and Your handicap read per-club DBs -- with a club open they
+    # must follow it, falling back to the first saved club only when none is given.
+    from textual.widgets import Static
+
+    from src import settings_screen, storage
+    from src.known_players_screen import KnownPlayersScreen
+
+    db_paths = {"first": tmp_path / "first.db", "viewed": tmp_path / "viewed.db"}
+    storage.save_my_handicap(12.5, path=db_paths["first"])
+    storage.save_my_handicap(36.0, path=db_paths["viewed"])
+    monkeypatch.setattr(settings_screen, "_any_favorite_club_id", lambda: "first")
+    monkeypatch.setattr(settings_screen, "_db_path", lambda club_id: db_paths[club_id])
+    preferences_file = tmp_path / "preferences.yaml"
+
+    async def scenario(club_id):
+        app = _HostApp(SettingsScreen(preferences_file, club_id=club_id))
+        async with app.run_test(size=(120, 120)) as pilot:
+            await pilot.pause()
+            texts = {str(s.content) for s in app.screen.query(Static)}
+            await pilot.click(f"#{_id('__player_directory__')}")
+            await pilot.pause()
+            assert isinstance(app.screen, KnownPlayersScreen)
+            return texts, app.screen.club_id
+
+    texts, opened_for = asyncio.run(scenario("viewed"))
+    assert "36" in texts and "12.5" not in texts
+    assert opened_for == "viewed"
+
+    texts, opened_for = asyncio.run(scenario(None))
+    assert "12.5" in texts
+    assert opened_for == "first"

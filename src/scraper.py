@@ -490,11 +490,15 @@ def login(club_id: str, username: str, password: str) -> httpx.Client:
     """
     client = httpx.Client(timeout=15, follow_redirects=True)
     url = club_url(club_id, "start")
-    response = client.post(url, data={"service": "login", "rq[login]": username, _PASSWORD_FIELD: password})
-    if _PASSWORD_FIELD in response.text:
+    try:
+        response = client.post(url, data={"service": "login", "rq[login]": username, _PASSWORD_FIELD: password})
+        if _PASSWORD_FIELD in response.text:
+            raise LoginError(f"Login failed for club {club_id} — check PCC_USER/PCC_PASS in .env.")
+        response.raise_for_status()
+    except BaseException:
+        # A transport error or 5xx must not leak the client -- only a success hands it on.
         client.close()
-        raise LoginError(f"Login failed for club {club_id} — check PCC_USER/PCC_PASS in .env.")
-    response.raise_for_status()
+        raise
     return client
 
 
@@ -526,7 +530,16 @@ def _holes_from_course_label(course: str) -> int | None:
     way, which is why this matches on the leading digits alone rather than requiring
     "Loch" immediately after them. Returns None (not a wrong guess) for a name with
     no leading number at all, e.g. Sonnenberg's "Kurzplatz" (a short/pitch-and-putt
-    course) — genuinely unknown, not assumed to be any particular hole count."""
+    course) — genuinely unknown, not assumed to be any particular hole count.
+
+    Newer clubs put the count elsewhere ("Tee 10 (9 Loch)", "Kurzplatz: 6 Loch",
+    "18-Loch Schleife (nur erste 9-Loch)"), so an explicit "N Loch"/"N-Loch" mention
+    wins over the leading digits, and the smallest one wins when there are several
+    (the parenthesised part narrows the loop). Leading digits stay the fallback.
+    Mirrored by `Store.holes(from:)` in macos/Sources/Store.swift."""
+    mentions = re.findall(r"(\d+)\s*-?\s*Loch", course, flags=re.IGNORECASE)
+    if mentions:
+        return min(int(m) for m in mentions)
     match = re.match(r"(\d+)", course)
     return int(match.group(1)) if match else None
 

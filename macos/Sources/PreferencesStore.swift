@@ -74,8 +74,12 @@ struct Preferences {
         p.weekdayBefore = avail?["weekday_window"]?["before"]?.asString
         p.weekendAfter = avail?["weekend_window"]?["after"]?.asString
         p.weekendBefore = avail?["weekend_window"]?["before"]?.asString
-        p.bufferBeforeMinutes = avail?["buffer_before_minutes"]?.asInt ?? p.bufferBeforeMinutes
-        p.bufferAfterMinutes = avail?["buffer_after_minutes"]?.asInt ?? p.bufferAfterMinutes
+        // Falls back to the old single `buffer_minutes` key, same as
+        // `search.resolve_buffer_minutes()` -- otherwise a pre-split file showed 0/0
+        // here and the next save wrote those zeros over a real buffer.
+        let legacyBuffer = avail?["buffer_minutes"]?.asInt
+        p.bufferBeforeMinutes = avail?["buffer_before_minutes"]?.asInt ?? legacyBuffer ?? p.bufferBeforeMinutes
+        p.bufferAfterMinutes = avail?["buffer_after_minutes"]?.asInt ?? legacyBuffer ?? p.bufferAfterMinutes
 
         let prefs = root["preferences"]
         p.avoidRain = prefs?["avoid_rain"]?.asBool ?? p.avoidRain
@@ -120,9 +124,19 @@ struct Preferences {
             if let i = root.firstIndex(where: { $0.0 == key }) { root[i].1 = value } else { root.append((key, value)) }
         }
 
-        var availabilityPairs: [(String, YAMLValue)] = [
-            ("min_open_spots", .int(minOpenSpots)),
-        ]
+        // Merged into the existing availability map like `preferences`/`ai_assist`
+        // below, so a key this struct doesn't model survives a save.
+        var availabilityPairs: [(String, YAMLValue)] = existing["availability"]?.asMap ?? []
+        func setAvail(_ key: String, _ value: YAMLValue?) {
+            let i = availabilityPairs.firstIndex(where: { $0.0 == key })
+            switch (i, value) {
+            case let (i?, value?): availabilityPairs[i].1 = value
+            case let (nil, value?): availabilityPairs.append((key, value))
+            case let (i?, nil): availabilityPairs.remove(at: i)
+            case (nil, nil): break
+            }
+        }
+        setAvail("min_open_spots", .int(minOpenSpots))
         // Omitted entirely, not written as `{}`, when both sides are unset --
         // verified against recommend.default_criteria_from_config()'s own _window()
         // closure: an *absent* key returns None (day type not configured, skipped),
@@ -130,14 +144,15 @@ struct Preferences {
         // unrestricted TimeWindow (any time matches). Those are different outcomes,
         // and writing `{}` here would have silently turned "no weekend rules set"
         // into "any weekend time is fine" -- caught before shipping, not after.
-        if weekdayAfter != nil || weekdayBefore != nil {
-            availabilityPairs.append(("weekday_window", .map(windowPairs(after: weekdayAfter, before: weekdayBefore))))
-        }
-        if weekendAfter != nil || weekendBefore != nil {
-            availabilityPairs.append(("weekend_window", .map(windowPairs(after: weekendAfter, before: weekendBefore))))
-        }
-        availabilityPairs.append(("buffer_before_minutes", .int(bufferBeforeMinutes)))
-        availabilityPairs.append(("buffer_after_minutes", .int(bufferAfterMinutes)))
+        setAvail("weekday_window", weekdayAfter != nil || weekdayBefore != nil
+                 ? .map(windowPairs(after: weekdayAfter, before: weekdayBefore)) : nil)
+        setAvail("weekend_window", weekendAfter != nil || weekendBefore != nil
+                 ? .map(windowPairs(after: weekendAfter, before: weekendBefore)) : nil)
+        setAvail("buffer_before_minutes", .int(bufferBeforeMinutes))
+        setAvail("buffer_after_minutes", .int(bufferAfterMinutes))
+        // Both directions are written explicitly now, so the pre-split key is
+        // dropped -- what settings_screen.widget_values_to_config() does too.
+        setAvail("buffer_minutes", nil)
         setTop("availability", .map(availabilityPairs))
 
         var prefsPairs: [(String, YAMLValue)] = existing["preferences"]?.asMap ?? []

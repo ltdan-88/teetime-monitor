@@ -1,3 +1,4 @@
+import Foundation
 @testable import TeetimeMonitorCore
 
 func runFormattingTests() {
@@ -5,6 +6,10 @@ func runFormattingTests() {
         testIconMapping()
         testFillColorThresholds()
         testWeekdayFormatting()
+        testHoursTextMatchesPythonG()
+        testISODateIsGregorianAndDSTSafe()
+        testDayPrecipitationMatchesTUI()
+        testSlotPrecipitationCell()
     }
 }
 
@@ -51,4 +56,66 @@ private func testWeekdayFormatting() {
     AppLanguage.shared.code = "en"
 
     Harness.checkEqual("an unparseable date passes through unchanged", weekday("not-a-date"), "not-a-date")
+}
+
+/// `f"{hours:g}"` -- quarter-hour round lengths keep both decimals (75 min was "1.2").
+private func testHoursTextMatchesPythonG() {
+    Harness.checkEqual("75 min", hoursText(75, language: "en"), "1.25")
+    Harness.checkEqual("105 min", hoursText(105, language: "en"), "1.75")
+    Harness.checkEqual("135 min, German comma", hoursText(135, language: "de"), "2,25")
+    Harness.checkEqual("90 min", hoursText(90, language: "en"), "1.5")
+    Harness.checkEqual("whole hours", hoursText(240, language: "en"), "4")
+}
+
+private func testISODateIsGregorianAndDSTSafe() {
+    // 2026-10-04 12:00 UTC.
+    let noon = Date(timeIntervalSince1970: 1_791_115_200)
+    Harness.checkEqual("today is Gregorian", ISODate.today(now: noon, timeZone: TimeZone(identifier: "UTC")!), "2026-10-04")
+    Harness.checkEqual("today follows the given zone",
+                        ISODate.today(now: noon, timeZone: TimeZone(identifier: "Pacific/Kiritimati")!), "2026-10-05")
+    Harness.checkEqual("adding crosses a month end", ISODate.adding(days: 2, to: "2026-10-31"), "2026-11-02")
+    // Santiago's clocks jump from 00:00 to 01:00 on 2026-09-06: local midnight
+    // doesn't exist, which made a local-time parse return nil.
+    Harness.check("a DST-at-midnight date still parses", ISODate.parse("2026-09-06") != nil)
+    Harness.checkEqual("and classifies as the Sunday it is",
+                        CalendarContext.classifyDay(date: "2026-09-06", holidays: [], vacationRanges: [], hasTournament: false),
+                        "weekend")
+    Harness.check("garbage doesn't parse", ISODate.parse("2026-13-45") == nil)
+}
+
+private func point(_ time: String, _ p: Double?, _ mm: Double? = nil, wind: Double? = nil) -> WeatherPoint {
+    WeatherPoint(time: time, precipitationProbability: p, precipitationMM: mm, windKPH: wind, temperatureC: nil, code: nil)
+}
+
+/// `tui._precipitation_cell()`: a missing probability counts as 0 in the average
+/// (not dropped), the total amount follows, and an all-wet day says so.
+private func testDayPrecipitationMatchesTUI() {
+    AppLanguage.shared.code = "en"
+    let hours = (8..<20).map { String(format: "%02d:00", $0) }
+    let half = Day(date: "2026-10-04", slots: [], weather: hours.enumerated().map { i, h in point(h, i < 6 ? 60 : nil) },
+                   sunrise: nil, sunset: nil, events: [], bookedTime: nil)
+    Harness.checkEqual("6x60% + 6xnull averages 30%, as the TUI does", half.precipAvg, 30)
+    Harness.checkEqual("cell text", half.precipitationCellText(units: "metric"), "30%")
+
+    let wet = Day(date: "2026-10-04", slots: [], weather: hours.map { point($0, 85, 0.35) },
+                  sunrise: nil, sunset: nil, events: [], bookedTime: nil)
+    Harness.check("every hour >= 70% is rain all day", wet.isRainAllDay)
+    Harness.checkEqual("rain all day text", wet.precipitationCellText(units: "metric"), "🌧 rain all day")
+
+    let mixed = Day(date: "2026-10-04", slots: [], weather: [point("09:00", 40, 1.2, wind: 31), point("13:00", 70, 3.0, wind: 12)],
+                    sunrise: nil, sunset: nil, events: [], bookedTime: nil)
+    Harness.checkEqual("flag + total mm", mixed.precipitationCellText(units: "metric"), "🌧 55%/4.2mm")
+    Harness.checkEqual("wind flag on the raw km/h peak", mixed.windCellText(units: "imperial"), "💨 19")
+
+    let nothing = Day(date: "2026-10-04", slots: [], weather: [point("07:00", 90)], sunrise: nil, sunset: nil,
+                      events: [], bookedTime: nil)
+    Harness.check("no daytime points -> no average", nothing.precipAvg == nil)
+    Harness.checkEqual("and an empty cell", nothing.precipitationCellText(units: "metric"), "")
+}
+
+private func testSlotPrecipitationCell() {
+    Harness.checkEqual("missing probability shows 0% with its amount",
+                        slotPrecipitationCellText(point("10:00", nil, 1.2), units: "metric"), "0%/1.2mm")
+    Harness.checkEqual("flagged", slotPrecipitationCellText(point("10:00", 50), units: "metric"), "🌧 50%")
+    Harness.checkEqual("no point", slotPrecipitationCellText(nil, units: "metric"), "")
 }

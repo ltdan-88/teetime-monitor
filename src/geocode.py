@@ -152,7 +152,10 @@ def find_club_country_code(club_name: str) -> str | None:
         results = response.json()
     except Exception:  # noqa: BLE001 — best-effort, see module docstring
         return None
-    if not results:
+    # A 200 can still carry a non-list body (Nominatim's own `{"error": ...}` shape, or a
+    # proxy's), or a first result/address that isn't an object -- each must stay a None.
+    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
         return None
-    code = results[0].get("address", {}).get("country_code")
+    address = results[0].get("address")
+    code = address.get("country_code") if isinstance(address, dict) else None
     return code.upper() if isinstance(code, str) and code else None

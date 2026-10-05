@@ -9,6 +9,8 @@ func runYAMLTests() {
         testCommentsAndBlankLinesIgnored()
         testDoubleQuotedUnicodeEscapeDecodes()
         testDoubleQuotedBasicEscapesDecode()
+        testDoubleQuotedHexEscapesDecode()
+        testScalarText()
     }
 }
 
@@ -95,4 +97,23 @@ private func testCommentsAndBlankLinesIgnored() {
     """)
     Harness.checkEqual("value after a comment line", parsed["name"]?.asString, "hello")
     Harness.checkEqual("value after a blank line", parsed["count"]?.asInt, 3)
+}
+
+/// PyYAML without `allow_unicode` writes Latin-1 characters as `\xXX` -- this used
+/// to come out as "WxFCrzburg".
+private func testDoubleQuotedHexEscapesDecode() {
+    let parsed = YAML.parse(#"""
+    a: "Golfclub W\xFCrzburg"
+    b: "\xDCbungsplatz \U0001F600"
+    c: "bad \xZZ"
+    """#)
+    Harness.checkEqual("\\xFC", parsed["a"]?.asString, "Golfclub Würzburg")
+    Harness.checkEqual("\\xDC and \\U", parsed["b"]?.asString, "Übungsplatz \u{1F600}")
+    Harness.checkEqual("a malformed escape stays visible", parsed["c"]?.asString, "bad \\xZZ")
+}
+
+private func testScalarText() {
+    Harness.checkEqual("single-quoted", YAML.scalarText(" 'It''s' "), "It's")
+    Harness.checkEqual("double-quoted", YAML.scalarText("\"Dom\\xE4ne\""), "Domäne")
+    Harness.checkEqual("plain", YAML.scalarText("  9 Loch Tee 1 "), "9 Loch Tee 1")
 }

@@ -72,7 +72,11 @@ def main(argv: list[str] | None = None) -> None:
 
     paths.ensure_dirs()
     if api_key:
-        env_file.set_env_values({env_var: api_key})
+        try:
+            env_file.set_env_values({env_var: api_key})
+        except ValueError:  # a line break in the key (e.g. pasted) -- can't go in .env
+            print(json.dumps({"saved": False, "reason": "bad_input"}))
+            sys.exit(1)
 
     prefs = global_preferences.load_preferences()
     ai_config = dict(prefs.get("ai_assist", {}))

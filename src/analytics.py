@@ -40,14 +40,17 @@ gracefully (empty dict/list, `None`) rather than erroring on a fresh database wi
 scrapes yet.
 """
 
+import json
+import sqlite3
+from contextlib import closing
 from datetime import date as date_cls
 from pathlib import Path
 
 from . import calendar_context
-from .models import DateRange
+from .models import DateRange, Slot
 from .storage import (
     DEFAULT_DB_PATH,
-    distinct_scraped_dates,
+    init_db,
     load_all_confirmed_bookings,
     load_latest_schedule,
 )
@@ -65,15 +68,49 @@ def _occupancy(slot) -> float | None:
     return slot.booked / slot.capacity
 
 
-def best_times_by_weekday(course: str, path: Path = DEFAULT_DB_PATH) -> dict[str, list[str]]:
+def _completed_days(
+    course: str, path: Path, today: str | None = None
+) -> list[tuple[str, list[str], list[Slot]]]:
+    """(date, events, slots) of the latest scrape for every date of `course` before
+    `today` (default: the local date), oldest first.
+
+    Today and later are left out: their latest scrape is a snapshot taken while
+    bookings are still coming in, so averaging it with finished days pulled every
+    "historical" number down and let a bucket reach the sample floor early.
+
+    One query for the whole history rather than a `load_latest_schedule()` per date
+    (each of which re-ran `init_db()`, opened its own connection and loaded weather
+    the heatmap never uses). `players` isn't read either -- occupancy only needs
+    `booked`/`capacity`/`block_reason`."""
+    cutoff = today or date_cls.today().isoformat()
+    init_db(path)
+    with closing(sqlite3.connect(path)) as conn:
+        rows = conn.execute(
+            "SELECT s.date, s.events, sl.time, sl.booked, sl.capacity, sl.block_reason "
+            "FROM scrapes s "
+            "JOIN (SELECT date, MAX(id) AS id FROM scrapes WHERE course = ? AND date < ? GROUP BY date) latest "
+            "ON s.id = latest.id "
+            "LEFT JOIN slots sl ON sl.scrape_id = s.id "
+            "ORDER BY s.date, sl.time",
+            (course, cutoff),
+        ).fetchall()
+    days: list[tuple[str, list[str], list[Slot]]] = []
+    for date, events_json, time, booked, capacity, block_reason in rows:
+        if not days or days[-1][0] != date:
+            days.append((date, json.loads(events_json) if events_json else [], []))
+        if time is not None:  # LEFT JOIN row for a scrape with no slots at all
+            days[-1][2].append(Slot(time=time, booked=booked, capacity=capacity, block_reason=block_reason))
+    return days
+
+
+def best_times_by_weekday(
+    course: str, path: Path = DEFAULT_DB_PATH, today: str | None = None
+) -> dict[str, list[str]]:
     """Rank each weekday's time slots by historical average occupancy (emptiest first)."""
     buckets: dict[str, dict[str, list[float]]] = {}
-    for date in distinct_scraped_dates(course, path):
-        schedule = load_latest_schedule(course, date, path)
-        if schedule is None:
-            continue
+    for date, _events, slots in _completed_days(course, path, today):
         weekday = date_cls.fromisoformat(date).strftime("%A")
-        for slot in schedule.slots:
+        for slot in slots:
             occupancy = _occupancy(slot)
             if occupancy is None:
                 continue
@@ -125,7 +162,7 @@ def personal_stats(my_name: str, path: Path = DEFAULT_DB_PATH) -> dict:
 
 
 def _crowd_buckets(
-    course: str, holidays: list[str], vacation_ranges: list[DateRange], path: Path
+    course: str, holidays: list[str], vacation_ranges: list[DateRange], path: Path, today: str | None = None
 ) -> tuple[dict[str, dict[str, list[float]]], dict[str, dict[str, list[float]]]]:
     """Raw per-hour occupancy samples, before averaging, split into the same two
     groups crowd_heatmap() returns: (by_weekday, special_days) — shared by
@@ -136,22 +173,23 @@ def _crowd_buckets(
     goes into `by_weekday`, keyed by its actual weekday name — a special day
     (calendar_context.SPECIAL_DAY_TYPES: tournament/public_holiday/vacation) goes into
     `special_days` instead, keyed by that type, and is *not* also counted toward its
-    weekday — see the module docstring for why."""
+    weekday — see the module docstring for why. Only finished days count (see
+    `_completed_days()`), and a day with routine block-time rows (lessons, groups)
+    stays an ordinary weekday (see `calendar_context.is_tournament_day()`)."""
     by_weekday: dict[str, dict[str, list[float]]] = {}
     special_days: dict[str, dict[str, list[float]]] = {}
-    for date in distinct_scraped_dates(course, path):
-        schedule = load_latest_schedule(course, date, path)
-        if schedule is None or not schedule.slots:
+    for date, events, slots in _completed_days(course, path, today):
+        if not slots:
             continue
         day_type = calendar_context.classify_day(
-            date, holidays, vacation_ranges, has_tournament=bool(schedule.events)
+            date, holidays, vacation_ranges, has_tournament=calendar_context.is_tournament_day(events, slots)
         )
         if day_type in calendar_context.SPECIAL_DAY_TYPES:
             target = special_days.setdefault(day_type, {})
         else:
             weekday = date_cls.fromisoformat(date).strftime("%A")
             target = by_weekday.setdefault(weekday, {})
-        for slot in schedule.slots:
+        for slot in slots:
             occupancy = _occupancy(slot)
             if occupancy is None:
                 continue
@@ -175,6 +213,7 @@ def crowd_heatmap(
     holidays: list[str],
     vacation_ranges: list[DateRange],
     path: Path = DEFAULT_DB_PATH,
+    today: str | None = None,
 ) -> dict[str, dict[str, dict[str, dict[str, float]]]]:
     """Historical average occupancy + sample count, as
     {"by_weekday": {"Monday": {"09": {"average": 0.4, "samples": 6}, ...}, ...,
@@ -206,10 +245,12 @@ def crowd_heatmap(
     `calendar.vacation_ranges`) rather than fetched here, so this stays a pure
     function over already-fetched inputs, consistent with how recommend.py takes
     already-fetched `schedules` rather than reaching for the network itself. A date's
-    own scraped `events` (from scraper.py's block_reason parsing) is what determines
-    `has_tournament` — no second tournament source needed here.
+    own scraped `events` (from scraper.py's block_reason parsing), read through
+    `calendar_context.is_tournament_day()`, is what determines `has_tournament` — no
+    second tournament source needed here. `today` (default: the local date) bounds
+    the history to finished days.
     """
-    by_weekday, special_days = _crowd_buckets(course, holidays, vacation_ranges, path)
+    by_weekday, special_days = _crowd_buckets(course, holidays, vacation_ranges, path, today)
     return {
         "by_weekday": _average_buckets(by_weekday),
         "special_days": _average_buckets(special_days),

@@ -451,3 +451,122 @@ def test_weather_worsened_params_use_keys_not_english_words():
     # translatable representation of the same fact.
     assert "rain chance" in changes[0].message
     assert "wind" in changes[0].message
+
+
+def test_rain_amount_alone_crossing_avoid_rain_mm_is_flagged():
+    # Probability unchanged; only the mm amount rises past the limit -- REASON_RAIN_AMOUNT
+    # must be read from precipitation_mm and compared against avoid_rain_mm, not prob_limit.
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=40, precipitation_mm=0.1)],
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=40, precipitation_mm=5.0)],
+    )
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20, buffer_after_minutes=20,
+        round_duration_minutes=240,
+        preferences={"avoid_rain": True, "avoid_rain_probability_percent": 50, "avoid_rain_mm": 1.0},
+    )
+
+    assert len(changes) == 1
+    assert changes[0].kind == WEATHER_WORSENED
+    assert changes[0].params["reason_keys"] == ["rain_amount"]
+    assert "rain amount" in changes[0].message
+
+
+def test_rain_amount_below_avoid_rain_mm_is_not_flagged():
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=40, precipitation_mm=0.1)],
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=40, precipitation_mm=0.8)],
+    )
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20, buffer_after_minutes=20,
+        round_duration_minutes=240,
+        preferences={"avoid_rain": True, "avoid_rain_probability_percent": 50, "avoid_rain_mm": 1.0},
+    )
+
+    assert changes == []
+
+
+def test_wind_alone_crossing_avoid_wind_kph_is_flagged():
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=10, wind_speed_kph=10)],
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=10, wind_speed_kph=45)],
+    )
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20, buffer_after_minutes=20,
+        round_duration_minutes=240,
+        preferences={"avoid_rain": True, "avoid_wind": True, "avoid_wind_kph": 30},
+    )
+
+    assert len(changes) == 1
+    assert changes[0].params["reason_keys"] == ["wind"]
+
+
+def test_weather_thresholds_cleared_to_null_fall_back_to_the_defaults():
+    # Settings writes a blank threshold field as null; that must read as the default
+    # (wind 30 kph here), not crash comparing against None.
+    baseline = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=10, precipitation_mm=0.0, wind_speed_kph=10)],
+    )
+    latest = _schedule(
+        [Slot(time="14:00", booked=1, capacity=4)],
+        weather=[WeatherPoint(time="14:00", precipitation_probability=10, precipitation_mm=0.0, wind_speed_kph=45)],
+    )
+
+    changes = check_for_changes(
+        BOOKING,
+        baseline,
+        latest,
+        buffer_before_minutes=20, buffer_after_minutes=20,
+        round_duration_minutes=240,
+        preferences={
+            "avoid_rain": True,
+            "avoid_wind": True,
+            "avoid_rain_probability_percent": None,
+            "avoid_rain_mm": None,
+            "avoid_wind_kph": None,
+        },
+    )
+
+    assert [change.params["reason_keys"] for change in changes] == [["wind"]]
+
+
+def test_empty_baseline_does_not_flag_already_occupied_neighbours():
+    # A table-less tee-sheet response saved as 0 slots must not make every neighbour that
+    # was already occupied look newly booked on the next good scrape.
+    baseline = _schedule([])
+    latest = _schedule(
+        [
+            Slot(time="13:50", booked=4, capacity=4),
+            Slot(time="14:00", booked=1, capacity=4),
+            Slot(time="14:10", booked=3, capacity=4),
+        ]
+    )
+
+    changes = check_for_changes(BOOKING, baseline, latest, buffer_before_minutes=20, buffer_after_minutes=20, round_duration_minutes=240)
+
+    assert changes == []

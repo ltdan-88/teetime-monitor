@@ -6,7 +6,50 @@ func runAnalyticsTests() {
         testBlockedSlotsExcluded()
         testTournamentGoesToSpecialDaysNotByWeekday()
         testCrossCheckAgainstPythonReference()
+        testTodayAndFutureDatesAreLeftOut()
+        testRoutineGroupBlockStaysInItsWeekday()
     }
+}
+
+/// Mirrors analytics._completed_days(): today's and later scrapes are snapshots
+/// still filling up, so only earlier dates count.
+private func testTodayAndFutureDatesAreLeftOut() {
+    let dir = TempDir()
+    let db = dir.file("club.db")
+    makeTestDB(db)
+    exec(db, """
+        INSERT INTO scrapes (id, course, date, scraped_at, events) VALUES
+            (1, '18 Loch', '2026-09-21', '2026-09-21T20:00:00', '[]'),
+            (2, '18 Loch', '2026-09-28', '2026-09-28T08:00:00', '[]'),
+            (3, '18 Loch', '2026-10-05', '2026-09-28T08:00:00', '[]');
+        INSERT INTO slots (scrape_id, time, booked, capacity, players, block_reason) VALUES
+            (1, '09:00', 4, 4, '[]', NULL),
+            (2, '09:00', 0, 4, '[]', NULL),
+            (3, '09:00', 0, 4, '[]', NULL);
+        """)
+    let heatmap = Analytics.crowdHeatmap(dbPath: db, course: "18 Loch", holidays: [], vacationRanges: [],
+                                         today: "2026-09-28")
+    let bucket = heatmap.byWeekday["Monday"]?["09"]
+    Harness.checkEqual("only the finished Monday counts", bucket?.samples, 1)
+    Harness.checkClose("its average is unaffected by today's snapshot", bucket?.average ?? -1, 1.0, tolerance: 1e-9)
+}
+
+private func testRoutineGroupBlockStaysInItsWeekday() {
+    let dir = TempDir()
+    let db = dir.file("club.db")
+    makeTestDB(db)
+    exec(db, """
+        INSERT INTO scrapes (id, course, date, scraped_at, events) VALUES
+            (1, '18 Loch', '2026-09-15', '2026-09-15T20:00:00', '["Dienstag-Ladies"]');
+        INSERT INTO slots (scrape_id, time, booked, capacity, players, block_reason) VALUES
+            (1, '09:00', 4, 4, '[]', 'Dienstag-Ladies'),
+            (1, '10:00', 2, 4, '[]', NULL),
+            (1, '11:00', 2, 4, '[]', NULL);
+        """)
+    let heatmap = Analytics.crowdHeatmap(dbPath: db, course: "18 Loch", holidays: [], vacationRanges: [])
+    Harness.check("a routine group block is not a tournament day", heatmap.specialDays.isEmpty)
+    Harness.checkClose("the day stays under Tuesday", heatmap.byWeekday["Tuesday"]?["10"]?.average ?? -1, 0.5,
+                       tolerance: 1e-9)
 }
 
 private func testBasicAveraging() {

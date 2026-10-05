@@ -20,6 +20,9 @@ struct TeetimeMonitorApp: App {
         }
         .defaultSize(width: 860, height: 680)
         .commands {
+            // No File ▸ New Window: it claimed ⌘N ahead of Add Club, and a second
+            // window would re-point every AppCommands closure at itself.
+            CommandGroup(replacing: .newItem) {}
             // A real menu, not just a working shortcut -- see AppCommands' own
             // docstring for why this exists. A new top-level "Actions" menu (not
             // folded into an existing one) so these four are easy to find as a
@@ -37,7 +40,7 @@ struct TeetimeMonitorApp: App {
                     .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button(t("menu.player_directory")) { AppCommands.shared.onPlayerDirectory?() }
                     .keyboardShortcut("p", modifiers: .command)
-                Button(t("menu.legend")) { AppCommands.shared.legendShown.toggle() }
+                Button(t("menu.legend")) { AppCommands.shared.onLegend?() }
                     .keyboardShortcut("/", modifiers: .command)
                 Divider()
                 Button(t("menu.preferences")) { AppCommands.shared.onPreferences?() }

@@ -142,3 +142,44 @@ def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch
     assert result["2026-09-27"] == {
         "time": "09:10", "score": 90.0, "reasons": ["dry", "calm"], "window": {"after": None, "before": None},
     }
+
+
+def test_club_slug_merges_that_clubs_own_yaml(tmp_path, capsys):
+    # PicksClient.swift always passes --club-slug when a club is selected; the
+    # club's own file (here an older per-club `availability` block) must apply.
+    from src import club_config
+
+    club_config.CLUBS_DIR.mkdir(parents=True, exist_ok=True)
+    (club_config.CLUBS_DIR / "musterhausen.yaml").write_text(
+        "club_id: '0000001'\navailability:\n  weekend_window: {after: '09:00'}\n", encoding="utf-8"
+    )
+    db = tmp_path / "club.db"
+    save_schedule(Schedule(date="2026-09-27", course="18 Loch Tee 1", slots=[  # a Sunday
+        Slot(time="08:30", booked=0, capacity=4),  # before the club's window
+        Slot(time="09:10", booked=0, capacity=4),
+    ]), path=db)
+
+    result, code = _run(capsys, [
+        "--db-path", str(db), "--course", "18 Loch Tee 1", "--club-slug", "musterhausen",
+        "--from", "2026-09-27", "--days", "1",
+    ])
+
+    assert code == 0
+    assert result["2026-09-27"]["time"] == "09:10"
+    assert result["2026-09-27"]["window"] == {"after": "09:00", "before": None}
+
+
+def test_unknown_club_slug_falls_back_to_global_settings_and_still_exits_0(tmp_path, capsys):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(Schedule(date="2026-09-27", course="18 Loch Tee 1", slots=[
+        Slot(time="08:30", booked=0, capacity=4),
+    ]), path=db)
+
+    result, code = _run(capsys, [
+        "--db-path", str(db), "--course", "18 Loch Tee 1", "--club-slug", "no-such-club",
+        "--from", "2026-09-27", "--days", "1",
+    ])
+
+    assert code == 0
+    assert result["2026-09-27"]["time"] == "08:30"

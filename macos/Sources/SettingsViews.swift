@@ -327,7 +327,9 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var uiLanguage = AppLanguage.shared
     @StateObject private var units = Box(Preferences.load().units)
-    @StateObject private var language = Box(UserConfig.value("LANG") ?? "en")
+    // The normalised code the app is showing, not the raw LANG= value: a hand-edited
+    // "de_DE.UTF-8" is no Picker tag and, saved back, switched the GUI to English.
+    @StateObject private var language = Box(AppLanguage.shared.code)
     // Seeded from the shared instance, not UserConfig directly, so this always starts
     // on whatever the app is actually showing right now -- matters the second time
     // this sheet opens in one session, after a theme change already happened live.
@@ -571,6 +573,9 @@ struct SettingsSheet: View {
                         p.aiAssistEnabled = aiAssistEnabled.value
                         p.avoidPredictedCrowd = avoidPredictedCrowd.value
                         try p.save()
+                        // The freshness dot's threshold follows these (otherwise
+                        // re-read only on the next load()).
+                        model.scrapeIntervals = (p.scrapeIntervalMinutes, p.scrapeIntervalMinutesBooked)
                         // Persisting alone changed nothing on screen before this --
                         // the app saved `units` correctly and then never read it
                         // back (see Units.swift). This is the line that actually

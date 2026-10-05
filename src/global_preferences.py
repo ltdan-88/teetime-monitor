@@ -47,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-from . import user_config, yaml_util
+from . import paths, user_config, yaml_util
 
 CONFIG_DIR = user_config.CONFIG_DIR
 PREFERENCES_FILE = CONFIG_DIR / "preferences.yaml"
@@ -81,15 +81,18 @@ def save_preferences(config: dict, path: Path | None = None) -> None:
     `save_directory()` — the first write anywhere under that directory can't assume
     it already exists)."""
     resolved = path if path is not None else PREFERENCES_FILE
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    with resolved.open("w", encoding="utf-8") as f:
+    # Atomic (temp file + rename, creating the directory too): the background scrape
+    # reads this file, and a half-written one would run that pass on defaults.
+    paths.atomic_write_text(
+        resolved,
         # allow_unicode=True -- same fix as club_config.save_club_config(), same
         # reason: preferences.yaml has no non-ASCII fields today, but this file is
         # also re-written wholesale by the Swift GUI's own PreferencesStore.save()
         # any time either app saves, so leaving this the ASCII-escaping default
         # would just be a bug waiting for the first field (a club-specific note,
         # say) that actually needs it.
-        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+    )
 
 
 def load_last_active_club(config_file: Path | None = None) -> dict | None:
@@ -134,6 +137,7 @@ def save_last_active_club(club_id: str, slug: str | None, course: str, config_fi
     mid-session updates what a later relaunch resumes into rather than freezing on
     whatever was first opened."""
     resolved = config_file if config_file is not None else user_config.CONFIG_FILE
-    user_config.save_value("LAST_CLUB_ID", club_id, resolved)
-    user_config.save_value("LAST_CLUB_SLUG", slug or "", resolved)
-    user_config.save_value("LAST_COURSE", course, resolved)
+    # One write for all three, so a reader never sees a new club with an old course.
+    user_config.save_values(
+        {"LAST_CLUB_ID": club_id, "LAST_CLUB_SLUG": slug or "", "LAST_COURSE": course}, resolved
+    )

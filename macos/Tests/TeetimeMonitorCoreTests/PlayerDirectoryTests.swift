@@ -151,3 +151,51 @@ private func testFriendSortPutsFriendsFirst() {
                        ascending.map { $0.name }, ["Anna Zeller", "Bernd Adler", "Claus Bauer"])
     Harness.check("reversed friend sort puts friends last", Array(ascending.reversed()).last?.name == "Anna Zeller")
 }
+
+private func hcpPlayer(_ name: String, _ handicap: Double?, gender: String? = nil) -> KnownPlayer {
+    KnownPlayer(name: name, lastSeen: "2026-09-27T10:00:00+00:00", isFriend: false,
+                gender: gender, memberStatus: nil, handicap: handicap)
+}
+
+func runPlayerDirectoryReviewFixTests() {
+    Harness.group("PlayerDirectory review fixes") {
+        // Descending HCP flips the values only; no-handicap players stay last.
+        let players = [hcpPlayer("Abel A", 20), hcpPlayer("Nil N", nil), hcpPlayer("Mia M", 10)]
+        Harness.checkEqual("ascending HCP: nil last",
+                           sortedPlayers(players, by: .handicap, reversed: false).map(\.name),
+                           ["Mia M", "Abel A", "Nil N"])
+        Harness.checkEqual("descending HCP: highest first, nil still last",
+                           sortedPlayers(players, by: .handicap, reversed: true).map(\.name),
+                           ["Abel A", "Mia M", "Nil N"])
+        Harness.checkEqual("other fields still reverse wholesale",
+                           sortedPlayers(players, by: .name, reversed: true).map(\.name),
+                           ["Nil N", "Mia M", "Abel A"])
+
+        // ß folds to "ss" like Python's casefold(): Heßlinger before Heusel, Weiß
+        // beside Weiss rather than after Weiss-Freisinger.
+        let names = [hcpPlayer("Martin Heusel", nil), hcpPlayer("Thomas Heßlinger", nil),
+                     hcpPlayer("Reinhilde Weiss-Freisinger", nil), hcpPlayer("Cornelie Weiß", nil)]
+        Harness.checkEqual("A-Z order matches the TUI's casefold",
+                           sortedPlayers(names, by: .name, reversed: false).map(\.name),
+                           ["Thomas Heßlinger", "Martin Heusel", "Cornelie Weiß", "Reinhilde Weiss-Freisinger"])
+
+        // A player with no gender groups first, not mixed in by family name.
+        let gendered = [hcpPlayer("Anna Adler", nil, gender: "male"), hcpPlayer("Zoe Zimmer", nil),
+                        hcpPlayer("Bea Bauer", nil, gender: "female")]
+        Harness.checkEqual("gender sort: unknown gender first, then by gender",
+                           sortedPlayers(gendered, by: .gender, reversed: false).map(\.name),
+                           ["Zoe Zimmer", "Bea Bauer", "Anna Adler"])
+
+        Harness.checkEqual("uniqueLetters keeps first occurrences",
+                           uniqueLetters(["#", "A", "B", "A", "#"]), ["#", "A", "B"])
+
+        // A booking before the sunrise row has no rendered row to jump to.
+        let d = Day(date: "2026-12-20",
+                    slots: [Slot(time: "08:00", booked: 1, capacity: 4, blockReason: nil, players: ["Anna Bauer"]),
+                            Slot(time: "08:10", booked: 0, capacity: 4, blockReason: nil, players: []),
+                            Slot(time: "09:00", booked: 1, capacity: 4, blockReason: nil, players: ["Anna Bauer"])],
+                    weather: [], sunrise: "08:12", sunset: "16:30", events: [], bookedTime: nil)
+        Harness.checkEqual("only hits on rendered (sunrise..sunset) rows",
+                           playerSlotHits(for: "Anna Bauer", in: [d]).map(\.time), ["09:00"])
+    }
+}

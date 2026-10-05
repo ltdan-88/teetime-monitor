@@ -51,24 +51,28 @@ enum Analytics {
     /// `crowd_heatmap()`/`_crowd_buckets()`/`_average_buckets()` exactly, including
     /// the 2026-09-09 rework's own rule that an ordinary day's weekday average is
     /// never diluted by a special day, and vice versa.
+    ///
+    /// Only dates before `today` count, mirroring `analytics._completed_days()`:
+    /// today's and later scrapes are snapshots still filling up.
     static func crowdHeatmap(dbPath: String, course: String, holidays: [String],
-                              vacationRanges: [VacationRange]) -> CrowdHeatmap {
+                              vacationRanges: [VacationRange],
+                              today: String = ISODate.today()) -> CrowdHeatmap {
         var byWeekday: [String: [String: [Double]]] = [:]
         var specialDays: [String: [String: [Double]]] = [:]
-        let dateFormatter = DateFormatter(); dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
         let weekdayFormatter = DateFormatter(); weekdayFormatter.dateFormat = "EEEE"
         weekdayFormatter.locale = Locale(identifier: "en_US_POSIX")  // fixed English
         // names regardless of system locale, matching Python's strftime("%A") here.
+        // UTC, matching ISODate.parse's UTC midnight below.
+        weekdayFormatter.calendar = ISODate.utcCalendar; weekdayFormatter.timeZone = ISODate.utc
 
-        for date in Store.distinctScrapedDates(dbPath: dbPath, course: course) {
+        for date in Store.distinctScrapedDates(dbPath: dbPath, course: course) where date < today {
             guard let sample = Store.occupancySample(dbPath: dbPath, course: course, date: date),
                   !sample.slots.isEmpty else { continue }
             let dayType = CalendarContext.classifyDay(date: date, holidays: holidays,
                                                         vacationRanges: vacationRanges,
                                                         hasTournament: sample.hasTournament)
             let isSpecial = CalendarContext.specialDayTypes.contains(dayType)
-            guard let parsedDate = dateFormatter.date(from: date) else { continue }
+            guard let parsedDate = ISODate.parse(date) else { continue }
             let weekday = weekdayFormatter.string(from: parsedDate)
             for slot in sample.slots {
                 guard let occ = occupancy(slot) else { continue }

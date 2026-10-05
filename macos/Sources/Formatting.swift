@@ -83,9 +83,55 @@ func fillColor(_ ratio: Double) -> Color {
 /// own table has always carried.
 func precipitationCellText(probability: Double, mm: Double?, units: String) -> String {
     guard let mm, mm != 0 else { return "\(wholeNumber(probability))%" }
-    let amount = Units.precipitationMM(mm, units)
+    return "\(wholeNumber(probability))%/" + precipitationAmountText(mm, units: units)
+}
+
+/// "1.5mm" / "0.06in" -- `tui._precipitation_amount_text()`: 1 decimal in mm, 2 in
+/// inches.
+func precipitationAmountText(_ mm: Double, units: String) -> String {
     let decimals = units == Units.imperial ? 2 : 1
-    return "\(wholeNumber(probability))%/" + String(format: "%.\(decimals)f", amount) + Units.precipitationAmountLabel(units)
+    return String(format: "%.\(decimals)f", Units.precipitationMM(mm, units)) + Units.precipitationAmountLabel(units)
+}
+
+/// The rain (🌧, >= 50%) and wind (💨, >= 30 km/h on the raw value, whatever the
+/// display units) flag thresholds -- `tui._SLOT_RAIN_ICON_THRESHOLD_PERCENT`/
+/// `_SLOT_WIND_ICON_THRESHOLD_KPH`, shared by the slot and day cells.
+let rainFlagPercent = 50.0
+let windFlagKPH = 30.0
+
+/// One slot row's precipitation cell exactly as `tui._slot_precipitation_cell()`
+/// writes it, flag included: a forecast point with no probability shows "0%"
+/// (plus its amount), not nothing.
+func slotPrecipitationCellText(_ point: WeatherPoint?, units: String) -> String {
+    guard let point else { return "" }
+    let p = point.precipitationProbability ?? 0
+    return (p >= rainFlagPercent ? "🌧 " : "") + precipitationCellText(probability: p, mm: point.precipitationMM, units: units)
+}
+
+extension Day {
+    /// The day row's rain cell exactly as `tui._precipitation_cell()` writes it:
+    /// "🌧 rain all day" when every daytime hour is >= 70%, else the average chance
+    /// with the day's total amount ("🌧 55%/4.2mm"), "" with no daytime forecast.
+    func precipitationCellText(units: String) -> String {
+        guard let avg = precipAvg else { return "" }
+        if isRainAllDay { return "🌧 " + t("overview.rain_all_day") }
+        let total = precipTotalMM
+        let amount = total != 0 ? "/" + precipitationAmountText(total, units: units) : ""
+        return (avg >= rainFlagPercent ? "🌧 " : "") + "\(wholeNumber(avg))%" + amount
+    }
+
+    /// The day row's wind cell exactly as `tui._wind_cell()` writes it: the peak,
+    /// with 💨 at >= 30 km/h.
+    func windCellText(units: String) -> String {
+        guard let peak = windPeak else { return "" }
+        return (peak >= windFlagKPH ? "💨 " : "") + wholeNumber(Units.windSpeed(peak, units))
+    }
+
+    /// `tui._temperature_cell()`'s "24/14".
+    func temperatureCellText(units: String) -> String {
+        guard let (hi, lo) = tempHighLow else { return "" }
+        return "\(wholeNumber(Units.temperature(hi, units)))/\(wholeNumber(Units.temperature(lo, units)))"
+    }
 }
 
 /// A whole-number display of a measured value (temperature, wind, rain %) --
@@ -99,21 +145,65 @@ func precipitationCellText(probability: Double, mm: Double?, units: String) -> S
 /// group pins that equivalence rather than assuming it.
 func wholeNumber(_ value: Double) -> String { String(format: "%.0f", value) }
 
+/// Date-only "yyyy-MM-dd" strings, the shape every `date` column in the database
+/// uses. Always Gregorian: a user-chosen Buddhist or Japanese system calendar made a
+/// plain `DateFormatter` write today as "2569-10-04"/"0008-10-04", so `date >= ?`
+/// matched nothing (or everything). Parsed at UTC midnight, since local midnight
+/// doesn't exist on a DST-at-00:00 day (Santiago, Beirut, Havana) and `date(from:)`
+/// returned nil there.
+enum ISODate {
+    static let utc = TimeZone(identifier: "UTC")!
+
+    static var utcCalendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = utc
+        return c
+    }
+
+    /// Today's local date as "yyyy-MM-dd", whatever the system calendar is.
+    static func today(now: Date = Date(), timeZone: TimeZone = .current) -> String {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = timeZone
+        let d = c.dateComponents([.year, .month, .day], from: now)
+        return String(format: "%04d-%02d-%02d", d.year ?? 0, d.month ?? 0, d.day ?? 0)
+    }
+
+    static func parse(_ iso: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = utcCalendar
+        f.timeZone = utc
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: iso)
+    }
+
+    /// `iso` moved by `days` calendar days ("2026-10-31" + 1 -> "2026-11-01").
+    static func adding(days: Int, to iso: String) -> String? {
+        guard let d = parse(iso), let moved = utcCalendar.date(byAdding: .day, value: days, to: d) else { return nil }
+        return today(now: moved, timeZone: utc)
+    }
+}
+
 func weekday(_ iso: String) -> String {
-    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-    f.locale = Locale(identifier: "en_US_POSIX")  // parsing a fixed ISO shape
-    guard let d = f.date(from: iso) else { return iso }
+    guard let d = ISODate.parse(iso) else { return iso }
     // Formatting, unlike parsing, follows the chosen language -- "Fr 19 Sep"
-    // rather than "Fri 19 Sep" when the interface is German.
+    // rather than "Fri 19 Sep" when the interface is German. UTC, same as the
+    // parse, so the day can't shift by one.
     let o = DateFormatter(); o.dateFormat = "EEE d MMM"; o.locale = currentLocale()
+    o.calendar = ISODate.utcCalendar; o.timeZone = ISODate.utc
     return o.string(from: d)
 }
 
-/// "4" / "3,5" -- a round's length in hours, for the window hint. Mirrors
-/// `tui._window_hint_text()`'s own `f"{hours:g}"` with the decimal comma German
-/// uses.
+/// "4" / "3,5" / "1,25" -- a round's length in hours, for the window hint.
+/// Mirrors `tui._window_hint_text()`'s own `f"{hours:g}"` with the decimal comma
+/// German uses. C's `%g` is the same six-significant-digit, trailing-zero-free
+/// format as Python's `:g` (a fixed `%.1f` showed 75 min as "1.2" instead of
+/// "1.25"); the `hours_text` cross-check group pins that.
 func hoursText(_ minutes: Int) -> String {
-    let hours = Double(minutes) / 60
-    let text = hours == hours.rounded() ? String(Int(hours)) : String(format: "%.1f", hours)
-    return AppLanguage.shared.code == "de" ? text.replacingOccurrences(of: ".", with: ",") : text
+    hoursText(minutes, language: AppLanguage.shared.code)
+}
+
+func hoursText(_ minutes: Int, language: String) -> String {
+    let text = String(format: "%g", Double(minutes) / 60)
+    return language == "de" ? text.replacingOccurrences(of: ".", with: ",") : text
 }

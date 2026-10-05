@@ -93,26 +93,17 @@ enum AICredentialsClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
-            let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-            task.standardInput = stdin; task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let payload: [String: String] = ["provider": provider, "api_key": apiKey]
+            let input = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, [], stdin: input) } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
-            let payload: [String: String] = ["provider": provider, "api_key": apiKey]
-            if let data = try? JSONSerialization.data(withJSONObject: payload) {
-                stdin.fileHandleForWriting.write(data)
-            }
-            stdin.fileHandleForWriting.closeFile()
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
-                guard let json = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    let stderrText = String(data: errData, encoding: .utf8) ?? ""
-                    done(nil, stderrText.isEmpty ? "save failed (exit \(task.terminationStatus))" : stderrText)
+                guard let json = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
+                    let stderrText = result.stderrText
+                    done(nil, stderrText.isEmpty ? "save failed (exit \(result.status))" : stderrText)
                     return
                 }
                 done(AICredentialsResult(

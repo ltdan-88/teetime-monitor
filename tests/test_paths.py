@@ -26,13 +26,25 @@ def fixed_dirs(monkeypatch, tmp_path):
     return config, data
 
 
+def _teetime_db(path):
+    """A minimal database with this app's `scrapes` table -- what migration checks for."""
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE scrapes (id INTEGER PRIMARY KEY, course TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _legacy_install(root):
     """A pre-move layout: clubs/, data/ and .env in one directory."""
     (root / "clubs").mkdir(parents=True)
     (root / "clubs" / "my-club.yaml").write_text("club_id: '0497758'\n")
     (root / "clubs" / "club.example.yaml").write_text("club_id: '<club_id>'\n")
     (root / "data").mkdir()
-    (root / "data" / "0497758.db").write_bytes(b"sqlite-ish")
+    _teetime_db(root / "data" / "0497758.db")
     (root / "data" / "club_directory.json").write_text("[]")
     (root / ".env").write_text("PCC_USER=me\n")
     return root
@@ -100,7 +112,7 @@ def test_migration_copies_clubs_databases_and_credentials(fixed_dirs, tmp_path):
     moved = paths.migrate_from(cwd=old)
 
     assert (config / "clubs" / "my-club.yaml").read_text() == "club_id: '0497758'\n"
-    assert (data / "0497758.db").read_bytes() == b"sqlite-ish"
+    assert (data / "0497758.db").read_bytes() == (old / "data" / "0497758.db").read_bytes()
     assert (data / "club_directory.json").exists()
     assert (config / ".env").read_text() == "PCC_USER=me\n"
     assert any("my-club" in m for m in moved)
@@ -168,6 +180,48 @@ def test_migration_ignores_files_that_are_not_real_state(fixed_dirs, tmp_path):
     assert not (data / "notes.txt").exists()
 
 
+def test_unrelated_project_directory_is_not_legacy_state(fixed_dirs, tmp_path):
+    """A web project's own .env and data/ must never be imported as credentials and
+    scrape history -- only files that are recognisably this app's count."""
+    config, data = fixed_dirs
+    project = tmp_path / "webapp"
+    (project / "data").mkdir(parents=True)
+    (project / "data" / "fixtures.json").write_text("{}")
+    (project / "data" / "app.db").write_bytes(b"not a teetime db")
+    (project / "clubs").mkdir()
+    (project / "clubs" / "settings.yaml").write_text("debug: true\n")
+    (project / ".env").write_text("DATABASE_URL=postgres://x\nAPI_KEY=secret\n")
+
+    assert not paths.needs_migration(cwd=project)
+    assert paths.migrate_from(cwd=project) == []
+    assert not (config / ".env").exists()
+    assert not (data / "fixtures.json").exists()
+    assert not (data / "app.db").exists()
+
+
+def test_needs_migration_never_fires_again_after_migrating(fixed_dirs, tmp_path):
+    """Favorites are optional: once everything is un-favorited the clubs dir is empty
+    again, which must not re-import the clubs the user removed."""
+    config, _ = fixed_dirs
+    old = _legacy_install(tmp_path / "old")
+    paths.migrate_from(cwd=old)
+    for club in (config / "clubs").glob("*.yaml"):
+        club.unlink()
+
+    assert not paths.needs_migration(cwd=old)
+
+
+def test_legacy_env_with_export_prefix_still_counts_as_credentials(fixed_dirs, tmp_path):
+    config, _ = fixed_dirs
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / ".env").write_text("export PCC_USER=me\nexport PCC_PASS=x\n")
+
+    assert paths.needs_migration(cwd=old)
+    paths.migrate_from(cwd=old)
+    assert (config / ".env").exists()
+
+
 def test_ensure_dirs_is_safe_to_call_twice(fixed_dirs):
     paths.ensure_dirs()
     paths.ensure_dirs()
@@ -213,3 +267,42 @@ def test_unix_defaults_stay_xdg_style(monkeypatch):
         import importlib
 
         importlib.reload(paths)
+
+
+def test_atomic_write_text_replaces_the_whole_file_and_leaves_no_temp(tmp_path):
+    target = tmp_path / "sub" / "prefs.yaml"
+    paths.atomic_write_text(target, "a: 1\n")
+    paths.atomic_write_text(target, "b: 2\n")
+    assert target.read_text() == "b: 2\n"
+    assert [p.name for p in target.parent.iterdir()] == ["prefs.yaml"]
+
+
+def test_atomic_write_text_leaves_the_old_file_intact_when_writing_fails(tmp_path, monkeypatch):
+    """The point of writing atomically: a crash or full disk mid-write must not
+    leave the shared config truncated (an empty club YAML loads as {})."""
+    import os
+
+    target = tmp_path / "club.yaml"
+    target.write_text("club_id: '0497758'\n")
+
+    def full_disk(*_args):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "fsync", full_disk)
+    with pytest.raises(OSError):
+        paths.atomic_write_text(target, "club_id: 'new'\n")
+
+    assert target.read_text() == "club_id: '0497758'\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["club.yaml"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX permission bits")
+def test_atomic_write_text_keeps_an_existing_mode_or_applies_the_given_one(tmp_path):
+    target = tmp_path / "config"
+    paths.atomic_write_text(target, "x\n")
+    assert target.stat().st_mode & 0o777 == 0o644
+    target.chmod(0o640)
+    paths.atomic_write_text(target, "y\n")
+    assert target.stat().st_mode & 0o777 == 0o640
+    paths.atomic_write_text(target, "z\n", mode=0o600)
+    assert target.stat().st_mode & 0o777 == 0o600

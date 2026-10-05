@@ -1,7 +1,10 @@
-# Copy this file to clubs/<your-club-id>.yaml — the filename (without ".yaml") is that
-# club's id, used both to pick it at startup and to namespace its credentials in .env.
-# See ROADMAP.md Phase 0 for the multi-club design. You can save as many of these as
-# you have clubs; if there's only one, the TUI skips the picker automatically.
+# Annotated reference for a club file. You normally don't copy it by hand: `f` on a
+# club in the app writes one to ~/.config/teetime-monitor/clubs/ (Windows:
+# %APPDATA%\teetime-monitor\clubs\), named after the club, e.g.
+# golfclub-musterhausen-e-v.yaml. The filename is only a label — the app matches the
+# file to its club by the `club_id:` field below. See ROADMAP.md Phase 0 for the
+# multi-club design. You can save as many of these as you have clubs; the TUI reopens
+# the last club you used.
 
 # Your club's pc caddie numeric id — confirmed 2026-09-05 (see ROADMAP.md "Live site
 # findings") that the tee sheet lives directly at a stable, no-login-needed URL built
@@ -14,7 +17,6 @@ club_id: "<club_id>"
 # one), not a rotating dropdown — the weekly A/B/C loop combination shows as a separate
 # on-page banner instead of changing what's selectable. See ROADMAP.md Phase 0.
 default_course: ""
-default_date: "today"   # or YYYY-MM-DD
 
 # Used for the weather + daylight overlay (Phase 2) — Open-Meteo needs plain
 # coordinates, no API key. Look up your club's coordinates once and hardcode them here.
@@ -45,22 +47,17 @@ overview_days: 5
 # 2026-09-09 into the same shared file as availability/preferences/ai_assist above
 # (direct request: "make pace speed adjustable in settings"), same reasoning as
 # those earlier moves: nothing about your own typical pace actually varies by club
-# here. Press `e` from the running app to adjust it (under "Timing & scraping"); a
-# club file that still has its own round_duration_minutes below keeps working as a
-# fallback (see tui._resolved_config()'s shallow merge) but no longer wins once the
-# shared file has actually set one.
+# here. Press `,` (Preferences) in the running app to adjust it (under "Pace &
+# daylight"); a club file that still has its own round_duration_minutes below keeps
+# working as a fallback (see tui._resolved_config()'s shallow merge) but no longer
+# wins once the shared file has actually set one.
 # round_duration_minutes:
 #   nine: 120
 #   eighteen: 240
 
-# Your own name, used for personal stats (Phase 5). `friends` may turn out to be
-# unnecessary — pc caddie has its own native friends list (manage it in the site itself,
-# under My Account), and shows friends' real names while anonymizing everyone else as
-# "Member (handicap)". If "any real name in the scraped data = a friend" holds up (see
-# ROADMAP.md "Live site findings" — not yet confirmed), this field can be dropped.
-identity:
-  my_name: ""
-  friends: []
+# Friends are no longer listed here: mark them in the app's player directory (`p`),
+# which keeps them in the club's database. (An `identity:` block from older versions of
+# this file is ignored.)
 
 # Your standing availability rules, weather comfort preferences, and scrape interval
 # used to live here per-club — moved 2026-09-08 to one shared file instead (direct
@@ -68,18 +65,18 @@ identity:
 # specific club" — your own availability and weather comfort don't change depending on
 # which course you're checking, so duplicating them into every club's own YAML was
 # never actually right). See `global_preferences.py`'s module docstring for where that
-# file lives, or just press `e` from the running app (`OverviewScreen`/
-# `DayDetailScreen`) — it edits that shared file directly, no manual YAML needed.
+# file lives, or just press `,` (Preferences) in the running app — it edits that
+# shared file directly, no manual YAML needed.
 
-# Whether recommendations get AI-ranked, and which Claude model does it (ai_assist.py
-# — see ROADMAP.md "AI placement" note) also used to live here per club — moved
+# Whether recommendations get AI-ranked (ai_assist.py — see ROADMAP.md "AI placement"
+# note) also used to live here per club — moved
 # 2026-09-08 into the same shared file as availability/preferences above (direct
 # request: "the ai feature should be an option in the settings menu"), same reasoning
 # as that earlier move: nothing about wanting AI ranking on or off actually varies by
-# club here. Press `e` from the running app to turn it on/pick a model; a club file
-# that still has its own `ai_assist` block below keeps working as a fallback (see
-# tui._resolved_config()'s shallow merge) but no longer wins once the shared file has
-# actually set one. ANTHROPIC_API_KEY lives in .env either way.
+# club here. Press `s` (Settings) in the running app to turn it on under "AI ranking"
+# and to enter a provider's API key under "AI provider" (Anthropic, OpenAI, Gemini or
+# Grok; the key is stored in .env). A club file that still has its own `ai_assist`
+# block below keeps working as a fallback (see tui._resolved_config()'s shallow merge)
+# but no longer wins once the shared file has actually set one.
 # ai_assist:
 #   enabled: true
-#   model: "claude-opus-5"

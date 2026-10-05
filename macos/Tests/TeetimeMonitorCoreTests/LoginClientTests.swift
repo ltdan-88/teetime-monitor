@@ -5,7 +5,18 @@ func runLoginClientTests() {
         AppLanguage.shared.code = "en"  // statusText is translated -- pin the language
         // so this test doesn't depend on what another test group left it as.
         testStatusTextForEveryReasonCode()
+        testEnvValuesAreUnquotedLikeDotenv()
     }
+}
+
+/// env_file.py single-quotes values python-dotenv would otherwise mangle; the
+/// username shown in Settings must be the plain string, not the quoted form.
+private func testEnvValuesAreUnquotedLikeDotenv() {
+    Harness.checkEqual("a bare value is untouched", EnvStore.unquoted("me@example.com"), "me@example.com")
+    Harness.checkEqual("single quotes are removed", EnvStore.unquoted("'golf club'"), "golf club")
+    Harness.checkEqual("escaped quote and backslash decode",
+                       EnvStore.unquoted(#"'it\'s a\\b'"#), #"it's a\b"#)
+    Harness.checkEqual("a lone quote is not a quoted value", EnvStore.unquoted("'"), "'")
 }
 
 /// One case per branch of `LoginResult.statusText` -- mirrors the exact outcomes

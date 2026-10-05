@@ -240,11 +240,16 @@ class KnownPlayersScreen(Screen[str | None]):
                 player.is_friend = not currently_friend
                 break
         table.update_cell(event.row_key, "friend", "" if currently_friend else _FRIEND_MARK)
-        if self._sort_key == "friend":
+        if self._sort_key == "friend" or self._friends_only:
             # Toggling a friend can change this row's position when friend status is
-            # what's actually being sorted on -- a single cell update above isn't
-            # enough in that one case.
+            # what's actually being sorted on, and drops it from the list entirely
+            # under "Friends only" -- a single cell update above isn't enough in
+            # either case. The cursor stays on the same row index rather than jumping
+            # back to the top.
+            cursor_row = table.cursor_row
             self._render_table()
+            if table.row_count:
+                table.move_cursor(row=min(cursor_row, table.row_count - 1))
 
     def action_close(self) -> None:
         self.dismiss(None)

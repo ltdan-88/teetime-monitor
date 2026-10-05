@@ -1,3 +1,7 @@
+import sys
+
+import pytest
+
 from src.env_file import load_env_value, set_env_values
 
 
@@ -80,3 +84,65 @@ def test_set_env_values_all_blank_is_a_no_op_on_missing_file(tmp_path):
     path = tmp_path / ".env"
     set_env_values({"PCC_USER": "", "PCC_PASS": ""}, path)
     assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "password",
+    ["golf #1", "'quoted'", '"double"', "pa$${HOME}x", " spaced ", "back\\slash", "it's", "plain#hash", "sk-ant-abc"],
+)
+def test_saved_values_reach_load_dotenv_unchanged(tmp_path, password):
+    """The login is verified against load_env_value(), but every later process gets
+    its password from club_config's load_dotenv() -- both must see the exact string
+    that was typed, or a verified login fails on the next scrape."""
+    from dotenv import dotenv_values
+
+    path = tmp_path / ".env"
+    set_env_values({"PCC_USER": "me@example.com", "PCC_PASS": password}, path)
+
+    assert load_env_value("PCC_PASS", path) == password
+    assert dotenv_values(path, interpolate=False)["PCC_PASS"] == password
+    assert "PCC_USER=me@example.com" in path.read_text()  # plain values stay bare for the GUI
+
+
+def test_set_env_values_rejects_a_line_break_instead_of_injecting_a_key(tmp_path):
+    path = tmp_path / ".env"
+    with pytest.raises(ValueError):
+        set_env_values({"PCC_PASS": "x\nHTTPS_PROXY=http://evil:8080"}, path)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("separator", ["\x0b", "\x0c", "\x1c", "\x85", " ", " "])
+def test_set_env_values_rejects_other_line_separators(tmp_path, separator):
+    """The file is re-read with str.splitlines() on the next save, which would split
+    such a value across two lines -- reject it up front like a plain newline."""
+    path = tmp_path / ".env"
+    with pytest.raises(ValueError):
+        set_env_values({"PCC_PASS": f"a{separator}b"}, path)
+    assert not path.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX permission bits")
+def test_set_env_values_keeps_credentials_private(tmp_path):
+    path = tmp_path / ".env"
+    set_env_values({"PCC_PASS": "hunter2"}, path)
+    assert path.stat().st_mode & 0o777 == 0o600
+
+    path.chmod(0o644)  # an older save, or a hand-made file
+    set_env_values({"PCC_PASS": "hunter3"}, path)
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_first_save_ignores_a_template_in_the_working_directory(tmp_path, monkeypatch):
+    """The template used to be `./.env.example`, so a stray one wherever the command
+    ran (a cloned repo, Downloads) was merged into the real credentials file."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.example").write_text("HTTPS_PROXY=http://attacker:8080\nPCC_USER=\n")
+    path = tmp_path / "config" / ".env"
+    path.parent.mkdir()
+
+    set_env_values({"PCC_USER": "me@example.com"}, path)
+
+    content = path.read_text()
+    assert "HTTPS_PROXY" not in content
+    assert "PCC_USER=me@example.com" in content
+    assert "ANTHROPIC_API_KEY=" in content  # the built-in template's own keys

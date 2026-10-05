@@ -63,6 +63,7 @@ def test_credentials_screen_saves_username_and_password(tmp_path):
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
@@ -108,6 +109,7 @@ def test_credentials_screen_save_then_close_dismisses_true(tmp_path):
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             await pilot.press("escape")
             await pilot.pause()
@@ -127,6 +129,7 @@ def test_credentials_screen_requires_a_username(tmp_path):
             await pilot.pause()
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert "username" in str(app.screen.query_one("#status", Static).content).lower()
 
@@ -145,6 +148,7 @@ def test_credentials_screen_requires_a_password_when_none_set_yet(tmp_path):
             await pilot.pause()
             app.screen.query_one("#username").value = "someone@example.com"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert "password" in str(app.screen.query_one("#status", Static).content).lower()
 
@@ -163,6 +167,7 @@ def test_credentials_screen_blank_password_keeps_existing_one(tmp_path):
             app.screen.query_one("#username").value = "new@example.com"
             # password left blank -- should keep the existing one
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
@@ -191,6 +196,7 @@ def test_credentials_screen_without_a_club_id_shows_plain_saved_message(tmp_path
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             calls.append(str(app.screen.query_one("#status", Static).content))
 
@@ -218,6 +224,7 @@ def test_credentials_screen_verifies_login_and_reports_success(tmp_path, monkeyp
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.login_verified")
 
@@ -242,6 +249,7 @@ def test_credentials_screen_verifies_login_and_reports_rejection(tmp_path, monke
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "wrongpass"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.login_failed")
 
@@ -269,6 +277,7 @@ def test_credentials_screen_reports_unverified_on_a_network_hiccup_not_bad_crede
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             status = str(app.screen.query_one("#status", Static).content)
             # A transient failure isn't the same claim as "your credentials are
@@ -305,6 +314,7 @@ def test_credentials_screen_updates_live_process_environment(monkeypatch, tmp_pa
             app.screen.query_one("#username").value = "someone@example.com"
             app.screen.query_one("#password").value = "hunter2"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
@@ -326,3 +336,71 @@ def test_credentials_screen_footer_renders_translated_hint(tmp_path):
             assert "Beenden" in footer.render()
 
     asyncio.run(scenario())
+
+
+def test_credentials_screen_verification_does_not_block_the_event_loop(tmp_path, monkeypatch):
+    # The live login runs in a worker thread: while it's still in flight the screen
+    # keeps painting -- "Verifying..." is visible and Save is disabled -- instead of
+    # the whole TUI freezing until scraper.login() returns.
+    import threading
+
+    from textual.widgets import Button, Static
+
+    release = threading.Event()
+    fake_client = type("FakeClient", (), {"close": lambda self: None})()
+
+    def slow_login(club_id, user, password):
+        release.wait(5)
+        return fake_client
+
+    monkeypatch.setattr(credentials_screen_module.scraper, "login", slow_login)
+
+    async def scenario():
+        app = _HostApp(tmp_path / ".env", tmp_path / ".env.example", verify_against_club_id="0000001")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.verifying")
+            assert app.screen.query_one("#save", Button).disabled
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("credentials.login_verified")
+            assert not app.screen.query_one("#save", Button).disabled
+
+    asyncio.run(scenario())
+
+
+def test_credentials_screen_leaving_mid_verification_does_not_crash(tmp_path, monkeypatch):
+    # Escape while the login is still running: the worker is cancelled with the
+    # screen, so its late result never reaches widgets that no longer exist.
+    import threading
+
+    release = threading.Event()
+    fake_client = type("FakeClient", (), {"close": lambda self: None})()
+
+    def slow_login(club_id, user, password):
+        release.wait(5)
+        return fake_client
+
+    monkeypatch.setattr(credentials_screen_module.scraper, "login", slow_login)
+
+    async def scenario():
+        app = _HostApp(tmp_path / ".env", tmp_path / ".env.example", verify_against_club_id="0000001")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#username").value = "someone@example.com"
+            app.screen.query_one("#password").value = "hunter2"
+            await pilot.click("#save")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+        return app.result
+
+    assert asyncio.run(scenario()) is True

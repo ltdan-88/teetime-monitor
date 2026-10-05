@@ -186,10 +186,11 @@ def test_predict_crowding_returns_average_once_enough_samples(tmp_path):
 
 def test_predict_crowding_checks_special_days_too(tmp_path):
     db = tmp_path / "teetime.db"
-    for date in ["2026-01-01", "2026-05-01", "2026-12-25"]:  # 3 public holidays
+    holidays = ["2025-12-25", "2026-01-01", "2026-05-01"]  # 3 past public holidays
+    for date in holidays:
         _save("18 Loch Tee 1", date, [Slot(time="09:00", booked=2, capacity=4)], path=db)
 
-    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=["2026-01-01", "2026-05-01", "2026-12-25"], vacation_ranges=[], path=db)
+    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=holidays, vacation_ranges=[], path=db)
     assert predict_crowding("public_holiday", "09:15", heatmap) == 0.5
 
 
@@ -237,3 +238,60 @@ def test_heatmap_readiness_fully_ready_special_day():
     }
     readiness = heatmap_readiness(heatmap)
     assert readiness["special_days"]["tournament"] == {"hours_seen": 2, "hours_ready": 2, "total_samples": 9}
+
+
+# --- review fixes (2026-10-04) --------------------------------------------------------
+
+
+def test_crowd_heatmap_leaves_out_today_and_future_dates(tmp_path):
+    # Today's and later dates are still filling up; averaging their snapshot with
+    # finished days would pull the "historical" number down.
+    db = tmp_path / "teetime.db"
+    for date in ["2026-09-07", "2026-09-14", "2026-09-21"]:  # 3 finished Mondays, full
+        _save("18 Loch Tee 1", date, [Slot(time="09:00", booked=4, capacity=4)], path=db)
+    _save("18 Loch Tee 1", "2026-09-28", [Slot(time="09:00", booked=0, capacity=4)], path=db)  # "today"
+    _save("18 Loch Tee 1", "2026-10-05", [Slot(time="09:00", booked=0, capacity=4)], path=db)  # next week
+
+    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db, today="2026-09-28")
+
+    assert heatmap["by_weekday"]["Monday"]["09"] == {"average": 1.0, "samples": 3}
+
+
+def test_best_times_by_weekday_leaves_out_today_and_future_dates(tmp_path):
+    db = tmp_path / "teetime.db"
+    _save("18 Loch Tee 1", "2026-09-21", [Slot(time="09:00", booked=4, capacity=4)], path=db)
+    _save("18 Loch Tee 1", "2026-09-28", [Slot(time="10:00", booked=0, capacity=4)], path=db)
+
+    assert best_times_by_weekday("18 Loch Tee 1", path=db, today="2026-09-28") == {"Monday": ["09:00"]}
+
+
+def test_crowd_heatmap_reads_only_the_latest_scrape_per_date(tmp_path):
+    db = tmp_path / "teetime.db"
+    _save("18 Loch Tee 1", "2026-09-07", [Slot(time="09:00", booked=0, capacity=4)], path=db)
+    _save("18 Loch Tee 1", "2026-09-07", [Slot(time="09:00", booked=3, capacity=4)], path=db)  # later rescrape
+    _save("9 Loch Tee 1", "2026-09-07", [Slot(time="09:00", booked=1, capacity=4)], path=db)  # other course
+
+    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
+
+    assert heatmap["by_weekday"]["Monday"]["09"] == {"average": 0.75, "samples": 1}
+
+
+def test_crowd_heatmap_keeps_a_day_with_a_routine_group_block_in_its_weekday(tmp_path):
+    db = tmp_path / "teetime.db"
+    _save(
+        "18 Loch Tee 1",
+        "2026-09-15",  # Tuesday
+        [
+            Slot(time="09:00", booked=4, capacity=4, block_reason="Dienstag-Ladies"),
+            Slot(time="10:00", booked=2, capacity=4),
+            Slot(time="11:00", booked=2, capacity=4),
+        ],
+        events=["Dienstag-Ladies"],
+        path=db,
+    )
+
+    heatmap = crowd_heatmap("18 Loch Tee 1", holidays=[], vacation_ranges=[], path=db)
+
+    assert heatmap["special_days"] == {}
+    assert "09" not in heatmap["by_weekday"]["Tuesday"]  # the blocked slot still isn't occupancy
+    assert heatmap["by_weekday"]["Tuesday"]["10"]["average"] == 0.5

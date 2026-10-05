@@ -264,3 +264,35 @@ def test_sorting_by_friend_puts_friends_first_then_last_when_reversed(tmp_path):
             assert screen._visible_players()[-1].name == "Anna Zeller"
 
     asyncio.run(scenario())
+
+
+def test_unmarking_a_friend_under_friends_only_drops_the_row(tmp_path):
+    # Used to leave the un-friended row in a "Friends only" list (with a blank
+    # Friend cell) until the search, sort or switch changed.
+    db_path = tmp_path / "club.db"
+    storage.record_seen_players(
+        [_sighting("Bernd Adler"), _sighting("Anna Zeller"), _sighting("Claus Bauer")],
+        "2026-09-27T10:00:00+00:00",
+        path=db_path,
+    )
+    storage.set_player_friend("Bernd Adler", True, path=db_path)
+    storage.set_player_friend("Anna Zeller", True, path=db_path)
+
+    async def scenario():
+        app = _HostApp("0000001", db_path)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#friends-only", Switch).value = True
+            await pilot.pause()
+            table = app.screen.query_one("#players-table", DataTable)
+            table.focus()
+            assert [str(table.get_row_at(i)[0]) for i in range(table.row_count)] == ["Bernd Adler", "Anna Zeller"]
+            table.move_cursor(row=0)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert [str(table.get_row_at(i)[0]) for i in range(table.row_count)] == ["Anna Zeller"]
+            assert table.cursor_row == 0
+
+    asyncio.run(scenario())
+    friends = {p.name for p in storage.load_known_players(path=db_path) if p.is_friend}
+    assert friends == {"Anna Zeller"}
