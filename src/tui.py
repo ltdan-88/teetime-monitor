@@ -1602,15 +1602,12 @@ def _pick_star_text(top) -> str:
     section any more (2026-09-14, direct feedback + the redundancy it surfaced: that
     section only ever repeated this exact same ★ HH:MM per day, one column over — a
     strict, smaller subset of what this cell already covers, since it dropped
-    confirmed bookings and unplayable days entirely). `reasons` is the AI's own text
-    and stays empty until `ai_assist.enabled` is actually turned on (see
-    `_availability_pipeline()`'s own docstring). The deterministic *why*
-    (`quality_reasons`, 2026-10-05) is not in the cell -- it would crowd the column --
-    but in #row-detail, see `_pick_reasons_detail_text()`."""
-    text = f"[yellow]★[/]  {top.slot.time}"
-    if top.reasons:
-        text += f"  [dim]{markup_escape(', '.join(top.reasons))}[/]"  # AI-written text
-    return text
+    confirmed bookings and unplayable days entirely). No reasons in the cell any more
+    (2026-10-05, direct report: with AI ranking on, its sentence made the cell ~150
+    characters and pushed the other columns off screen): both the deterministic *why*
+    (`quality_reasons`) and the AI's own text (`reasons`) live in #row-detail, see
+    `_pick_reasons_detail_text()`."""
+    return f"[yellow]★[/]  {top.slot.time}"
 
 
 def _pick_reasons_detail_text(

@@ -1490,12 +1490,11 @@ def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
     assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  10:00"
 
 
-def test_day_pick_text_appends_ai_reasons_to_the_starred_cell(monkeypatch):
-    """The removed "This week's picks" section's one genuine unique feature --
-    showing an AI-ranked slot's own plain-language reasons -- now lives
-    directly in this same cell instead (2026-09-14, once that section turned
-    out to be a redundant, strictly smaller subset of this column otherwise;
-    see this function's own docstring)."""
+def test_ai_reasons_stay_out_of_the_starred_cell_and_go_to_the_row_detail(monkeypatch):
+    """The AI's plain-language reasons used to be appended to the Pick cell (2026-09-14);
+    with AI ranking on that made the cell ~150 characters and pushed the other columns
+    off screen (direct report, 2026-10-05). The cell is now just "★  HH:MM" and the AI
+    text is part of the row detail line."""
     config = {
         "availability": {"weekday_window": {"after": "08:00"}},
         "ai_assist": {"enabled": True},
@@ -1512,7 +1511,10 @@ def test_day_pick_text_appends_ai_reasons_to_the_starred_cell(monkeypatch):
 
     monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
 
-    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  09:00  [dim]dry, calm[/]"
+    cell = tui._day_pick_text(schedule, config, None, False, "0000001")
+    assert cell == "[yellow]★[/]  09:00"
+    detail = tui._pick_reasons_detail_text(schedule, config, "0000001", None, cell)
+    assert "dry, calm" in detail
 
 
 def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
