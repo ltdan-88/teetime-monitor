@@ -170,7 +170,8 @@ def _legacy_clubs(directory: Path) -> list[Path]:
 
 
 def _is_teetime_db(path: Path) -> bool:
-    """A SQLite file with this app's `scrapes` table. Opened read-only."""
+    """A SQLite file with this app's `scrapes` table. Opened read-only (`mode=ro` works
+    on a WAL database too: it reads through the -wal/-shm, creating the -shm if needed)."""
     import sqlite3
 
     try:
@@ -280,7 +281,15 @@ def migrate_from(cwd: Path | None = None) -> list[str]:
     for item in _legacy_data_files(cwd):
         target = DATA_DIR / item.name
         if not target.exists():
-            shutil.copy2(item, target)
+            if item.suffix == ".db":
+                # 2026-10-05: databases run in WAL mode now, so recent commits can sit
+                # in `<db>-wal` beside the file; a bare copy would silently drop them.
+                # The online backup is a consistent, self-contained copy.
+                from .storage import backup_db
+
+                backup_db(item, target)
+            else:
+                shutil.copy2(item, target)
             moved.append(f"{item.name} ({item.stat().st_size // 1024} KB)")
 
     legacy_env = _legacy_env_file(cwd)

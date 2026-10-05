@@ -64,3 +64,16 @@ final class AppUnits: ObservableObject {
         value = Preferences.load().units
     }
 }
+
+/// Whether players' handicaps show next to their names (`show_handicaps` in
+/// `preferences.yaml`, default on) -- same singleton shape as `AppUnits`, so flipping
+/// it in Settings redraws the slot rows at once.
+final class AppShowHandicaps: ObservableObject {
+    static let shared = AppShowHandicaps()
+
+    @Published var value: Bool
+
+    private init() {
+        value = Preferences.load().showHandicaps
+    }
+}

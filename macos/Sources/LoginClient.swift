@@ -81,35 +81,31 @@ struct LoginResult {
 /// object, never argv or an inherited environment variable, so they never show up in
 /// `ps` for this process or its parent.
 enum LoginClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-login", "/usr/local/bin/teetime-monitor-login"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-login"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-login") }
 
     /// `clubID` is optional, same reason it's optional in `CredentialsScreen` and in
     /// `login_cli.py` itself -- a fresh install with no saved club yet still has a
     /// real save to make, just without a live pc caddie check against it.
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
     static func run(username: String, password: String, clubID: String?,
-                     done: @escaping (LoginResult?, String?) -> Void) {
+                    timeout: TimeInterval = Subprocess.Timeout.login,
+                    done: @escaping (LoginResult?, String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(nil, t("error.login_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let payload: [String: String] = ["username": username, "password": password]
             let input = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, clubID.map { ["--club-id", $0] } ?? [], stdin: input) } catch {
+            do {
+                result = try Subprocess.run(exe, clubID.map { ["--club-id", $0] } ?? [], stdin: input,
+                                            timeout: timeout, handle: handle)
+            } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
@@ -127,5 +123,6 @@ enum LoginClient {
                 ), nil)
             }
         }
+        return handle
     }
 }

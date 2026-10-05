@@ -38,7 +38,19 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import calendar_context, club_directory, i18n, scrape_health, scraper, storage, tui, units, weather_icons
+from src import (
+    calendar_context,
+    club_config,
+    club_directory,
+    i18n,
+    recommend,
+    scrape_health,
+    scraper,
+    storage,
+    tui,
+    units,
+    weather_icons,
+)
 from src.models import DateRange, PlayerSighting, Slot, WeatherPoint, family_name
 from src.settings_screen import ROUND_DURATION_EIGHTEEN_CHOICES, ROUND_DURATION_NINE_CHOICES
 
@@ -184,10 +196,50 @@ def _hours_text_cases() -> dict:
     }
 
 
+def _hcp_text_cases() -> dict:
+    # `i18n.format_handicap()` (the "(18.4)" after a player's name) against the GUI's
+    # `hcpText()`: one decimal, German comma. Values cover whole numbers, a tie that
+    # rounds differently under half-up and half-even, scratch and a plus handicap.
+    values = [18.4, 54.0, 0.0, 36, 7.25, 7.35, 12.45, 0.05, 0.15, -2.1, -0.04, 26.45, 99.95]
+    return {
+        "hcp_text": [
+            {"args": {"handicap": float(v), "language": lang}, "expected": i18n.format_handicap(v, lang)}
+            for v in values
+            for lang in i18n.SUPPORTED_LANGUAGES
+        ]
+    }
+
+
 def _holes_cases() -> dict:
     labels = ["18 Loch Tee 1", "6 Loch Platz", "9-Loch Schleife", "Kurzplatz", "Tee 10 (9 Loch)", "Kurzplatz: 6 Loch",
               "18-Loch Schleife (nur erste 9-Loch)", "Tee 1: 9 oder 18 Loch", ""]
     return {"holes_from_label": [{"args": {"course": c}, "expected": scraper._holes_from_course_label(c)} for c in labels]}
+
+
+def _course_holes_cases() -> dict:
+    """The per-club `course_holes` override (2026-10-05): resolution order, and the
+    mapping read out of a club file's text (Swift scans it as text, Python parses YAML)."""
+    overrides = {"Kurzplatz": 9, "18 Loch Tee 1": 9, "Bahn Größe": 18, "Zero": 0}
+    courses = ["Kurzplatz", "  kurzplatz ", "KURZPLATZ", "18 Loch Tee 1", "9 Loch Tee 1", "Meisterschaftsplatz",
+               "bahn größe", "Zero", "6 Loch Platz", ""]
+    texts = [
+        "club_id: '0497712'\n",
+        "club_id: x\ncourse_holes:\n  'Kurzplatz': 9\n  'Kinder''s Platz': 6\noverview_days: 5\n",
+        "course_holes:\n  Kurzplatz: 9  # short\n  \"Bahn 2\": 18\n  Zero: 0\n  Bad: nine\n",
+        "course_holes: {\"Kurzplatz\": 9, 'A, B': 6, bad: nine}\nclub_id: x\n",
+        "course_holes: {}\n",
+        "course_holes:\n  'Kurzplatz: 6 Loch': 9\n  \"Gr\\xFCn\": 18\n",
+    ]
+    return {
+        "holes_for_course": [
+            {"args": {"course": c, "overrides": overrides}, "expected": recommend.holes_for_course(c, {"course_holes": overrides})}
+            for c in courses
+        ],
+        "course_holes_yaml": [
+            {"args": {"text": t}, "expected": club_config.course_holes_overrides(yaml.safe_load(t) or {})}
+            for t in texts
+        ],
+    }
 
 
 def _weather_payload(points: list[WeatherPoint]) -> list[dict]:
@@ -344,6 +396,7 @@ def _store_players_cases() -> dict:
         expected = {
             "friend_names": sorted(storage.load_friend_names(path)),
             "player_genders": storage.load_player_genders(path),
+            "player_handicaps": storage.load_player_handicaps(path),
             "known_players": [
                 [p.name, p.last_seen, p.is_friend, p.gender, p.member_status, p.handicap]
                 for p in storage.load_known_players(path)
@@ -512,7 +565,9 @@ def main() -> None:
         **_family_name_cases(),
         **_whole_number_cases(),
         **_hours_text_cases(),
+        **_hcp_text_cases(),
         **_holes_cases(),
+        **_course_holes_cases(),
         **_day_cell_cases(),
         **_slot_row_cases(),
         **_booking_change_cases(),

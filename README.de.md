@@ -49,7 +49,10 @@ sich an ihr etwas ändert.
    Ist es auf deinem Platz zu dunkel, aber auf einem kürzeren Platz des Clubs passt
    noch eine Runde, schlägt die Zelle diese vor — z. B. „★ 16:10 · 9L" (die TUI nennt den Platz unter
    der Tabelle, sobald der Tag markiert ist; in der GUI zeigt ihn der Tooltip, und ein
-   Klick wechselt auf diesen Platz).
+   Klick wechselt auf diesen Platz). Ein Platz, dessen Name seine Länge nicht verrät
+   (ein „Kurzplatz"), wird erst berücksichtigt, wenn du ihm eine Lochzahl gibst —
+   Einstellungen → Platzlängen in der Terminal-App, Einstellungen → Clubs in der macOS-App
+   (`course_holes` in der Club-Datei).
    Ein Tag, der noch nicht buchbar ist, zeigt 🔒 und wann er öffnet — z. B. „🔒 Mi 21:00"
    bei einem Club, der Startzeiten 3 Tage vorher um 21 Uhr freigibt (Uhrzeit des Clubs;
    nennt der Club keine Uhrzeit, steht nur der Tag). Der Hintergrund-Scraper schaut sich
@@ -106,7 +109,9 @@ Wechsel von Club oder Platz schließt alle.
 Mit einem pc-caddie-Login bekommen die Namen Bedeutung: Spieler sind nach Geschlecht
 eingefärbt (blau / magenta), ein im Spielerverzeichnis markierter Freund erscheint
 fett mit goldenem ★, und ein Platz ohne öffentlichen Namen steht als *anonym* da, statt
-einfach zu fehlen. **?** zeigt die Legende zu alledem.
+einfach zu fehlen. Hinter jedem Namen steht das Handicap des Spielers in Klammern, z. B.
+*Max Mustermann (18,4)* (in der macOS-App zeigt der Hover Handicap und Mitgliedsstatus; abschaltbar
+unter Einstellungen → Darstellung/Anzeige). **?** zeigt die Legende zu alledem.
 
 <p align="center"><img src="assets/de/expanded.png" alt="Ein aufgeklappter Tag mit allen einzelnen Startzeiten und deren Auslastung"></p>
 
@@ -242,7 +247,7 @@ sich mit `TEETIME_MONITOR_CONFIG_DIR` / `TEETIME_MONITOR_DATA_DIR` überschreibe
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-name>.yaml  # pro Club: club_id, Koordinaten, overview_days, Standardplatz, timezone (optional)
+    clubs/<club-name>.yaml  # pro Club: club_id, Koordinaten, overview_days, Standardplatz, course_holes (optional), timezone (optional)
     .env                    # PCC_USER / PCC_PASS / API-Key eines KI-Anbieters (Einstellungen → KI-Anbieter)
     preferences.yaml        # Verfügbarkeit, Wetter, KI, Tempo, Intervall
     config                  # THEME=, LANG=

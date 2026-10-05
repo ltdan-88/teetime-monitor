@@ -7,6 +7,9 @@ func runFormattingTests() {
         testFillColorThresholds()
         testWeekdayFormatting()
         testHoursTextMatchesPythonG()
+        testHcpText()
+        testSlotPlayersAttributed()
+        testSlotPlayersTooltip()
         testISODateIsGregorianAndDSTSafe()
         testDayPrecipitationMatchesTUI()
         testSlotPrecipitationCell()
@@ -67,6 +70,69 @@ private func testHoursTextMatchesPythonG() {
     Harness.checkEqual("135 min, German comma", hoursText(135, language: "de"), "2,25")
     Harness.checkEqual("90 min", hoursText(90, language: "en"), "1.5")
     Harness.checkEqual("whole hours", hoursText(240, language: "en"), "4")
+}
+
+/// "(18.4)" / "(18,4)" -- one decimal, German comma (`i18n.format_handicap()`; the
+/// `hcp_text` cross-check group compares the two against each other).
+private func testHcpText() {
+    Harness.checkEqual("one decimal", hcpText(18.4, language: "en"), "18.4")
+    Harness.checkEqual("German comma", hcpText(18.4, language: "de"), "18,4")
+    Harness.checkEqual("a whole handicap keeps its .0", hcpText(54, language: "en"), "54.0")
+    Harness.checkEqual("scratch", hcpText(0, language: "de"), "0,0")
+}
+
+/// The players cell: name, then " (18,4)" in a secondary-tinted run; friend/gender
+/// styling and anonymous seats unchanged; one run of text so `lineLimit(1)` truncates.
+private func testSlotPlayersAttributed() {
+    func build(showHandicaps: Bool, language: String = "en") -> AttributedString {
+        slotPlayersAttributed(
+            players: ["Max Mustermann", "Erika Muster", "Gast Eins"], booked: 4, friends: ["Erika Muster"],
+            genders: ["Max Mustermann": "male", "Erika Muster": "female"],
+            handicaps: ["Max Mustermann": 18.4, "Erika Muster": 7.5], showHandicaps: showHandicaps, language: language)
+    }
+    AppLanguage.shared.code = "en"
+    let on = build(showHandicaps: true)
+    Harness.checkEqual("names with brackets; a guest without a handicap and the anonymous seat render as before",
+                        String(on.characters),
+                        "Max Mustermann (18.4), \u{2605} Erika Muster (7.5), Gast Eins, anonymous")
+    Harness.checkEqual("German decimal comma", String(build(showHandicaps: true, language: "de").characters.prefix(21)),
+                        "Max Mustermann (18,4)")
+    Harness.checkEqual("handicaps off: plain names, as before", String(build(showHandicaps: false).characters),
+                        "Max Mustermann, \u{2605} Erika Muster, Gast Eins, anonymous")
+
+    // Runs merge with the equally-tinted ", " that follows, hence hasPrefix.
+    let hcpRun = on.runs.first { String(on[$0.range].characters).hasPrefix(" (18.4)") }
+    Harness.check("the bracket run exists and is secondary-tinted", hcpRun?.foregroundColor == .secondary)
+    let nameRun = on.runs.first { String(on[$0.range].characters) == "Max Mustermann" }
+    Harness.check("the name keeps its gender colour", nameRun?.foregroundColor == genderColor("male"))
+    let friendRun = on.runs.first { String(on[$0.range].characters) == "Erika Muster" }
+    Harness.check("a friend's name stays bold", friendRun?.inlinePresentationIntent == .stronglyEmphasized)
+    let friendHcp = on.runs.first { String(on[$0.range].characters).hasPrefix(" (7.5)") }
+    Harness.check("the bracket text is not bold", friendHcp?.inlinePresentationIntent == nil)
+}
+
+/// The hover text: one "Name -- HCP 18,4 . Member" line per seat when anything is known.
+private func testSlotPlayersTooltip() {
+    AppLanguage.shared.code = "en"
+    let handicaps = ["Max Mustermann": 18.4]
+    let statuses = ["Max Mustermann": "member", "Gast Eins": "guest"]
+    Harness.checkEqual("handicap and status per seat, anonymous last",
+                        slotPlayersTooltip(players: ["Max Mustermann", "Gast Eins", "Nobody Known"], booked: 4,
+                                           handicaps: handicaps, memberStatuses: statuses, showHandicaps: true,
+                                           language: "en"),
+                        "Max Mustermann \u{2014} HCP 18.4 \u{00B7} Member\nGast Eins \u{2014} Guest\nNobody Known\nanonymous")
+    AppLanguage.shared.code = "de"
+    Harness.checkEqual("German comma and status word", slotPlayersTooltip(
+        players: ["Max Mustermann"], booked: 1, handicaps: handicaps, memberStatuses: statuses, showHandicaps: true,
+        language: "de"), "Max Mustermann \u{2014} HCP 18,4 \u{00B7} Mitglied")
+    AppLanguage.shared.code = "en"
+    Harness.checkEqual("switched off: the plain joined names, as before",
+                        slotPlayersTooltip(players: ["Max Mustermann", "Gast Eins"], booked: 3, handicaps: handicaps,
+                                           memberStatuses: statuses, showHandicaps: false, language: "en"),
+                        "Max Mustermann, Gast Eins, anonymous")
+    Harness.checkEqual("nothing known: the plain joined names",
+                        slotPlayersTooltip(players: ["A B"], booked: 1, handicaps: [:], memberStatuses: [:],
+                                           showHandicaps: true, language: "en"), "A B")
 }
 
 private func testISODateIsGregorianAndDSTSafe() {

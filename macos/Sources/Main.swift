@@ -14,6 +14,13 @@ struct TeetimeMonitorApp: App {
     // window content re-rendered around it.
     @ObservedObject private var language = AppLanguage.shared
 
+    init() {
+        // A helper that exits before reading its stdin must not kill the GUI with SIGPIPE
+        // (2026-10-05); Subprocess also writes through a no-SIGPIPE descriptor, this covers
+        // every other write in the process.
+        signal(SIGPIPE, SIG_IGN)
+    }
+
     var body: some Scene {
         WindowGroup("teetime-monitor") {
             ContentView(model: OverviewModel())

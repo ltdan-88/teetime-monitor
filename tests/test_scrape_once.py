@@ -1387,6 +1387,19 @@ def test_booking_round_minutes(course, holes, round_config, expected):
     assert scrape_once._booking_round_minutes(booking, config) == expected
 
 
+def test_booking_round_minutes_uses_the_course_holes_override_for_an_unknown_count():
+    booking = ConfirmedBooking(date="2026-09-06", course="Kurzplatz", time="10:00", holes=None, source="manual")
+    assert scrape_once._booking_round_minutes(booking, {"course_holes": {"Kurzplatz": 9}}) == 120
+    assert scrape_once._booking_round_minutes(booking, {}) == 240
+
+
+def test_booking_round_minutes_override_beats_the_stored_count_which_beats_the_label():
+    # 2026-10-05: the club's explicit course_holes word wins over the (name-derived) stored count.
+    booking = ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="10:00", holes=18, source="manual")
+    assert scrape_once._booking_round_minutes(booking, {"course_holes": {"18 loch tee 1": 9}}) == 120
+    assert scrape_once._booking_round_minutes(booking, {}) == 240  # no override: the stored count stands
+
+
 def test_run_watches_a_nine_hole_booking_over_a_nine_hole_window(tmp_path, monkeypatch):
     # Rain only in hours 3-4 after a 9-hole tee-off falls after the round -- no banner.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)

@@ -26,3 +26,7 @@ below; the terminal app is `tui.py`.
 Rules of thumb: logic that a CLI needs goes in `pipeline.py` (or a leaf module); markup
 and widgets stay in `tui.py`. Tests patch moved state where it now lives, e.g.
 `pipeline._HOLIDAY_CACHE`, `pipeline._resolved_config`, `clock.today`.
+
+SQLite concurrency (2026-10-05): the agent scraper, the TUI worker and the GUI share each club's `.db`, so every club-database connection of the app goes through `storage._open()`/`_connect()` (the backup destination and the read-only legacy probe in `paths._is_teetime_db()` are the deliberate exceptions) and sets `busy_timeout=5000` and switches the file to WAL once (persistent); `Store.swift` reads/writes with the same timeout and falls back to `immutable=1` if a read-only open can't create the `-shm`.
+WAL leaves `<db>-wal`/`<db>-shm` beside the file, so never copy a bare `.db`: use `storage.backup_db()` (SQLite's online backup, as the daily backup and `paths.migrate_from()` do).
+`PRAGMA user_version` = `storage.SCHEMA_VERSION`, stamped by `init_db()` and never lowered; `Store.schemaVersion()` reads it and a newer value than `knownSchemaVersion` is tolerated, not an error.

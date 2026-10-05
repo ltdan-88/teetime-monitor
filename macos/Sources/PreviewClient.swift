@@ -13,41 +13,37 @@ import Foundation
 /// and every other view (day list, weather, search, heatmap, confirm/cancel)
 /// already works unchanged. See `OverviewModel.startPreview()` in App.swift.
 enum PreviewClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-preview-club",
-                          "/usr/local/bin/teetime-monitor-preview-club"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-preview-club"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-preview-club") }
 
     /// `done(nil)` on success (something real is now in `<clubID>.db`); a
     /// user-facing message otherwise. Reasons mirror `preview_club_cli.py`'s own
     /// documented JSON contract exactly, same "translate each known `reason`,
     /// fall back to a generic message" shape `DirectoryClient.refresh()` already
     /// uses for its own script.
-    static func run(clubID: String, clubName: String, done: @escaping (String?) -> Void) {
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
+    static func run(clubID: String, clubName: String, timeout: TimeInterval = Subprocess.Timeout.preview,
+                    done: @escaping (String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(t("error.preview_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, ["--club-id", clubID, "--club-name", clubName]) } catch {
+            do {
+                result = try Subprocess.run(exe, ["--club-id", clubID, "--club-name", clubName],
+                                            timeout: timeout, handle: handle)
+            } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(error.localizedDescription) }
                 return
             }
             let message = parse(result)
             DispatchQueue.main.async { done(message) }
         }
+        return handle
     }
 
     /// Split out of `run()` so it's testable without a subprocess. The result JSON

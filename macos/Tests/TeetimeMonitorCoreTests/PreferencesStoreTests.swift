@@ -9,6 +9,7 @@ func runPreferencesStoreTests() {
         testSaveOverlaysOnlyKnownKeys()
         testScrapeIntervalAndAIAssistRoundTrip()
         testHcpPreferenceRoundTrip()
+        testShowHandicapsRoundTrip()
         testLegacyBufferMinutesFallsBackAndMigrates()
         testClearedWindowIsRemovedOnSave()
     }
@@ -39,6 +40,25 @@ private func testRoundTrip() {
         Harness.checkClose("avoidRainProbabilityPercent round-trips",
                             reloaded.avoidRainProbabilityPercent, 30, tolerance: 1e-9)
         Harness.checkEqual("units round-trips", reloaded.units, "imperial")
+    }
+}
+
+/// `show_handicaps` (2026-10-05): a top-level key, on when absent (like the TUI's
+/// default), written back as a plain bool, other keys left alone.
+private func testShowHandicapsRoundTrip() {
+    withConfigDir { dir in
+        Harness.checkEqual("on by default", Preferences.load().showHandicaps, true)
+        var p = Preferences()
+        p.showHandicaps = false
+        try! p.save()
+        Harness.checkEqual("off round-trips", Preferences.load().showHandicaps, false)
+        let text = (try? String(contentsOfFile: Preferences.path(), encoding: .utf8)) ?? ""
+        Harness.check("written as a top-level YAML bool", text.contains("show_handicaps: false"))
+        var again = Preferences.load()
+        again.showHandicaps = true
+        try! again.save()
+        Harness.checkEqual("on round-trips", Preferences.load().showHandicaps, true)
+        _ = dir
     }
 }
 

@@ -72,31 +72,24 @@ struct AICredentialsResult {
 /// process's stdin as one JSON object, never argv or an inherited environment
 /// variable, so it never shows up in `ps` for this process or its parent.
 enum AICredentialsClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-ai-login", "/usr/local/bin/teetime-monitor-ai-login"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-ai-login"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-ai-login") }
 
-    static func run(provider: String, apiKey: String, done: @escaping (AICredentialsResult?, String?) -> Void) {
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
+    static func run(provider: String, apiKey: String, timeout: TimeInterval = Subprocess.Timeout.aiVerify,
+                    done: @escaping (AICredentialsResult?, String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(nil, t("error.ai_login_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let payload: [String: String] = ["provider": provider, "api_key": apiKey]
             let input = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, [], stdin: input) } catch {
+            do { result = try Subprocess.run(exe, [], stdin: input, timeout: timeout, handle: handle) } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
@@ -114,5 +107,6 @@ enum AICredentialsClient {
                 ), nil)
             }
         }
+        return handle
     }
 }

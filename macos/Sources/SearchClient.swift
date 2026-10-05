@@ -82,42 +82,36 @@ struct SearchMatch: Identifiable {
 /// boundary on stdin -- schedules are loaded by the script itself, straight from
 /// the same SQLite database this app already reads directly elsewhere.
 enum SearchClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-search", "/usr/local/bin/teetime-monitor-search"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-search"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-search") }
 
     /// `clubSlug` is optional -- a search against an unsaved/browsed club still
     /// runs (see `_resolved_config(club_slug=None)`'s own fallback), just without
     /// that club's own availability/weather/AI-ranking overrides layered in.
+    /// Returns a handle: `cancel()` terminates the child and `done` is never called.
+    @discardableResult
     static func run(dbPath: String, course: String, clubSlug: String?, from: String, days: Int,
-                     criteria: SearchCriteriaPayload, done: @escaping ([SearchMatch]?, String?) -> Void) {
+                    criteria: SearchCriteriaPayload, timeout: TimeInterval = Subprocess.Timeout.search,
+                    done: @escaping ([SearchMatch]?, String?) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
         guard let exe = executable() else {
             done(nil, t("error.search_missing"))
-            return
+            return handle
         }
         DispatchQueue.global(qos: .userInitiated).async {
             var args = ["--db-path", dbPath, "--course", course, "--from", from, "--days", String(days)]
             if let clubSlug { args += ["--club-slug", clubSlug] }
             let input = (try? JSONSerialization.data(withJSONObject: criteria.json)) ?? Data()
             let result: SubprocessResult
-            do { result = try Subprocess.run(exe, args, stdin: input) } catch {
+            do { result = try Subprocess.run(exe, args, stdin: input, timeout: timeout, handle: handle) } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
             let (matches, message) = parse(result)
             DispatchQueue.main.async { done(matches, message) }
         }
+        return handle
     }
 
     /// Split out of `run()` so it's testable without a subprocess.

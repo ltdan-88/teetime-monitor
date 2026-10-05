@@ -41,8 +41,6 @@ scrapes yet.
 """
 
 import json
-import sqlite3
-from contextlib import closing
 from datetime import date as date_cls
 from pathlib import Path
 
@@ -50,6 +48,7 @@ from . import calendar_context
 from .models import DateRange, Slot
 from .storage import (
     DEFAULT_DB_PATH,
+    connect,
     init_db,
     load_all_confirmed_bookings,
     load_latest_schedule,
@@ -84,7 +83,7 @@ def _completed_days(
     `booked`/`capacity`/`block_reason`."""
     cutoff = today or date_cls.today().isoformat()
     init_db(path)
-    with closing(sqlite3.connect(path)) as conn:
+    with connect(path) as conn:
         rows = conn.execute(
             "SELECT s.date, s.events, sl.time, sl.booked, sl.capacity, sl.block_reason "
             "FROM scrapes s "

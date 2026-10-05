@@ -1118,3 +1118,62 @@ def test_window_too_late_hint_names_the_alternative_courses():
     hint = recommend.window_too_late_hint(two_days, config, alternatives)
     assert hint["alternative_courses"] == ["9 Loch Tee 1"]
     assert "alternative_courses" not in recommend.window_too_late_hint(two_days, config, {"2026-09-28": None})
+
+
+# --- course_holes override (2026-10-05) ------------------------------------------
+
+
+def test_holes_for_course_resolution_order():
+    """Override (exact label, case-insensitive, trimmed) -> name heuristic -> unknown."""
+    config = {"course_holes": {"Kurzplatz": 9, "18 Loch Tee 1": 9}}
+    assert recommend.holes_for_course("Kurzplatz", config) == 9  # override on a nameless course
+    assert recommend.holes_for_course("  kurzPLATZ ", config) == 9  # case/whitespace-insensitive
+    assert recommend.holes_for_course("18 Loch Tee 1", config) == 9  # the override beats the label
+    assert recommend.holes_for_course("9 Loch Tee 1", config) == 9  # no override -> heuristic
+    assert recommend.holes_for_course("Meisterschaftsplatz", config) is None  # neither -> unknown
+    assert recommend.holes_for_course("Kurzplatz", {}) is None
+    assert recommend.holes_for_course("Kurzplatz", None) is None
+    assert recommend.holes_for_course("Kurzplatz", {"course_holes": {"Kurzplatz": 6}}) == 6  # any positive int
+
+
+def test_course_holes_override_is_the_override_alone():
+    config = {"course_holes": {"Kurzplatz": 9, "kurzplatz": 18}}
+    assert recommend.course_holes_override(" KURZPLATZ", config) == 9  # first in file order
+    assert recommend.course_holes_override("9 Loch Tee 1", config) is None  # no heuristic fallback
+    assert recommend.course_holes_override("Kurzplatz", None) is None
+
+
+def test_holes_for_course_ignores_malformed_overrides():
+    for bad in ("nine", 0, -9, True, 9.5, None, [9]):
+        assert recommend.holes_for_course("Kurzplatz", {"course_holes": {"Kurzplatz": bad}}) is None
+        assert recommend.holes_for_course("18 Loch Tee 1", {"course_holes": {"18 Loch Tee 1": bad}}) == 18
+    assert recommend.holes_for_course("Kurzplatz", {"course_holes": ["Kurzplatz"]}) is None
+    assert recommend.holes_for_course("Kurzplatz", {"course_holes": "Kurzplatz: 9"}) is None
+
+
+def test_round_duration_minutes_uses_the_course_holes_override():
+    assert _round_duration_minutes("Kurzplatz", {}) == 240  # unknown -> the longer, safe 18-hole default
+    assert _round_duration_minutes("Kurzplatz", {"course_holes": {"Kurzplatz": 9}}) == 120
+    config = {"course_holes": {"Kurzplatz": 9}, "round_duration_minutes": {"nine": 100}}
+    assert _round_duration_minutes("Kurzplatz", config) == 100
+
+
+def test_shorter_round_alternative_offered_for_an_unnamed_course_with_a_holes_override():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("Kurzplatz", ["16:00", "16:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) is None
+    config = {**_ALT_CONFIG, "course_holes": {"Kurzplatz": 9}}
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config) == {
+        "course": "Kurzplatz", "time": "16:00", "holes": 9,
+    }
+    # An override on the *selected* course gives it a count to compare against too.
+    unknown_selected = _alt_courses(
+        _alt_schedule("Meisterschaftsplatz", ["16:00"]),
+        _alt_schedule("9 Loch Tee 1", ["16:10"]),
+    )
+    config = {**_ALT_CONFIG, "course_holes": {"Meisterschaftsplatz": 18}}
+    assert recommend.shorter_round_alternative(_ALT_DAY, "Meisterschaftsplatz", unknown_selected, config) == {
+        "course": "9 Loch Tee 1", "time": "16:10", "holes": 9,
+    }

@@ -59,6 +59,84 @@ func anonymousPlayersText(booked: Int, namedCount: Int) -> String {
     return count == 1 ? label : "\(count)× \(label)"
 }
 
+/// A handicap as shown after a player's name: one decimal, decimal comma in German
+/// ("18.4" / "18,4", 54 -> "54.0"). Mirrors `i18n.format_handicap()`; the `hcp_text`
+/// cross-check group pins the two together.
+func hcpText(_ handicap: Double) -> String {
+    hcpText(handicap, language: AppLanguage.shared.code)
+}
+
+func hcpText(_ handicap: Double, language: String) -> String {
+    let text = String(format: "%.1f", handicap)
+    return language == "de" ? text.replacingOccurrences(of: ".", with: ",") : text
+}
+
+/// The players cell of a slot row as one attributed run (the row stays a single
+/// `Text`, so fixed columns and `lineLimit(1)` truncation work as before): friend ★ +
+/// bold name, the name coloured by gender, then " (18,4)" in the secondary tint when
+/// the player's handicap is known and `showHandicaps` is on -- the same order as
+/// `tui._player_name_markup()`. Anonymous seats trail in italics.
+func slotPlayersAttributed(
+    players: [String], booked: Int, friends: Set<String>, genders: [String: String],
+    handicaps: [String: Double], showHandicaps: Bool, language: String
+) -> AttributedString {
+    var result = AttributedString()
+    for (i, name) in players.enumerated() {
+        if i > 0 {
+            var comma = AttributedString(", "); comma.foregroundColor = .secondary
+            result += comma
+        }
+        // A friend: gold ★ in front and a bold name (the ★ matches the gold friend
+        // pips); the name itself is coloured by gender -- blue / magenta, neutral
+        // when unknown (direct request, 2026-10-03).
+        let isFriend = friends.contains(name)
+        if isFriend {
+            var star = AttributedString("\u{2605} "); star.foregroundColor = .yellow
+            result += star
+        }
+        var part = AttributedString(name)
+        part.foregroundColor = genderColor(genders[name])
+        if isFriend { part.inlinePresentationIntent = .stronglyEmphasized }
+        result += part
+        if showHandicaps, let handicap = handicaps[name] {
+            var hcp = AttributedString(" (\(hcpText(handicap, language: language)))")
+            hcp.foregroundColor = .secondary
+            result += hcp
+        }
+    }
+    let anonymous = anonymousPlayersText(booked: booked, namedCount: players.count)
+    if !anonymous.isEmpty {
+        var part = AttributedString((players.isEmpty ? "" : ", ") + anonymous)
+        part.foregroundColor = .secondary
+        part.inlinePresentationIntent = .emphasized
+        result += part
+    }
+    return result
+}
+
+/// The hover text of a slot's players cell. With handicaps off (or none known): the
+/// plain comma-joined names, as before. Otherwise one line per seat -- "Name — HCP 18,4
+/// · Member" -- using whatever is known about each player (the handicap, the club's
+/// member status), then the anonymous seats.
+func slotPlayersTooltip(
+    players: [String], booked: Int, handicaps: [String: Double], memberStatuses: [String: String],
+    showHandicaps: Bool, language: String
+) -> String {
+    let anonymous = anonymousPlayersText(booked: booked, namedCount: players.count)
+    let known = showHandicaps && players.contains { handicaps[$0] != nil || memberStatuses[$0] != nil }
+    guard known else {
+        return (players.joined(separator: ", ") + (anonymous.isEmpty ? "" : (players.isEmpty ? "" : ", ") + anonymous))
+    }
+    var lines = players.map { name -> String in
+        var details: [String] = []
+        if let handicap = handicaps[name] { details.append(t("tip.hcp", ["hcp": hcpText(handicap, language: language)])) }
+        if let status = memberStatuses[name] { details.append(t("players.member_status.\(status)")) }
+        return details.isEmpty ? name : "\(name) — " + details.joined(separator: " · ")
+    }
+    if !anonymous.isEmpty { lines.append(anonymous) }
+    return lines.joined(separator: "\n")
+}
+
 /// Player-name colour by gender: blue / magenta, the secondary grey when unknown.
 /// Same two hues as the TUI's (tui._GENDER_COLORS).
 func genderColor(_ gender: String?) -> Color {

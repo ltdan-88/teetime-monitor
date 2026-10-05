@@ -129,6 +129,11 @@ func scaledFont(_ role: TextRole, design: Font.Design = .default) -> Font {
 /// supposed to line up with which. Multiply through `AppScale.shared.scaled(...)`
 /// at the use site.
 enum Metrics {
+    // Settings > Clubs rows (2026-10-05): the per-club dropdown column and the trash
+    // button column, so the per-course "Holes" rows under a club end on the same grid
+    // lines as the club row above them.
+    static let clubPicker: CGFloat = 190
+    static let clubTrash: CGFloat = 20
     // Slot row columns
     static let slotTime: CGFloat = 42
     // The leading ★ / moon marker column in front of the time (2026-10-05) -- fixed, so

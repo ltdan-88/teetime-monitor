@@ -209,7 +209,6 @@ from .pipeline import (
 from .scrape_once import _db_path
 from .scraper import (
     NoTeeSheetError,
-    _holes_from_course_label,
     fetch_available_dates,
     fetch_course_aliases,
 )
@@ -943,9 +942,9 @@ class ConfirmBookingScreen(Screen[bool]):
     focused" — why was this ever re-typed by hand?) pre-fill both fields as real
     values, not just placeholder hints: `OverviewScreen._confirm_or_cancel_slot()` reads the
     currently highlighted row's own time off the table, and holes come from the
-    course itself (`_holes_from_course_label()` — the same derivation
-    scraper.py's own reservation parsing already uses, since a course category like
-    "18 Loch Tee 1" only ever means one hole count). Both stay editable — pre-filled,
+    course itself (`recommend.holes_for_course()` — the club's `course_holes` override,
+    else the same name derivation scraper.py's own reservation parsing uses, since a
+    course category like "18 Loch Tee 1" only ever means one hole count). Both stay editable — pre-filled,
     not forced — for the rare case either guess is wrong.
 
     Found genuinely missed, dedicated bug hunt (2026-09-10): every other screen in
@@ -1370,15 +1369,23 @@ class SlotRowCells(NamedTuple):
     events_cell: str
 
 
-def _player_name_markup(name: str, is_friend: bool, gender: str | None) -> str:
+def _player_name_markup(name: str, is_friend: bool, gender: str | None, handicap: float | None = None) -> str:
     """A player's name coloured by gender (blue/magenta; unknown stays default),
     with a friend marked by a bold name and a yellow ★ in front (direct request,
-    2026-10-03)."""
+    2026-10-03), then the player's handicap dimmed in brackets -- "Name (18.4)",
+    decimal comma in German (2026-10-05, "player names including their actual
+    HCP"). `handicap=None` (unknown, guest, or the show_handicaps preference off)
+    renders the name alone, as before. The bracket text is plain markup, so
+    `_one_line()`'s truncation counts it in cells like everything else."""
     text = markup_escape(name)
     color = _GENDER_COLORS.get(gender or "")
     if color:
         text = f"[{color}]{text}[/]"
-    return f"[yellow]★[/] [bold]{text}[/]" if is_friend else text
+    text = f"[yellow]★[/] [bold]{text}[/]" if is_friend else text
+    if handicap is not None:
+        # "(" is escaped by Rich only before "[", so a plain "(18.4)" needs no escaping.
+        text += f" [dim]({i18n.format_handicap(handicap)})[/]"
+    return text
 
 
 def _anonymous_players_text(slot: Slot) -> str:
@@ -1402,6 +1409,7 @@ def _compute_slot_rows(
     crowd_estimates: dict[tuple[str, str, str], float] | None = None,
     friend_names: set[str] | None = None,
     genders: dict[str, str] | None = None,
+    handicaps: dict[str, float] | None = None,
 ) -> list[SlotRowCells]:
     """One `SlotRowCells` per slot in `schedule`, in order — the exact per-slot
     rendering `DayDetailScreen.load_schedule()` used to do inline, factored out
@@ -1417,9 +1425,12 @@ def _compute_slot_rows(
     `_resolved_config()`.
 
     `friend_names` (2026-10-02, "highlight friends when uncollapsing") are shown in
-    bold yellow in the players cell."""
+    bold yellow in the players cell. `handicaps` (2026-10-05) puts each named player's
+    HCP dimmed in brackets after the name; callers pass `None`/`{}` when the
+    show_handicaps preference is off."""
     friend_names = friend_names or set()
     genders = genders or {}
+    handicaps = handicaps or {}
     now = clock.now_hhmm() if date == clock.today() else None
     slot_times = [slot.time for slot in schedule.slots]
     sunrise_row = _closest_slot_time(slot_times, schedule.sun_times.sunrise) if schedule.sun_times else None
@@ -1496,7 +1507,10 @@ def _compute_slot_rows(
             crowd_marker = _slot_crowd_marker(date, schedule.course, slot.time, crowd_estimates)
             if crowd_marker:
                 occupancy += f" {crowd_marker}"
-        names = [_player_name_markup(name, name in friend_names, genders.get(name)) for name in slot.players]
+        names = [
+            _player_name_markup(name, name in friend_names, genders.get(name), handicaps.get(name))
+            for name in slot.players
+        ]
         anonymous = _anonymous_players_text(slot)
         if anonymous:
             names.append(f"[dim italic]{anonymous}[/]")
@@ -1823,7 +1837,9 @@ def _legend_pairs(entries: list[tuple[str, str]]) -> list[str]:
     `DayDetailScreen`'s own separate `DAY_DETAIL_LEGEND` was retired alongside
     that screen 2026-09-15) rather than assuming one specific constant, so a
     narrower subset (e.g. `CONDITION_LEGEND` alone) can reuse it too."""
-    return [f"{icon} {i18n.t(key)}" for icon, key in entries]
+    # An empty icon (the handicap entry, whose key text is the whole "(18.4) = ..." line)
+    # is just the text, without a leading space.
+    return [f"{icon} {i18n.t(key)}" if icon else i18n.t(key) for icon, key in entries]
 
 
 def _color_legend_glyphs(text: str) -> str:
@@ -1963,6 +1979,7 @@ _GENDER_COLORS = {"male": "#5aa9ff", "female": "#e36bd0"}
 _NOTICE_LEGEND = [
     ("♂", "legend.male"),
     ("♀", "legend.female"),
+    ("", "legend.hcp"),
     ("🌧", "legend.rain_threshold"),
     ("💨", "legend.wind_threshold"),
 ]
@@ -3232,6 +3249,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         pipeline_cache = self._pick_cache
         friend_names: set[str] | None = None  # loaded once, on the first expanded day
         genders: dict[str, str] = {}
+        handicaps: dict[str, float] = {}
+        # Off switch for the "(18.4)" brackets (Settings -> Display); on by default.
+        show_handicaps = bool(config.get("show_handicaps", True))
         for one_date in dates:
             weekday = i18n.t(f"weekday.{date_cls.fromisoformat(one_date).weekday()}")
             # No year (2026-09-15, fitting the whole app on an iPad portrait
@@ -3323,13 +3343,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 if friend_names is None:
                     friend_names = storage.load_friend_names(path=self.db_path)
                     genders = storage.load_player_genders(path=self.db_path)
+                    handicaps = storage.load_player_handicaps(path=self.db_path) if show_handicaps else {}
                 recommended_times = _recommended_times_for(schedule, config, self.club_id, pipeline_cache)
                 confirmed = confirmed_by_date.get(one_date)
                 # Cache-only holidays: this runs on the event loop on every redraw.
                 crowd_estimates = _compute_crowd_estimates([schedule], config, self.club_id, fetch_holidays=False)
                 for slot_row in _compute_slot_rows(
                     schedule, config, units, one_date, recommended_times, confirmed, crowd_estimates,
-                    friend_names, genders,
+                    friend_names, genders, handicaps,
                 ):
                     self._row_index.append((one_date, slot_row.time))
                     pending_rows.append((
@@ -3865,7 +3886,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if confirmed:
                 self._rerender_preserving_cursor(row)
 
-        default_holes = _holes_from_course_label(self.course)
+        default_holes = recommend.holes_for_course(self.course, self._config())
         self.app.push_screen(
             ConfirmBookingScreen(self.club_id, self.course, date, slot_time, default_holes), on_result
         )
@@ -4300,7 +4321,7 @@ class SearchScreen(Screen[None]):
             if confirmed:
                 self.query_one("#search-status", Static).update(i18n.t("confirm.confirmed"))
 
-        default_holes = _holes_from_course_label(match.course)
+        default_holes = recommend.holes_for_course(match.course, self.config)
         self.app.push_screen(
             ConfirmBookingScreen(self.club_id, match.course, match.date, match.slot.time, default_holes),
             on_result,

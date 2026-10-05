@@ -156,6 +156,43 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) 
     )
 
 
+def course_holes_overrides(config: dict) -> dict[str, int]:
+    """The club's `course_holes` mapping (course label -> hole count) as plain
+    {label: positive int}, anything malformed left out -- see
+    `recommend.holes_for_course()` for how it is applied (2026-10-05)."""
+    raw = config.get("course_holes")
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(label): holes
+        for label, holes in raw.items()
+        if isinstance(holes, int) and not isinstance(holes, bool) and holes > 0
+    }
+
+
+def set_course_holes(slug: str, course: str, holes: int | None, clubs_dir: Path | None = None) -> None:
+    """Set (or, with `holes=None`, clear) one course's entry in a club file's
+    `course_holes`, keeping every other key (lists like vacation ranges included).
+    An existing entry for the same label -- any case, surrounding spaces ignored,
+    `holes_for_course()`'s own rule -- is replaced rather than duplicated, and the key
+    disappears with its last entry ("Auto" leaves no trace). Same comment-loss caveat as
+    `save_club_config()`. The GUI edits the same key as text (ClubDefaults in Store.swift)."""
+    config = load_club_config(slug, clubs_dir)
+    wanted = course.strip().lower()
+    entries = {
+        label: value
+        for label, value in (config.get("course_holes") or {}).items()
+        if str(label).strip().lower() != wanted
+    } if isinstance(config.get("course_holes"), dict) else {}
+    if holes is not None and holes > 0:
+        entries[course] = holes
+    if entries:
+        config["course_holes"] = entries
+    else:
+        config.pop("course_holes", None)
+    save_club_config(slug, config, clubs_dir)
+
+
 def new_club_stub(club_id: str, name: str = "") -> dict:
     """A minimal starting config for a club just picked from `tui.py`'s
     `ClubBrowserScreen` directory search — only

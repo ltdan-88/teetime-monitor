@@ -27,6 +27,8 @@ struct SearchSheet: View {
     @StateObject private var weatherByDate = Box<[String: Day]>([:])
     @StateObject private var confirming = Box<SearchMatch?>(nil)
     @StateObject private var showingPlayerPicker = Box(false)
+    /// The search process going, if any: a new search or closing the sheet terminates it.
+    @StateObject private var searchHandle = Box<SubprocessHandle?>(nil)
 
     // The overview's own window (`overview_days`), like the TUI's SearchScreen,
     // which searches the schedules the overview already loaded.
@@ -172,6 +174,7 @@ struct SearchSheet: View {
             .padding(16)
         }
         .sheetFrame(SheetSize.browser)
+        .onDisappear { searchHandle.value?.cancel(); searchHandle.value = nil }
         .sheet(isPresented: Binding(get: { showingPlayerPicker.value }, set: { showingPlayerPicker.value = $0 })) {
             PlayerDirectorySheet(dbPath: dbPath, onSelect: { (name: String) in criteria.value.player = name })
         }
@@ -185,7 +188,8 @@ struct SearchSheet: View {
         ) {
             if let match = confirming.value {
                 Button(t("booking.confirm")) {
-                    let saved = Store.confirmBooking(dbPath: dbPath, course: match.course, date: match.date, time: match.time)
+                    let saved = Store.confirmBooking(dbPath: dbPath, course: match.course, date: match.date, time: match.time,
+                                             courseHoles: ClubDefaults.courseHoles(slug: clubSlug))
                     model.reload()
                     status.value = saved
                         ? t("search.booked", ["day": weekday(match.date), "time": match.time])
@@ -197,15 +201,17 @@ struct SearchSheet: View {
     }
 
     private func runSearch() {
+        searchHandle.value?.cancel()
         isSearching.value = true
         status.value = nil
         let fromDate = today
         weatherByDate.value = Dictionary(
             uniqueKeysWithValues: Store.days(dbPath: dbPath, course: course, from: fromDate, days: searchDays)
                 .map { ($0.date, $0) })
-        SearchClient.run(dbPath: dbPath, course: course, clubSlug: clubSlug, from: fromDate, days: searchDays,
+        searchHandle.value = SearchClient.run(dbPath: dbPath, course: course, clubSlug: clubSlug, from: fromDate, days: searchDays,
                           criteria: criteria.value) { matches, error in
             isSearching.value = false
+            searchHandle.value = nil
             if let matches {
                 results.value = matches
                 status.value = matches.isEmpty ? t("search.no_matches_status") : nil

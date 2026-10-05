@@ -104,20 +104,7 @@ struct PicksResult {
 /// `OverviewModel.reload()` (where this is called, fire-and-forget, alongside the
 /// synchronous SQLite reload) and `DayCardHeader`'s pick badge.
 enum PicksClient {
-    static func executable() -> String? {
-        for candidate in ["/opt/homebrew/bin/teetime-monitor-picks", "/usr/local/bin/teetime-monitor-picks"]
-        where FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "teetime-monitor-picks"]
-        let pipe = Pipe(); which.standardOutput = pipe; which.standardError = Pipe()
-        try? which.run(); which.waitUntilExit()
-        let found = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return found.isEmpty ? nil : found
-    }
+    static func executable() -> String? { Subprocess.resolve("teetime-monitor-picks") }
 
     /// `clubSlug` is optional, same reason `SearchClient.run()`'s own is: an
     /// unsaved/browsed club still gets a pick, just without that club's own
@@ -126,13 +113,23 @@ enum PicksClient {
     /// best-effort enhancement over the core Overview, which already rendered
     /// correctly before this existed and must keep doing so if the call fails for
     /// any reason (same stance `_availability_pipeline()` itself takes).
+    ///
+    /// Returns a handle: `cancel()` terminates the child, and `done` is then never called
+    /// (the canceller superseded this run). A timeout (`Subprocess.Timeout.picks`) is a
+    /// failure like any other: silent, an empty result.
+    @discardableResult
     static func run(dbPath: String, course: String, clubSlug: String?, from: String, days: Int,
-                     done: @escaping (PicksResult) -> Void) {
-        guard let exe = executable() else { done(PicksResult()); return }
+                    timeout: TimeInterval = Subprocess.Timeout.picks,
+                    done: @escaping (PicksResult) -> Void) -> SubprocessHandle {
+        let handle = SubprocessHandle()
+        guard let exe = executable() else { done(PicksResult()); return handle }
         DispatchQueue.global(qos: .utility).async {
             var args = ["--db-path", dbPath, "--course", course, "--from", from, "--days", String(days)]
             if let clubSlug { args += ["--club-slug", clubSlug] }
-            guard let result = try? Subprocess.run(exe, args) else {
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, args, timeout: timeout, handle: handle) } catch SubprocessError.cancelled {
+                return
+            } catch {
                 DispatchQueue.main.async { done(PicksResult()) }
                 return
             }
@@ -144,6 +141,7 @@ enum PicksClient {
                 done(parse(obj))
             }
         }
+        return handle
     }
 
     /// Split out of `run()` so it's testable without a subprocess.
