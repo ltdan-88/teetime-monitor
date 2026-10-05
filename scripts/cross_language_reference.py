@@ -495,9 +495,11 @@ def _lock_when_cases() -> dict:
 
 def _lock_i18n_cases() -> dict:
     # The keys both apps share for this feature must carry the same text, not just exist.
+    # (Plus the two slot-marker legend lines, 2026-10-05.)
+    shared = ("legend.locked", "legend.recommended", "legend.too_late")
     cases = []
     for lang in i18n.SUPPORTED_LANGUAGES:
-        for key in sorted(k for k in i18n._STRINGS[lang] if k.startswith(("lock.", "weekday.")) or k == "legend.locked"):
+        for key in sorted(k for k in i18n._STRINGS[lang] if k.startswith(("lock.", "weekday.")) or k in shared):
             cases.append({"args": {"key": key, "language": lang}, "expected": i18n._STRINGS[lang][key]})
     return {"lock_i18n": cases}
 

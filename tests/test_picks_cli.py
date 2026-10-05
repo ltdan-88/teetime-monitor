@@ -109,6 +109,7 @@ def test_reports_why_a_day_has_no_pick_and_the_window_too_late_hint(tmp_path, ca
     assert code == 0
     assert result["2026-09-28"] == {
         "time": None, "window": {"after": "16:00", "before": None}, "unplayable": ["daylight"],
+        "too_late": ["16:00"],
     }
     assert result["_hint"] == {
         "window_after": "16:00", "latest_start": "15:10", "sunset": "19:10", "round_minutes": 240, "days": 2,
@@ -138,6 +139,7 @@ def test_offers_a_shorter_round_when_daylight_alone_rules_out_the_selected_cours
     assert result["2026-10-05"] == {
         "time": None, "window": {"after": "16:00", "before": None}, "unplayable": ["daylight"],
         "alternative": {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9},
+        "too_late": ["16:00"],
     }
     assert "alternative" not in result["2026-10-06"]  # absent, not null -- older GUIs never see it
     assert result["_hint"]["alternative_courses"] == ["9 Loch Tee 1"]
@@ -187,6 +189,7 @@ def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch
     assert code == 0
     assert result["2026-09-27"] == {
         "time": "09:10", "score": 90.0, "reasons": ["dry", "calm"], "window": {"after": None, "before": None},
+        "recommended": ["09:10"],
     }
 
 
@@ -316,3 +319,186 @@ def test_the_club_timezone_decides_when_a_day_opens(tmp_path, capsys, monkeypatc
     result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-09", "--days", "1"])
 
     assert result["2026-10-09"]["locked"]["opens_at"] == "2026-10-05T20:00:00+01:00"
+
+
+# --- per-slot markers (2026-10-05): "recommended" / "too_late" ---------------------------
+
+_SUN = SunTimes(sunrise="07:30", sunset="18:50")
+
+
+def _marker_day(date="2026-10-04", times=("09:00", "09:10", "15:00", "15:10", "17:30"), booked=None, **kwargs):
+    booked = booked or {}
+    return Schedule(date=date, course="18 Loch Tee 1", sun_times=_SUN, **kwargs,
+                    slots=[Slot(time=t, booked=booked.get(t, 0), capacity=4) for t in times])
+
+
+def test_recommended_and_too_late_slots_are_listed_per_day(tmp_path, capsys):
+    # 2026-10-04 is a Sunday; a 240 min round from 15:00 would end 19:00, past the 18:50 sunset.
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": "12:00"}}})
+    db = tmp_path / "club.db"
+    save_schedule(_marker_day(booked={"09:10": 4}), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    entry = result["2026-10-04"]
+    assert entry["recommended"] == ["09:00"]  # 09:10 is full; the afternoon is outside the window
+    assert entry["too_late"] == ["15:00", "15:10", "17:30"]
+    assert entry["time"] == "09:00"
+
+
+def test_marker_lists_equal_the_pipeline_functions_slot_by_slot(tmp_path, capsys):
+    """Parity: the very functions the TUI's `_compute_slot_rows()` is fed with."""
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": "09:00", "before": "16:00"}}})
+    db = tmp_path / "club.db"
+    schedule = _marker_day(times=[f"{h:02d}:{m:02d}" for h in range(7, 19) for m in (0, 20, 40)],
+                           booked={"10:00": 4, "11:20": 4})
+    save_schedule(schedule, path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    config = pipeline._resolved_config(None)
+    expected_recommended = sorted(pipeline._recommended_times_for(schedule, config, "club"))
+    expected_late = sorted(s.time for s in schedule.slots if pipeline._too_late_for_daylight(s.time, schedule, config))
+    assert expected_recommended and expected_late  # the fixture really exercises both
+    assert result["2026-10-04"]["recommended"] == expected_recommended
+    assert result["2026-10-04"]["too_late"] == expected_late
+    assert not set(expected_recommended) & set(expected_late)
+
+
+def test_marker_keys_are_absent_when_there_is_none(tmp_path, capsys):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(_marker_day(times=("09:00",)), path=db)  # open but early: nothing too late
+    save_schedule(_marker_day(date="2026-10-05", times=("09:00",), booked={"09:00": 4}), path=db)  # full: nothing to recommend
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "2"])
+
+    assert "too_late" not in result["2026-10-04"]
+    assert result["2026-10-04"]["recommended"] == ["09:00"]
+    assert "recommended" not in result["2026-10-05"] and "too_late" not in result["2026-10-05"]
+
+
+def test_no_markers_without_sun_times(tmp_path, capsys):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(Schedule(date="2026-10-04", course="18 Loch Tee 1", slots=[Slot(time="17:30", booked=0, capacity=4)]), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    assert "too_late" not in result["2026-10-04"]  # unknown, not assumed bad (as the TUI)
+
+
+def test_too_late_needs_no_availability_rules_but_a_day_without_any_stays_null(tmp_path, capsys):
+    db = tmp_path / "club.db"  # no preferences saved at all
+    save_schedule(_marker_day(), path=db)
+    save_schedule(_marker_day(date="2026-10-05", times=("09:00",)), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "2"])
+
+    assert result["2026-10-04"] == {"time": None, "window": None, "too_late": ["15:00", "15:10", "17:30"]}
+    assert result["2026-10-05"] is None  # unchanged from before markers existed
+
+
+def test_unplayable_day_has_no_star_but_keeps_its_moons(tmp_path, capsys):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": "15:00", "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(_marker_day(times=("15:00", "15:10")), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    entry = result["2026-10-04"]
+    assert entry["unplayable"] == ["daylight"]
+    assert "recommended" not in entry
+    assert entry["too_late"] == ["15:00", "15:10"]
+
+
+def test_locked_day_has_no_star_and_keeps_the_tuis_moons(tmp_path, capsys, _scrape_clock):
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    locked = _locked_schedule(count=6)
+    locked.sun_times = SunTimes(sunrise="07:30", sunset="08:30")  # 08:00..08:50: 08:00 onwards can't finish
+    save_schedule(locked, path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-09", "--days", "1"])
+
+    entry = result["2026-10-09"]
+    assert entry["locked"]["hour_known"] is True
+    assert "recommended" not in entry
+    assert entry["too_late"] == ["08:00", "08:10", "08:20", "08:30", "08:40", "08:50"]
+
+
+def test_locked_day_with_a_few_open_slots_marks_them_exactly_like_the_tui(tmp_path, capsys, _scrape_clock):
+    """Parity with the TUI itself: booking_opening() tolerates a few unblocked slots, and
+    _compute_slot_rows() ★-marks those (no lock check), so picks_cli must too."""
+    from src import tui
+
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": "09:00", "before": "17:00"}}})
+    db = tmp_path / "club.db"
+    locked = _locked_schedule(count=36)  # 08:00..13:50, 2026-10-09 (a Friday)
+    for slot in locked.slots:
+        if slot.time in ("10:20", "12:00"):
+            slot.block_reason = None
+    locked.sun_times = SunTimes(sunrise="07:30", sunset="17:30")  # a 240 min round from 13:40 on cannot finish
+    save_schedule(locked, path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-09", "--days", "1"])
+
+    entry = result["2026-10-09"]
+    assert "locked" in entry
+    config = pipeline._resolved_config(None)
+    rows = tui._compute_slot_rows(
+        locked, config, "metric", "2026-10-09", pipeline._recommended_times_for(locked, config, "club"), None
+    )
+    tui_stars = sorted(row.time for row in rows if row.time_cell.startswith("\u2605"))
+    tui_moons = sorted(row.time for row in rows if row.time_cell.startswith("\U0001f319"))
+    assert tui_stars  # the fixture really has open, in-window slots
+    assert tui_moons
+    assert entry["recommended"] == tui_stars
+    assert entry["too_late"] == tui_moons
+
+
+def test_fully_locked_day_still_has_no_star(tmp_path, capsys, _scrape_clock):
+    global_preferences.save_preferences({"availability": {"weekday_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(_locked_schedule(count=30), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-09", "--days", "1"])
+
+    assert "recommended" not in result["2026-10-09"]
+
+
+def test_slots_already_past_today_carry_no_marker(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(clock, "today", lambda: "2026-10-04")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "15:05")
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(_marker_day(times=("09:00", "15:00", "15:10", "17:30")), path=db)
+
+    result, _ = _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    entry = result["2026-10-04"]
+    assert entry.get("recommended", []) == []  # 09:00 is past (like the TUI); the rest cannot finish
+    assert entry["too_late"] == ["15:10", "17:30"]  # 15:00 is past
+
+
+def test_marker_lists_come_from_the_cached_pipeline_without_a_second_ranking(tmp_path, capsys, monkeypatch):
+    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
+    db = tmp_path / "club.db"
+    save_schedule(_marker_day(times=("09:00", "09:10")), path=db)
+    calls = []
+    real = pipeline._availability_pipeline
+
+    def counting(schedule, config, club_id, cache=None):
+        calls.append(schedule.date)
+        return real(schedule, config, club_id, cache)
+
+    monkeypatch.setattr(pipeline, "_availability_pipeline", counting)
+    from src import recommend as recommend_module
+
+    ranked = []
+    real_ranked = recommend_module.ranked_matches
+    monkeypatch.setattr(recommend_module, "ranked_matches", lambda *a, **k: ranked.append(1) or real_ranked(*a, **k))
+
+    _run(capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-10-04", "--days", "1"])
+
+    assert len(ranked) == 1  # one ranking for the pick and the ★ list together

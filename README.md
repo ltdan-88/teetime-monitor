@@ -170,7 +170,7 @@ second way to look at the same thing, not a second thing to keep in sync by hand
 <p align="center"><img src="assets/en/gui-expanded.png" alt="A day expanded in the macOS app, showing each individual tee time"></p>
 
 It shows the same things the same way — friends in gold, names coloured by gender,
-anonymous seats, the **?** legend — and opens on each club's default course (set per
+anonymous seats, the **?** legend, and the ★ (recommended) and 🌙 (too late to finish before dark) markers on an expanded day's tee times, which match the terminal app — and opens on each club's default course (set per
 club in Settings → Clubs; the terminal app honours the same `default_course`). It
 covers everything above: the day list with weather and a heat strip, ad hoc
 search, a crowd heatmap, preferences and pc caddie login, managing which clubs are

@@ -62,6 +62,23 @@ no pipeline runs for it, and it is not an `alternative` either, even without any
 
 The club's timezone is its YAML's optional `timezone:` (default Europe/Berlin).
 
+`"recommended"` / `"too_late"` (2026-10-05 -- optional, absent, never null or empty, when
+there is none; older GUI builds ignore them): the per-slot markers of an expanded day,
+as sorted `"HH:MM"` lists -- `"recommended"` the slots the TUI marks "★"
+(`pipeline._recommended_times_for()`, read from the very pipeline result the pick above
+came from, so no extra ranking or AI call), `"too_late"` the slots it marks "🌙"
+(`pipeline._too_late_for_daylight()`, a plain fact about the slot, so it is there
+without any `availability` rules too). Exactly what `tui._compute_slot_rows()` shows:
+neither marker on a slot already in the past today, and where a slot is in both lists the
+TUI's "★" wins (the GUI mirrors that; in practice a recommended slot is playable, so
+never too late). A locked day carries "recommended" only for any slots that are actually
+open (nearly all, not all, carry the notice; none when fully locked) and its "too_late"
+like the TUI's rows do. A day with no availability
+rules and no too-late slot stays `null`; with one it is an object with `"time": null`:
+
+    {"2026-10-06": {"time": "16:00", "score": 0.0, "reasons": [], "window": {...},
+                    "recommended": ["16:00", "16:10"], "too_late": ["17:30", "17:40"]}}
+
 Exit code 0 whenever the script actually ran, even if every date came back
 `null` (that's a normal, valid result, not an error) -- exit code 1 only when
 `--db-path` or `--course` is missing. A `--club-slug` with no clubs/<slug>.yaml
@@ -86,6 +103,32 @@ def _flag(argv: list[str], name: str) -> str | None:
         return None
     idx = argv.index(name)
     return argv[idx + 1] if idx + 1 < len(argv) else None
+
+
+def _slot_markers(schedule, config: dict, recommended: set[str], one_date: str) -> dict:
+    """The optional `"recommended"` / `"too_late"` keys for one day (see the module
+    docstring) -- `{}` when neither has a slot. Mirrors `tui._compute_slot_rows()`: a
+    slot already past today carries no marker, ★ and 🌙 each decided by the same
+    pipeline functions the TUI calls, never re-derived."""
+    now = clock.now_hhmm() if one_date == clock.today() else None
+
+    def is_past(slot_time: str) -> bool:
+        return now is not None and slot_time < now
+
+    markers: dict = {}
+    times = sorted(time for time in recommended if not is_past(time))
+    if times:
+        markers["recommended"] = times
+    late = sorted(
+        {
+            slot.time
+            for slot in schedule.slots
+            if not is_past(slot.time) and pipeline._too_late_for_daylight(slot.time, schedule, config)
+        }
+    )
+    if late:
+        markers["too_late"] = late
+    return markers
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -128,14 +171,32 @@ def main(argv: list[str] | None = None) -> None:
         status = booking_window.day_booking_status(schedule.slots, one_date, now, tz)
         if status["locked"]:
             window = recommend.window_for_date(one_date, config)
+            # No pick, but the TUI still ★-marks any slot of a locked day that is actually
+            # open (booking_opening() only needs "nearly all" slots to carry a notice) --
+            # _recommended_times_for() is empty when none is, so a fully locked day gets none.
+            locked_stars = (
+                pipeline._recommended_times_for(schedule, config, club_id, cache) if has_availability else set()
+            )
             picks[one_date] = {
                 "time": None,
                 "window": {"after": window.after, "before": window.before} if window is not None else None,
                 "locked": {"opens_at": status["opens_at"].isoformat(), "hour_known": status["hour_known"]},
+                **_slot_markers(schedule, config, locked_stars, one_date),
             }
             continue
         if not has_availability:
-            picks[one_date] = None
+            # Still worth an object when slots are too late (the TUI's 🌙 needs no rules);
+            # otherwise null as ever.
+            markers = _slot_markers(schedule, config, set(), one_date)
+            if markers:
+                window = recommend.window_for_date(one_date, config)
+                picks[one_date] = {
+                    "time": None,
+                    "window": {"after": window.after, "before": window.before} if window is not None else None,
+                    **markers,
+                }
+            else:
+                picks[one_date] = None
             continue
         schedules.append(schedule)
         candidates, playable = pipeline._availability_pipeline(schedule, config, club_id, cache)
@@ -165,6 +226,8 @@ def main(argv: list[str] | None = None) -> None:
             if alternative is not None:
                 entry["alternative"] = alternative
                 alternatives[one_date] = alternative
+        # ★/🌙 for the expanded rows, from the same cached pipeline result (2026-10-05).
+        entry.update(_slot_markers(schedule, config, pipeline._recommended_times_for(schedule, config, club_id, cache), one_date))
         picks[one_date] = entry
 
     # Not a date -- the GUI's own parsing only reads keys whose value has a
