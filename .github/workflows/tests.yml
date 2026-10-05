@@ -134,7 +134,12 @@ jobs:
       # mismatch, upload the actual/diff PNGs it wrote so a failure here is
       # something a reviewer can actually look at, not just a percentage in
       # the log.
+      # `!cancelled()` on the steps after the first: without it a failure in the core
+      # Swift suite skipped these entirely, which once hid a stale visual-regression
+      # reference behind an unrelated failure (2026-10-02). Every Swift check now
+      # reports on every run.
       - run: swift run VisualRegressionRunner
+        if: ${{ !cancelled() }}
         working-directory: macos
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -149,10 +154,14 @@ jobs:
       # for the full reasoning. Needs Python on this macOS runner, unlike the plain
       # Swift suite above.
       - uses: actions/setup-python@v5
+        if: ${{ !cancelled() }}
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -e .
+        if: ${{ !cancelled() }}
       - run: python scripts/cross_language_reference.py > /tmp/reference.json
+        if: ${{ !cancelled() }}
       - run: swift run CrossCheckRunner /tmp/reference.json
+        if: ${{ !cancelled() }}
         working-directory: macos

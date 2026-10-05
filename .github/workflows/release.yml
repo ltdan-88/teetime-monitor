@@ -1,0 +1,64 @@
+name: release
+
+# Runs when a version tag is pushed (v0.66.0). Added 2026-10-05 so the release tail
+# stops being a hand-run sequence: it refuses a tag that doesn't match pyproject.toml
+# or isn't on main, publishes a GitHub Release, and (when a token is configured)
+# points the Homebrew tap at the new tarball.
+#
+# One-time setup for the tap step: create a fine-grained personal access token with
+# "Contents: read and write" on ltdan-88/homebrew-teetime-monitor and store it as the
+# repository secret TAP_GITHUB_TOKEN. Without it the job still succeeds and says to run
+# scripts/update_tap.sh by hand.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag matches pyproject.toml and is on main
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared=$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')
+          if [ "$tag" != "$declared" ]; then
+            echo "::error::tag v$tag does not match pyproject.toml version $declared"
+            exit 1
+          fi
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tagged commit is not on main"
+            exit 1
+          fi
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" --generate-notes --title "$GITHUB_REF_NAME"
+          fi
+
+      - name: Update the Homebrew tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ -z "$TAP_GITHUB_TOKEN" ]; then
+            echo "::notice::TAP_GITHUB_TOKEN is not set -- run: scripts/update_tap.sh $version"
+            exit 0
+          fi
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/ltdan-88/homebrew-teetime-monitor.git" /tmp/tap
+          git -C /tmp/tap config user.name "github-actions[bot]"
+          git -C /tmp/tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/update_tap.sh "$version" /tmp/tap
