@@ -120,6 +120,11 @@ def _neighbor_changes(
     buffer_after_minutes: int,
 ) -> list[BookingChange]:
     changes: list[BookingChange] = []
+    if not baseline.slots:
+        # An empty baseline (a table-less tee-sheet response, or a day not yet open) says
+        # nothing about which neighbours were clear -- diffing against it would report
+        # every already-occupied slot in the buffer as newly booked.
+        return changes
     booking_time = datetime.strptime(booking.time, _TIME_FMT)
     baseline_by_time = {slot.time: slot for slot in baseline.slots}
 
@@ -202,9 +207,15 @@ def _weather_change(
 
     reason_keys = []
 
+    def _limit(key: str, default: float) -> float:
+        # Settings saves a cleared field as an explicit null -- same guard as
+        # recommend._fails_weather(), or _crossed_threshold() compares against None.
+        value = preferences.get(key)
+        return default if value is None else value
+
     if preferences.get("avoid_rain"):
-        prob_limit = preferences.get("avoid_rain_probability_percent", DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT)
-        mm_limit = preferences.get("avoid_rain_mm", DEFAULT_AVOID_RAIN_MM)
+        prob_limit = _limit("avoid_rain_probability_percent", DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT)
+        mm_limit = _limit("avoid_rain_mm", DEFAULT_AVOID_RAIN_MM)
         if _crossed_threshold(
             baseline_conditions.max_precipitation_probability, latest_conditions.max_precipitation_probability, prob_limit
         ):
@@ -213,7 +224,7 @@ def _weather_change(
             reason_keys.append(REASON_RAIN_AMOUNT)
 
     if preferences.get("avoid_wind"):
-        wind_limit = preferences.get("avoid_wind_kph", DEFAULT_AVOID_WIND_KPH)
+        wind_limit = _limit("avoid_wind_kph", DEFAULT_AVOID_WIND_KPH)
         if _crossed_threshold(baseline_conditions.max_wind_speed_kph, latest_conditions.max_wind_speed_kph, wind_limit):
             reason_keys.append(REASON_WIND)
 

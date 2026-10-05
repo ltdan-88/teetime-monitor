@@ -40,12 +40,28 @@ final class AppLanguage: ObservableObject {
     @Published var code: String
 
     private init() {
-        let saved = UserConfig.value("LANG") ?? "en"
-        // Accept a full locale ("de_DE.UTF-8") the way `i18n.resolve_language_name()`
-        // does, not just a bare code -- the TUI writes a bare code, but this file is
-        // hand-editable and an environment-derived value can carry a region.
-        let base = String(saved.prefix(2)).lowercased()
-        code = I18n.supported.contains(base) ? base : "en"
+        code = Self.resolve(env: ProcessInfo.processInfo.environment, saved: UserConfig.value("LANG"),
+                            preferredLanguages: Locale.preferredLanguages)
+    }
+
+    /// Mirrors `i18n.resolve_language_name()`: `TEETIME_MONITOR_LANG`, then the
+    /// saved `LANG=` (an exact supported code, as `load_saved_language()` requires),
+    /// then a locale-based default -- German when LC_ALL/LANG/LANGUAGE starts with
+    /// "de". A Finder-launched app usually has none of those set, so only then does
+    /// the macOS preferred language decide (Python's own Windows branch does the
+    /// same with the UI language); a set locale wins, so a GUI started from the
+    /// same shell as the TUI agrees with it. Before this, a German system with
+    /// nothing saved got a German TUI and an English GUI.
+    static func resolve(env: [String: String], saved: String?, preferredLanguages: [String]) -> String {
+        if let value = env["TEETIME_MONITOR_LANG"], I18n.supported.contains(value) { return value }
+        if let saved, I18n.supported.contains(saved) { return saved }
+        let localeVars = ["LC_ALL", "LANG", "LANGUAGE"]
+        for name in localeVars where (env[name] ?? "").lowercased().hasPrefix("de") {
+            return "de"
+        }
+        let noLocaleSet = localeVars.allSatisfy { (env[$0] ?? "").isEmpty }
+        if noLocaleSet, preferredLanguages.first?.lowercased().hasPrefix("de") == true { return "de" }
+        return "en"
     }
 }
 
@@ -159,6 +175,7 @@ private let englishStrings: [String: String] = [
     "overview.updated_relative": "updated {when}",
     "overview.free": "{n} free",
     "overview.anonymous": "anonymous",
+    "overview.rain_all_day": "rain all day",
     "legend.players_title": "Player names",
     "legend.day_title": "Day row",
     "legend.occupancy_title": "Occupancy bar",
@@ -170,7 +187,7 @@ private let englishStrings: [String: String] = [
     "overview.sunrise_at": "sunrise {time}",
     "overview.sunset_at": "sunset {time}",
     "overview.empty_title": "Nothing scraped for this course yet",
-    "overview.empty_no_clubs": "No club databases found in ~/.local/share/teetime-monitor.",
+    "overview.empty_no_clubs": "No saved clubs yet — use Add Club to find yours.",
     "overview.empty_pick_another": "Pick another club or course above, or run teetime-monitor-scrape.",
 
     // Booking-change banners -- mirrors i18n.py's own watch.* keys verbatim.
@@ -258,7 +275,7 @@ private let englishStrings: [String: String] = [
     // Legend
     "legend.hilo": "hi/lo {unit}, 08:00–20:00",
     "legend.rain": "rain %, 08:00–20:00 (🌧 ≥50%)",
-    "legend.wind": "wind {unit}, 08:00–20:00 (💨 ≥30)",
+    "legend.wind": "wind {unit}, 08:00–20:00 (💨 ≥30 km/h)",
     "legend.sunrise": "sunrise",
     "legend.sunset": "sunset",
     "legend.booking": "your booking",
@@ -314,7 +331,7 @@ private let englishStrings: [String: String] = [
     "prefs.my_handicap": "Your handicap",
     "prefs.my_handicap.unsynced": "not yet synced",
     "players.title": "Player directory",
-    "players.intro": "Every real name your own scrapes have seen (only possible once logged in — see Settings). Tap to mark or unmark a friend.",
+    "players.intro": "Every real name your own scrapes have seen (only possible once logged in — see Settings). Use the button on a row to mark or unmark a friend; double-click a row to jump to their tee time.",
     "players.friends_only": "Friends only",
     "players.picker_title": "Choose a player",
     "players.picker_intro": "Tap a name to use it as this search's filter.",
@@ -483,6 +500,7 @@ private let englishStrings: [String: String] = [
 
     // Errors
     "error.generic": "Something went wrong.",
+    "error.save_failed": "Couldn't save — the database is busy (a scrape may be running). Try again.",
     "error.scraper_missing": "teetime-monitor-scrape not found — install it with Homebrew.",
     "error.login_missing": "teetime-monitor-login not found — install it with Homebrew.",
     "error.search_missing": "teetime-monitor-search not found — install it with Homebrew.",
@@ -557,6 +575,7 @@ private let germanStrings: [String: String] = [
     "overview.updated_relative": "aktualisiert {when}",
     "overview.free": "{n} frei",
     "overview.anonymous": "anonym",
+    "overview.rain_all_day": "Regen den ganzen Tag",
     "legend.players_title": "Spielernamen",
     "legend.day_title": "Tageszeile",
     "legend.occupancy_title": "Belegungsbalken",
@@ -568,7 +587,7 @@ private let germanStrings: [String: String] = [
     "overview.sunrise_at": "Sonnenaufgang {time}",
     "overview.sunset_at": "Sonnenuntergang {time}",
     "overview.empty_title": "Für diesen Platz wurde noch nichts abgerufen",
-    "overview.empty_no_clubs": "Keine Club-Datenbanken in ~/.local/share/teetime-monitor gefunden.",
+    "overview.empty_no_clubs": "Noch keine Clubs gespeichert — mit „Club hinzufügen“ deinen Club finden.",
     "overview.empty_pick_another": "Wähle oben einen anderen Club oder Platz, oder führe teetime-monitor-scrape aus.",
 
     "watch.party_grew.singular": "Seit deiner Buchung ist {count} Spieler zu deiner Tee-Zeit um {time} Uhr dazugekommen",
@@ -643,7 +662,7 @@ private let germanStrings: [String: String] = [
     // Legend
     "legend.hilo": "Höchst/Tief {unit}, 08:00–20:00",
     "legend.rain": "Regen %, 08:00–20:00 (🌧 ≥50 %)",
-    "legend.wind": "Wind {unit}, 08:00–20:00 (💨 ≥30)",
+    "legend.wind": "Wind {unit}, 08:00–20:00 (💨 ≥30 km/h)",
     "legend.sunrise": "Sonnenaufgang",
     "legend.sunset": "Sonnenuntergang",
     "legend.booking": "deine Buchung",
@@ -693,7 +712,7 @@ private let germanStrings: [String: String] = [
     "prefs.my_handicap": "Dein Handicap",
     "prefs.my_handicap.unsynced": "noch nicht synchronisiert",
     "players.title": "Spielerverzeichnis",
-    "players.intro": "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — siehe Einstellungen). Tippen, um Freund/in zu markieren oder zu entfernen.",
+    "players.intro": "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — siehe Einstellungen). Mit dem Knopf in einer Zeile Freund/in markieren oder entfernen; Doppelklick auf eine Zeile springt zur Startzeit.",
     "players.empty": "Noch keine Namen gesehen.",
     "players.no_matches": "Keine Namen passen zu deiner Suche.",
     "players.search_placeholder": "Nach Namen suchen…",
@@ -832,6 +851,7 @@ private let germanStrings: [String: String] = [
 
     // Errors
     "error.generic": "Etwas ist schiefgelaufen.",
+    "error.save_failed": "Speichern fehlgeschlagen — die Datenbank ist belegt (evtl. läuft gerade ein Scrape). Bitte erneut versuchen.",
     "error.scraper_missing": "teetime-monitor-scrape nicht gefunden — mit Homebrew installieren.",
     "error.login_missing": "teetime-monitor-login nicht gefunden — mit Homebrew installieren.",
     "error.search_missing": "teetime-monitor-search nicht gefunden — mit Homebrew installieren.",

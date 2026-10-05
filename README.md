@@ -39,7 +39,7 @@ something about it changes.
 1. **Open it.** You land on the next few bookable days, one row each.
 2. **Read the Pick column.** Each day already says what it thinks: a ★ recommended
    time, your confirmed booking, or why nothing there qualifies ("too dark to
-   finish", "no dry tee time").
+   finish", "no dry picks").
 3. **Press enter on a day** to open its actual tee times in place, and enter again
    on one to mark it as yours once you've booked it on pc caddie.
 4. **Forget about it.** It keeps scraping in the background. If someone joins your
@@ -53,8 +53,10 @@ brew install ltdan-88/teetime-monitor/teetime-monitor
 teetime-monitor
 ```
 
-Type your club's id (or paste its pc caddie booking link) and you're on its tee
-sheet. Nothing to configure first, and no account needed — the tee sheet is public.
+Until you've set up a login, it opens on the pc caddie login screen — **escape**
+skips it. Then search for your club by name, type its id, or paste its pc caddie
+booking link, and you're on its tee sheet. No account needed — the tee sheet is
+public.
 
 <details>
 <summary><strong>The optional extras, and what each unlocks</strong></summary>
@@ -63,7 +65,7 @@ Everything above works with none of these. Each one is additive:
 
 | Add | Unlocks |
 |---|---|
-| A pc caddie login (`l` in the club browser) | Searching the club directory by name, reading your own confirmed bookings and handicap automatically, real player names (if your club shares them), a browsable player directory, and preferring slots with friends or a similar/better handicap |
+| A pc caddie login (`l` in the club browser) | Refreshing the live club directory (a bundled snapshot is searchable by name without a login), reading your own confirmed bookings and handicap automatically, real player names (if your club shares them), a browsable player directory, and preferring slots with friends or a similar/better handicap |
 | An AI provider API key ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini, or Grok) | AI-ranked recommendations (off by default; a paid API call per recommendation) |
 
 **Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/). Windows 10/11 works
@@ -140,9 +142,9 @@ A separate readiness screen (`s` from here) says how far along each weekday is.
 
 ### One menu, two languages, eleven themes
 
-**t** opens **Actions** — add club, search, heatmap, players, preferences, settings,
-language, theme. Each of those also has its own key (see [Keys](#keys)).
-The whole interface runs in English or German (including this menu and every
+**t** opens **Actions** — add club, search, heatmap, players, preferences, settings.
+Each of those also has its own key (see [Keys](#keys)). Language and theme live in
+**Settings → Display**. The whole interface runs in English or German (including this menu and every
 banner), and ships eleven colour themes: the same ten as
 [`brew-launcher`](https://github.com/ltdan-88/brew-launcher), plus Catppuccin
 Latte for anyone who wants a light theme that isn't Solarized.
@@ -220,7 +222,7 @@ directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
 
 ```
 ~/.config/teetime-monitor/
-    clubs/<club-id>.yaml    # per-club: location, overview_days, default_course
+    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course
     .env                    # PCC_USER / PCC_PASS / an AI provider key (Settings → AI provider)
     preferences.yaml        # availability, weather, AI, pace, interval
     config                  # THEME=, LANG=
@@ -234,9 +236,13 @@ Upgrading from before v0.31.0? The first launch copies `./clubs`, `./data` and
 `./.env` across automatically and tells you what it moved. It copies rather than
 moves, so the old directory stays as a backup until you delete it.
 
-Availability and preferences are edited from **Actions → Settings**, not by hand.
-`f` on a club writes its YAML for you; `clubs/club.example.yaml` is the annotated
-reference (weather coordinates, holiday country code, vacation ranges).
+Preferences and settings are edited in the app, not by hand: availability, weather,
+pace and priorities are under
+**Actions → Preferences** (`,`); login, display, scraping and AI under **Actions →
+Settings** (`s`). `f` on a club writes its YAML for you, named after the club (e.g.
+`golfclub-musterhausen-e-v.yaml`) and matched to it by the `club_id:` inside;
+`clubs/club.example.yaml` is the annotated reference (weather coordinates, holiday
+country code, vacation ranges).
 
 ### Keeping history complete
 
@@ -274,12 +280,12 @@ Empty log means no errors. Remove with `launchctl unload …` plus deleting the 
 ### Windows (experimental)
 
 The terminal app runs on Windows without admin rights — everything installs into your
-user profile. The test suite runs on a Windows machine in CI on every change; the app
-itself has had less real-world use there than on macOS. (The macOS companion app is
-macOS-only.)
+user profile. The test suite runs on a Windows machine in a nightly CI job (and on
+demand), not on every change; the app itself has had less real-world use there than on
+macOS. (The macOS companion app is macOS-only.)
 
 ```powershell
-scoop install uv                       # per-user, no admin
+scoop install git uv                   # per-user, no admin; uv needs git for the install below
 scoop bucket add extras
 scoop install windows-terminal         # recommended: the old console window renders it poorly
 uv tool install git+https://github.com/ltdan-88/teetime-monitor
@@ -287,7 +293,8 @@ teetime-monitor                        # in Windows Terminal
 ```
 
 Upgrade with `uv tool upgrade teetime-monitor`. No Scoop? `winget install astral-sh.uv
---scope user` or the [uv installer](https://docs.astral.sh/uv/) work the same way.
+--scope user` or the [uv installer](https://docs.astral.sh/uv/) work the same way — plus
+`winget install --id Git.Git -e --scope user`, since `uv tool install git+…` needs git.
 
 State lives in `%APPDATA%\teetime-monitor` (clubs, login, preferences) and
 `%LOCALAPPDATA%\teetime-monitor` (scrape history); `TEETIME_MONITOR_CONFIG_DIR` /
@@ -295,16 +302,36 @@ State lives in `%APPDATA%\teetime-monitor` (clubs, login, preferences) and
 there — on a shared or managed PC, keep that in mind.
 
 To also scrape unattended, a per-user scheduled task needs no admin rights (it runs
-while you're logged in):
+while you're logged in, also on battery). `conhost --headless` keeps it from opening a
+console window every 15 minutes, and its output goes to a log file:
 
 ```powershell
 $exe = Join-Path (uv tool dir --bin) "teetime-monitor-scrape.exe"
-schtasks /Create /SC MINUTE /MO 15 /TN "teetime-monitor-scrape" /TR "`"$exe`""
-# remove again: schtasks /Delete /TN "teetime-monitor-scrape" /F
+$log = Join-Path $env:LOCALAPPDATA "teetime-monitor\scrape.log"
+New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
+$action   = New-ScheduledTaskAction -Execute "conhost.exe" `
+              -Argument "--headless cmd.exe /s /c `"`"$exe`" >> `"$log`" 2>&1`""
+$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+              -RepetitionInterval (New-TimeSpan -Minutes 15)
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
+              -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName "teetime-monitor-scrape" -Action $action `
+    -Trigger $trigger -Settings $settings
+# remove again: Unregister-ScheduledTask -TaskName "teetime-monitor-scrape" -Confirm:$false
 ```
 
+Empty `scrape.log` means no errors.
+
 If your company inspects HTTPS traffic and launch fails with a certificate error, point
-the app at your company's CA bundle: `$env:SSL_CERT_FILE = "C:\path\to\ca-bundle.pem"`.
+the app at your company's CA bundle with a per-user environment variable (no admin), so
+new terminals and the scheduled task see it too — not just the current window:
+
+```powershell
+[Environment]::SetEnvironmentVariable("SSL_CERT_FILE", "C:\path\to\ca-bundle.pem", "User")
+```
+
+Open a new terminal afterwards; sign out and back in once so the scheduled task picks it
+up as well.
 
 ### From source
 
@@ -359,7 +386,8 @@ the club id against its own booking link.
 
 **The weather looks wrong.** Coordinates come from a name search against
 OpenStreetMap, cached after the first lookup — close, but not always the clubhouse
-itself. Set `location:` in `clubs/<id>.yaml` by hand to fix it exactly.
+itself. Set `location:` in the club's file under `~/.config/teetime-monitor/clubs/`
+(named after the club) by hand to fix it exactly.
 
 **A booking I made isn't showing.** Confirmed bookings sync from pc caddie's "My
 Reservations" on each scheduled scrape, not live — **r** forces it immediately. A

@@ -33,6 +33,7 @@ status line, same three-way split `CredentialsScreen`'s own `verify_against_club
 flow already uses for pc caddie login.
 """
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -54,8 +55,14 @@ _PROVIDER_LABEL_KEYS = {
 
 
 def _active_provider() -> str:
+    """The saved provider, or "anthropic" when it's missing or not one this app knows
+    (a hand-edited `provider: claude`, or a null `ai_assist:` block) -- compose() feeds
+    it straight into `PROVIDER_ENV_VARS[...]` and a blank-less Select, both of which
+    raise on an unknown value."""
     prefs = global_preferences.load_preferences()
-    return prefs.get("ai_assist", {}).get("provider", "anthropic")
+    ai_config = prefs.get("ai_assist")
+    provider = ai_config.get("provider") if isinstance(ai_config, dict) else None
+    return provider if provider in ai_assist.PROVIDERS else "anthropic"
 
 
 class AICredentialsScreen(Screen[bool]):
@@ -173,7 +180,8 @@ class AICredentialsScreen(Screen[bool]):
         os.environ[env_var] = api_key or (env_file.load_env_value(env_var, self.env_path) or "")
 
         prefs = global_preferences.load_preferences()
-        ai_config = dict(prefs.get("ai_assist", {}))
+        existing = prefs.get("ai_assist")
+        ai_config = dict(existing) if isinstance(existing, dict) else {}
         ai_config["provider"] = provider
         prefs["ai_assist"] = ai_config
         global_preferences.save_preferences(prefs)
@@ -184,7 +192,18 @@ class AICredentialsScreen(Screen[bool]):
         # as CredentialsScreen's own password field.
 
         status.update(i18n.t("ai_credentials.verifying"))
-        ok, error = ai_assist.verify_api_key(provider)
+        self.query_one("#save", Button).disabled = True
+        self.run_worker(self._verify(provider), exclusive=True, group="verify")
+
+    async def _verify(self, provider: str) -> None:
+        """The live check runs in a thread, not on the event loop: `models.list()` can
+        stall for minutes on a bad network (SDK timeouts plus retries), which used to
+        freeze the whole TUI and meant "Verifying..." was never even painted. Leaving
+        the screen cancels this worker (Textual cancels a node's workers on unmount),
+        so a late result never touches widgets that are gone."""
+        ok, error = await asyncio.to_thread(ai_assist.verify_api_key, provider)
+        self.query_one("#save", Button).disabled = False
+        status = self.query_one("#status", Static)
         if ok:
             status.update(i18n.t("ai_credentials.verified"))
         elif error is None:

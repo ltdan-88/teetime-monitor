@@ -101,7 +101,7 @@ struct Day: Identifiable {
     /// 08:00-20:00 only -- the exact window `tui._temperature_cell()`/
     /// `_precipitation_cell()`/`_wind_cell()`/`_condition_cell()` all use for a
     /// day-level summary, so the collapsed row's numbers match what those would show.
-    private var daytimeWeather: [WeatherPoint] { weather.filter { $0.time >= "08:00" && $0.time < "20:00" } }
+    var daytimeWeather: [WeatherPoint] { weather.filter { $0.time >= "08:00" && $0.time < "20:00" } }
 
     /// The single most severe WMO code among the day's daytime hours -- mirrors
     /// `weather_icons.worst_icon()`'s own severity order exactly (a day that's sunny
@@ -111,7 +111,8 @@ struct Day: Identifiable {
         let known = daytimeWeather.compactMap(\.code).filter { Day.severityOrder.contains($0) }
         return known.min { Day.severityOrder.firstIndex(of: $0)! < Day.severityOrder.firstIndex(of: $1)! }
     }
-    private static let severityOrder = [
+    /// `weather_icons._SEVERITY_ORDER` -- pinned by the `severity_order` cross-check.
+    static let severityOrder = [
         95, 96, 99, 85, 86, 71, 73, 75, 77, 66, 67, 61, 63, 65, 80, 81, 82,
         56, 57, 51, 53, 55, 45, 48, 3, 2, 1, 0,
     ]
@@ -126,9 +127,24 @@ struct Day: Identifiable {
 
     /// Average daytime rain probability -- `_precipitation_cell()`'s own figure
     /// (the per-slot cell shows one hour's real number; this is the day's summary).
+    /// A point with no probability counts as 0 and stays in the count, as Python's
+    /// `(w.precipitation_probability or 0)` over `len(daytime)` does; dropping it
+    /// showed 6x60% + 6xnull as 60% where the TUI shows 30%. nil only with no
+    /// daytime points at all.
     var precipAvg: Double? {
-        let p = daytimeWeather.compactMap(\.precipitationProbability)
-        return p.isEmpty ? nil : p.reduce(0, +) / Double(p.count)
+        let points = daytimeWeather
+        guard !points.isEmpty else { return nil }
+        return points.reduce(0) { $0 + ($1.precipitationProbability ?? 0) } / Double(points.count)
+    }
+
+    /// Total daytime rain amount -- the "/2.4mm" half of `_precipitation_cell()`.
+    var precipTotalMM: Double { daytimeWeather.reduce(0) { $0 + ($1.precipitationMM ?? 0) } }
+
+    /// Every daytime point at >= 70% -- `tui._is_rain_all_day()`, which replaces the
+    /// day's rain figure with "rain all day".
+    var isRainAllDay: Bool {
+        let points = daytimeWeather
+        return !points.isEmpty && points.allSatisfy { ($0.precipitationProbability ?? 0) >= 70 }
     }
 
     /// Peak daytime wind -- `_wind_cell()`'s own "worst case across the window", not
@@ -196,10 +212,17 @@ struct Banner: Identifiable {
 /// acknowledging a banner) that were always just SQLite rows, never a live pc caddie
 /// interaction, on the Python side either.
 enum Store {
-    /// "18 Loch Tee 1" -> 18, "Kurzplatz" -> nil. Mirrors
-    /// `scraper._holes_from_course_label()` exactly: leading digits only, no
-    /// assumption for a name that has none.
+    /// "18 Loch Tee 1" -> 18, "Tee 10 (9 Loch)" -> 9, "Kurzplatz" -> nil. Mirrors
+    /// `scraper._holes_from_course_label()` exactly: the smallest explicit
+    /// "N Loch"/"N-Loch" mention wins, else the leading digits, else no guess.
     static func holes(from course: String) -> Int? {
+        let regex = try! NSRegularExpression(pattern: "(\\d+)\\s*-?\\s*Loch", options: [.caseInsensitive])
+        let range = NSRange(course.startIndex..., in: course)
+        let mentions = regex.matches(in: course, range: range).compactMap { match -> Int? in
+            guard let r = Range(match.range(at: 1), in: course) else { return nil }
+            return Int(course[r])
+        }
+        if let smallest = mentions.min() { return smallest }
         var digits = ""
         for ch in course { if ch.isNumber { digits.append(ch) } else { break } }
         return Int(digits)
@@ -211,17 +234,21 @@ enum Store {
     /// deliberately append-only (see storage.py's own module docstring -- analytics
     /// needs the full history), and `load_latest_schedule()`/this prototype's own Day
     /// both already read "latest row wins."
-    static func confirmBooking(dbPath: String, course: String, date: String, time: String) {
+    /// `false` when the row wasn't written (database locked past the busy timeout,
+    /// missing table, ...), so the caller doesn't report a booking that isn't there.
+    @discardableResult
+    static func confirmBooking(dbPath: String, course: String, date: String, time: String) -> Bool {
         let holes = holes(from: course)
-        write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
-              + "VALUES (?, ?, ?, ?, 'manual', ?)",
-              [course, date, time, holes.map(String.init) ?? nil, isoNow()])
+        return write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
+                     + "VALUES (?, ?, ?, ?, 'manual', ?)",
+                     [course, date, time, holes.map(String.init) ?? nil, isoNow()])
     }
 
     /// Marks a date as "confirmed not playing" -- mirrors `CancelBookingScreen`'s own
     /// write exactly: `time`/`holes` both NULL, same manual source. A new row, not a
     /// delete or update, same append-only reasoning as `confirmBooking()` above.
-    static func cancelBooking(dbPath: String, course: String, date: String) {
+    @discardableResult
+    static func cancelBooking(dbPath: String, course: String, date: String) -> Bool {
         write(dbPath, "INSERT INTO confirmed_bookings (course, date, time, holes, source, confirmed_at) "
               + "VALUES (?, ?, NULL, NULL, 'manual', ?)",
               [course, date, isoNow()])
@@ -237,8 +264,7 @@ enum Store {
     /// this feature -- `known_players` won't exist yet, and `query()`'s own guard
     /// already degrades a failed prepare to "no rows" rather than crashing.
     static func friendNames(dbPath: String) -> Set<String> {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        guard let db = openDB(dbPath) else { return [] }
         defer { sqlite3_close(db) }
         var names: Set<String> = []
         query(db, "SELECT name FROM known_players WHERE is_friend = 1") { s in
@@ -250,8 +276,7 @@ enum Store {
     /// Name -> "male"/"female" for every player with a recorded gender -- colours names
     /// in the overview (the site's own "unknown" marker is left out).
     static func playerGenders(dbPath: String) -> [String: String] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [:] }
+        guard let db = openDB(dbPath) else { return [:] }
         defer { sqlite3_close(db) }
         var genders: [String: String] = [:]
         query(db, "SELECT name, gender FROM known_players WHERE gender IN ('male', 'female')") { s in
@@ -261,8 +286,7 @@ enum Store {
     }
 
     static func knownPlayers(dbPath: String) -> [KnownPlayer] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        guard let db = openDB(dbPath) else { return [] }
         defer { sqlite3_close(db) }
         var players: [KnownPlayer] = []
         query(db, "SELECT name, last_seen, is_friend, gender, member_status, handicap FROM known_players") { s in
@@ -275,9 +299,11 @@ enum Store {
                 handicap: sqlite3_column_type(s, 5) == SQLITE_NULL ? nil : sqlite3_column_double(s, 5)
             ))
         }
+        // casefold, not lowercased(): `load_known_players()` sorts with casefold(),
+        // which folds ß to "ss" (pinned by the `store_players` cross-check).
         return players.sorted {
-            (familyName($0.name).lowercased(), $0.name.lowercased())
-                < (familyName($1.name).lowercased(), $1.name.lowercased())
+            (casefold(familyName($0.name)), casefold($0.name))
+                < (casefold(familyName($1.name)), casefold($1.name))
         }
     }
 
@@ -285,7 +311,8 @@ enum Store {
     /// selection action, same "just do it, no separate Save step" shape a toggle
     /// implies. A no-op if `name` was never actually seen, mirroring
     /// `storage.set_player_friend()`'s own stance exactly.
-    static func setPlayerFriend(dbPath: String, name: String, isFriend: Bool) {
+    @discardableResult
+    static func setPlayerFriend(dbPath: String, name: String, isFriend: Bool) -> Bool {
         write(dbPath, "UPDATE known_players SET is_friend = ? WHERE name = ?", [isFriend ? "1" : "0", name])
     }
 
@@ -297,8 +324,7 @@ enum Store {
     /// The stored value is JSON (`json.dumps(handicap)`, e.g. "43.8") -- a bare
     /// `Double(string:)` parse handles that exactly, same as any plain float literal.
     static func myHandicap(dbPath: String) -> Double? {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return nil }
+        guard let db = openDB(dbPath) else { return nil }
         defer { sqlite3_close(db) }
         var raw: String?
         query(db, "SELECT value FROM club_meta WHERE key = 'my_handicap'") { s in raw = column(s, 0) }
@@ -306,8 +332,7 @@ enum Store {
     }
 
     static func banners(dbPath: String) -> [Banner] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return [] }
+        guard let db = openDB(dbPath, SQLITE_OPEN_READWRITE) else { return [] }
         defer { sqlite3_close(db) }
         var out: [Banner] = []
         query(db, "SELECT id, course, date, time, kind, params, message FROM booking_changes "
@@ -327,19 +352,21 @@ enum Store {
     /// Marks banners seen -- an UPDATE, not a delete, same as
     /// `storage.acknowledge_booking_changes()`: the row stays as a historical record,
     /// it just stops showing again.
-    static func acknowledgeBanners(dbPath: String, ids: [Int]) {
-        guard !ids.isEmpty else { return }
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return }
+    @discardableResult
+    static func acknowledgeBanners(dbPath: String, ids: [Int]) -> Bool {
+        guard !ids.isEmpty else { return true }
+        guard let db = openDB(dbPath, SQLITE_OPEN_READWRITE) else { return false }
         defer { sqlite3_close(db) }
+        var ok = true
         for id in ids {
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, "UPDATE booking_changes SET acknowledged = 1 WHERE id = ?", -1, &stmt, nil)
-                == SQLITE_OK else { continue }
+                == SQLITE_OK else { ok = false; continue }
             sqlite3_bind_int(stmt, 1, Int32(id))
-            sqlite3_step(stmt)
+            if sqlite3_step(stmt) != SQLITE_DONE { ok = false }
             sqlite3_finalize(stmt)
         }
+        return ok
     }
 
     private static func isoNow() -> String {
@@ -348,12 +375,30 @@ enum Store {
         return f.string(from: Date())
     }
 
-    private static func write(_ dbPath: String, _ sql: String, _ binds: [String?]) {
+    /// How long a read or write waits for the scraper's lock before giving up --
+    /// the same 5 s Python's `sqlite3.connect()` waits by default. The databases
+    /// use a rollback journal, so with SQLite's own default of 0 a GUI write that
+    /// landed inside a scraper commit failed at once with SQLITE_BUSY.
+    static let busyTimeoutMS: Int32 = 5000
+
+    private static func openDB(_ path: String, _ flags: Int32 = SQLITE_OPEN_READONLY) -> OpaquePointer? {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return }
+        guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        sqlite3_busy_timeout(db, busyTimeoutMS)
+        return db
+    }
+
+    /// `true` once the statement really ran (SQLITE_DONE), so a caller can tell a
+    /// saved booking/friend flag from one that was dropped.
+    @discardableResult
+    private static func write(_ dbPath: String, _ sql: String, _ binds: [String?]) -> Bool {
+        guard let db = openDB(dbPath, SQLITE_OPEN_READWRITE) else { return false }
         defer { sqlite3_close(db) }
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
         defer { sqlite3_finalize(stmt) }
         for (i, b) in binds.enumerated() {
             if let b {
@@ -362,7 +407,16 @@ enum Store {
                 sqlite3_bind_null(stmt, Int32(i + 1))
             }
         }
-        sqlite3_step(stmt)
+        return sqlite3_step(stmt) == SQLITE_DONE
+    }
+
+    /// Both sun times or neither -- `storage.load_latest_schedule()`'s own `if
+    /// sunrise and sunset`. `weather.fetch_sun_times()` stores "" for an empty
+    /// Open-Meteo response; kept as a value, "" parsed as 00:00 and collapsed an
+    /// expanded day to its first slot.
+    static func sunTimes(_ sunrise: String?, _ sunset: String?) -> (String?, String?) {
+        guard let sunrise, let sunset, !sunrise.isEmpty, !sunset.isEmpty else { return (nil, nil) }
+        return (sunrise, sunset)
     }
 
     private static func column(_ s: OpaquePointer?, _ i: Int32) -> String? {
@@ -425,15 +479,7 @@ enum Store {
         where file.hasSuffix(".yaml") && file != "club.example.yaml" {
             guard let text = try? String(contentsOfFile: "\(clubsDir)/\(file)", encoding: .utf8)
             else { continue }
-            var id: String?, name: String?
-            for line in text.split(separator: "\n") {
-                let t = line.trimmingCharacters(in: .whitespaces)
-                if t.hasPrefix("club_id:") {
-                    id = t.dropFirst("club_id:".count).trimmingCharacters(in: CharacterSet(charactersIn: " '\""))
-                } else if t.hasPrefix("name:") {
-                    name = t.dropFirst("name:".count).trimmingCharacters(in: CharacterSet(charactersIn: " '\""))
-                }
-            }
+            let (id, name) = clubIDAndName(in: text)
             guard let id, !id.isEmpty else { continue }
             // `name:` is optional (a club favourited before a directory search could
             // supply one has none), so fall back to the filename slug -- the same
@@ -442,9 +488,7 @@ enum Store {
             let display = name ?? slug.replacingOccurrences(of: "-", with: " ").capitalized
             let path = "\(dataDir)/\(id).db"
             var last = ""
-            var db: OpaquePointer?
-            if FileManager.default.fileExists(atPath: path),
-               sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db {
+            if FileManager.default.fileExists(atPath: path), let db = openDB(path) {
                 query(db, "SELECT MAX(scraped_at) FROM scrapes") { s in last = column(s, 0) ?? "" }
                 sqlite3_close(db)
             }
@@ -452,6 +496,22 @@ enum Store {
         }
         return out.sorted { $0.4 > $1.4 }
             .map { (path: $0.0, id: $0.1, slug: $0.2, name: $0.3, lastScrape: $0.4) }
+    }
+
+    /// A club file's `club_id:` and `name:` values, decoded the way `yaml.safe_load`
+    /// would -- a club saved before `allow_unicode=True` has `name: "Golfclub
+    /// W\xFCrzburg"`, which used to reach the toolbar as literal escape text.
+    static func clubIDAndName(in text: String) -> (id: String?, name: String?) {
+        var id: String?, name: String?
+        for line in text.split(separator: "\n") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("club_id:") {
+                id = YAML.scalarText(String(t.dropFirst("club_id:".count)))
+            } else if t.hasPrefix("name:") {
+                name = YAML.scalarText(String(t.dropFirst("name:".count)))
+            }
+        }
+        return (id, name)
     }
 
     /// Un-favorite a club -- direct request, 2026-09-19 ("implement removing/
@@ -472,9 +532,7 @@ enum Store {
 
     /// When this club was last scraped, for the freshness line in the toolbar.
     static func lastScrape(dbPath: String) -> Date? {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let db else { return nil }
+        guard let db = openDB(dbPath) else { return nil }
         defer { sqlite3_close(db) }
         var iso: String?
         query(db, "SELECT MAX(scraped_at) FROM scrapes") { s in iso = column(s, 0) }
@@ -489,8 +547,7 @@ enum Store {
     /// needs the *whole* history, unlike `days()` below, which only ever loads a
     /// bounded window for the day list.
     static func distinctScrapedDates(dbPath: String, course: String) -> [String] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return [] }
+        guard let db = openDB(dbPath) else { return [] }
         defer { sqlite3_close(db) }
         var out: [String] = []
         query(db, "SELECT DISTINCT date FROM scrapes WHERE course = ? ORDER BY date", [course]) { s in
@@ -504,8 +561,7 @@ enum Store {
     /// `days()` builds, since a heatmap walks every historical date rather than a
     /// bounded window and has no use for any of that here.
     static func occupancySample(dbPath: String, course: String, date: String) -> (slots: [Slot], hasTournament: Bool)? {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return nil }
+        guard let db = openDB(dbPath) else { return nil }
         defer { sqlite3_close(db) }
         var scrapeID: Int64 = -1
         var eventsJSON: String?
@@ -523,12 +579,12 @@ enum Store {
                                capacity: Int(sqlite3_column_int(s, 2)), blockReason: column(s, 3),
                                players: decodeStringArray(column(s, 4))))
         }
-        var hasTournament = false
+        var events: [String] = []
         if let json = eventsJSON, let data = json.data(using: .utf8),
            let parsed = try? JSONDecoder().decode([String].self, from: data) {
-            hasTournament = !parsed.isEmpty
+            events = parsed
         }
-        return (slots, hasTournament)
+        return (slots, CalendarContext.isTournamentDay(events: events, slots: slots))
     }
 
     /// `~/.config/teetime-monitor/clubs/<slug>.yaml` -- same env-var-overridable
@@ -544,9 +600,7 @@ enum Store {
     }
 
     static func courses(dbPath: String) -> [String] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let db else { return [] }
+        guard let db = openDB(dbPath) else { return [] }
         defer { sqlite3_close(db) }
         // Only courses still being scraped for today or later.
         //
@@ -562,10 +616,7 @@ enum Store {
         // deliberately offline -- and "has upcoming scrapes" separates them exactly:
         // a retired or bogus course stops accumulating future dates the moment the
         // scraper stops asking for it.
-        let today: String = {
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-            return f.string(from: Date())
-        }()
+        let today = ISODate.today()
         var out: [String] = []
         query(db, "SELECT DISTINCT course FROM scrapes WHERE date >= ? ORDER BY course", [today]) { s in
             if let c = column(s, 0) { out.append(c) }
@@ -581,16 +632,21 @@ enum Store {
         return out
     }
 
-    static func days(dbPath: String, course: String, from today: String, limit: Int = 6) -> [Day] {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let db else { return [] }
+    /// The scraped days in the calendar window [today, today + `days`) -- the same
+    /// dates `OverviewScreen._local_dates()` lists (`overview_days`, default 5; see
+    /// `ClubDefaults.overviewDays()`). A calendar window, not "the next N scraped
+    /// dates": a date with no scrape used to pull in one past the window that
+    /// picks_cli was never asked about.
+    static func days(dbPath: String, course: String, from today: String,
+                     days: Int = ClubDefaults.defaultOverviewDays) -> [Day] {
+        guard let db = openDB(dbPath) else { return [] }
         defer { sqlite3_close(db) }
 
+        let end = ISODate.adding(days: max(days, 0), to: today) ?? today
         var dates: [String] = []
         query(db,
-              "SELECT DISTINCT date FROM scrapes WHERE course = ? AND date >= ? ORDER BY date LIMIT \(limit)",
-              [course, today]) { s in
+              "SELECT DISTINCT date FROM scrapes WHERE course = ? AND date >= ? AND date < ? ORDER BY date",
+              [course, today, end]) { s in
             if let d = column(s, 0) { dates.append(d) }
         }
 
@@ -601,7 +657,8 @@ enum Store {
                   "SELECT id, sunrise, sunset, events FROM scrapes WHERE course = ? AND date = ? ORDER BY id DESC LIMIT 1",
                   [course, date]) { s in
                 scrapeID = sqlite3_column_int64(s, 0)
-                sunrise = column(s, 1); sunset = column(s, 2); eventsJSON = column(s, 3)
+                (sunrise, sunset) = sunTimes(column(s, 1), column(s, 2))
+                eventsJSON = column(s, 3)
             }
             guard scrapeID >= 0 else { return nil }
 
@@ -631,7 +688,7 @@ enum Store {
                       ORDER BY s.id DESC LIMIT 1
                       """, [course, date]) { s in
                     weatherScrapeID = sqlite3_column_int64(s, 0)
-                    if sunrise == nil { sunrise = column(s, 1); sunset = column(s, 2) }
+                    if sunrise == nil { (sunrise, sunset) = sunTimes(column(s, 1), column(s, 2)) }
                 }
             }
 
@@ -681,6 +738,33 @@ enum ClubDefaults {
         return parseDefaultCourse(in: text)
     }
 
+    /// `OverviewScreen._local_dates()`'s own `config.get("overview_days", 5)`.
+    static let defaultOverviewDays = 5
+
+    /// How many calendar days the overview, picks and search cover -- the club's
+    /// `overview_days`, with `preferences.yaml` winning the same way
+    /// `_resolved_config()`'s `{**club_settings, **global}` merge lets it. A
+    /// browsed (unsaved) club has no YAML of its own, so `slug` is optional.
+    static func overviewDays(slug: String?) -> Int {
+        func read(_ path: String) -> Int? {
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+            return parseOverviewDays(in: text)
+        }
+        let days = read(Preferences.path()) ?? slug.flatMap { read(Store.clubYAMLPath(slug: $0)) }
+        return days.map { max($0, 1) } ?? defaultOverviewDays
+    }
+
+    /// The top-level `overview_days:` line, read as plain text for the same reason
+    /// `default_course:` is (club files carry lists `YAML.parse` doesn't model).
+    static func parseOverviewDays(in text: String) -> Int? {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) where line.hasPrefix("overview_days:") {
+            var value = line.dropFirst("overview_days:".count)
+            if let hash = value.firstIndex(of: "#") { value = value[..<hash] }
+            return Int(value.trimmingCharacters(in: .whitespaces))
+        }
+        return nil
+    }
+
     static func setDefaultCourse(slug: String, course: String) {
         let path = Store.clubYAMLPath(slug: slug)
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
@@ -689,11 +773,7 @@ enum ClubDefaults {
 
     static func parseDefaultCourse(in text: String) -> String? {
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) where line.hasPrefix("default_course:") {
-            var value = line.dropFirst("default_course:".count).trimmingCharacters(in: .whitespaces)
-            if value.count >= 2, let first = value.first, first == "'" || first == "\"", value.last == first {
-                value = String(value.dropFirst().dropLast())
-                if first == "'" { value = value.replacingOccurrences(of: "''", with: "'") }
-            }
+            let value = YAML.scalarText(String(line.dropFirst("default_course:".count)))
             return value.isEmpty ? nil : value
         }
         return nil

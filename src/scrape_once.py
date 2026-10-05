@@ -17,7 +17,8 @@ best-effort, not fatal, since this must not stop an unattended run over one club
 no slug resolved for this `club_id` (can't look up credentials without it), no
 `PCC_USER`/`PCC_PASS` configured yet, a `scraper.LoginError` (wrong credentials), or a
 `NotImplementedError` from `scrape_my_reservations()` itself (a real booking exists
-but its row markup isn't parseable yet — see that function's own docstring for why).
+but its row markup isn't parseable yet — see that function's own docstring for why), or
+anything else (offline, a timeout, a 5xx), reported as reason "other".
 The last two aren't *silent* any more either — see `_sync_my_reservations()`'s own
 docstring for the real gap found live (a `print()` nobody sees while the TUI has
 the screen) and the `OverviewScreen` banner that now replaces it.
@@ -63,6 +64,10 @@ scoped.
 """
 
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from pathlib import Path
@@ -71,7 +76,8 @@ import httpx
 
 from . import booking_watch, club_config, global_preferences, paths, storage
 from . import weather as weather_module
-from .models import ConfirmedBooking
+from .models import ConfirmedBooking, SunTimes, WeatherPoint
+from .recommend import _round_duration_minutes
 from .scraper import (
     LoginError,
     fetch_available_dates,
@@ -94,6 +100,31 @@ MAX_OVERVIEW_DAYS = 14
 DEFAULT_SCRAPE_INTERVAL_MINUTES = 360  # 6 hours
 DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED = 60  # 1 hour, once a booking exists for the date
 
+# How long scrape_due_for_club() waits for another process's pass on the same club
+# (launchd, the TUI's timer, the GUI's --force) to finish before giving up on its own --
+# see _club_lock().
+CLUB_LOCK_WAIT_SECONDS = 600
+_CLUB_LOCK_POLL_SECONDS = 0.5
+
+
+class EmptyScheduleError(Exception):
+    """A scrape came back with no slots for a course/date that had slots last time --
+    pc caddie's intermittent table-less 200 page (see scraper.fetch_course_aliases()),
+    not a real change. Raised by run() so that pass is logged and skipped instead of
+    saving 0 slots as the new "latest" (which blanks the day and turns every occupied
+    neighbour into a false BUFFER_SHRUNK on the next good pass)."""
+
+
+@dataclass
+class _WeatherCache:
+    """One pass's weather results, shared across every course: the forecast depends only
+    on (lat, lon, date), so re-fetching it per course multiplied Open-Meteo requests by
+    the course count. `failed` short-circuits the rest of the pass after one failure, so
+    an outage costs one timeout per pass rather than one per course/date."""
+
+    results: dict[tuple, tuple[list[WeatherPoint], SunTimes]] = field(default_factory=dict)
+    failed: bool = False
+
 
 def _log(message: str) -> None:
     """`print()` for this module's own best-effort failure notices, with a wall-clock
@@ -112,18 +143,48 @@ def _db_path(club_id: str) -> Path:
     return DATA_DIR / f"{club_id}.db"
 
 
-def _attach_weather(schedule, config: dict, club_id: str, course: str, date: str) -> None:
+def _attach_weather(
+    schedule, config: dict, club_id: str, course: str, date: str, cache: _WeatherCache | None = None
+) -> None:
     """Fetch the day's forecast + sun times and attach them to `schedule` in place —
-    see the module docstring's "Weather" note for why this is best-effort, not fatal."""
+    see the module docstring's "Weather" note for why this is best-effort, not fatal.
+    `cache` (one per scrape_due_for_club() pass) reuses a date's result across courses
+    and stops retrying after the first failure -- see _WeatherCache."""
     location = config.get("location", {})
     lat, lon = location.get("lat"), location.get("lon")
     if not lat or not lon:
         return  # still the club.example.yaml placeholder (0.0, 0.0) -- not configured
+    key = (lat, lon, date)
+    if cache is not None:
+        if cache.failed:
+            return  # already failed once this pass -- the previous scrape's weather stays
+        if key in cache.results:
+            weather, sun_times = cache.results[key]
+            schedule.weather, schedule.sun_times = list(weather), sun_times
+            return
     try:
-        schedule.weather = weather_module.fetch_hourly_weather(lat, lon, date)
-        schedule.sun_times = weather_module.fetch_sun_times(lat, lon, date)
+        weather = weather_module.fetch_hourly_weather(lat, lon, date)
+        sun_times = weather_module.fetch_sun_times(lat, lon, date)
     except Exception as exc:  # noqa: BLE001 — a weather hiccup shouldn't sink the scrape
         _log(f"[scrape_once] weather fetch failed for {club_id}/{course}/{date}: {exc}")
+        if cache is not None:
+            cache.failed = True
+        return
+    schedule.weather, schedule.sun_times = weather, sun_times
+    if cache is not None:
+        cache.results[key] = (list(weather), sun_times)
+
+
+def _booking_round_minutes(confirmed: ConfirmedBooking, config: dict) -> int:
+    """The weather window booking_watch checks for a confirmed booking -- the same
+    nine/eighteen mapping and 120/240 defaults as recommend._round_duration_minutes(),
+    but from the booking's own hole count when it has one (a 9-hole round booked on an
+    18-hole course). An unknown count falls back to the course label, then to 18."""
+    if confirmed.holes is None:
+        return _round_duration_minutes(confirmed.course, config)
+    key = "eighteen" if confirmed.holes >= 18 else "nine"
+    default = 240 if key == "eighteen" else 120
+    return config.get("round_duration_minutes", {}).get(key, default)
 
 
 def run(
@@ -133,6 +194,8 @@ def run(
     config: dict | None = None,
     slug: str | None = None,
     client: httpx.Client | None = None,
+    course_aliases: dict[str, str] | None = None,
+    weather_cache: _WeatherCache | None = None,
 ) -> list[booking_watch.BookingChange]:
     """Scrape one club/course/date's schedule (plus its weather overlay) and persist
     it, then check any confirmed booking for that date against what changed since the
@@ -148,6 +211,10 @@ def run(
     docstring for why this is built once per pass there rather than once per call
     here, and `scrape_schedule()`'s own docstring for what it actually changes
     (real player names instead of anonymized placeholders).
+
+    `course_aliases`/`weather_cache` are the caller's per-pass course map and weather
+    cache (see `_WeatherCache`); omitting `course_aliases` makes `scrape_schedule()`
+    re-fetch it live, one extra tee-sheet request per call.
 
     Does *not* sync "My Reservations" itself any more (moved to the caller,
     `scrape_due_for_club()`, once per pass rather than once per course/date — see
@@ -183,8 +250,15 @@ def run(
     # function's own docstring and storage.first_confirmed_at()'s for why.
     baseline_scraped_at = storage.last_scraped_at(course, date, path=db_path)
 
-    latest = scrape_schedule(club_id, course, date, client=client)
-    _attach_weather(latest, config, club_id, course, date)
+    latest = scrape_schedule(club_id, course, date, course_aliases=course_aliases, client=client)
+    if not latest.slots and baseline is not None and baseline.slots:
+        # Slots never legitimately vanish from an open day (a not-yet-open day is empty
+        # from its first scrape, so it never gets here) -- see EmptyScheduleError.
+        raise EmptyScheduleError(
+            f"{course}/{date} came back with no tee times after {len(baseline.slots)} last time; "
+            "keeping the previous scrape"
+        )
+    _attach_weather(latest, config, club_id, course, date, weather_cache)
     storage.save_schedule(latest, path=db_path)
 
     # Piggybacks on this same scrape rather than a separate pass over the whole
@@ -213,8 +287,7 @@ def run(
             # buffer_minutes key.
             buffer_before = resolve_buffer_minutes(availability, "before", 20)
             buffer_after = resolve_buffer_minutes(availability, "after", 20)
-            holes_key = "eighteen" if confirmed.holes == 18 else "nine"
-            round_duration = config.get("round_duration_minutes", {}).get(holes_key, 240)
+            round_duration = _booking_round_minutes(confirmed, config)
             preferences = config.get("preferences", {})
             booking_first_confirmed_at = storage.first_confirmed_at(course, date, confirmed.time, path=db_path)
             changes = booking_watch.check_for_changes(
@@ -299,6 +372,12 @@ def _sync_my_reservations(
         # a real booking exists but scraper.py can't parse its row markup yet
         _report_reservations_sync_failure("parsing", db_path)
         return
+    except Exception as exc:  # noqa: BLE001 — offline, a timeout, a 5xx on login or the page
+        # Must not escape: from the TUI's worker it would exit the app, and from main()
+        # it would stop every later club's pass.
+        _log(f"[scrape_once] reservations sync failed for {club_id}: {exc}")
+        _report_reservations_sync_failure("other", db_path)
+        return
     for booking in sync.bookings:
         storage.save_confirmed_booking(booking, path=db_path)
     _reconcile_cancelled_reservations(sync.bookings, db_path)
@@ -315,9 +394,9 @@ def _report_reservations_sync_failure(reason: str, db_path: Path) -> None:
     booking-watch change) rather than only the `print()` that used to be the
     only trace of it — see `_sync_my_reservations()`'s own docstring for why
     that was found to be a real problem, not just a style nitpick. `reason` is
-    "login" or "parsing", matching `_sync_my_reservations()`'s own two catch
-    clauses; rendered via `i18n.render_booking_change()`, not stored as
-    pre-rendered English text, same convention every other banner kind here
+    "login", "parsing" or "other" (network/server errors), matching
+    `_sync_my_reservations()`'s own catch clauses; rendered via
+    `i18n.render_booking_change()`, not stored as pre-rendered English text, same convention every other banner kind here
     already follows.
 
     Skips writing a new row if an identical one is already pending and
@@ -447,6 +526,71 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
     return elapsed_minutes >= interval_minutes
 
 
+def _try_lock(handle) -> bool:
+    """Non-blocking exclusive lock on an open file; False if another holder has it."""
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle) -> None:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass  # closing the handle releases it anyway
+
+
+@contextmanager
+def _club_lock(club_id: str, wait_seconds: float | None = None) -> Iterator[bool]:
+    """Per-club inter-process lock around one whole scrape_due_for_club() pass. The
+    launchd agent, the TUI's timer and the GUI's `--force` refresh are separate
+    processes; two overlapping passes read the same baseline and each saved the same
+    booking-watch banner (and doubled every request). A second pass waits for the first
+    (up to `wait_seconds`, default CLUB_LOCK_WAIT_SECONDS) rather than skipping, so an
+    explicit refresh still means "now" -- afterwards `_should_scrape()` sees the first
+    pass's fresh rows. Yields False if the wait ran out; an unopenable lock file yields
+    True (unlocked) rather than blocking scraping altogether."""
+    wait_seconds = CLUB_LOCK_WAIT_SECONDS if wait_seconds is None else wait_seconds
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        handle = open(DATA_DIR / f"{club_id}.lock", "a+")  # noqa: SIM115 — held across the yield
+    except OSError as exc:
+        _log(f"[scrape_once] couldn't open the lock file for {club_id}, scraping unlocked: {exc}")
+        yield True
+        return
+    try:
+        deadline = time.monotonic() + wait_seconds
+        acquired = _try_lock(handle)
+        while not acquired and time.monotonic() < deadline:
+            time.sleep(_CLUB_LOCK_POLL_SECONDS)
+            acquired = _try_lock(handle)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                _unlock(handle)
+    finally:
+        handle.close()
+
+
 def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[booking_watch.BookingChange]:
     """Scrape every course x day in `slug`'s `overview_days` window that's actually
     due per `_should_scrape()`, skipping the rest. Extracted 2026-09-07 from `main()`'s
@@ -483,12 +627,26 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     also a real chance for a transient failure that the single-call version below
     no longer multiplies. See `_sync_my_reservations()`'s own docstring for how a
     failure is now actually surfaced instead of only ever reaching a `print()`
-    nothing sees while the TUI has the screen."""
+    nothing sees while the TUI has the screen.
+
+    The whole pass runs under `_club_lock()` so overlapping processes don't scrape (and
+    write booking-watch banners for) the same club at once."""
     config = {**config, **global_preferences.load_preferences()}
     club_id = config.get("club_id")
     if not club_id:
         _log(f"[scrape_once] {slug}: no club_id set in its config, skipping")
         return []
+    with _club_lock(club_id) as acquired:
+        if not acquired:
+            _log(f"[scrape_once] {slug}: another pass still running after {CLUB_LOCK_WAIT_SECONDS}s, skipping")
+            return []
+        return _scrape_due_for_club_locked(slug, club_id, config, force)
+
+
+def _scrape_due_for_club_locked(
+    slug: str, club_id: str, config: dict, force: bool
+) -> list[booking_watch.BookingChange]:
+    """scrape_due_for_club()'s body, run while holding that club's `_club_lock()`."""
     # Fetched fresh per club rather than assumed from a hardcoded constant — confirmed
     # 2026-09-07 that a club's own course lineup (names *and* alias codes) isn't
     # universal, so a fixed COURSE_ALIASES silently scraped the wrong thing for a
@@ -552,17 +710,35 @@ def scrape_due_for_club(slug: str, config: dict, force: bool = False) -> list[bo
     if username and password:
         try:
             client = login(club_id, username, password)
-        except LoginError as exc:
+        except (LoginError, httpx.HTTPError) as exc:
             _log(f"[scrape_once] {slug}: couldn't log in for the schedule scrape, falling back to anonymous: {exc}")
 
     changes: list[booking_watch.BookingChange] = []
+    weather_cache = _WeatherCache()
     try:
         for target_date in target_dates:
             for course in courses:
-                if not force and not _should_scrape(club_id, course, target_date, config):
-                    continue
                 try:
-                    changes.extend(run(club_id, course, target_date, config, slug, client=client))
+                    # Inside the try: a sqlite "database is locked" here must not end the pass.
+                    if not force and not _should_scrape(club_id, course, target_date, config):
+                        continue
+                    changes.extend(
+                        run(
+                            club_id,
+                            course,
+                            target_date,
+                            config,
+                            slug,
+                            client=client,
+                            course_aliases=courses,
+                            weather_cache=weather_cache,
+                        )
+                    )
+                except httpx.TransportError as exc:
+                    # Offline or pc caddie hanging: every remaining course/date would wait
+                    # out its own 15 s timeout too. The next pass picks them all up.
+                    _log(f"[scrape_once] {slug}/{course}/{target_date} network error, stopping this pass: {exc}")
+                    return changes
                 except Exception as exc:  # noqa: BLE001 — one bad course/date must not
                     # stop the rest of this club's window (or, from main(), every other
                     # saved club).

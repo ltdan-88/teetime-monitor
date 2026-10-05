@@ -108,6 +108,22 @@ def test_resolve_language_name_defaults_to_german_for_a_german_locale(tmp_path):
     assert i18n.resolve_language_name(env=env, config_file=config_file) == "de"
 
 
+@pytest.mark.parametrize("ui_is_german, expected", [(True, "de"), (False, "en")])
+def test_windows_default_follows_the_os_ui_language(tmp_path, monkeypatch, ui_is_german, expected):
+    """Windows shells export no LANG/LC_ALL, so German Windows used to get English."""
+    monkeypatch.setattr(i18n.sys, "platform", "win32")
+    monkeypatch.setattr(i18n, "_windows_ui_language_is_german", lambda: ui_is_german)
+    assert i18n.resolve_language_name(env={}, config_file=tmp_path / "config") == expected
+
+
+def test_windows_default_still_honours_an_explicit_lang(tmp_path, monkeypatch):
+    # Git Bash / MSYS set LANG; that wins over the OS language, same as elsewhere.
+    monkeypatch.setattr(i18n.sys, "platform", "win32")
+    monkeypatch.setattr(i18n, "_windows_ui_language_is_german", lambda: True)
+    env = {"LANG": "en_US.UTF-8"}
+    assert i18n.resolve_language_name(env=env, config_file=tmp_path / "config") == "en"
+
+
 def test_resolve_language_name_saved_config_wins_over_locale_default(tmp_path):
     config_file = tmp_path / "config"
     i18n.save_language("en", config_file)

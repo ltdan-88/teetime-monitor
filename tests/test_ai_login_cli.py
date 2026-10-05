@@ -59,6 +59,13 @@ def test_bad_stdin_json_is_rejected(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"saved": False, "reason": "bad_input"}
 
 
+def test_key_with_a_line_break_is_rejected_not_a_traceback(monkeypatch, capsys):
+    result, code = _run(monkeypatch, capsys, {"provider": "openai", "api_key": "sk-abc\n"})
+    assert result == {"saved": False, "reason": "bad_input"}
+    assert code == 1
+    assert env_file.load_env_value("OPENAI_API_KEY") is None
+
+
 def test_saves_a_new_key_sets_it_as_the_active_provider_and_verifies(monkeypatch, capsys):
     _mock_verify(monkeypatch, (True, None))
 

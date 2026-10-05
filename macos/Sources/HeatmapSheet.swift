@@ -103,14 +103,20 @@ struct HeatmapSheet: View {
             let countryCode = clubYAMLPath.flatMap { CalendarContext.countryCode(clubYAMLPath: $0) }
             let vacationRanges = clubYAMLPath.map { CalendarContext.vacationRanges(clubYAMLPath: $0) } ?? []
 
+            // Every year the scraped history covers, not just this one -- last
+            // December's holidays would otherwise count as ordinary weekdays.
             var holidays: [String] = []
             if let countryCode {
+                let lock = NSLock()
                 let group = DispatchGroup()
-                group.enter()
-                let year = Calendar(identifier: .gregorian).component(.year, from: Date())
-                HolidaysCache.shared.holidays(countryCode: countryCode, year: year) { result in
-                    holidays = result
-                    group.leave()
+                let currentYear = Calendar(identifier: .gregorian).component(.year, from: Date())
+                let dates = Store.distinctScrapedDates(dbPath: dbPath, course: course)
+                for year in heatmapHolidayYears(dates: dates, currentYear: currentYear) {
+                    group.enter()
+                    HolidaysCache.shared.holidays(countryCode: countryCode, year: year) { result in
+                        lock.lock(); holidays += result; lock.unlock()
+                        group.leave()
+                    }
                 }
                 group.wait()
             }
@@ -124,6 +130,14 @@ struct HeatmapSheet: View {
             }
         }
     }
+}
+
+/// The years whose public holidays the heatmap needs: each year from the oldest to
+/// the newest scraped date ("yyyy-MM-dd"), or just `currentYear` with no history.
+func heatmapHolidayYears(dates: [String], currentYear: Int) -> [Int] {
+    let years = dates.compactMap { Int($0.prefix(4)) }
+    guard let first = years.min(), let last = years.max() else { return [currentYear] }
+    return Array(first...last)
 }
 
 private struct HeatmapGridView: View {

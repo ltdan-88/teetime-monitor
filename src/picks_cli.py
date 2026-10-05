@@ -31,10 +31,12 @@ this stays a flat map rather than replicating the TUI's three distinct
 whenever `ai_assist.enabled` is off, same as the TUI's own Pick column.
 
 Exit code 0 whenever the script actually ran, even if every date came back
-`null` (that's a normal, valid result, not an error) -- exit code 1 only for a
-setup problem (bad stdin, or `--db-path`/`--club-slug` that doesn't resolve),
-same "saved/ran is what decides success" shape `login_cli.py`/`search_cli.py`
-already use. Takes no stdin at all -- unlike `search_cli.py`'s ad hoc criteria,
+`null` (that's a normal, valid result, not an error) -- exit code 1 only when
+`--db-path` or `--course` is missing. A `--club-slug` with no clubs/<slug>.yaml
+(e.g. just renamed or removed) is not an error: `_resolved_config()` falls back
+to your global settings alone, the same as for a club that was never saved, and
+a `--db-path` with nothing scraped yet just yields `null` for every date. Takes
+no stdin at all -- unlike `search_cli.py`'s ad hoc criteria,
 this always uses your own saved defaults (`recommend.default_criteria_from_config()`),
 the same rules `_availability_pipeline()` itself checks against.
 """

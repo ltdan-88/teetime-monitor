@@ -12,7 +12,59 @@ func runCalendarContextTests() {
         testVacationRangesBlockStyleDashAtKeyIndent()
         testVacationRangesEmptyListNoCrash()
         testCountryCodeFromYAML()
+        testIsTournamentDayIgnoresRoutineBlocks()
+        testIsTournamentDayRecognisesCompetitions()
+        testIsTournamentDayBlockedShare()
+        testHolesFromCourseLabel()
     }
+}
+
+/// Builds `total` slots, the first `blocked` of them blocked by `reason`.
+private func tournamentSlots(_ reason: String?, blocked: Int, total: Int) -> [Slot] {
+    (0..<total).map { i in
+        Slot(time: String(format: "%02d:%02d", 8 + i / 6, (i % 6) * 10), booked: 0, capacity: 4,
+             blockReason: i < blocked ? reason : nil, players: [])
+    }
+}
+
+/// Mirrors tests/test_calendar_context.py's is_tournament_day cases.
+private func testIsTournamentDayIgnoresRoutineBlocks() {
+    Harness.check("no events is never a tournament",
+                  !CalendarContext.isTournamentDay(events: [], slots: tournamentSlots(nil, blocked: 0, total: 10)))
+    Harness.check("a weekly ladies' group blocking 11 of 85 slots is not a tournament",
+                  !CalendarContext.isTournamentDay(events: ["Dienstag-Ladies"],
+                                                   slots: tournamentSlots("Dienstag-Ladies", blocked: 11, total: 85)))
+    Harness.check("a lesson and an instructor name are not a tournament",
+                  !CalendarContext.isTournamentDay(events: ["Grundkurs", "Marco"],
+                                                   slots: tournamentSlots("Grundkurs", blocked: 2, total: 60)))
+}
+
+private func testIsTournamentDayRecognisesCompetitions() {
+    for name in ["HP Golf Cup", "Vierer-Clubmeisterschaften", "Matchplay", "Club Championship", "Herbstturnier"] {
+        Harness.check("\(name) is a tournament",
+                      CalendarContext.isTournamentDay(events: [name], slots: tournamentSlots(name, blocked: 1, total: 60)))
+    }
+}
+
+private func testIsTournamentDayBlockedShare() {
+    Harness.check("an unnamed event blocking half the day is a tournament",
+                  CalendarContext.isTournamentDay(events: ["Nippenburg Quick 9"],
+                                                  slots: tournamentSlots("Nippenburg Quick 9", blocked: 30, total: 60)))
+    Harness.check("advance-booking notices never count toward the share",
+                  !CalendarContext.isTournamentDay(events: ["Montagsgolfer"],
+                                                   slots: tournamentSlots("4 Tage im Voraus buchbar", blocked: 50, total: 60)))
+}
+
+/// Mirrors scraper._holes_from_course_label(): an explicit "N Loch" mention wins
+/// over the leading digits, the smallest one when there are several.
+private func testHolesFromCourseLabel() {
+    Harness.checkEqual("leading count", Store.holes(from: "18 Loch Tee 1"), 18)
+    Harness.checkEqual("hyphenated", Store.holes(from: "9-Loch Schleife"), 9)
+    Harness.checkEqual("count in parentheses", Store.holes(from: "Tee 10 (9 Loch)"), 9)
+    Harness.checkEqual("count after a colon", Store.holes(from: "Kurzplatz: 6 Loch"), 6)
+    Harness.checkEqual("narrowed loop", Store.holes(from: "18-Loch Schleife (nur erste 9-Loch)"), 9)
+    Harness.checkEqual("bare 9 without Loch isn't a count", Store.holes(from: "Tee 1: 9 oder 18 Loch"), 18)
+    Harness.check("no number at all", Store.holes(from: "Kurzplatz") == nil)
 }
 
 private func testWeekdaysConstant() {

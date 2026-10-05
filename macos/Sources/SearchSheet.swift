@@ -28,7 +28,9 @@ struct SearchSheet: View {
     @StateObject private var confirming = Box<SearchMatch?>(nil)
     @StateObject private var showingPlayerPicker = Box(false)
 
-    private let searchDays = 6  // same window Store.days() already shows on screen
+    // The overview's own window (`overview_days`), like the TUI's SearchScreen,
+    // which searches the schedules the overview already loaded.
+    private var searchDays: Int { ClubDefaults.overviewDays(slug: clubSlug) }
 
     init(dbPath: String, course: String, clubSlug: String?, model: OverviewModel) {
         self.dbPath = dbPath
@@ -62,9 +64,7 @@ struct SearchSheet: View {
         )
     }
 
-    private var today: String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
-    }
+    private var today: String { ISODate.today() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -185,9 +185,11 @@ struct SearchSheet: View {
         ) {
             if let match = confirming.value {
                 Button(t("booking.confirm")) {
-                    Store.confirmBooking(dbPath: dbPath, course: match.course, date: match.date, time: match.time)
+                    let saved = Store.confirmBooking(dbPath: dbPath, course: match.course, date: match.date, time: match.time)
                     model.reload()
-                    status.value = t("search.booked", ["day": weekday(match.date), "time": match.time])
+                    status.value = saved
+                        ? t("search.booked", ["day": weekday(match.date), "time": match.time])
+                        : t("error.save_failed")
                 }
             }
             Button(t("booking.not_now"), role: .cancel) {}
@@ -199,7 +201,7 @@ struct SearchSheet: View {
         status.value = nil
         let fromDate = today
         weatherByDate.value = Dictionary(
-            uniqueKeysWithValues: Store.days(dbPath: dbPath, course: course, from: fromDate, limit: searchDays)
+            uniqueKeysWithValues: Store.days(dbPath: dbPath, course: course, from: fromDate, days: searchDays)
                 .map { ($0.date, $0) })
         SearchClient.run(dbPath: dbPath, course: course, clubSlug: clubSlug, from: fromDate, days: searchDays,
                           criteria: criteria.value) { matches, error in
@@ -233,7 +235,12 @@ private struct SearchResultRow: View {
             .frame(width: 90, alignment: .leading)
 
             if let w = weather?.weather(at: match.time) {
-                Image(systemName: icon(for: w.code)).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                // Blank (column kept) for a point with no known code -- see knownConditionIcon().
+                ZStack {
+                    if let name = knownConditionIcon(w.code) {
+                        Image(systemName: name).font(scaledFont(.caption)).foregroundStyle(.secondary)
+                    }
+                }
                     .help(weatherTooltip(w, units: units.value))
                     .frame(width: scale.scaled(Metrics.slotCondition))
                 if let tempC = w.temperatureC {
@@ -253,15 +260,16 @@ private struct SearchResultRow: View {
                 // on the exact same visit: "search results and overview still
                 // need explanation what percentage and number really mean") --
                 // not a separate, undocumented convention for the same figures.
-                if let p = w.precipitationProbability {
-                    HStack(spacing: 1) {
-                        if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
-                        Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value)).lineLimit(1)
-                    }
-                    .font(scaledFont(.caption2)).foregroundStyle(.secondary)
-                    .frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
-                    .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))
+                // A point with no probability still shows "0%" (and any amount), as
+                // SlotRow and tui._slot_precipitation_cell() do.
+                let p = w.precipitationProbability ?? 0
+                HStack(spacing: 1) {
+                    if p >= 50 { Text("🌧").font(.system(size: scale.scaled(9))) }
+                    Text(precipitationCellText(probability: p, mm: w.precipitationMM, units: units.value)).lineLimit(1)
                 }
+                .font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                .frame(width: scale.scaled(Metrics.slotPrecip), alignment: .trailing)
+                .help(p >= 50 ? t("tip.rain_flagged") : t("tip.rain"))
                 if let wd = w.windKPH {
                     HStack(spacing: 1) {
                         if wd >= 30 { Text("💨").font(.system(size: scale.scaled(9))) }

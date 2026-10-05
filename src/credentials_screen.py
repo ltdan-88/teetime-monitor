@@ -45,11 +45,13 @@ this screen doesn't always have one — a genuinely fresh install (see
 favorited) has no club_id to test with yet, so it falls back to the old plain "Saved"
 message in that case rather than skipping the save entirely. Callers that do know a
 favorited club_id (`ClubBrowserScreen.action_login()`/`action_refresh_directory()`)
-pass one so the common re-entry case gets real verification. This makes a real
-network call on save, blocking briefly — same tradeoff `ClubBrowserScreen`'s own `r`
-already makes for its "Fetching…" status, not a new pattern.
+pass one so the common re-entry case gets real verification. The login runs in a
+worker thread (`_verify()`), not on the event loop: an unresponsive pccaddie.net used
+to freeze the whole TUI for up to the 15 s httpx timeout per phase, with the
+"Verifying…" line never painted.
 """
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -204,20 +206,33 @@ class CredentialsScreen(Screen[bool]):
             return
 
         status.update(i18n.t("credentials.verifying"))
+        self.query_one("#save", Button).disabled = True
+        self.run_worker(
+            self._verify(self.verify_against_club_id, os.environ["PCC_USER"], os.environ.get("PCC_PASS", "")),
+            exclusive=True,
+            group="verify",
+        )
+
+    async def _verify(self, club_id: str, username: str, password: str) -> None:
+        """Live login off the event loop -- see module docstring. Leaving the screen
+        cancels this worker (Textual cancels a node's workers on unmount), so a late
+        result never touches widgets that are gone."""
         try:
-            client = scraper.login(
-                self.verify_against_club_id, os.environ["PCC_USER"], os.environ.get("PCC_PASS", "")
-            )
+            client = await asyncio.to_thread(scraper.login, club_id, username, password)
         except scraper.LoginError:
-            status.update(i18n.t("credentials.login_failed"))
+            self._finish_verify(i18n.t("credentials.login_failed"))
             return
         except Exception as exc:  # noqa: BLE001 -- a network hiccup isn't the same
             # thing as bad credentials -- don't tell the user their login is wrong
             # over a transient failure that has nothing to do with it.
-            status.update(i18n.t("credentials.saved_unverified", error=exc))
+            self._finish_verify(i18n.t("credentials.saved_unverified", error=exc))
             return
         client.close()
-        status.update(i18n.t("credentials.login_verified"))
+        self._finish_verify(i18n.t("credentials.login_verified"))
+
+    def _finish_verify(self, message: str) -> None:
+        self.query_one("#save", Button).disabled = False
+        self.query_one("#status", Static).update(message)
 
     def action_cancel(self) -> None:
         self.dismiss(self._saved)

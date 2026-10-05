@@ -16,6 +16,7 @@ Implemented 2026-09-06. `fetch_public_holidays()` is the one piece needing a liv
 I/O, same as playability.py/weather.conditions_during_round().
 """
 
+import re
 from datetime import date as date_cls
 
 import httpx
@@ -44,15 +45,76 @@ WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "S
 _DATE_FMT = "%Y-%m-%d"
 
 
-def fetch_public_holidays(country_code: str, year: int) -> list[str]:
-    """Dates (YYYY-MM-DD) of public holidays in one country/year."""
+def holidays_from_nager(entries: list[dict], region: str | None = None) -> list[str]:
+    """The dates in a Nager.Date `/PublicHolidays` response that apply to the club.
+
+    Nager also lists state-only holidays (`"global": false` plus a `counties` list,
+    e.g. DE's Reformationstag or Buß- und Bettag). Those are kept only when `region`
+    (an ISO 3166-2 code such as "DE-BW") is in their `counties`; without a region
+    only nationwide holidays count, since a state holiday is an ordinary working day
+    everywhere else."""
+    return [
+        entry["date"]
+        for entry in entries
+        if entry.get("global", True) or (region is not None and region in (entry.get("counties") or []))
+    ]
+
+
+def fetch_public_holidays(country_code: str, year: int, region: str | None = None) -> list[str]:
+    """Dates (YYYY-MM-DD) of public holidays in one country/year -- nationwide ones,
+    plus `region`'s own if given (see `holidays_from_nager()`)."""
     response = httpx.get(f"{NAGER_DATE_URL}/{year}/{country_code}", timeout=15)
     response.raise_for_status()
-    return [entry["date"] for entry in response.json()]
+    return holidays_from_nager(response.json(), region)
+
+
+def _iso_date_text(value) -> str:
+    """A vacation-range bound as "YYYY-MM-DD". PyYAML reads an unquoted
+    `start: 2026-07-04` as a `datetime.date`, which can't be compared with the ISO
+    strings every date here is passed around as."""
+    return value.isoformat() if isinstance(value, date_cls) else str(value)
 
 
 def _in_vacation(date: str, vacation_ranges: list[DateRange]) -> bool:
-    return any(vr.start <= date <= vr.end for vr in vacation_ranges)
+    return any(_iso_date_text(vr.start) <= date <= _iso_date_text(vr.end) for vr in vacation_ranges)
+
+
+# Words in a block-time label that mark a real competition rather than a recurring
+# group, a lesson, a guest block or an instructor's name ("Dienstag-Ladies",
+# "Grundkurs", "Gäste", "Marco"). Matched case-insensitively as substrings, except
+# the short English words, which need word boundaries.
+_TOURNAMENT_NAME_RE = re.compile(
+    r"turnier|meisterschaft|championship|troph|matchplay|match play|pokal|wettspiel|liga|scramble"
+    r"|\bcup\b|\bopen\b|\bpreis\b",
+    re.IGNORECASE,
+)
+
+# An unrecognised event name still makes a tournament day once its blocks cover at
+# least this share of the day's slots -- a competition takes over the course, a
+# weekly ladies' group or a lesson blocks a few tee times.
+TOURNAMENT_BLOCKED_SHARE = 0.5
+
+
+def is_tournament_day(events: list[str], slots: list) -> bool:
+    """Whether a scraped day counts as a "tournament" for `classify_day()`.
+
+    `events` holds the name of every block-time row (`scraper._event_names()`), and
+    most of those are routine: recurring groups, lessons, guest blocks. Treating any
+    of them as a tournament moved ordinary weekdays out of the heatmap's weekday
+    columns. A day is a tournament when an event name reads like one, or when slots
+    blocked by those events make up at least `TOURNAMENT_BLOCKED_SHARE` of the day.
+    Advance-booking notices also set `block_reason` but are never in `events`, so
+    they don't count toward the share. Mirrored by
+    `CalendarContext.isTournamentDay()` in macos/Sources/CalendarContext.swift."""
+    if not events:
+        return False
+    if any(_TOURNAMENT_NAME_RE.search(name) for name in events):
+        return True
+    if not slots:
+        return False
+    names = set(events)
+    blocked = sum(1 for slot in slots if slot.block_reason in names)
+    return blocked / len(slots) >= TOURNAMENT_BLOCKED_SHARE
 
 
 def classify_day(

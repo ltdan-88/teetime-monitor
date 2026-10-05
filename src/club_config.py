@@ -68,8 +68,10 @@ from . import geocode, paths, yaml_util
 # to the working directory (2026-09-17, see paths.py): a GUI front end launched from
 # Finder has `cwd = /`, so a CWD-relative search could never find real credentials.
 # `load_dotenv()` still never overrides an already-set environment variable, so an
-# export in your shell continues to win over the file.
-load_dotenv(paths.ENV_FILE)
+# export in your shell continues to win over the file. `interpolate=False`: a
+# password containing `${...}` must reach pc caddie literally, and there's no way to
+# escape it in the file -- env_file.load_env_value() reads with the same setting.
+load_dotenv(paths.ENV_FILE, interpolate=False)
 
 CLUBS_DIR = paths.CLUBS_DIR  # ~/.config/teetime-monitor/clubs -- see paths.py
 EXAMPLE_FILENAME = "club.example.yaml"
@@ -135,7 +137,10 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) 
     either way, and this only affects a club's own gitignored copy."""
     directory = clubs_dir if clubs_dir is not None else CLUBS_DIR
     path = directory / f"{club_id}.yaml"
-    with path.open("w", encoding="utf-8") as f:
+    # Written atomically (paths.atomic_write_text): a truncated file loads as {} and
+    # the club would silently drop out of favorites and scheduled scrapes.
+    paths.atomic_write_text(
+        path,
         # allow_unicode=True -- without it PyYAML backslash-escapes every non-ASCII
         # character in a double-quoted scalar (a club name like "Domäne" becomes
         # "Domäne" on disk, note the *decomposed* combining-diaeresis escape,
@@ -147,7 +152,8 @@ def save_club_config(club_id: str, config: dict, clubs_dir: Path | None = None) 
         # instead sidesteps that gap entirely: any UTF-8-aware reader, including
         # that parser as it already stands, reads it correctly with no escape
         # decoding involved.
-        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+    )
 
 
 def new_club_stub(club_id: str, name: str = "") -> dict:
@@ -171,7 +177,8 @@ def new_club_stub(club_id: str, name: str = "") -> dict:
     chance of matching. Persisting the real name once it's genuinely known (via a
     directory search) means a later un/re-favorite from the plain list can find it
     again here instead of falling back to the slug."""
-    stub = {"club_id": club_id, "default_course": "", "default_date": "today"}
+    # No `default_date`: nothing ever read it (removed from club.example.yaml too).
+    stub = {"club_id": club_id, "default_course": ""}
     if name:
         stub["name"] = name
     return stub

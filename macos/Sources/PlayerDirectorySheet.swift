@@ -22,19 +22,39 @@ enum PlayerSortField: String, CaseIterable, Identifiable {
     /// tiebreaker (family name) after the primary field, so two players sharing a
     /// gender/status/handicap still land in a stable, predictable order rather than
     /// whatever order `Array.sorted` happened to leave them in.
-    func key(_ p: KnownPlayer) -> (Int, Double, String, String) {
-        let tiebreak = familyName(p.name).lowercased()
+    /// Gender/status are their own component (not glued onto the family name), so a
+    /// player with none groups first, as in Python, instead of mixing in by name.
+    func key(_ p: KnownPlayer) -> (Int, Double, String, String, String) {
+        let tiebreak = casefold(familyName(p.name))
         switch self {
-        case .name: return (0, 0, tiebreak, p.name.lowercased())
-        case .gender: return (0, 0, (p.gender ?? "") + tiebreak, tiebreak)
-        case .memberStatus: return (0, 0, (p.memberStatus ?? "") + tiebreak, tiebreak)
+        case .name: return (0, 0, "", tiebreak, casefold(p.name))
+        case .gender: return (0, 0, p.gender ?? "", tiebreak, tiebreak)
+        case .memberStatus: return (0, 0, p.memberStatus ?? "", tiebreak, tiebreak)
         // `handicap == nil` sorts to the same end regardless of ascending/descending --
-        // see known_players_screen.py's own _SORT_KEYS["handicap"] docstring for why
-        // this needs to be baked into the key rather than left to plain reversal.
-        case .handicap: return (p.handicap == nil ? 1 : 0, p.handicap ?? 0, tiebreak, tiebreak)
-        case .friend: return (p.isFriend ? 0 : 1, 0, tiebreak, tiebreak)
+        // see `sortedPlayers(_:by:reversed:)`, which keeps it there when descending.
+        case .handicap: return (p.handicap == nil ? 1 : 0, p.handicap ?? 0, "", tiebreak, tiebreak)
+        case .friend: return (p.isFriend ? 0 : 1, 0, "", tiebreak, tiebreak)
         }
     }
+}
+
+/// Python's `str.casefold()` for the names this sorts: lowercased, with ß folded to
+/// "ss" (lowercased() keeps ß, which then sorts after "u" -- Heusel before Heßlinger,
+/// unlike the TUI and `storage.load_known_players()`).
+func casefold(_ s: String) -> String {
+    s.lowercased().replacingOccurrences(of: "ß", with: "ss")
+}
+
+/// The directory's order for `field`, descending when `reversed`. Descending flips
+/// the values only: players with no handicap stay at the end either way (a plain
+/// reversal put all of them at the top of a descending HCP sort).
+func sortedPlayers(_ players: [KnownPlayer], by field: PlayerSortField, reversed: Bool) -> [KnownPlayer] {
+    let ascending = players.sorted { field.key($0) < field.key($1) }
+    guard reversed else { return ascending }
+    if field == .handicap {
+        return ascending.filter { $0.handicap != nil }.reversed() + ascending.filter { $0.handicap == nil }
+    }
+    return ascending.reversed()
 }
 
 /// One (date, time) a double-clicked player is actually booked into, within the
@@ -47,7 +67,9 @@ struct PlayerSlotHit: Identifiable, Hashable {
     var id: String { date + time }
 }
 
-/// Every (date, time) `playerName` is actually booked into, across `days` -- the
+/// Every (date, time) `playerName` is actually booked into, across `days` -- only rows
+/// the expanded day actually renders (`Day.visibleSlots`, sunrise row to sunset row),
+/// since a jump to any other slot has no row to scroll to or highlight -- the
 /// currently-loaded window only (`OverviewModel.visibleDays`), not full scrape
 /// history, matching direct scope confirmed 2026-09-28: "scope: only currently
 /// loaded window." A free function, not a `PlayerDirectorySheet` method, for the
@@ -56,15 +78,17 @@ struct PlayerSlotHit: Identifiable, Hashable {
 /// fixtures, no live sheet or `OverviewModel` needed.
 func playerSlotHits(for playerName: String, in days: [Day]) -> [PlayerSlotHit] {
     days.flatMap { day in
-        day.slots.filter { $0.players.contains(playerName) }
+        day.visibleSlots.filter { $0.players.contains(playerName) }
             .map { PlayerSlotHit(date: day.date, time: $0.time) }
     }
 }
 
 /// Groups `players` (already sorted the way the caller wants) into adjacent runs
-/// sharing the same first letter of `familyName(_:)`, uppercased -- one entry per
-/// letter, in first-seen order, so this reflects whatever order `players` already
-/// came in rather than re-sorting. "#" collects anything whose family name starts
+/// sharing the same first letter of `familyName(_:)`, uppercased, in first-seen
+/// order, so this reflects whatever order `players` already came in rather than
+/// re-sorting. Only *adjacent* runs merge: a letter that comes back later (any
+/// non-name sort, or "#" names sorting on both sides of the letters) starts another
+/// group, so a letter is not a unique group id. "#" collects anything whose family name starts
 /// with something that isn't a letter (a name is never actually empty, but this is
 /// the same non-letter fallback bucket a real Contacts app uses). A free function,
 /// not a `PlayerDirectorySheet` method, so `TeetimeMonitorCoreTests` can exercise
@@ -166,10 +190,7 @@ struct PlayerDirectorySheet: View {
         if !trimmed.isEmpty {
             visible = visible.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
         }
-        let field = sortField.value
-        visible.sort { field.key($0) < field.key($1) }
-        if sortReversed.value { visible.reverse() }
-        return visible
+        return sortedPlayers(visible, by: sortField.value, reversed: sortReversed.value)
     }
 
     /// A-Z section headers plus a jump strip down the trailing edge, the same shape
@@ -202,6 +223,11 @@ struct PlayerDirectorySheet: View {
             HStack {
                 TextField(t("players.search_placeholder"), text: $query.value)
                     .textFieldStyle(.roundedBorder)
+                    // Return in picker mode takes the one remaining match; otherwise
+                    // it does nothing (it used to fire the footer button and close).
+                    .onSubmit {
+                        if onSelect != nil, visiblePlayers.count == 1 { selectAndDismiss(visiblePlayers[0]) }
+                    }
                 Spacer(minLength: 12)
                 Toggle(t("players.friends_only"), isOn: $friendsOnly.value)
                     .toggleStyle(.checkbox)
@@ -239,8 +265,12 @@ struct PlayerDirectorySheet: View {
                         // for its pinned day headers.
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                                ForEach(groupedPlayers, id: \.letter) { group in
-                                    if sectionsShown {
+                                // Not grouped at all unless sorted by name, and keyed by
+                                // position: a letter can head more than one group (see
+                                // groupPlayersByFamilyNameLetter), and duplicate ForEach
+                                // ids inside a lazy stack are undefined behaviour.
+                                if sectionsShown {
+                                    ForEach(Array(groupedPlayers.enumerated()), id: \.offset) { _, group in
                                         Section {
                                             playerRows(group.players)
                                         } header: {
@@ -250,17 +280,17 @@ struct PlayerDirectorySheet: View {
                                                 .padding(.horizontal, 16).padding(.vertical, 3)
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                                 .background(Color(nsColor: .windowBackgroundColor))
-                                                .id(group.letter)
+                                                .id("letter-\(group.letter)")
                                         }
-                                    } else {
-                                        playerRows(group.players)
                                     }
+                                } else {
+                                    playerRows(visiblePlayers)
                                 }
                             }
                         }
                         if sectionsShown {
-                            AlphabetIndexStrip(letters: groupedPlayers.map(\.letter)) { letter in
-                                withAnimation { proxy.scrollTo(letter, anchor: .top) }
+                            AlphabetIndexStrip(letters: uniqueLetters(groupedPlayers.map(\.letter))) { letter in
+                                withAnimation { proxy.scrollTo("letter-\(letter)", anchor: .top) }
                             }
                         }
                     }
@@ -270,7 +300,10 @@ struct PlayerDirectorySheet: View {
 
             HStack {
                 Spacer()
-                Button(t("button.cancel")) { dismiss() }.keyboardShortcut(.defaultAction)
+                // Close, on Esc: friend toggles already saved, so there's nothing to
+                // cancel, and a default (Return) button closed the sheet from the
+                // search field.
+                Button(t("button.close")) { dismiss() }.keyboardShortcut(.cancelAction)
             }
             .padding(16)
         }
@@ -351,6 +384,13 @@ struct PlayerDirectorySheet: View {
 /// (`groupedPlayers`' own keys), not the full alphabet padded with dead entries --
 /// with a real, if small, directory this is already every letter that matters, and
 /// a tap that does nothing (an empty letter) is worse than a slightly shorter strip.
+/// `letters` with repeats dropped, first occurrence kept -- the strip's ForEach is
+/// keyed by letter, and a "#" group can appear on both sides of the alphabet.
+func uniqueLetters(_ letters: [String]) -> [String] {
+    var seen = Set<String>()
+    return letters.filter { seen.insert($0).inserted }
+}
+
 private struct AlphabetIndexStrip: View {
     let letters: [String]
     let onTap: (String) -> Void

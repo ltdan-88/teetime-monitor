@@ -65,6 +65,13 @@ def test_bad_stdin_json_is_rejected(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"saved": False, "reason": "bad_input"}
 
 
+def test_password_with_a_line_break_is_rejected_not_a_traceback(monkeypatch, capsys):
+    result, code = _run(monkeypatch, capsys, {"username": "someone@example.com", "password": "hunter2\n"})
+    assert result == {"saved": False, "reason": "bad_input"}
+    assert code == 1
+    assert env_file.load_env_value("PCC_PASS") is None
+
+
 def test_verifies_login_and_reports_success(monkeypatch, capsys):
     fake_client = type("FakeClient", (), {"close": lambda self: None})()
     seen_calls = []

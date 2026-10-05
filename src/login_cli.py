@@ -75,7 +75,11 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     paths.ensure_dirs()
-    env_file.set_env_values({"PCC_USER": username, "PCC_PASS": password})
+    try:
+        env_file.set_env_values({"PCC_USER": username, "PCC_PASS": password})
+    except ValueError:  # a line break in a value (e.g. pasted) -- can't go in .env
+        print(json.dumps({"saved": False, "reason": "bad_input"}))
+        sys.exit(1)
 
     if club_id is None:
         print(json.dumps({"saved": True, "verified": None}))

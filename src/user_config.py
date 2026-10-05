@@ -40,17 +40,21 @@ def load_value(key: str, config_file: Path) -> str | None:
 def save_value(key: str, value: str, config_file: Path) -> None:
     """Persist `KEY=value` to `config_file`, rewriting an existing `KEY=` line in
     place rather than duplicating it, and leaving every other line untouched."""
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-    prefix = f"{key}="
+    save_values({key: value}, config_file)
+
+
+def save_values(values: dict[str, str], config_file: Path) -> None:
+    """`save_value()` for several keys in one atomic write -- the file is shared with
+    the GUI and the background scrape, so it's never seen truncated or half-updated."""
     lines: list[str] = []
-    replaced = False
+    replaced: set[str] = set()
     if config_file.exists():
         for line in config_file.read_text(encoding="utf-8").splitlines():
-            if line.strip().startswith(prefix):
-                lines.append(f"{key}={value}")
-                replaced = True
-            else:
+            key = next((k for k in values if line.strip().startswith(f"{k}=")), None)
+            if key is None:
                 lines.append(line)
-    if not replaced:
-        lines.append(f"{key}={value}")
-    config_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            else:
+                lines.append(f"{key}={values[key]}")
+                replaced.add(key)
+    lines.extend(f"{key}={value}" for key, value in values.items() if key not in replaced)
+    paths.atomic_write_text(config_file, "\n".join(lines) + "\n")

@@ -59,6 +59,7 @@ def test_saves_a_key_for_the_selected_provider_and_makes_it_active(monkeypatch, 
             app.screen.query_one("#provider").value = "openai"
             app.screen.query_one("#api_key").value = "sk-abc"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
@@ -79,6 +80,7 @@ def test_shows_verified_status_on_success(monkeypatch, tmp_path):
             await pilot.pause()
             app.screen.query_one("#api_key").value = "sk-ant"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == i18n.t("ai_credentials.verified")
 
@@ -97,6 +99,7 @@ def test_shows_rejected_status_without_undoing_the_save(monkeypatch, tmp_path):
             await pilot.pause()
             app.screen.query_one("#api_key").value = "bad-key"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == i18n.t("ai_credentials.rejected")
 
@@ -118,6 +121,7 @@ def test_shows_unverified_status_on_a_network_hiccup_not_a_bad_key(monkeypatch, 
             await pilot.pause()
             app.screen.query_one("#api_key").value = "sk-ant"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             status = str(app.screen.query_one("#status", Static).content)
             assert status == i18n.t("ai_credentials.unverified", error="no network")
@@ -135,6 +139,7 @@ def test_requires_an_api_key_when_none_is_set_yet(monkeypatch, tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert str(app.screen.query_one("#status", Static).content) == i18n.t("ai_credentials.api_key_required")
 
@@ -158,6 +163,7 @@ def test_blank_key_with_an_existing_saved_key_switches_provider_without_rewritin
             app.screen.query_one("#provider").value = "grok"
             # api_key left blank -- should keep the existing one and just switch to it
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
@@ -199,7 +205,66 @@ def test_updates_live_process_environment_so_verification_sees_the_new_key(monke
             app.screen.query_one("#provider").value = "openai"
             app.screen.query_one("#api_key").value = "sk-fresh"
             await pilot.click("#save")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
     asyncio.run(scenario())
     assert seen_env_values == ["sk-fresh"]
+
+
+def test_verification_does_not_block_the_event_loop(monkeypatch, tmp_path):
+    # verify_api_key() runs in a worker thread: while it's in flight the screen keeps
+    # painting "Verifying..." with Save disabled, instead of freezing the TUI for as
+    # long as the SDK's timeout and retries take.
+    import threading
+
+    from textual.widgets import Button, Static
+
+    release = threading.Event()
+
+    def slow_verify(provider):
+        release.wait(5)
+        return True, None
+
+    monkeypatch.setattr(ai_credentials_screen_module.ai_assist, "verify_api_key", slow_verify)
+
+    async def scenario():
+        app = _HostApp(tmp_path / ".env", tmp_path / ".env.example")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#api_key").value = "sk-ant"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("ai_credentials.verifying")
+            assert app.screen.query_one("#save", Button).disabled
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert str(app.screen.query_one("#status", Static).content) == i18n.t("ai_credentials.verified")
+            assert not app.screen.query_one("#save", Button).disabled
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "prefs",
+    [
+        {"ai_assist": {"provider": "claude"}},  # hand-edited / unknown value
+        {"ai_assist": None},  # a bare `ai_assist:` line
+        {"ai_assist": "yes"},
+    ],
+)
+def test_unknown_or_malformed_saved_provider_falls_back_to_anthropic(monkeypatch, tmp_path, prefs):
+    # Used to crash compose() (KeyError in PROVIDER_ENV_VARS, or AttributeError on a
+    # null block) before the screen ever showed.
+    monkeypatch.setattr(ai_credentials_screen_module.global_preferences, "load_preferences", lambda *a, **k: prefs)
+    assert ai_credentials_screen_module._active_provider() == "anthropic"
+
+    async def scenario():
+        app = _HostApp(tmp_path / ".env", tmp_path / ".env.example")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, AICredentialsScreen)
+            assert app.screen.query_one("#provider").value == "anthropic"
+
+    asyncio.run(scenario())

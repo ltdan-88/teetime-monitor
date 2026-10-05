@@ -19,11 +19,13 @@ English-only for now, not a gap that was missed.
 Same global-preference pattern as `theme.py` (and sharing its underlying config file
 via `user_config.py`): an env var beats a saved config file beats a default. Default:
 German if the system's own locale looks German (`LC_ALL`/`LANG`/`LANGUAGE` starts with
-"de"), English otherwise — this club's actual portal is itself German-language, so a
+"de"; on Windows, which sets none of those, the user's UI language), English
+otherwise — this club's actual portal is itself German-language, so a
 German-speaking user shouldn't have to know to ask for it first.
 """
 
 import os
+import sys
 from pathlib import Path
 
 from . import user_config
@@ -77,6 +79,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "search.button": "Search",
         "search.reset": "Reset filters",
         "search.no_matches": "No matches for these criteria.",
+        "search.searching": "Searching…",
         "search.table.date": "Date",
         "search.table.notes": "Notes",
         "search.field.friends_only": "Friends only",
@@ -132,6 +135,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "confirm.time_label": "Time (HH:MM):",
         "confirm.holes_label": "Holes (9 or 18, optional):",
         "confirm.enter_time": "Enter a time first.",
+        "confirm.invalid_time": "Enter the time as HH:MM, e.g. 09:30.",
         "confirm.holes_number": "Holes must be a number.",
         "confirm.confirmed": "Confirmed.",
         "cancel_booking.title": "Cancel your confirmed tee time at {time} on {date}?",
@@ -174,15 +178,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.favorite": "Favorite",
         "binding.refresh_directory": "Refresh list",
         "binding.login": "Login",
+        "binding.to_list": "List (f r l q)",
         "binding.stats": "Data stats",
         "binding.settings": "Settings",
         "binding.search": "Search",
         "command.language_title": "Language: switch to {other}",
         "command.language_description": "Currently {current} — switch the UI language",
-        "command.settings_description": "Edit availability, weather, and AI preferences",
-        "command.switch_description": "Search the full club directory, or pick a different course",
+        "command.settings_description": "Display, login, scraping, AI",
+        "command.switch_description": "Search the club directory and open or save a club",
         "command.search_description": "Ad hoc search across the currently loaded days",
-        "command.heatmap_description": "Crowd-prediction data readiness",
+        "command.heatmap_description": "Crowd history by weekday and hour",
         "command.player_directory_description": "Every real name your scrapes have seen; mark friends",
         "command.login_description": "Save or update your pc caddie username/password",
         "command.theme_description": "Change the current theme",
@@ -380,6 +385,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "search.button": "Suchen",
         "search.reset": "Filter zurücksetzen",
         "search.no_matches": "Keine Treffer für diese Kriterien.",
+        "search.searching": "Suche läuft…",
         "search.table.date": "Datum",
         "search.table.notes": "Hinweise",
         "search.field.friends_only": "Nur Freunde",
@@ -435,6 +441,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "confirm.time_label": "Uhrzeit (HH:MM):",
         "confirm.holes_label": "Löcher (9 oder 18, optional):",
         "confirm.enter_time": "Bitte zuerst eine Uhrzeit eingeben.",
+        "confirm.invalid_time": "Uhrzeit als HH:MM eingeben, z. B. 09:30.",
         "confirm.holes_number": "Löcher muss eine Zahl sein.",
         "confirm.confirmed": "Bestätigt.",
         "cancel_booking.title": "Bestätigte Tee-Zeit um {time} am {date} stornieren?",
@@ -474,6 +481,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.favorite": "Favorit",
         "binding.refresh_directory": "Liste aktualisieren",
         "binding.login": "Login",
+        "binding.to_list": "Liste (f r l q)",
         "binding.stats": "Datenstatistik",
         "binding.settings": "Einstellungen",
         "binding.search": "Suchen",
@@ -482,10 +490,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.players_short": "Spieler",
         "command.language_title": "Sprache: zu {other} wechseln",
         "command.language_description": "Aktuell {current} — Sprache der Oberfläche wechseln",
-        "command.settings_description": "Verfügbarkeit, Wetter und KI-Einstellungen bearbeiten",
-        "command.switch_description": "Im ganzen Club-Verzeichnis suchen oder einen anderen Platz wählen",
+        "command.settings_description": "Anzeige, Anmeldung, Scraping, KI",
+        "command.switch_description": "Im Club-Verzeichnis suchen und einen Club öffnen oder speichern",
         "command.search_description": "Einmalige Suche in den bereits geladenen Tagen",
-        "command.heatmap_description": "Wie viel Auslastungsverlauf bisher zusammengekommen ist",
+        "command.heatmap_description": "Auslastungsverlauf nach Wochentag und Stunde",
         "command.player_directory_description": "Jeder echte Name, den deine Scrapes gesehen haben; Freunde markieren",
         "command.login_description": "Deinen pc-caddie-Benutzernamen/-Passwort speichern oder ändern",
         "command.theme_description": "Das aktuelle Design ändern",
@@ -695,11 +703,30 @@ def load_saved_language(config_file: Path | None = None) -> str | None:
     return saved if saved in SUPPORTED_LANGUAGES else None
 
 
+def _windows_ui_language_is_german() -> bool:
+    """Windows shells don't export LANG/LC_ALL, so ask the OS: the user's UI language
+    (primary language id 0x07 is German), else the process locale's name
+    ('German_Germany' or 'de_DE')."""
+    try:
+        import ctypes
+
+        lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()  # type: ignore[attr-defined]
+        return (lang_id & 0x3FF) == 0x07
+    except (AttributeError, OSError):
+        pass
+    import locale
+
+    name = (locale.getlocale()[0] or "").lower()
+    return name.startswith(("de", "german"))
+
+
 def _default_language(environ: dict) -> str:
     for var in ("LC_ALL", "LANG", "LANGUAGE"):
         value = environ.get(var, "")
         if value.lower().startswith("de"):
             return "de"
+    if sys.platform == "win32" and not any(environ.get(var) for var in ("LC_ALL", "LANG", "LANGUAGE")):
+        return "de" if _windows_ui_language_is_german() else "en"
     return "en"
 
 

@@ -22,9 +22,21 @@ enum EnvStore {
             let parts = t.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.first == Substring(key) else { continue }
             let raw = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
-            return raw.isEmpty ? nil : raw
+            return raw.isEmpty ? nil : unquoted(raw)
         }
         return nil
+    }
+
+    /// env_file.py single-quotes a value with spaces, `#` or quotes (so python-dotenv
+    /// reads it back unchanged), escaping `\` and `'` inside; undo that for display.
+    static func unquoted(_ raw: String) -> String {
+        guard raw.count >= 2, raw.hasPrefix("'"), raw.hasSuffix("'") else { return raw }
+        var out = ""
+        var escaping = false
+        for ch in raw.dropFirst().dropLast() {
+            if escaping { out.append(ch); escaping = false } else if ch == "\\" { escaping = true } else { out.append(ch) }
+        }
+        return out
     }
 
     static func currentUsername() -> String? { value(for: "PCC_USER") }
@@ -94,27 +106,17 @@ enum LoginClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
-            task.arguments = clubID.map { ["--club-id", $0] } ?? []
-            let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-            task.standardInput = stdin; task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let payload: [String: String] = ["username": username, "password": password]
+            let input = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, clubID.map { ["--club-id", $0] } ?? [], stdin: input) } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
-            let payload: [String: String] = ["username": username, "password": password]
-            if let data = try? JSONSerialization.data(withJSONObject: payload) {
-                stdin.fileHandleForWriting.write(data)
-            }
-            stdin.fileHandleForWriting.closeFile()
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
             DispatchQueue.main.async {
-                guard let json = try? JSONSerialization.jsonObject(with: outData) as? [String: Any] else {
-                    let stderrText = String(data: errData, encoding: .utf8) ?? ""
-                    done(nil, stderrText.isEmpty ? "login failed (exit \(task.terminationStatus))" : stderrText)
+                guard let json = Subprocess.jsonObject(from: result.stdout) as? [String: Any] else {
+                    let stderrText = result.stderrText
+                    done(nil, stderrText.isEmpty ? "login failed (exit \(result.status))" : stderrText)
                     return
                 }
                 done(LoginResult(

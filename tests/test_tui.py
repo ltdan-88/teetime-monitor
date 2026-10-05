@@ -3,6 +3,7 @@ import sys
 import threading
 
 import pytest
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.command import CommandPalette
 from textual.widgets import Button, DataTable, Input, Label, OptionList, Select, Static, Switch
@@ -660,6 +661,49 @@ def test_confirm_booking_rejects_non_numeric_holes(tmp_path, monkeypatch):
     _run(scenario())
 
 
+def test_normalized_tee_time_accepts_common_spellings_and_rejects_the_rest():
+    # Slot rows and booking-watch match a confirmed time by exact string, so a saved
+    # "9.00" or "9:00" never matched the "09:00" slot (no 📌, no change warnings).
+    assert tui._normalized_tee_time("9:00") == "09:00"
+    assert tui._normalized_tee_time("09:30") == "09:30"
+    assert tui._normalized_tee_time("9.30") == "09:30"
+    assert tui._normalized_tee_time("14.10") == "14:10"
+    for bad in ("25:00", "9", "noon", "9:60", "9:00 am"):
+        assert tui._normalized_tee_time(bad) is None
+
+
+def test_confirm_booking_saves_a_normalized_time_and_rejects_garbage(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#time", Input).value = "nine"
+            await pilot.click("#save")
+            await pilot.pause()
+            assert str(app.screen.query_one("#confirm-status", Static).content) == i18n.t("confirm.invalid_time")
+            assert app.result == "not dismissed yet"
+
+            # .press(), not repeated pilot.click()s: back-to-back clicks on one
+            # button read as a double-click.
+            app.screen.query_one("#time", Input).value = "9.00"
+            app.screen.query_one("#holes", Input).value = "0"
+            app.screen.query_one("#save", Button).press()
+            await pilot.pause()
+            assert str(app.screen.query_one("#confirm-status", Static).content) == i18n.t("confirm.holes_number")
+
+            app.screen.query_one("#holes", Input).value = "18"
+            app.screen.query_one("#save", Button).press()
+            await pilot.pause()
+            assert app.result is True
+
+    _run(scenario())
+
+    booking = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert booking is not None and booking.time == "09:00"
+
+
 def test_confirm_booking_cancel_dismisses_without_saving(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
 
@@ -918,6 +962,15 @@ def test_event_cell_empty_without_any_event():
     assert tui._event_cell(schedule) == ""
 
 
+def test_scraped_event_text_with_brackets_renders_literally():
+    # Club text goes into Rich markup: "[/Jugend]" raised MarkupError on every
+    # render, and "[m/w]" silently disappeared from the cell.
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[], weather=[], events=["Damen [m/w]"])
+    assert Text.from_markup(tui._event_cell(schedule)).plain == "📋 Damen [m/w]"
+    slot = Slot(time="10:00", booked=4, capacity=4, block_reason="Training [/Jugend]")
+    assert Text.from_markup(f"[dim]{tui._slot_event_cell(slot)}[/]").plain == "📋 Training [/Jugend]"
+
+
 def test_resolved_config_merges_global_preferences_over_club_settings(monkeypatch, tmp_path):
     # Direct feedback 2026-09-08: "i also want the settings/preferences to be global
     # and not tied to a specific club" -- availability/preferences come from the one
@@ -1020,6 +1073,50 @@ def test_resolved_config_fills_in_a_missing_location_even_for_a_saved_club(monke
     config = tui._resolved_config("home-club", "0000002", "Golfclub Sonnenberg e.V.")
 
     assert config["location"] == {"lat": 48.78, "lon": 9.68}
+
+
+def test_resolved_config_remembers_a_failed_geocode_until_the_retry_interval(monkeypatch, tmp_path):
+    # _config() runs on the UI thread on every resize/expand/confirm: an un-
+    # geocodable name used to mean a fresh blocking Nominatim request each time.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "_GEOCODE_FAILURES", {})
+    calls = []
+    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: calls.append(name) or None)
+
+    tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
+    tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
+    assert calls == ["Golfclub Nirgendwo"]
+
+    monkeypatch.setattr(tui, "_GEOCODE_RETRY_SECONDS", 0.0)
+    tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
+    assert len(calls) == 2  # retried once the interval passed
+
+
+def test_resolved_config_never_geocodes_the_slug_fallback_name(monkeypatch, tmp_path):
+    # _favorite_clubs() falls back to the slug ("club-0000002") for a favorite saved
+    # without a name -- never a real club name, so never worth a Nominatim request.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    def fail(name):
+        raise AssertionError("should not have geocoded a slug")
+
+    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+
+    assert "location" not in tui._resolved_config(None, "0000002", "club-0000002")
+
+
+def test_a_malformed_club_yaml_is_skipped_rather_than_crashing(monkeypatch, tmp_path):
+    # One hand-broken clubs/*.yaml used to crash the home screen at launch (YAMLError
+    # out of _favorite_clubs()), locking you out of every club, healthy ones included.
+    (tmp_path / "broken.yaml").write_text("club_id: [unclosed\n", encoding="utf-8")
+    (tmp_path / "listy.yaml").write_text("- just\n- a list\n", encoding="utf-8")
+    (tmp_path / "good.yaml").write_text("club_id: '0000001'\nname: Good Club\n", encoding="utf-8")
+    _wire_real_club_config_to(monkeypatch, tmp_path)
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    assert tui._favorite_clubs() == [("0000001", "Good Club")]
+    assert "club_id" not in tui._resolved_config("broken")
+    assert "club_id" not in tui._resolved_config("listy")
 
 
 def test_availability_pipeline_empty_without_availability_configured():
@@ -1908,10 +2005,14 @@ def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
-            await pilot.pause(0.3)  # the real open-dates fetch lands after the first paint
             table = app.screen.query_one("#overview-table", DataTable)
-            row = table.get_row_at(1)  # tomorrow -- not in the real open-dates set
-            assert "not open" in str(row[tui.OverviewScreen._PICK_COLUMN_INDEX])
+
+            def tomorrow_pick() -> str:
+                # Tomorrow -- not in the real open-dates set, which lands after the first paint.
+                return str(table.get_row_at(1)[tui.OverviewScreen._PICK_COLUMN_INDEX]) if table.row_count > 1 else ""
+
+            await _wait_until(pilot, lambda: "not open" in tomorrow_pick())
+            assert "not open" in tomorrow_pick()
 
     _run(scenario())
 
@@ -2787,6 +2888,7 @@ def test_search_screen_runs_search_and_shows_results():
             await pilot.pause()
             app.screen.query_one("#search-weekday-after-hh").value = "05"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             # No per-row Course column any more (2026-09-13, direct question:
@@ -2842,6 +2944,7 @@ def test_search_screen_friends_only_excludes_slots_with_no_marked_friend():
             app.screen.query_one("#search-weekday-after-hh").value = "05"
             app.screen.query_one("#search-friends-only", Switch).value = True
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 1
@@ -2879,6 +2982,7 @@ def test_search_screen_player_filter_picks_the_dropdown_options_correct_row():
             await pilot.pause()
             assert str(app.screen.query_one("#search-player", Button).label) == "Max Mustermann"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 1
@@ -2887,6 +2991,7 @@ def test_search_screen_player_filter_picks_the_dropdown_options_correct_row():
             # Clear button drops the filter again, both matches are back
             await pilot.click("#search-player-clear")
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             assert app.screen.query_one("#search-results", DataTable).row_count == 2
             assert str(app.screen.query_one("#search-player", Button).label) == "(Any)"
@@ -2957,6 +3062,7 @@ def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_pa
             await pilot.pause()
             app.screen.query_one("#search-weekday-after-hh").value = "05"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             players_column = list(table.columns.values())[tui.SearchScreen._PLAYERS_COLUMN_INDEX]
@@ -3024,6 +3130,7 @@ def test_search_screen_uses_typed_in_criteria_not_saved_defaults():
             app.screen.query_one("#search-weekday-before-hh").value = "12"
             app.screen.query_one("#search-weekday-before-mm").value = "00"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 1
@@ -3049,6 +3156,7 @@ def test_search_screen_confirm_prefills_the_highlighted_results_own_date_and_tim
             await pilot.pause()
             app.screen.query_one("#search-weekday-after-hh").value = "05"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 2
@@ -3074,6 +3182,7 @@ def test_search_screen_confirm_saves_and_shows_a_status_message(tmp_path, monkey
             await pilot.pause()
             app.screen.query_one("#search-weekday-after-hh").value = "05"
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             await pilot.press("c")
             await pilot.pause()
@@ -3117,10 +3226,41 @@ def test_search_screen_shows_no_matches_message():
         async with app.run_test() as pilot:
             await pilot.pause()
             await pilot.click("#run")
+            await app.workers.wait_for_complete()  # the search runs in a worker thread
             await pilot.pause()
             table = app.screen.query_one("#search-results", DataTable)
             assert table.row_count == 0
             assert app.screen.query_one("#search-status", Static).content
+
+    _run(scenario())
+
+
+def test_search_ranking_runs_off_the_event_loop(monkeypatch):
+    # With AI ranking on, ranked_matches() is a live AI request -- it used to run
+    # straight from the button handler and freeze the whole TUI until it returned.
+    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
+    release = threading.Event()
+    real_ranked_matches = tui.recommend.ranked_matches
+
+    def slow_ranked_matches(*args, **kwargs):
+        release.wait(timeout=5)
+        return real_ranked_matches(*args, **kwargs)
+
+    monkeypatch.setattr(tui.recommend, "ranked_matches", slow_ranked_matches)
+
+    async def scenario():
+        app = _HostApp(_search_screen(schedules=[schedule]))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#run")
+            await pilot.pause()
+            # The event loop is still free while ranking is in flight.
+            status = app.screen.query_one("#search-status", Static)
+            assert str(status.content) == i18n.t("search.searching")
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.screen.query_one("#search-results", DataTable).row_count == 1
 
     _run(scenario())
 
@@ -3280,10 +3420,41 @@ def test_club_browser_real_refresh_clears_the_seed_flag(monkeypatch):
             await pilot.pause()
             assert app.screen._directory_is_seed is True
             app.screen.action_refresh_directory()
+            await app.workers.wait_for_complete()  # the fetch runs in a worker
             await pilot.pause()
             assert app.screen._directory_is_seed is False
             status = str(app.screen.query_one("#club-status", Static).content)
             assert status == i18n.t("picker.directory_refreshed", count=1)
+
+    _run(scenario())
+
+
+def test_club_browser_refresh_shows_fetching_while_the_login_runs(monkeypatch):
+    # The login + directory GET used to run on the event loop: the whole TUI froze
+    # and the "Fetching…" status never painted.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "any_credentials", lambda: ("0000001", "user", "pass"))
+    release = threading.Event()
+
+    def slow_refresh(*a, **k):
+        release.wait(timeout=5)
+        return [("0000002", "Golfclub Sonnenberg")]
+
+    monkeypatch.setattr(tui.club_directory, "refresh_directory", slow_refresh)
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_refresh_directory()
+            await pilot.pause()
+            status = app.screen.query_one("#club-status", Static)
+            assert str(status.content) == i18n.t("club_picker.fetching")
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert str(status.content) == i18n.t("picker.directory_refreshed", count=1)
 
     _run(scenario())
 
@@ -3426,8 +3597,78 @@ def test_club_browser_f_toggles_favorite(tmp_path, monkeypatch):
             # search box Textual highlights nothing, and `f` silently did nothing at
             # exactly the moment the one obvious target was on screen (caught live).
             app.screen.action_toggle_favorite()
+            await app.workers.wait_for_complete()  # add_favorite() runs in a worker
             await pilot.pause()
             assert added == ["0000001"]
+
+    _run(scenario())
+
+
+def test_club_browser_second_f_while_favoriting_does_not_save_a_duplicate(tmp_path, monkeypatch):
+    # add_favorite() geocodes off-thread before writing the YAML, so a second `f`
+    # meanwhile still saw "not a favorite" and would have saved a second file.
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory",
+                        lambda *a, **k: [("0000001", "Golfclub Musterhausen")])
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda *a, **k: False)
+    release = threading.Event()
+    calls = []
+
+    def slow_add(club_id, name="", *a, **k):
+        calls.append(club_id)
+        release.wait(timeout=5)
+        return "slug"
+
+    monkeypatch.setattr(tui.club_config, "add_favorite", slow_add)
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#club-search", Input).value = "musterhausen"
+            await pilot.pause()
+            app.screen.action_toggle_favorite()
+            await _wait_until(pilot, lambda: calls)
+            app.screen.action_toggle_favorite()
+            release.set()
+            await app.workers.wait_for_complete()
+            assert calls == ["0000001"]
+
+    _run(scenario())
+
+
+def test_club_browser_down_reaches_the_list_keys_the_footer_promises(tmp_path, monkeypatch):
+    # The focused search box takes every printable key, so f/r/l/q only typed into
+    # it while the footer still advertised them. The footer now says how to reach
+    # them (↓ to the list), and lists them once the list has focus.
+    monkeypatch.setattr(tui.club_config, "CLUBS_DIR", tmp_path)
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: [])
+    monkeypatch.setattr(tui.club_directory, "load_cached_directory",
+                        lambda *a, **k: [("0000001", "Golfclub Musterhausen")])
+    added = []
+    monkeypatch.setattr(tui.club_config, "is_favorite", lambda club_id, *a, **k: club_id in added)
+    monkeypatch.setattr(tui.club_config, "add_favorite",
+                        lambda club_id, name="", *a, **k: added.append(club_id) or "slug")
+
+    async def scenario():
+        app = _HostApp(tui.ClubBrowserScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            footer = app.screen.query_one(tui.TranslatedFooter)
+            assert i18n.t("binding.favorite") not in str(footer.render())
+            assert i18n.t("binding.to_list") in str(footer.render())
+
+            await pilot.press("m", "u", "s", "t")
+            await pilot.press("down")
+            await pilot.pause()
+            assert isinstance(app.focused, OptionList)
+            assert i18n.t("binding.favorite") in str(footer.render())
+
+            await pilot.press("f")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert added == ["0000001"]
+            assert app.screen.query_one("#club-search", Input).value == "must"  # nothing typed into it
 
     _run(scenario())
 
@@ -3500,6 +3741,7 @@ def test_club_browser_r_uses_a_typed_club_id_with_no_favorite_needed(monkeypatch
             app.screen.query_one("#club-search", Input).value = "0000002"
             await pilot.pause()  # let on_input_changed's own status update settle first
             app.screen.action_refresh_directory()
+            await app.workers.wait_for_complete()  # the fetch runs in a worker
             await pilot.pause()
             assert isinstance(app.screen, tui.ClubBrowserScreen)
             status = app.screen.query_one("#club-status", Static)
@@ -3555,6 +3797,7 @@ def test_saving_credentials_from_club_browser_retries_the_directory_fetch(monkey
             # "Saved.", so a typo can be fixed without reopening it) -- escape
             # dismisses with whatever _saved ended up as, same as the Cancel button.
             await pilot.press("escape")
+            await app.workers.wait_for_complete()  # the fetch runs in a worker
             await pilot.pause()
 
             # Dismissing after a real save popped CredentialsScreen and retried the
@@ -3670,6 +3913,7 @@ def test_unfavorite_then_refavorite_from_the_favorites_list_geocodes_with_the_re
             option_list.highlighted = 0
             await pilot.pause()
             app.screen.action_toggle_favorite()  # re-favorite
+            await app.workers.wait_for_complete()  # add_favorite() runs in a worker
             await pilot.pause()
 
     _run(scenario())
@@ -3969,11 +4213,24 @@ def test_start_keeps_the_cached_overview_when_the_course_check_fails_offline(tmp
         raise RuntimeError("no network")
 
     monkeypatch.setattr(tui, "fetch_course_aliases", boom)
+    validated = []
+    real_validate = tui.TeetimeApp._validate_resumed_course
+
+    async def recording_validate(self, *args, **kwargs):
+        await real_validate(self, *args, **kwargs)
+        validated.append(True)
+
+    monkeypatch.setattr(tui.TeetimeApp, "_validate_resumed_course", recording_validate)
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            await pilot.pause(0.5)
+            # Wait for the check to actually finish (against the failing fetch), not a
+            # fixed guess -- a check that never ran, or ran late, would otherwise
+            # pass this test vacuously.
+            await _wait_until(pilot, lambda: validated)
+            assert validated
+            await pilot.pause()
             assert isinstance(app.screen, tui.OverviewScreen)
 
     _run(scenario())
@@ -4249,6 +4506,142 @@ def test_finish_periodic_scrape_also_retries_course_options(tmp_path, monkeypatc
                     break
                 await pilot.pause(0.05)
             assert {value for _, value in select._options} == {"18 Loch Tee 1", "9 Loch Tee 1", "6 Loch Platz"}
+
+    _run(scenario())
+
+
+def _home_club_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(
+        tui.club_config,
+        "load_club_config",
+        lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
+    )
+
+
+def test_a_failing_background_scrape_shows_an_error_instead_of_exiting(tmp_path, monkeypatch):
+    # An exception escaping the scrape thread (e.g. a raw httpx.ConnectError from the
+    # reservations-sync login when offline) used to exit the whole TUI via Textual's
+    # worker exit_on_error.
+    _home_club_only(monkeypatch, tmp_path)
+
+    def offline(slug, config, force=False):
+        raise ConnectionError("network unreachable")
+
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", offline)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            status = app.screen.query_one("#status", Static)
+            await _wait_until(pilot, lambda: "network unreachable" in str(status.content))
+            assert str(status.content) == i18n.t("status.refresh_failed", error="network unreachable")
+            assert app.is_running
+            assert app._periodic_scrape_running is False
+
+    _run(scenario())
+
+
+def test_the_background_scrape_runs_on_a_daemon_thread(tmp_path, monkeypatch):
+    # A run_worker(thread=True) thread lives on the default executor, which is joined
+    # at shutdown -- quitting mid-pass hung the terminal until the scrape finished.
+    _home_club_only(monkeypatch, tmp_path)
+    daemon_flags = []
+    monkeypatch.setattr(
+        scrape_once,
+        "scrape_due_for_club",
+        lambda slug, config, force=False: daemon_flags.append(threading.current_thread().daemon) or [],
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            await _wait_until(pilot, lambda: daemon_flags)
+
+    _run(scenario())
+    assert daemon_flags and all(daemon_flags)
+
+
+def test_a_scrape_finishing_under_another_screen_reloads_the_overview_on_return(tmp_path, monkeypatch):
+    # _finish_periodic_scrape() used to act only when the overview was the top
+    # screen: with the Actions palette, Search or a modal open, the spinner kept
+    # spinning and the rows stayed stale until the next pass, 15 minutes later.
+    _home_club_only(monkeypatch, tmp_path)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            overview = app.screen
+            await _wait_until(pilot, lambda: not app._periodic_scrape_running)
+            reloads = []
+            real_load_overview = overview.load_overview
+
+            async def recording_load_overview(keep_cursor=False):
+                reloads.append(keep_cursor)
+                await real_load_overview(keep_cursor=keep_cursor)
+
+            overview.load_overview = recording_load_overview
+            refresh_status = overview.query_one(tui._RefreshStatus)
+            refresh_status.start_refreshing()
+            await app.push_screen(tui.KnownPlayersScreen("0000001"))
+            await pilot.pause()
+
+            app._finish_periodic_scrape()
+            await pilot.pause()
+            assert "just now" in str(refresh_status.content).lower()  # spinner stopped
+            assert reloads == []  # deferred until the overview is visible again
+
+            app.pop_screen()
+            await _wait_until(pilot, lambda: reloads)
+            assert reloads == [True]
+
+    _run(scenario())
+
+
+def test_switching_club_mid_scrape_scrapes_the_new_club_when_the_pass_ends(tmp_path, monkeypatch):
+    # _switch_club()'s _periodic_scrape() was a no-op while a pass ran, and nothing
+    # re-triggered it -- the new club waited for the next 15-minute tick. The thread
+    # also wrote the old club's config back into _club_config mid-switch.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "second-club"])
+    configs = {
+        "home-club": {"club_id": "0000001"},
+        "second-club": {"club_id": "0500000", "name": "Musterclub", "default_course": "9 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(
+        tui,
+        "fetch_course_aliases",
+        lambda club_id: {"9 Loch Tee 1": "COU1"} if club_id == "0500000" else {"18 Loch Tee 1": "COUB"},
+    )
+    release = threading.Event()
+    scraped = []
+
+    def slow_scrape(slug, config, force=False):
+        if config["club_id"] == "0000001":
+            release.wait(timeout=5)
+        scraped.append(config["club_id"])
+        return []
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot, club_id="0000001")
+            await _wait_until(pilot, lambda: not app._periodic_scrape_running)
+            monkeypatch.setattr(scrape_once, "scrape_due_for_club", slow_scrape)
+            app._periodic_scrape()  # a pass for the old club, held open
+            app.screen.query_one("#club-select", Select).value = "0500000"
+            await _wait_until(pilot, lambda: app._club_config.get("club_id") == "0500000")
+            release.set()
+            await _wait_until(pilot, lambda: "0500000" in scraped)
+            assert scraped == ["0000001", "0500000"]
+            assert app._club_config.get("club_id") == "0500000"
 
     _run(scenario())
 
@@ -4732,6 +5125,154 @@ def test_overview_screen_switching_club_inline_saves_the_last_active_club(tmp_pa
     assert saved == [("0500000", "second-club", "9 Loch Tee 1")]
 
 
+def test_switching_club_inline_lands_on_a_default_course_that_is_not_listed_first(tmp_path, monkeypatch):
+    # set_options() with courses[0] first fired a real Select.Changed(courses[0]),
+    # which started _switch_course(courses[0]) in the same exclusive "switch" group --
+    # cancelling the club switch mid-reload and landing on (and saving) the wrong course.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(theme, "CONFIG_FILE", tmp_path / "theme-config")
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club", "second-club"])
+    configs = {
+        "home-club": {"club_id": "0000001"},
+        "second-club": {"club_id": "0500000", "name": "Musterclub", "default_course": "9 Loch Tee 1"},
+    }
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: configs[slug])
+    monkeypatch.setattr(
+        tui,
+        "fetch_course_aliases",
+        lambda club_id: {"18 Loch Tee 1": "COUB", "9 Loch Tee 1": "COU1"}
+        if club_id == "0500000"
+        else {"18 Loch Tee 1": "COUB"},
+    )
+    saved = []
+    monkeypatch.setattr(tui.global_preferences, "save_last_active_club", lambda *a, **k: saved.append(a))
+    # A real reload awaits network work -- the window the spurious switch landed in.
+    real_reload = tui.OverviewScreen._reload
+
+    async def slow_reload(self):
+        await asyncio.sleep(0.2)
+        await real_reload(self)
+
+    monkeypatch.setattr(tui.OverviewScreen, "_reload", slow_reload)
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot, club_id="0000001")
+            screen = app.screen
+            saved.clear()
+            screen.query_one("#club-select", Select).value = "0500000"
+            await _wait_until(pilot, lambda: screen.club_id == "0500000")
+            await _wait_until(pilot, lambda: all(w.is_finished for w in app.workers if w.group == "switch"))
+            await pilot.pause()
+            assert screen.course == "9 Loch Tee 1"
+            assert screen.query_one("#course-select", Select).value == "9 Loch Tee 1"
+            assert app._club_config.get("club_id") == "0500000"
+
+    _run(scenario())
+    assert saved == [("0500000", "second-club", "9 Loch Tee 1")]
+
+
+def test_refresh_course_options_drops_a_result_for_a_club_switched_away_from(tmp_path, monkeypatch):
+    # The fetch is awaited in its own worker group, which a club switch doesn't
+    # cancel -- the old club's courses used to land in the new club's dropdown.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    release = threading.Event()
+    slow = [False]
+
+    def course_aliases(club_id):
+        if slow[0]:
+            release.wait(timeout=5)
+            return {"18 Loch Tee 1": "COUB", "Old Club Course": "COUX"}
+        return {"18 Loch Tee 1": "COUB"}
+
+    monkeypatch.setattr(tui, "fetch_course_aliases", course_aliases)
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            slow[0] = True
+            screen.run_worker(screen._refresh_course_options(), exclusive=True, group="course-options")
+            await pilot.pause()
+            screen.club_id = "0500000"  # a switch landed meanwhile
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "Old Club Course" not in screen._known_courses
+
+    _run(scenario())
+
+
+def test_a_background_reload_keeps_the_pick_cache_and_yields_to_a_newer_load(tmp_path, monkeypatch):
+    # load_overview() emptied _pick_cache before awaiting the date fetch, so a resize
+    # or expand meanwhile re-ran every day's live AI ranking on the event loop; and a
+    # keep_cursor reload overlapping a club switch resumed and redrew the new club
+    # with the old club's open-date window.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            release = threading.Event()
+            first_date = screen._local_dates(screen._config())[0]
+
+            def slow_dates(club_id):
+                release.wait(timeout=5)
+                return [first_date]
+
+            monkeypatch.setattr(tui, "fetch_available_dates", slow_dates)
+            sentinel = {("2099-01-01", "18 Loch Tee 1"): ([], [])}
+            screen._pick_cache = sentinel
+            open_before = set(screen._cached_open_dates)
+            screen.run_worker(screen.load_overview(keep_cursor=True), exclusive=True)
+            await pilot.pause(0.1)
+            assert screen._pick_cache is sentinel  # still usable by a render meanwhile
+
+            screen._overview_generation += 1  # a newer load (e.g. a club switch) started
+            release.set()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert screen._cached_open_dates == open_before  # the stale result was dropped
+
+    _run(scenario())
+
+
+def test_returning_to_the_overview_redraws_a_booking_confirmed_elsewhere(tmp_path, monkeypatch):
+    # Search's `c` and the Player directory change what the table shows, but the
+    # overview only reads them when it renders -- it used to stay stale on return.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+
+    async def scenario():
+        screen = tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1")
+        app = _HostApp(screen)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            day = screen._cached_dates[1]
+            await app.push_screen(tui.KnownPlayersScreen("0000001"))
+            await pilot.pause()
+            storage.save_confirmed_booking(
+                ConfirmedBooking(
+                    date=day, course="18 Loch Tee 1", time="10:30", holes=18, source="manual",
+                    confirmed_at="2026-09-07T08:00:00+00:00",
+                ),
+                path=screen.db_path,
+            )
+            app.pop_screen()
+            await pilot.pause()
+            row = screen._row_index.index((day, None))
+            cells = [str(cell) for cell in screen.query_one("#overview-table", DataTable).get_row_at(row)]
+            assert any("10:30" in cell for cell in cells)
+
+    _run(scenario())
+
+
 def test_overview_screen_switcher_rows_are_labelled(tmp_path, monkeypatch):
     # Direct feedback, 2026-09-11: "I want labels to the left of club and course
     # selector drop downs."
@@ -4784,18 +5325,27 @@ def test_holidays_for_club_caches_a_successful_fetch(monkeypatch):
     assert tui._holidays_for_club(config) == ["2026-01-01"]
     assert tui._holidays_for_club(config) == ["2026-01-01"]
 
-    assert len(calls) == 1  # the second call was served from the cache
+    assert len(calls) == 3  # one per year (last/this/next), the second call all cached
 
 
-def test_holidays_for_club_does_not_cache_a_failed_fetch(monkeypatch):
-    # A transient failure stays retryable on the next call -- caching it would
-    # make one bad network blip a sticky "no holidays" for the rest of the
-    # session.
+def test_holidays_for_club_covers_last_and_next_year(monkeypatch):
+    # The overview window crosses into January in late December, and the heatmap
+    # classifies last year's history after New Year -- one year's list missed both.
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", lambda code, year: [f"{year}-01-01"])
+    config = {"calendar": {"country_code": "DE"}}
+    assert tui._holidays_for_club(config) == ["2025-01-01", "2026-01-01", "2027-01-01"]
+
+
+def test_holidays_for_club_remembers_a_failed_fetch_until_the_retry_interval(monkeypatch):
+    # Render paths call this synchronously: an uncached failure meant a fresh
+    # network attempt on the UI thread on every redraw. A failure is remembered
+    # for _HOLIDAY_RETRY_SECONDS, then retried -- not a sticky "no holidays".
     calls = []
+    failing = [True]
 
     def flaky(code, year):
         calls.append((code, year))
-        if len(calls) == 1:
+        if failing[0]:
             raise RuntimeError("network down")
         return ["2026-01-01"]
 
@@ -4803,8 +5353,67 @@ def test_holidays_for_club_does_not_cache_a_failed_fetch(monkeypatch):
     config = {"calendar": {"country_code": "DE"}}
 
     assert tui._holidays_for_club(config) == []
+    assert tui._holidays_for_club(config) == []
+    assert len(calls) == 3  # the second call didn't hit the network again
+
+    failing[0] = False
+    monkeypatch.setattr(tui, "_HOLIDAY_RETRY_SECONDS", 0.0)
     assert tui._holidays_for_club(config) == ["2026-01-01"]
-    assert len(calls) == 2  # both calls actually reached fetch_public_holidays()
+    assert len(calls) == 6
+
+
+def test_holidays_for_club_cache_only_never_fetches(monkeypatch):
+    # The overview's synchronous render reads cache-only; load_overview() warms
+    # the cache off-thread.
+    calls = []
+    monkeypatch.setattr(
+        tui.calendar_context, "fetch_public_holidays", lambda code, year: calls.append(year) or [f"{year}-01-01"]
+    )
+    config = {"calendar": {"country_code": "DE"}}
+    assert tui._holidays_for_club(config, fetch=False) == []
+    assert calls == []
+    tui._holidays_for_club(config)
+    assert tui._holidays_for_club(config, fetch=False) == ["2025-01-01", "2026-01-01", "2027-01-01"]
+    assert len(calls) == 3
+
+
+def test_overview_render_never_fetches_holidays_on_the_event_loop(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_resolved_config", lambda *a, **k: {"calendar": {"country_code": "DE"}})
+    main_thread = threading.get_ident()
+    on_loop = []
+
+    def fetch(code, year):
+        if threading.get_ident() == main_thread:
+            on_loop.append(year)
+        return [f"{year}-12-25"]
+
+    monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", fetch)
+    storage.save_schedule(
+        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    # Holds off _finish_fresh_load()'s off-thread warm, so the expand below renders
+    # against a cold cache.
+    monkeypatch.setattr(tui, "_FIRST_SCRAPE_DELAY_SECONDS", 60)
+    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._toggle_expanded(tui._TODAY(), screen._row_index.index((tui._TODAY(), None)))
+            assert (tui._TODAY(), "09:00") in screen._row_index  # the expanded slot row rendered
+            key = ("DE", int(tui._TODAY()[:4]))
+            assert key not in tui._HOLIDAY_CACHE
+            await screen.load_overview(keep_cursor=True)  # a background refresh warms it off-thread
+            assert key in tui._HOLIDAY_CACHE
+
+    _run(scenario())
+    assert on_loop == []
 
 
 def test_cached_crowd_heatmap_reuses_the_result_for_an_unchanged_database(tmp_path, monkeypatch):
@@ -5398,6 +6007,42 @@ def test_overview_screen_shows_and_dismisses_banner_with_a_date_prefix(tmp_path,
     assert remaining == []
 
 
+def test_dismissing_banners_leaves_a_change_saved_after_they_were_shown(tmp_path, monkeypatch):
+    # The scrape thread saves booking changes mid-pass, but the banner only refreshes
+    # when the pass ends -- `x` used to re-query and acknowledge those unseen too.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db_path = scrape_once._db_path("0000001")
+
+    def save_change(message):
+        count = int(message.split()[0])
+        storage.save_booking_change(
+            course="18 Loch Tee 1",
+            date="2026-09-13",
+            time="14:00",
+            kind="party_grew",
+            message=message,
+            params={"count": count, "time": "14:00"},
+            path=db_path,
+        )
+
+    save_change("1 more player joined your 14:00 tee time since you booked")
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            save_change("2 more players joined your 14:00 tee time since you booked")  # not shown yet
+            await pilot.press("x")
+            await pilot.pause()
+            # The unseen change is still pending, and shows now.
+            assert "2 more players" in str(app.screen.query_one("#banners", Static).content)
+
+    _run(scenario())
+
+    remaining = storage.load_unacknowledged_booking_changes(path=db_path)
+    assert [change["message"] for change in remaining] == ["2 more players joined your 14:00 tee time since you booked"]
+
+
 def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
@@ -5627,8 +6272,8 @@ def test_expanding_a_day_collapses_the_other_expanded_days(tmp_path, monkeypatch
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.3)
             screen = app.screen
+            await _wait_until(pilot, lambda: ("2026-09-18", None) in screen._row_index)
             screen._toggle_expanded("2026-09-17", screen._row_index.index(("2026-09-17", None)))
             assert screen._expanded_dates == {"2026-09-17"}
             screen._toggle_expanded("2026-09-18", screen._row_index.index(("2026-09-18", None)))

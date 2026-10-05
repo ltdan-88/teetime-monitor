@@ -1,9 +1,13 @@
+import sqlite3
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 
 from src import booking_watch, scrape_once
-from src.models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot
+from src.models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot, SunTimes, WeatherPoint
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +47,7 @@ def test_run_scrapes_and_saves_schedule(tmp_path, monkeypatch):
         course="18 Loch Tee 1",
         slots=[Slot(time="06:00", booked=1, capacity=4)],
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: fake_schedule)
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: fake_schedule)
 
     # config={} keeps this isolated from whatever real clubs/*.yaml the developer
     # running these tests happens to have on disk locally (see _attach_weather --
@@ -78,7 +82,7 @@ def test_run_records_any_players_seen_in_the_scraped_schedule(tmp_path, monkeypa
             ),
         ],
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: fake_schedule)
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: fake_schedule)
 
     scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
 
@@ -115,7 +119,7 @@ def test_run_uses_global_preferences_buffer_for_booking_watch(tmp_path, monkeypa
             ),
         ]
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: next(schedules))
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
 
     # Per-club config deliberately has no availability block at all -- if run() were
     # still reading buffer_minutes from *this*, the neighbor-crowding check below
@@ -164,7 +168,7 @@ def test_run_uses_the_split_buffer_keys_directionally(tmp_path, monkeypatch):
             ),
         ]
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: next(schedules))
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
 
     scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={"club_id": "0000001"})
     scrape_once.storage.save_confirmed_booking(
@@ -188,7 +192,7 @@ def test_run_works_with_a_bare_empty_config(tmp_path, monkeypatch):
     monkeypatch.setattr(
         scrape_once,
         "scrape_schedule",
-        lambda club_id, course, date, client=None: Schedule(date=date, course=course, slots=[]),
+        lambda club_id, course, date, client=None, **_: Schedule(date=date, course=course, slots=[]),
     )
 
     changes = scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
@@ -205,7 +209,7 @@ def test_run_uses_previous_scrape_as_baseline_on_second_call(tmp_path, monkeypat
             Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="06:00", booked=2, capacity=4)]),
         ]
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: next(schedules))
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
 
     scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
     # Second call now has a real baseline in storage — but no confirmed booking exists
@@ -223,7 +227,7 @@ def test_run_reports_booking_watch_changes_when_a_booking_exists(tmp_path, monke
             Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=2, capacity=4)]),
         ]
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: next(schedules))
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
 
     # First call establishes a baseline scrape (schedules[0]) with nothing to compare
     # against yet.
@@ -269,7 +273,7 @@ def test_run_does_not_report_party_grew_on_the_pass_a_booking_is_first_confirmed
             Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=1, capacity=4)]),
         ]
     )
-    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None: next(schedules))
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
 
     # First call establishes the baseline scrape (booked=0), well before the booking
     # below is ever confirmed.
@@ -371,7 +375,7 @@ def test_scrape_due_for_club_aggregates_changes_across_courses_and_dates(tmp_pat
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
     fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None: [fake_change])
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [fake_change])
 
     result = scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
@@ -394,7 +398,7 @@ def test_scrape_due_for_club_force_bypasses_should_scrape(tmp_path, monkeypatch)
     monkeypatch.setattr(scrape_once, "_should_scrape", fail_should_scrape)
     fake_booking = ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time="14:00")
     fake_change = booking_watch.BookingChange(booking=fake_booking, kind="party_grew", message="x", params={})
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None: [fake_change])
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [fake_change])
 
     result = scrape_once.scrape_due_for_club(
         "musterhausen", {"club_id": "0000001", "overview_days": 1}, force=True
@@ -414,7 +418,7 @@ def test_scrape_due_for_club_syncs_my_reservations_exactly_once_per_pass(tmp_pat
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
     monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None: [])
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [])
     calls = []
     monkeypatch.setattr(
         scrape_once,
@@ -451,7 +455,7 @@ def test_scrape_due_for_club_catches_one_courses_failure_and_continues(tmp_path,
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: True)
     calls = []
 
-    def fake_run(club_id, course, date, config, slug, client=None):
+    def fake_run(club_id, course, date, config, slug, client=None, **_):
         if course == list(_FAKE_COURSES)[0]:
             raise RuntimeError("boom")
         calls.append(course)
@@ -479,7 +483,7 @@ def test_main_skips_courses_not_yet_due(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda club_id, course, date, config: False)
     monkeypatch.setattr(
-        scrape_once, "run", lambda club_id, course, date, config, slug, client=None: calls.append((course, date))
+        scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: calls.append((course, date))
     )
 
     scrape_once.main()
@@ -506,7 +510,7 @@ def test_main_passes_its_loaded_config_through_to_run(tmp_path, monkeypatch):
     monkeypatch.setattr(
         scrape_once,
         "run",
-        lambda club_id, course, date, config, slug, client=None: (seen_configs.append(config), seen_slugs.append(slug)),
+        lambda club_id, course, date, config, slug, client=None, **_: (seen_configs.append(config), seen_slugs.append(slug)),
     )
 
     scrape_once.main()
@@ -789,7 +793,7 @@ def test_scrape_due_for_club_uses_the_clubs_own_booking_window(tmp_path, monkeyp
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     seen = []
     monkeypatch.setattr(scrape_once, "run",
-                        lambda club_id, course, date, config, slug, client=None: seen.append(date) or [])
+                        lambda club_id, course, date, config, slug, client=None, **_: seen.append(date) or [])
 
     scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 1})
 
@@ -806,7 +810,7 @@ def test_scrape_due_for_club_caps_an_absurdly_long_booking_window(tmp_path, monk
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     seen = []
     monkeypatch.setattr(scrape_once, "run",
-                        lambda club_id, course, date, config, slug, client=None: seen.append(date) or [])
+                        lambda club_id, course, date, config, slug, client=None, **_: seen.append(date) or [])
 
     scrape_once.scrape_due_for_club("c", {"club_id": "0000001"})
 
@@ -821,7 +825,7 @@ def test_scrape_due_for_club_falls_back_to_overview_days_without_a_date_selector
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     seen = []
     monkeypatch.setattr(scrape_once, "run",
-                        lambda club_id, course, date, config, slug, client=None: seen.append(date) or [])
+                        lambda club_id, course, date, config, slug, client=None, **_: seen.append(date) or [])
 
     scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 3})
 
@@ -840,7 +844,7 @@ def test_scrape_due_for_club_still_scrapes_when_the_date_window_fetch_fails(tmp_
     monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
     seen = []
     monkeypatch.setattr(scrape_once, "run",
-                        lambda club_id, course, date, config, slug, client=None: seen.append(date) or [])
+                        lambda club_id, course, date, config, slug, client=None, **_: seen.append(date) or [])
 
     scrape_once.scrape_due_for_club("c", {"club_id": "0000001", "overview_days": 2})
 
@@ -878,7 +882,7 @@ def test_scrape_due_for_club_shares_one_login_across_every_run_call(tmp_path, mo
     seen_clients = []
     monkeypatch.setattr(
         scrape_once, "run",
-        lambda club_id, course, date, config, slug, client=None: seen_clients.append(client) or [],
+        lambda club_id, course, date, config, slug, client=None, **_: seen_clients.append(client) or [],
     )
 
     scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
@@ -903,7 +907,7 @@ def test_scrape_due_for_club_closes_the_shared_client_when_done(tmp_path, monkey
             closed.append(True)
 
     monkeypatch.setattr(scrape_once, "login", lambda club_id, username, password: _FakeClient())
-    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None: [])
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [])
 
     scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
 
@@ -925,7 +929,7 @@ def test_scrape_due_for_club_falls_back_to_anonymous_when_login_fails(tmp_path, 
     seen_clients = []
     monkeypatch.setattr(
         scrape_once, "run",
-        lambda club_id, course, date, config, slug, client=None: seen_clients.append(client) or [],
+        lambda club_id, course, date, config, slug, client=None, **_: seen_clients.append(client) or [],
     )
 
     scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
@@ -946,7 +950,7 @@ def test_scrape_due_for_club_stays_anonymous_without_credentials_configured(tmp_
     seen_clients = []
     monkeypatch.setattr(
         scrape_once, "run",
-        lambda club_id, course, date, config, slug, client=None: seen_clients.append(client) or [],
+        lambda club_id, course, date, config, slug, client=None, **_: seen_clients.append(client) or [],
     )
 
     scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
@@ -988,3 +992,311 @@ def test_main_defaults_to_the_normal_interval(tmp_path, monkeypatch):
     scrape_once.main([])
 
     assert seen == [False]
+
+
+# --- transient network errors must never escape a pass ------------------------------
+
+
+def test_sync_my_reservations_catches_a_network_error_and_reports_it(tmp_path, monkeypatch, capsys):
+    # Offline after wake / a 5xx on the login POST: before this, httpx errors escaped
+    # scrape_due_for_club() and exited the TUI's worker (and main()'s club loop).
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+
+    def offline(club_id, username, password, known_courses=None):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", offline)
+
+    db_path = scrape_once._db_path("0000001")
+    scrape_once._sync_my_reservations("0000001", "musterhausen", db_path)
+
+    assert "reservations sync failed" in capsys.readouterr().out
+    pending = scrape_once.storage.load_unacknowledged_booking_changes(path=db_path)
+    assert [change["params"] for change in pending] == [{"reason": "other"}]
+
+
+def test_scrape_due_for_club_survives_being_offline(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+
+    def offline(*a, **k):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", offline)
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", offline)
+
+    assert scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001"}) == []
+
+
+def test_scrape_due_for_club_falls_back_to_anonymous_when_login_hits_a_network_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: ReservationsSync([]))
+
+    def bad_gateway(club_id, username, password):
+        request = httpx.Request("POST", "https://example.invalid")
+        raise httpx.HTTPStatusError("502", request=request, response=httpx.Response(502, request=request))
+
+    monkeypatch.setattr(scrape_once, "login", bad_gateway)
+    seen_clients = []
+    monkeypatch.setattr(
+        scrape_once, "run",
+        lambda club_id, course, date, config, slug, client=None, **_: seen_clients.append(client) or [],
+    )
+
+    scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+
+    assert seen_clients == [None]
+
+
+def test_scrape_due_for_club_catches_a_should_scrape_failure_per_course(tmp_path, monkeypatch, capsys):
+    # e.g. sqlite "database is locked" while another process writes the same DB.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a", "B": "b"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
+
+    def flaky_should_scrape(club_id, course, date, config):
+        if course == "A":
+            raise sqlite3.OperationalError("database is locked")
+        return True
+
+    monkeypatch.setattr(scrape_once, "_should_scrape", flaky_should_scrape)
+    seen = []
+    monkeypatch.setattr(
+        scrape_once, "run",
+        lambda club_id, course, date, config, slug, client=None, **_: seen.append(course) or [],
+    )
+
+    scrape_once.scrape_due_for_club(None, {"club_id": "0000001"})
+
+    assert seen == ["B"]
+    assert "database is locked" in capsys.readouterr().out
+
+
+def test_scrape_due_for_club_stops_the_pass_on_a_network_error(tmp_path, monkeypatch, capsys):
+    # One connect timeout means the rest would each wait out their own 15 s too.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: _FAKE_DATES)
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    calls = []
+
+    def hanging_run(club_id, course, date, config, slug, client=None, **_):
+        calls.append((course, date))
+        raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(scrape_once, "run", hanging_run)
+
+    assert scrape_once.scrape_due_for_club(None, {"club_id": "0000001"}) == []
+    assert len(calls) == 1
+    assert "stopping this pass" in capsys.readouterr().out
+
+
+# --- one course-alias fetch per pass ------------------------------------------------
+
+
+def test_scrape_due_for_club_passes_its_course_aliases_through_to_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: _FAKE_COURSES)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    seen = []
+    monkeypatch.setattr(
+        scrape_once, "run",
+        lambda club_id, course, date, config, slug, client=None, course_aliases=None, **_: seen.append(course_aliases) or [],
+    )
+
+    scrape_once.scrape_due_for_club(None, {"club_id": "0000001"})
+
+    assert seen == [_FAKE_COURSES] * len(_FAKE_COURSES)
+
+
+def test_run_hands_course_aliases_to_scrape_schedule(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    seen = []
+
+    def fake_scrape(club_id, course, date, course_aliases=None, client=None):
+        seen.append(course_aliases)
+        return Schedule(date=date, course=course, slots=[])
+
+    monkeypatch.setattr(scrape_once, "scrape_schedule", fake_scrape)
+
+    scrape_once.run("0000001", "A", "2026-09-07", config={}, course_aliases={"A": "a"})
+
+    assert seen == [{"A": "a"}]  # not None -- which would make scrape_schedule re-fetch it
+
+
+# --- an empty scrape never replaces a populated one ----------------------------------
+
+
+def test_run_refuses_to_save_an_empty_scrape_over_a_populated_one(tmp_path, monkeypatch):
+    # pc caddie's intermittent table-less page parsed as 0 slots: saving it blanked the
+    # day and made every occupied neighbour a false BUFFER_SHRUNK on the next pass.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    populated = Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=1, capacity=4)])
+    schedules = iter([populated, Schedule(date="2026-09-06", course="18 Loch Tee 1", slots=[])])
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
+
+    scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
+    with pytest.raises(scrape_once.EmptyScheduleError):
+        scrape_once.run("0000001", "18 Loch Tee 1", "2026-09-06", config={})
+
+    latest = scrape_once.storage.load_latest_schedule("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert [slot.time for slot in latest.slots] == ["14:00"]
+
+
+# --- one weather fetch per date per pass, and none after a failure -------------------
+
+
+def _patch_pass_with_location(monkeypatch, tmp_path, courses, dates):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", tmp_path / "preferences.yaml")
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: courses)
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: dates)
+    monkeypatch.setattr(
+        scrape_once, "scrape_schedule",
+        lambda club_id, course, date, client=None, **_: Schedule(date=date, course=course, slots=[]),
+    )
+
+
+def test_scrape_due_for_club_fetches_weather_once_per_date_not_per_course(tmp_path, monkeypatch):
+    _patch_pass_with_location(monkeypatch, tmp_path, _FAKE_COURSES, _FAKE_DATES)
+    hourly_calls = []
+    monkeypatch.setattr(
+        scrape_once.weather_module, "fetch_hourly_weather",
+        lambda lat, lon, date: hourly_calls.append(date) or [WeatherPoint(time="10:00", precipitation_probability=5)],
+    )
+    monkeypatch.setattr(scrape_once.weather_module, "fetch_sun_times", lambda lat, lon, date: SunTimes("07:00", "19:00"))
+
+    scrape_once.scrape_due_for_club(None, {"club_id": "0000001", "location": {"lat": 50.0, "lon": 8.0}}, force=True)
+
+    assert hourly_calls == _FAKE_DATES
+    db_path = scrape_once._db_path("0000001")
+    for course in _FAKE_COURSES:  # every course still got the day's forecast attached
+        saved = scrape_once.storage.load_latest_schedule(course, _FAKE_DATES[0], path=db_path)
+        assert [point.time for point in saved.weather] == ["10:00"]
+
+
+def test_scrape_due_for_club_stops_fetching_weather_after_the_first_failure(tmp_path, monkeypatch):
+    _patch_pass_with_location(monkeypatch, tmp_path, _FAKE_COURSES, _FAKE_DATES)
+    hourly_calls = []
+
+    def weather_down(lat, lon, date):
+        hourly_calls.append(date)
+        raise httpx.ConnectTimeout("open-meteo unreachable")
+
+    monkeypatch.setattr(scrape_once.weather_module, "fetch_hourly_weather", weather_down)
+
+    scrape_once.scrape_due_for_club(None, {"club_id": "0000001", "location": {"lat": 50.0, "lon": 8.0}}, force=True)
+
+    assert len(hourly_calls) == 1
+    # The schedules themselves were still saved -- weather is best-effort.
+    saved = scrape_once.storage.load_latest_schedule("6 Loch Platz", _FAKE_DATES[-1], path=scrape_once._db_path("0000001"))
+    assert saved is not None
+
+
+# --- one pass per club at a time, across processes ----------------------------------
+
+
+def test_scrape_due_for_club_skips_while_another_pass_holds_the_club_lock(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "CLUB_LOCK_WAIT_SECONDS", 0)
+
+    def must_not_run(*a, **k):
+        raise AssertionError("must not scrape while another pass holds the lock")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", must_not_run)
+
+    # A separate open() of the lock file conflicts just like another process would.
+    with scrape_once._club_lock("0000001") as held:
+        assert held
+        assert scrape_once.scrape_due_for_club(None, {"club_id": "0000001"}) == []
+
+    assert "another pass still running" in capsys.readouterr().out
+
+
+def test_scrape_due_for_club_releases_the_club_lock_when_done(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: True)
+    monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [])
+
+    scrape_once.scrape_due_for_club(None, {"club_id": "0000001"})
+
+    with scrape_once._club_lock("0000001", wait_seconds=0) as acquired:
+        assert acquired
+
+
+def test_club_lock_waits_for_the_other_holder_to_finish(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "_CLUB_LOCK_POLL_SECONDS", 0.01)
+    released = threading.Event()
+
+    def hold_briefly():
+        with scrape_once._club_lock("0000001") as held:
+            assert held
+            released.wait(5)
+
+    holder = threading.Thread(target=hold_briefly)
+    holder.start()
+    try:
+        time.sleep(0.05)  # let the holder take the lock first
+        threading.Timer(0.1, released.set).start()
+        with scrape_once._club_lock("0000001", wait_seconds=5) as acquired:
+            assert acquired
+            assert released.is_set()  # only got it after the holder let go, not alongside it
+    finally:
+        released.set()
+        holder.join()
+
+
+# --- booking-watch round length matches recommend.py --------------------------------
+
+
+@pytest.mark.parametrize(
+    ("course", "holes", "round_config", "expected"),
+    [
+        ("9 Loch Tee 1", 9, {}, 120),  # 9 holes default to 120, not 240
+        ("18 Loch Tee 1", 18, {}, 240),
+        ("6 Loch Platz", 6, {"nine": 90}, 90),
+        ("18 Loch Tee 1", 9, {}, 120),  # the booking's own hole count wins
+        ("Kurzplatz", None, {"nine": 100, "eighteen": 200}, 200),  # unknown -> 18, like recommend
+        ("9 Loch Tee 1", None, {}, 120),  # unknown on the booking -> the course label
+    ],
+)
+def test_booking_round_minutes(course, holes, round_config, expected):
+    booking = ConfirmedBooking(date="2026-09-06", course=course, time="10:00", holes=holes, source="manual")
+    config = {"round_duration_minutes": round_config} if round_config else {}
+
+    assert scrape_once._booking_round_minutes(booking, config) == expected
+
+
+def test_run_watches_a_nine_hole_booking_over_a_nine_hole_window(tmp_path, monkeypatch):
+    # Rain only in hours 3-4 after a 9-hole tee-off falls after the round -- no banner.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    preferences_file = tmp_path / "preferences.yaml"
+    scrape_once.global_preferences.save_preferences({"preferences": {"avoid_rain": True}}, preferences_file)
+    monkeypatch.setattr(scrape_once.global_preferences, "PREFERENCES_FILE", preferences_file)
+
+    def day(late_rain):
+        weather = [WeatherPoint(time=f"{hour:02d}:00", precipitation_probability=0) for hour in range(9, 15)]
+        weather[4] = WeatherPoint(time="13:00", precipitation_probability=late_rain)
+        return Schedule(
+            date="2026-09-06", course="9 Loch Tee 1", slots=[Slot(time="10:00", booked=1, capacity=4)], weather=weather
+        )
+
+    schedules = iter([day(0), day(90)])
+    monkeypatch.setattr(scrape_once, "scrape_schedule", lambda club_id, course, date, client=None, **_: next(schedules))
+
+    scrape_once.run("0000001", "9 Loch Tee 1", "2026-09-06", config={})
+    scrape_once.storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="9 Loch Tee 1", time="10:00", holes=9, source="manual"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    assert scrape_once.run("0000001", "9 Loch Tee 1", "2026-09-06", config={}) == []

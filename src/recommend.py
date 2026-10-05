@@ -66,6 +66,15 @@ DEFAULT_AVOID_RAIN_MM = 1.0
 DEFAULT_AVOID_WIND_KPH = 30
 
 
+def _clock_text(value) -> str | None:
+    """A window bound as "HH:MM". PyYAML reads an unquoted `after: 17:00` as the
+    sexagesimal int 1020 (17*60), which would then be compared against slot-time
+    strings and raise TypeError -- turned back into "17:00" here."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value // 60:02d}:{value % 60:02d}"
+    return value
+
+
 def default_criteria_from_config(config: dict) -> SearchCriteria:
     """Build a SearchCriteria from the active club's `availability` block."""
     availability = config.get("availability", {})
@@ -74,7 +83,7 @@ def default_criteria_from_config(config: dict) -> SearchCriteria:
         raw = availability.get(key)
         if raw is None:
             return None
-        return TimeWindow(after=raw.get("after"), before=raw.get("before"))
+        return TimeWindow(after=_clock_text(raw.get("after")), before=_clock_text(raw.get("before")))
 
     return SearchCriteria(
         min_open_spots=availability.get("min_open_spots", 1),
@@ -196,18 +205,22 @@ def _fails_weather(candidate: SlotMatch, schedule: Schedule, config: dict) -> bo
 
     preferences = config.get("preferences", {})
 
+    def _limit(key: str, default: float) -> float:
+        # Settings saves a cleared field as an explicit null, so `.get(key, default)`
+        # alone would hand back None and the comparison below would raise TypeError.
+        value = preferences.get(key)
+        return default if value is None else value
+
     if preferences.get("avoid_rain"):
-        prob_limit = preferences.get(
-            "avoid_rain_probability_percent", DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT
-        )
-        mm_limit = preferences.get("avoid_rain_mm", DEFAULT_AVOID_RAIN_MM)
+        prob_limit = _limit("avoid_rain_probability_percent", DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT)
+        mm_limit = _limit("avoid_rain_mm", DEFAULT_AVOID_RAIN_MM)
         if conditions.max_precipitation_probability is not None and conditions.max_precipitation_probability > prob_limit:
             return True
         if conditions.max_precipitation_mm is not None and conditions.max_precipitation_mm > mm_limit:
             return True
 
     if preferences.get("avoid_wind"):
-        wind_limit = preferences.get("avoid_wind_kph", DEFAULT_AVOID_WIND_KPH)
+        wind_limit = _limit("avoid_wind_kph", DEFAULT_AVOID_WIND_KPH)
         if conditions.max_wind_speed_kph is not None and conditions.max_wind_speed_kph > wind_limit:
             return True
 
@@ -385,6 +398,11 @@ def ranked_matches(
     context = {
         "schedules": {(schedule.date, schedule.course): schedule for schedule in schedules},
         "config": config,
+        # Per course, so the prompt describes weather over the same window
+        # `_fails_weather()` just checked (120 min for a 9-hole course, not 240).
+        "round_duration_minutes": {
+            schedule.course: _round_duration_minutes(schedule.course, config) for schedule in schedules
+        },
     }
     if crowd_estimates:
         context["crowd_estimates"] = crowd_estimates

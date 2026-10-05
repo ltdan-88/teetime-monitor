@@ -40,3 +40,14 @@ def test_save_value_creates_parent_directory(tmp_path):
     config_file = tmp_path / "nested" / "dir" / "config"
     save_value("THEME", "gruvbox", config_file)
     assert load_value("THEME", config_file) == "gruvbox"
+
+
+def test_save_values_writes_several_keys_at_once_keeping_other_lines(tmp_path):
+    from src.user_config import save_values
+
+    config_file = tmp_path / "config"
+    config_file.write_text("THEME=amber\nLAST_CLUB_ID=old\n")
+
+    save_values({"LAST_CLUB_ID": "0497758", "LAST_COURSE": "18 Loch"}, config_file)
+
+    assert config_file.read_text() == "THEME=amber\nLAST_CLUB_ID=0497758\nLAST_COURSE=18 Loch\n"

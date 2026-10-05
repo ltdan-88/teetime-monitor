@@ -7,6 +7,7 @@ func runI18nTests() {
         testLookupAndInterpolation()
         testFallbackChain()
         testRenderBookingChange()
+        testLanguageResolutionOrder()
     }
 }
 
@@ -108,4 +109,21 @@ private func testRenderBookingChange() {
                                              paramsJSON: #"{"time":"14:20","reason_keys":["rain_chance","wind"]}"#),
                         "Die Vorhersage für deine Tee-Zeit um 14:20 Uhr hat sich verschlechtert (Regenwahrscheinlichkeit, Wind)")
     AppLanguage.shared.code = "en"
+}
+
+/// `i18n.resolve_language_name()`'s order: env var, saved (exact code), locale.
+private func testLanguageResolutionOrder() {
+    func resolve(_ env: [String: String], _ saved: String?, _ preferred: [String] = ["en-US"]) -> String {
+        AppLanguage.resolve(env: env, saved: saved, preferredLanguages: preferred)
+    }
+    Harness.checkEqual("env var wins", resolve(["TEETIME_MONITOR_LANG": "de"], "en"), "de")
+    Harness.checkEqual("an unsupported env value is skipped", resolve(["TEETIME_MONITOR_LANG": "fr"], "en"), "en")
+    Harness.checkEqual("saved value next", resolve([:], "de"), "de")
+    Harness.checkEqual("nothing saved, German shell locale", resolve(["LANG": "de_DE.UTF-8"], nil), "de")
+    Harness.checkEqual("nothing saved, German macOS language", resolve([:], nil, ["de-DE", "en-US"]), "de")
+    Harness.checkEqual("nothing saved, English everywhere", resolve(["LANG": "en_US.UTF-8"], nil), "en")
+    Harness.checkEqual("a set English locale beats the macOS language, as in the TUI",
+                       resolve(["LANG": "en_US.UTF-8"], nil, ["de-DE"]), "en")
+    Harness.checkEqual("a saved full locale isn't a code (Python rejects it too)",
+                        resolve(["LANG": "en_US.UTF-8"], "de_DE"), "en")
 }

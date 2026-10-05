@@ -9,6 +9,8 @@ func runPreferencesStoreTests() {
         testSaveOverlaysOnlyKnownKeys()
         testScrapeIntervalAndAIAssistRoundTrip()
         testHcpPreferenceRoundTrip()
+        testLegacyBufferMinutesFallsBackAndMigrates()
+        testClearedWindowIsRemovedOnSave()
     }
 }
 
@@ -149,5 +151,58 @@ private func testHcpPreferenceRoundTrip() {
 
         let reloaded = Preferences.load()
         Harness.checkEqual("hcpPreference round-trips", reloaded.hcpPreference, "similar")
+    }
+}
+
+/// A pre-split `availability.buffer_minutes` (one value for both directions) reads
+/// as both buffers, the same fallback `search.resolve_buffer_minutes()` has, and a
+/// save writes the two explicit keys in its place -- not 0/0 over a real buffer.
+/// Unknown availability keys survive the save.
+private func testLegacyBufferMinutesFallsBackAndMigrates() {
+    withConfigDir { dir in
+        let seed = """
+        availability:
+          min_open_spots: 2
+          buffer_minutes: 15
+          some_future_key: 7
+        """
+        try! seed.write(toFile: dir.file("preferences.yaml"), atomically: true, encoding: .utf8)
+
+        var p = Preferences.load()
+        Harness.checkEqual("legacy buffer_minutes -> before", p.bufferBeforeMinutes, 15)
+        Harness.checkEqual("legacy buffer_minutes -> after", p.bufferAfterMinutes, 15)
+
+        p.units = "imperial"  // an unrelated edit
+        try! p.save()
+        let parsed = YAML.parse(try! String(contentsOfFile: dir.file("preferences.yaml"), encoding: .utf8))
+        Harness.checkEqual("buffer_before_minutes written", parsed["availability"]?["buffer_before_minutes"]?.asInt, 15)
+        Harness.checkEqual("buffer_after_minutes written", parsed["availability"]?["buffer_after_minutes"]?.asInt, 15)
+        Harness.check("legacy buffer_minutes dropped", parsed["availability"]?["buffer_minutes"] == nil)
+        Harness.checkEqual("unknown availability key survives", parsed["availability"]?["some_future_key"]?.asInt, 7)
+
+        let explicit = Preferences.load(from: YAML.parse("""
+        availability:
+          buffer_minutes: 15
+          buffer_before_minutes: 5
+        """))
+        Harness.checkEqual("an explicit direction key wins over the legacy one", explicit.bufferBeforeMinutes, 5)
+        Harness.checkEqual("the other direction still falls back", explicit.bufferAfterMinutes, 15)
+    }
+}
+
+/// Merging into the existing availability map must still drop a window you cleared.
+private func testClearedWindowIsRemovedOnSave() {
+    withConfigDir { dir in
+        let seed = """
+        availability:
+          weekday_window:
+            after: '17:00'
+        """
+        try! seed.write(toFile: dir.file("preferences.yaml"), atomically: true, encoding: .utf8)
+        var p = Preferences.load()
+        p.weekdayAfter = nil
+        try! p.save()
+        let parsed = YAML.parse(try! String(contentsOfFile: dir.file("preferences.yaml"), encoding: .utf8))
+        Harness.check("cleared weekday_window removed", parsed["availability"]?["weekday_window"] == nil)
     }
 }

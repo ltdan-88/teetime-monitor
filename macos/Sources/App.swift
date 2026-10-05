@@ -3,6 +3,21 @@ import SwiftUI
 // icon(for:)/fillColor(_:)/weekday(_:) moved to Formatting.swift so they can sit in
 // the SPM test target -- see that file's own docstring.
 
+/// "Sat 4 Oct · 18 Loch" above a booking-change banner: which day (and course) it is
+/// about. Either part is left out when blank (a club-wide notice has no course).
+func bannerCaption(_ banner: Banner) -> String {
+    [banner.date.isEmpty ? "" : weekday(banner.date), banner.course]
+        .filter { !$0.isEmpty }.joined(separator: " · ")
+}
+
+/// `icon(for:)`, but nil (draw nothing) when there's no code or it isn't a known one --
+/// the TUI leaves that cell blank (weather_icons.icon_for_code(): "blank, not a guess")
+/// rather than showing a question mark.
+func knownConditionIcon(_ code: Int?) -> String? {
+    let name = icon(for: code)
+    return name == "questionmark" ? nil : name
+}
+
 /// A left-to-right layout that wraps to a new line instead of overflowing --
 /// direct report, 2026-09-19 ("bottom info bar should wrap up when window is not
 /// wide enough"). `LegendLine` used to handle overflow with a horizontal
@@ -316,7 +331,12 @@ struct SlotRow: View {
                     .font(scaledFont(.caption2)).foregroundStyle(Color.accentColor).lineLimit(1).fixedSize()
             }
             if let w = day.weather(at: slot.time) {
-                Image(systemName: icon(for: w.code)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                // ZStack, not Group: an empty Group drops its frame, and the column must stay.
+                ZStack {
+                    if let name = knownConditionIcon(w.code) {
+                        Image(systemName: name).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    }
+                }
                     .help(weatherTooltip(w, units: units.value))
                     .frame(width: scale.scaled(Metrics.slotCondition))
                 if let tempC = w.temperatureC {
@@ -325,7 +345,10 @@ struct SlotRow: View {
                         .frame(width: scale.scaled(Metrics.slotTemp), alignment: .trailing)
                         .help(t("tip.temp", ["unit": Units.temperatureSymbol(units.value)]))
                 }
-                if let p = w.precipitationProbability {
+                // A point with no probability still shows "0%" (and any amount),
+                // as tui._slot_precipitation_cell() does -- it used to vanish.
+                let p = w.precipitationProbability ?? 0
+                Group {
                     // 🌧 only above the threshold -- the real number always shows, same
                     // "worth noticing at a glance flag layered on the number, not a
                     // gate on it" rule tui._slot_precipitation_cell() documents.
@@ -405,12 +428,16 @@ struct SlotRow: View {
         ) {
             if isMine {
                 Button(t("booking.cancel"), role: .destructive) {
-                    Store.cancelBooking(dbPath: model.clubPath, course: model.course, date: day.date)
+                    if !Store.cancelBooking(dbPath: model.clubPath, course: model.course, date: day.date) {
+                        model.problem = t("error.save_failed")
+                    }
                     model.reload()
                 }
             } else {
                 Button(t("booking.confirm")) {
-                    Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date, time: slot.time)
+                    if !Store.confirmBooking(dbPath: model.clubPath, course: model.course, date: day.date, time: slot.time) {
+                        model.problem = t("error.save_failed")
+                    }
                     model.reload()
                 }
             }
@@ -547,7 +574,12 @@ struct DayCardHeader: View {
             // field used to shove everything after it sideways relative to the
             // row above and below; same fixed-column fix `SlotRow` already uses
             // for its own time/temp/precip/wind cells.
-            Image(systemName: icon(for: day.conditionCode)).foregroundStyle(.secondary)
+            // Blank, not "?", with no daytime forecast (tui._condition_cell()).
+            ZStack {
+                if let name = knownConditionIcon(day.conditionCode) {
+                    Image(systemName: name).foregroundStyle(.secondary)
+                }
+            }
                 .help(conditionName(for: day.conditionCode).map { t("tip.condition_day_named", ["condition": $0]) }
                       ?? t("tip.condition_day"))
                 .frame(width: scale.scaled(Metrics.dayCondition))
@@ -563,9 +595,11 @@ struct DayCardHeader: View {
             .frame(width: scale.scaled(Metrics.dayTemp), alignment: .leading)
             Group {
                 if let p = day.precipAvg {
+                    // The tooltip carries the TUI's whole cell (total mm, "rain all
+                    // day") -- the 46pt column only fits the average.
                     Label("\(wholeNumber(p))%", systemImage: "drop.fill")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help(t("tip.rain_day"))
+                        .help(t("tip.rain_day") + " — " + day.precipitationCellText(units: units.value))
                 }
             }
             .frame(width: scale.scaled(Metrics.dayRain), alignment: .leading)
@@ -573,7 +607,8 @@ struct DayCardHeader: View {
                 if let wd = day.windPeak {
                     Label(wholeNumber(Units.windSpeed(wd, units.value)), systemImage: "wind")
                         .font(scaledFont(.caption)).foregroundStyle(.secondary)
-                        .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)]))
+                        .help(t("tip.wind_day", ["unit": Units.windSymbol(units.value)])
+                              + " — " + day.windCellText(units: units.value))
                 }
             }
             .frame(width: scale.scaled(Metrics.dayWind), alignment: .leading)
@@ -729,13 +764,17 @@ enum Scraper {
             // scraper's own per-course/date interval usually decides nothing is due,
             // and the button looks broken (see scrape_once.main()'s docstring).
             task.arguments = ["--force"]
-            let err = Pipe(); task.standardError = err; task.standardOutput = Pipe()
+            // stdout (scrape_once's _log lines) is never read, so it goes nowhere rather
+            // than into a pipe: an unread pipe fills at ~64 KB and blocks the scraper.
+            // stderr is drained to EOF *before* waiting for the same reason.
+            let err = Pipe(); task.standardError = err; task.standardOutput = FileHandle.nullDevice
             do { try task.run() } catch {
                 DispatchQueue.main.async { done(error.localizedDescription) }
                 return
             }
+            let errData = err.fileHandleForReading.readDataToEndOfFile()
             task.waitUntilExit()
-            let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let stderr = String(data: errData, encoding: .utf8) ?? ""
             DispatchQueue.main.async {
                 done(task.terminationStatus == 0 ? nil
                      : (stderr.isEmpty ? "scrape failed (exit \(task.terminationStatus))" : stderr))
@@ -859,7 +898,7 @@ final class OverviewModel: ObservableObject {
         current?.path != request.path || current?.course != request.course
     }
 
-    /// Green while the background agent's own cadence would have refreshed by now,
+    /// Green while the background agent's own cadence (see `freshnessThreshold`) would have refreshed by now,
     /// amber once it's clearly overdue -- so a stopped launchd agent is visible rather
     /// than silently serving old data. Takes `now` as a parameter rather than reading
     /// a `@Published var now` this class used to own -- direct report, 2026-09-19,
@@ -876,7 +915,23 @@ final class OverviewModel: ObservableObject {
     /// no longer touches `OverviewModel`'s own `objectWillChange` at all.
     func freshnessColor(now: Date) -> Color {
         guard let lastScrape else { return .secondary }
-        return now.timeIntervalSince(lastScrape) < 45 * 60 ? .green : .orange
+        let threshold = Self.freshnessThreshold(intervalMinutes: scrapeIntervals.normal,
+                                                bookedIntervalMinutes: scrapeIntervals.booked,
+                                                anyBooked: days.contains { $0.bookedTime != nil })
+        return now.timeIntervalSince(lastScrape) < threshold ? .green : .orange
+    }
+
+    /// The scraper's own cadence (`scrape_interval_minutes[_booked]`), re-read in
+    /// `load()` -- `_should_scrape()` only writes a row once a course/date is due, so
+    /// MAX(scraped_at) is routinely hours old while the agent is perfectly healthy.
+    var scrapeIntervals: (normal: Int, booked: Int) = (360, 60)
+
+    /// Seconds after the last scrape before the dot turns amber: the applicable
+    /// interval (the booked one if any shown day is booked) ×1.25 plus 15 minutes for
+    /// the launchd agent's own 15-minute tick.
+    static func freshnessThreshold(intervalMinutes: Int, bookedIntervalMinutes: Int, anyBooked: Bool) -> TimeInterval {
+        let minutes = anyBooked ? min(intervalMinutes, bookedIntervalMinutes) : intervalMinutes
+        return (Double(minutes) * 1.25 + 15) * 60
     }
 
     func freshnessText(now: Date) -> String {
@@ -910,10 +965,7 @@ final class OverviewModel: ObservableObject {
     /// choice.
     var visibleDays: [Day] { days.filter { !$0.slots.isEmpty } }
 
-    private var today: String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: Date())
-    }
+    private var today: String { ISODate.today() }
 
     /// Polls the database's modification time rather than using a filesystem event
     /// source: SQLite writes through journal/WAL files and can replace the main file,
@@ -932,7 +984,7 @@ final class OverviewModel: ObservableObject {
                 // The background agent (or our own Refresh) just wrote -- pick it up
                 // without the user having to reopen anything.
                 self.seenModification = modified
-                self.reload()
+                self.reload(picksDelay: 4)
             }
         }
     }
@@ -1018,10 +1070,25 @@ final class OverviewModel: ObservableObject {
 
     func load() {
         clubs = Store.clubs()
+        let prefs = Preferences.load()
+        scrapeIntervals = (prefs.scrapeIntervalMinutes, prefs.scrapeIntervalMinutesBooked)
         // Newest-scraped first (see Store.clubs) -- picking alphabetically landed on
         // an empty leftover test database and showed "no scraped days" forever.
-        if clubPath.isEmpty { clubPath = clubs.first?.path ?? "" }
+        // Also re-picks when the shown club was just removed in Settings (its DB
+        // survives the removal, so nothing else would notice); a previewed club is
+        // never in `clubs` by design.
+        if Self.needsClubRepick(clubPath: clubPath, clubs: clubs.map(\.path), isPreviewing: isPreviewing) {
+            let wasSet = !clubPath.isEmpty
+            clubPath = clubs.first?.path ?? ""
+            if wasSet { expanded = []; loadCourses(preferDefault: true); return }
+        }
         loadCourses(preferDefault: course.isEmpty)  // a launch, not a later reload
+    }
+
+    /// Whether `load()` must pick a different club: none chosen yet, or the chosen
+    /// one is no longer a saved club (and isn't a preview).
+    static func needsClubRepick(clubPath: String, clubs: [String], isPreviewing: Bool) -> Bool {
+        clubPath.isEmpty || (!isPreviewing && !clubs.contains(clubPath))
     }
 
     /// The club's saved `default_course` (clubs/<slug>.yaml, shared with the TUI), if any.
@@ -1030,11 +1097,17 @@ final class OverviewModel: ObservableObject {
         return ClubDefaults.defaultCourse(slug: slug)
     }
 
+    /// The club's `overview_days` (default 5) -- the same calendar window the TUI's
+    /// overview lists, used for the day list and the picks/search runs alike.
+    func overviewDays() -> Int {
+        ClubDefaults.overviewDays(slug: clubs.first(where: { $0.path == clubPath })?.slug)
+    }
+
     /// `preferDefault`: launch / club switch -- start on the club's default course
     /// (direct request, 2026-10-03: a 9-hole member wants to open on the 9-hole course).
     /// Any other reload keeps the course you're on while it still exists.
     func loadCourses(preferDefault: Bool = false) {
-        guard !clubPath.isEmpty else { courses = []; days = []; return }
+        guard !clubPath.isEmpty else { courses = []; clearClubState(); return }
         courses = Store.courses(dbPath: clubPath)
         if preferDefault, let preferred = defaultCourse(), courses.contains(preferred) {
             course = preferred
@@ -1044,17 +1117,30 @@ final class OverviewModel: ObservableObject {
         reload()
     }
 
-    func reload(offMain: Bool = false) {
-        guard !clubPath.isEmpty, !course.isEmpty else { days = []; picks = [:]; friendNames = []; playerGenders = [:]; return }
+    /// Everything shown for one club/course, blanked when there's no club or course
+    /// to show -- otherwise the previous club's banners, hint and "updated N min ago"
+    /// stayed on screen under a never-scraped club.
+    func clearClubState() {
+        days = []; picks = [:]; verdicts = [:]; windowHint = nil; banners = []
+        lastScrape = nil; friendNames = []; playerGenders = [:]; picksRequestKey = nil
+        picksGeneration += 1  // a fetch still running for the old club must not land
+    }
+
+    /// `picksDelay`: seconds to wait before fetching picks -- the DB watcher passes a
+    /// few, so a scrape's burst of per-course/date commits (one every ~2 s) ends in
+    /// one picks_cli run instead of one per commit (each can make several paid AI
+    /// ranking calls). Everything else fetches straight away.
+    func reload(offMain: Bool = false, picksDelay: TimeInterval = 0) {
+        guard !clubPath.isEmpty, !course.isEmpty else { clearClubState(); return }
         let keepOpen = expanded          // a background refresh must not collapse what
         if offMain {
             // Course switch: the SQLite reads (6 days of slots + weather) ran on the
             // main thread, so the collapse repaint waited on them -- the visible lag
             // when switching with a day open (report 2026-10-03). Read on a worker
             // and apply only if the selection is still the one asked for.
-            let path = clubPath, course = course, today = today
+            let path = clubPath, course = course, today = today, window = overviewDays()
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let loaded = Store.days(dbPath: path, course: course, from: today)
+                let loaded = Store.days(dbPath: path, course: course, from: today, days: window)
                 let friends = Store.friendNames(dbPath: path)
                 let genders = Store.playerGenders(dbPath: path)
                 let scrape = Store.lastScrape(dbPath: path)
@@ -1066,16 +1152,18 @@ final class OverviewModel: ObservableObject {
                     self.playerGenders = genders
                     self.lastScrape = scrape
                     self.banners = bans
+                    self.bannersPath = path
                 }
             }
         } else {
-            days = Store.days(dbPath: clubPath, course: course, from: today)
+            days = Store.days(dbPath: clubPath, course: course, from: today, days: overviewDays())
             friendNames = Store.friendNames(dbPath: clubPath)
             playerGenders = Store.playerGenders(dbPath: clubPath)
             expanded = keepOpen          // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
             lastScrape = Store.lastScrape(dbPath: clubPath)
-            banners = clubPath.isEmpty ? [] : Store.banners(dbPath: clubPath)
+            banners = Store.banners(dbPath: clubPath)
+            bannersPath = clubPath
         }
 
         // Cleared synchronously the moment club/course actually changes, not left to
@@ -1099,25 +1187,68 @@ final class OverviewModel: ObservableObject {
             windowHint = nil
         }
 
-        // Fire-and-forget, async -- reload() itself stays synchronous/fast (plain
-        // SQLite reads, unchanged); this rides the exact same cadence reload()
-        // already runs on (the 2-second DB-mtime watcher picking up the background
-        // scraper's writes, plus manual Refresh), no new timer needed. A stale
-        // clubPath/course by the time this returns (the user switched club/course
-        // mid-fetch) is caught by the capture below rather than clobbering the new
-        // selection's own picks.
-        let requestSlug = clubs.first { $0.path == clubPath }?.slug
-        PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today, days: 6) { [weak self] result in
-            guard let self, self.clubPath == requestPath, self.course == requestCourse else { return }
-            self.picksRequestKey = (requestPath, requestCourse)
-            self.picks = result.picks
-            self.verdicts = result.verdicts
-            self.windowHint = result.hint
+        if picksDelay > 0 {
+            picksDebounce?.cancel()
+            let item = DispatchWorkItem { [weak self] in self?.fetchPicks() }
+            picksDebounce = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + picksDelay, execute: item)
+        } else {
+            fetchPicks()
         }
     }
 
+    /// Bumped per picks request (and by `clearClubState()`); a result is applied only
+    /// while it is still the latest, so a slow older run can't overwrite a newer one.
+    var picksGeneration = 0
+    /// The picks_cli run currently going, if any -- at most one per club/course.
+    private var picksInFlight: (path: String, course: String, generation: Int)?
+    /// A same-club/course request arrived while one was running: run once more after.
+    private var picksRerunQueued = false
+    private var picksDebounce: DispatchWorkItem?
+
+    /// Fire-and-forget, async -- reload() itself stays synchronous/fast (plain SQLite
+    /// reads); this rides the cadence reload() already runs on (the DB-mtime watcher,
+    /// manual Refresh, confirm/cancel). A stale clubPath/course by the time this
+    /// returns (the user switched mid-fetch) is caught below rather than clobbering
+    /// the new selection's own picks.
+    func fetchPicks() {
+        picksDebounce?.cancel(); picksDebounce = nil
+        guard !clubPath.isEmpty, !course.isEmpty else { return }
+        let requestPath = clubPath, requestCourse = course
+        // Same club/course already running: let it finish, then fetch once more for
+        // whatever changed since -- never a second overlapping process.
+        if let running = picksInFlight, running.path == requestPath, running.course == requestCourse {
+            picksRerunQueued = true
+            return
+        }
+        picksGeneration += 1
+        let generation = picksGeneration
+        picksInFlight = (requestPath, requestCourse, generation)
+        picksRerunQueued = false
+        let requestSlug = clubs.first { $0.path == clubPath }?.slug
+        PicksClient.run(dbPath: requestPath, course: requestCourse, clubSlug: requestSlug, from: today,
+                        days: overviewDays()) { [weak self] result in
+            guard let self else { return }
+            if self.picksInFlight?.generation == generation { self.picksInFlight = nil }
+            if generation == self.picksGeneration, self.clubPath == requestPath, self.course == requestCourse {
+                self.picksRequestKey = (requestPath, requestCourse)
+                self.picks = result.picks
+                self.verdicts = result.verdicts
+                self.windowHint = result.hint
+            }
+            if self.picksInFlight == nil, self.picksRerunQueued {
+                self.picksRerunQueued = false
+                self.fetchPicks()
+            }
+        }
+    }
+
+    /// The database `banners` were read from -- a dismiss acknowledges against that
+    /// one, never against whatever club happens to be selected now.
+    private var bannersPath: String?
+
     func dismiss(_ banner: Banner) {
-        Store.acknowledgeBanners(dbPath: clubPath, ids: [banner.id])
+        if let bannersPath { Store.acknowledgeBanners(dbPath: bannersPath, ids: [banner.id]) }
         banners.removeAll { $0.id == banner.id }
     }
 }
@@ -1149,6 +1280,8 @@ final class AppCommands: ObservableObject {
     var onAddClub: (() -> Void)?
     var onHeatmap: (() -> Void)?
     var onPlayerDirectory: (() -> Void)?
+    /// ⌘/ -- toggles `legendShown` only while the legend button is on screen.
+    var onLegend: (() -> Void)?
     var onPreferences: (() -> Void)?
     var onSettings: (() -> Void)?
 }
@@ -1233,8 +1366,10 @@ struct ContentView: View {
                                 // name. Direct report 2026-09-20: the banner alone
                                 // ("...your 14:20 tee time...") didn't say which course,
                                 // easy to misread when a club has more than one.
-                                if !banner.course.isEmpty {
-                                    Text(banner.course).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                                // The day too: banners span every date and the text names
+                                // only the time (the TUI prefixes weekday + date the same way).
+                                if !bannerCaption(banner).isEmpty {
+                                    Text(bannerCaption(banner)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                                 }
                                 Text(banner.text).font(scaledFont(.caption))
                             }
@@ -1561,6 +1696,10 @@ struct ContentView: View {
             HStack(alignment: .firstTextBaseline) {
                 if !model.visibleDays.isEmpty { LegendButton() }
                 Spacer(minLength: 12)
+                    // The button going away mid-popover mustn't leave the flag set.
+                    .onChange(of: model.visibleDays.isEmpty) { _, empty in
+                        if empty { AppCommands.shared.legendShown = false }
+                    }
                 HStack(spacing: 6) {
                     FreshnessRow(model: model)
                     // Mirrors the TUI's own Header, which sets its subtitle to
@@ -1622,6 +1761,12 @@ struct ContentView: View {
             AppCommands.shared.onPlayerDirectory = {
                 guard !model.clubPath.isEmpty else { return }
                 showingPlayerDirectory.value = true
+            }
+            AppCommands.shared.onLegend = {
+                // Same guard as the footer's LegendButton: with no days shown there's
+                // no popover to open, and a flag set now would pop it open later.
+                guard !model.visibleDays.isEmpty else { return }
+                AppCommands.shared.legendShown.toggle()
             }
             AppCommands.shared.onPreferences = { showingPreferences.value = true }
             AppCommands.shared.onSettings = { showingSettings.value = true }

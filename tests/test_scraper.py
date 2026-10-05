@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from bs4 import BeautifulSoup
 
@@ -501,6 +502,24 @@ def test_login_raises_for_status_when_the_response_is_a_genuine_server_error(mon
 
     with pytest.raises(RuntimeError, match="HTTP 500"):
         login("0000001", "user@example.com", "hunter2")
+
+    assert fake_client.closed  # a failed login never hands the client on, so close it here
+
+
+def test_login_closes_the_client_when_the_post_itself_fails(monkeypatch):
+    # Offline / a connect timeout: post() raises before any response exists.
+    fake_client = _FakeClient()
+
+    def failing_post(url, data=None):
+        raise httpx.ConnectError("offline")
+
+    fake_client.post = failing_post
+    monkeypatch.setattr(scraper_module.httpx, "Client", lambda **kwargs: fake_client)
+
+    with pytest.raises(httpx.ConnectError):
+        login("0000001", "user@example.com", "hunter2")
+
+    assert fake_client.closed
 
 
 def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(monkeypatch):

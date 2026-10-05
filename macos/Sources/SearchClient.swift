@@ -107,49 +107,41 @@ enum SearchClient {
             return
         }
         DispatchQueue.global(qos: .userInitiated).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: exe)
             var args = ["--db-path", dbPath, "--course", course, "--from", from, "--days", String(days)]
             if let clubSlug { args += ["--club-slug", clubSlug] }
-            task.arguments = args
-            let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-            task.standardInput = stdin; task.standardOutput = stdout; task.standardError = stderr
-            do { try task.run() } catch {
+            let input = (try? JSONSerialization.data(withJSONObject: criteria.json)) ?? Data()
+            let result: SubprocessResult
+            do { result = try Subprocess.run(exe, args, stdin: input) } catch {
                 DispatchQueue.main.async { done(nil, error.localizedDescription) }
                 return
             }
-            if let data = try? JSONSerialization.data(withJSONObject: criteria.json) {
-                stdin.fileHandleForWriting.write(data)
-            }
-            stdin.fileHandleForWriting.closeFile()
-            task.waitUntilExit()
-            let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-            let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-            DispatchQueue.main.async {
-                if let rows = try? JSONSerialization.jsonObject(with: outData) as? [[String: Any]] {
-                    done(rows.map { row in
-                        SearchMatch(
-                            date: row["date"] as? String ?? "",
-                            course: row["course"] as? String ?? "",
-                            time: row["time"] as? String ?? "",
-                            booked: row["booked"] as? Int ?? 0,
-                            capacity: row["capacity"] as? Int ?? 0,
-                            players: row["players"] as? [String] ?? [],
-                            blockReason: row["block_reason"] as? String,
-                            score: row["score"] as? Double ?? 0,
-                            reasons: row["reasons"] as? [String] ?? []
-                        )
-                    }, nil)
-                    return
-                }
-                if let obj = try? JSONSerialization.jsonObject(with: outData) as? [String: Any],
-                   let message = obj["error"] as? String {
-                    done(nil, message)
-                    return
-                }
-                let stderrText = String(data: errData, encoding: .utf8) ?? ""
-                done(nil, stderrText.isEmpty ? "search failed (exit \(task.terminationStatus))" : stderrText)
-            }
+            let (matches, message) = parse(result)
+            DispatchQueue.main.async { done(matches, message) }
         }
+    }
+
+    /// Split out of `run()` so it's testable without a subprocess.
+    static func parse(_ result: SubprocessResult) -> ([SearchMatch]?, String?) {
+        let parsed = Subprocess.jsonObject(from: result.stdout)
+        if let rows = parsed as? [[String: Any]] {
+            return (rows.map { row in
+                SearchMatch(
+                    date: row["date"] as? String ?? "",
+                    course: row["course"] as? String ?? "",
+                    time: row["time"] as? String ?? "",
+                    booked: row["booked"] as? Int ?? 0,
+                    capacity: row["capacity"] as? Int ?? 0,
+                    players: row["players"] as? [String] ?? [],
+                    blockReason: row["block_reason"] as? String,
+                    score: row["score"] as? Double ?? 0,
+                    reasons: row["reasons"] as? [String] ?? []
+                )
+            }, nil)
+        }
+        if let obj = parsed as? [String: Any], let message = obj["error"] as? String {
+            return (nil, message)
+        }
+        let stderrText = result.stderrText
+        return (nil, stderrText.isEmpty ? "search failed (exit \(result.status))" : stderrText)
     }
 }

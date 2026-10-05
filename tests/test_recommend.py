@@ -842,3 +842,95 @@ def test_only_with_player_keeps_only_slots_with_that_exact_name():
 def test_only_with_player_nobody_by_that_name_means_no_matches():
     matches = [_match_with_players("2026-09-28", "09:00", ["Anna Bauer"])]
     assert recommend.only_with_player(matches, "Someone Else") == []
+
+
+# --- review fixes (2026-10-04) --------------------------------------------------------
+
+
+def test_exclude_unplayable_uses_the_default_for_a_threshold_cleared_to_null():
+    # Settings saves a cleared optional field as an explicit null; that must mean
+    # "use the default", not a TypeError from comparing a float with None.
+    schedule = Schedule(
+        date="2026-09-06",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="08:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="08:00", precipitation_probability=90.0, precipitation_mm=5.0, wind_speed_kph=50)],
+    )
+    candidate = SlotMatch(date="2026-09-06", course="18 Loch Tee 1", slot=schedule.slots[0], score=0.0)
+    config = {
+        "preferences": {
+            "avoid_rain": True,
+            "avoid_rain_mm": None,
+            "avoid_rain_probability_percent": None,
+            "avoid_wind": True,
+            "avoid_wind_kph": None,
+        }
+    }
+
+    assert exclude_unplayable([candidate], [schedule], config) == []
+    assert unplayable_reasons([candidate], [schedule], config) == {"weather"}
+
+
+def test_weekly_picks_does_not_crash_on_null_thresholds():
+    schedule = Schedule(
+        date="2026-09-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="18:00", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="18:00", precipitation_probability=0.0, precipitation_mm=0.0, wind_speed_kph=5)],
+    )
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "preferences": {"avoid_rain": True, "avoid_rain_mm": None, "avoid_wind": True, "avoid_wind_kph": None},
+    }
+
+    assert [m.slot.time for m in weekly_picks([schedule], config)] == ["18:00"]
+
+
+def test_round_duration_minutes_reads_the_hole_count_from_a_loch_mention_anywhere():
+    # Real labels from three clubs whose names don't start with the hole count.
+    config = {"round_duration_minutes": {"nine": 120, "eighteen": 240}}
+    assert _round_duration_minutes("Tee 10 (9 Loch)", config) == 120
+    assert _round_duration_minutes("Tee 1 (9 Loch)", config) == 120
+    assert _round_duration_minutes("Tee 10: 9 Loch", config) == 120
+    assert _round_duration_minutes("Kurzplatz: 6 Loch", config) == 120
+    assert _round_duration_minutes("18-Loch Schleife (nur erste 9-Loch)", config) == 120
+    assert _round_duration_minutes("18-Loch-Schleife (nur zweite 9-Loch)", config) == 120
+    # Still 18 where the label says so, and a bare "9" without "Loch" isn't a count.
+    assert _round_duration_minutes("Tee 1 (18 Loch)", config) == 240
+    assert _round_duration_minutes("Tee 1: 9 oder 18 Loch", config) == 240
+    assert _round_duration_minutes("18 Loch Tee 1", config) == 240
+
+
+def test_default_criteria_from_config_reads_unquoted_yaml_times():
+    # PyYAML loads an unquoted `after: 17:00` as the sexagesimal int 1020.
+    from src import yaml_util
+
+    config = yaml_util.safe_load("availability:\n  weekday_window: {after: 17:00}\n  weekend_window: {after: 8:30, before: 18:00}\n")
+
+    criteria = default_criteria_from_config(config)
+
+    assert criteria.weekday_window == TimeWindow(after="17:00")
+    assert criteria.weekend_window == TimeWindow(after="08:30", before="18:00")
+
+
+def test_ranked_matches_passes_each_courses_round_duration_to_the_ai(monkeypatch):
+    schedules = [
+        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)]),
+        Schedule(date="2026-09-07", course="Tee 10 (9 Loch)", slots=[Slot(time="18:00", booked=0, capacity=4)]),
+    ]
+    config = {
+        "availability": {"weekday_window": {"after": "17:00"}},
+        "ai_assist": {"enabled": True},
+        "round_duration_minutes": {"nine": 110, "eighteen": 250},
+    }
+    calls = []
+
+    def fake_rank_slots(candidates, context, preferences, provider, model, language):
+        calls.append(context)
+        return candidates
+
+    monkeypatch.setattr(recommend.ai_assist, "rank_slots", fake_rank_slots)
+
+    ranked_matches(schedules, default_criteria_from_config(config), config)
+
+    assert calls[0]["round_duration_minutes"] == {"18 Loch Tee 1": 250, "Tee 10 (9 Loch)": 110}
