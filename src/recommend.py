@@ -51,6 +51,8 @@ keys in its own YAML, but existing configs work unchanged. Worth the user's own
 sign-off on the actual numbers later; flagged rather than silently assumed.
 """
 
+import dataclasses
+
 from . import ai_assist, i18n, playability
 from . import weather as weather_module
 from .models import Schedule, Slot, SlotMatch, TimeWindow
@@ -120,7 +122,9 @@ def latest_start(schedule: Schedule, config: dict) -> str | None:
     )
 
 
-def window_too_late_hint(schedules: list[Schedule], config: dict) -> dict | None:
+def window_too_late_hint(
+    schedules: list[Schedule], config: dict, alternatives: dict[str, dict | None] | None = None
+) -> dict | None:
     """One standing explanation for the case that otherwise just repeats "too
     dark to finish" on day after day (2026-09-27, bundle C -- found in the
     audit's own renders: 3 of 5 days said exactly that, because a 16:00 weekday
@@ -132,6 +136,12 @@ def window_too_late_hint(schedules: list[Schedule], config: dict) -> dict | None
 
         {"window_after": "16:00", "latest_start": "14:40", "sunset": "19:10",
          "round_minutes": 240, "days": 3}
+
+    `alternatives` ({date: `shorter_round_alternative()`'s result or None},
+    2026-10-05) adds `"alternative_courses"` -- the distinct courses offered as
+    a shorter round on the flagged days, in date order -- so the hint can say
+    where a round still fits, not only that the full one doesn't. Absent when
+    no flagged day has one.
     """
     flagged = []
     for schedule in schedules:
@@ -144,13 +154,21 @@ def window_too_late_hint(schedules: list[Schedule], config: dict) -> dict | None
     if len(flagged) < 2:
         return None
     schedule, window, latest = flagged[0]
-    return {
+    hint = {
         "window_after": window.after,
         "latest_start": latest,
         "sunset": schedule.sun_times.sunset,
         "round_minutes": _round_duration_minutes(schedule.course, config),
         "days": len(flagged),
     }
+    alternative_courses: list[str] = []
+    for flagged_schedule, _, _ in flagged:
+        alternative = (alternatives or {}).get(flagged_schedule.date)
+        if alternative is not None and alternative["course"] not in alternative_courses:
+            alternative_courses.append(alternative["course"])
+    if alternative_courses:
+        hint["alternative_courses"] = alternative_courses
+    return hint
 
 
 def _schedule_for(candidate: SlotMatch, schedules: list[Schedule]) -> Schedule | None:
@@ -309,6 +327,122 @@ def _slot_avg_known_handicap(slot: Slot, known_handicaps: dict[str, float]) -> f
     return sum(hcps) / len(hcps) if hcps else None
 
 
+def _deterministic_order(
+    playable: list[SlotMatch],
+    config: dict,
+    friend_names: set[str] | None,
+    known_handicaps: dict[str, float] | None,
+    my_handicap: float | None,
+) -> list[SlotMatch]:
+    """`ranked_matches()`'s deterministic re-ordering -- the HCP sort, then the
+    friends sort, both stable -- factored out 2026-10-05 so
+    `shorter_round_alternative()` ranks its picks exactly the way the main pick
+    is ranked before any AI step. See `ranked_matches()`'s own docstring for
+    what each sort means."""
+    preferences_for_sort = config.get("preferences", {})
+    hcp_preference = preferences_for_sort.get("hcp_preference", "off")
+    if hcp_preference in ("similar", "better") and known_handicaps:
+
+        def _hcp_sort_key(match: SlotMatch) -> tuple[int, float]:
+            avg = _slot_avg_known_handicap(match.slot, known_handicaps)
+            if avg is None:
+                return (1, 0.0)
+            if hcp_preference == "similar" and my_handicap is not None:
+                return (0, abs(avg - my_handicap))
+            return (0, avg)  # "better" (or "similar" with no my_handicap yet): lowest first
+
+        playable = sorted(playable, key=_hcp_sort_key)
+    if preferences_for_sort.get("prioritize_friends") and friend_names:
+        playable = sorted(playable, key=lambda match: 0 if set(match.slot.players) & friend_names else 1)
+    return playable
+
+
+def shorter_round_alternative(
+    date: str,
+    selected_course: str,
+    schedules_by_course: dict[str, Schedule],
+    config: dict,
+    friend_names: set[str] | None = None,
+    known_handicaps: dict[str, float] | None = None,
+    my_handicap: float | None = None,
+) -> dict | None:
+    """A shorter round that still finishes before dark, for a day whose own pick
+    on `selected_course` was ruled out by daylight alone (2026-10-05, real
+    motivation: in October a 16:00 weekday window plus a ~4-hour 18-hole round
+    made every weekday read "too dark to finish", while the same club's 9-hole
+    courses -- already scraped into the same club DB -- had plenty of open slots
+    that would have finished in time). Returns
+
+        {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9}
+
+    or None. `schedules_by_course` is every course scraped for `date` (the
+    selected one included), keyed by course name.
+
+    Only ever offered when daylight is the *only* reason (`unplayable_reasons()`
+    == {"daylight"}): rain or wind doesn't stop at a shorter round, so a weather
+    verdict -- alone or alongside daylight -- gets no alternative. A day that
+    had a pick anyway, or no in-window candidates at all, gets none either.
+
+    Siblings are courses whose hole count `scraper._holes_from_course_label()`
+    actually knows and that is below the selected course's; an unknown count
+    (e.g. "Kurzplatz") is skipped, never guessed -- and with the *selected*
+    course's own count unknown, there's nothing to compare against, so None.
+
+    Same pipeline as the main pick, minus the AI step: `search()` with your own
+    `availability` criteria (window, party size, buffers), then
+    `exclude_unplayable()` -- round length from each sibling's own hole count via
+    `_round_duration_minutes()`, the same daylight buffer and weather limits --
+    then `_deterministic_order()`. Deliberately no `ai_assist.rank_slots()` call:
+    this is a fallback suggestion shown in place of a "too dark" note, not worth
+    a paid call per course per day. Without AI, "best" is the same as the main
+    pick's: earliest first (across all siblings; on a tie, the course with more
+    holes -- closer to the round you wanted -- then by name), re-ordered only by
+    the friends/HCP preferences."""
+    selected = schedules_by_course.get(selected_course)
+    if selected is None or selected.date != date or not config.get("availability"):
+        return None
+    criteria = default_criteria_from_config(config)
+    candidates = search([selected], criteria)
+    if not candidates or exclude_unplayable(candidates, [selected], config):
+        return None
+    if unplayable_reasons(candidates, [selected], config) != {"daylight"}:
+        return None
+    selected_holes = _holes_from_course_label(selected_course)
+    if selected_holes is None:
+        return None
+
+    siblings: list[Schedule] = []
+    holes_by_course: dict[str, int] = {}
+    for course, schedule in schedules_by_course.items():
+        if course == selected_course or schedule.date != date:
+            continue
+        holes = _holes_from_course_label(course)
+        if holes is None or holes >= selected_holes:
+            continue
+        if schedule.sun_times is None:
+            # A sibling saved without sun times (its first scrapes fell in a
+            # sun-times fetch outage) would pass the daylight check outright --
+            # "unknown, not assumed bad" -- and could suggest an 18:40 start on
+            # an 18:50 sunset (2026-10-05). Same club, same date: the selected
+            # course's sunset, which the daylight gate above just used, applies.
+            schedule = dataclasses.replace(schedule, sun_times=selected.sun_times)
+        siblings.append(schedule)
+        holes_by_course[course] = holes
+    if not siblings:
+        return None
+
+    sibling_candidates = sorted(
+        search(siblings, criteria),
+        key=lambda match: (match.slot.time, -holes_by_course[match.course], match.course),
+    )
+    playable = exclude_unplayable(sibling_candidates, siblings, config)
+    playable = _deterministic_order(playable, config, friend_names, known_handicaps, my_handicap)
+    if not playable:
+        return None
+    best = playable[0]
+    return {"course": best.course, "time": best.slot.time, "holes": holes_by_course[best.course]}
+
+
 def ranked_matches(
     schedules: list[Schedule],
     criteria: SearchCriteria,
@@ -374,22 +508,7 @@ def ranked_matches(
     """
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
-
-    preferences_for_sort = config.get("preferences", {})
-    hcp_preference = preferences_for_sort.get("hcp_preference", "off")
-    if hcp_preference in ("similar", "better") and known_handicaps:
-
-        def _hcp_sort_key(match: SlotMatch) -> tuple[int, float]:
-            avg = _slot_avg_known_handicap(match.slot, known_handicaps)
-            if avg is None:
-                return (1, 0.0)
-            if hcp_preference == "similar" and my_handicap is not None:
-                return (0, abs(avg - my_handicap))
-            return (0, avg)  # "better" (or "similar" with no my_handicap yet): lowest first
-
-        playable = sorted(playable, key=_hcp_sort_key)
-    if preferences_for_sort.get("prioritize_friends") and friend_names:
-        playable = sorted(playable, key=lambda match: 0 if set(match.slot.players) & friend_names else 1)
+    playable = _deterministic_order(playable, config, friend_names, known_handicaps, my_handicap)
 
     ai_config = config.get("ai_assist", {})
     if not ai_config.get("enabled", False):

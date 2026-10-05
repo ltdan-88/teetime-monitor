@@ -31,13 +31,14 @@ import json
 import sqlite3
 import sys
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import calendar_context, club_directory, i18n, scraper, storage, tui, units, weather_icons
+from src import calendar_context, club_directory, i18n, scrape_health, scraper, storage, tui, units, weather_icons
 from src.models import DateRange, PlayerSighting, Slot, WeatherPoint, family_name
 from src.settings_screen import ROUND_DURATION_EIGHTEEN_CHOICES, ROUND_DURATION_NINE_CHOICES
 
@@ -352,6 +353,111 @@ def _store_players_cases() -> dict:
     return {"store_players": [{"args": {"sql": sql}, "expected": expected}]}
 
 
+# (minutes after _HEALTH_T0, saved, attempted, authenticated, error_kind), oldest first.
+_HEALTH_T0 = datetime(2026, 10, 3, 16, 45, tzinfo=UTC)
+_HEALTH_HISTORIES = {
+    "healthy_with_a_noop": [(0, 6, 6, 1, None), (15, 0, 0, 1, None)],
+    "failure_streak": [(0, 6, 6, None, None), (15, 0, 1, None, "network"), (30, 6, 6, None, None),
+                       (45, 0, 0, None, "no_tee_sheet"), (60, 0, 0, None, "no_tee_sheet"), (75, 0, 2, None, "network")],
+    "never_succeeded": [(0, 0, 0, None, "no_tee_sheet"), (15, 0, 0, None, "no_tee_sheet")],
+    "login_rejected_with_a_blip": [(0, 6, 6, 1, None), (15, 6, 6, 0, "login_rejected"), (30, 0, 1, 0, "network"),
+                                   (45, 6, 6, 0, "login_rejected")],
+    "login_fixed": [(0, 6, 6, 0, "login_rejected"), (15, 6, 6, 1, None)],
+    "credentials_removed": [(0, 6, 6, 0, "login_rejected"), (15, 6, 6, None, None)],
+    # Idle agent passes during a login outage are successes, not a failure streak, and a
+    # course-list failure in the middle neither ends nor extends the login streak
+    # (2026-10-05, review).
+    "login_rejected_idle": [(0, 6, 6, 0, "login_rejected")] + [(m, 0, 0, 0, "login_rejected") for m in (15, 30, 45, 60)],
+    "login_rejected_course_list_down": [(0, 6, 6, 0, "login_rejected"), (15, 0, 0, 0, "no_tee_sheet"),
+                                        (30, 0, 0, 0, "login_rejected")],
+    # Same started_at twice: the id tiebreak must agree between the two readers.
+    "same_start": [(0, 6, 6, None, None), (0, 0, 1, None, "other")],
+}
+
+
+def _health_dict_for_swift(health: dict) -> dict:
+    return {key: health[key] for key in sorted(health)}
+
+
+def _store_scrape_health_cases() -> dict:
+    # Databases storage.py itself built and summarized, read back through Store's own
+    # SQL + ScrapeHealth.summarize() -- the GUI's health line must agree with the TUI's.
+    cases = []
+    for name, runs in _HEALTH_HISTORIES.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "club.db"
+            storage.init_db(path)
+            # Recent enough to survive record_scrape_run()'s own 30-day pruning.
+            base = datetime.now(UTC).replace(microsecond=0) - timedelta(days=2)
+            for minutes, saved, attempted, authenticated, error_kind in runs:
+                started = base + timedelta(minutes=minutes)
+                storage.record_scrape_run(
+                    started_at=started.isoformat(), finished_at=(started + timedelta(seconds=40)).isoformat(),
+                    source="agent", attempted=attempted, saved=saved, failed=attempted - saved,
+                    authenticated=None if authenticated is None else bool(authenticated),
+                    error_kind=error_kind, error_message=f"{error_kind} at +{minutes}" if error_kind else None,
+                    path=path,
+                )
+            with sqlite3.connect(path) as conn:
+                sql = "\n".join(line for line in conn.iterdump() if "sqlite_sequence" not in line)
+            cases.append({"args": {"name": name, "sql": sql},
+                          "expected": _health_dict_for_swift(storage.scrape_health(path))})
+    return {"store_scrape_health": cases}
+
+
+def _scrape_health_warning_cases() -> dict:
+    now = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    recent = (now - timedelta(minutes=5)).isoformat()
+
+    def health(**overrides) -> dict:
+        h = storage.empty_scrape_health()
+        h.update(last_run_at=recent, last_success_at=recent)
+        h.update(overrides)
+        return h
+
+    healths = {
+        "empty": storage.empty_scrape_health(),
+        "healthy": health(),
+        "two_failures": health(consecutive_failed_runs=2, failing_since=(now - timedelta(minutes=30)).isoformat(),
+                               last_error_kind="network"),
+        "three_failures": health(consecutive_failed_runs=3, failing_since=(now - timedelta(minutes=45)).isoformat(),
+                                 last_error_kind="no_tee_sheet", last_error_message="no table"),
+        "failing_other": health(consecutive_failed_runs=5, failing_since=(now - timedelta(hours=3)).isoformat(),
+                                last_error_kind="other"),
+        "login_rejected": health(login_rejected_since=datetime(2026, 10, 3, 16, 45, tzinfo=UTC).isoformat(),
+                                 last_error_kind="login_rejected"),
+        "login_rejected_long_ago": health(login_rejected_since=(now - timedelta(days=9, minutes=7)).isoformat()),
+        "stale": health(last_run_at=(now - timedelta(hours=19)).isoformat(),
+                        last_success_at=(now - timedelta(hours=19)).isoformat()),
+        "failing_and_login": health(consecutive_failed_runs=3, failing_since=(now - timedelta(hours=1)).isoformat(),
+                                    login_rejected_since=(now - timedelta(hours=20)).isoformat(),
+                                    last_error_kind="login_rejected"),
+        "never_succeeded": health(last_success_at=None, consecutive_failed_runs=4,
+                                  failing_since=(now - timedelta(hours=1)).isoformat(), last_error_kind="network"),
+    }
+    cases = []
+    for lang in i18n.SUPPORTED_LANGUAGES:
+        i18n.set_language(lang)
+        for name, h in healths.items():
+            for interval in (60, 360):
+                status = scrape_health.health_status(h, interval, now)
+                cases.append({
+                    "args": {"name": name, "health": h, "interval": interval, "now": now.isoformat(), "language": lang},
+                    "expected": [status[0] if status else None, scrape_health.health_warning(h, interval, now)],
+                })
+    i18n.set_language("en")
+    return {"scrape_health_warning": cases}
+
+
+def _health_i18n_cases() -> dict:
+    # The keys both apps share for this feature must carry the same text, not just exist.
+    cases = []
+    for lang in i18n.SUPPORTED_LANGUAGES:
+        for key in sorted(k for k in i18n._STRINGS[lang] if k.startswith("health.")):
+            cases.append({"args": {"key": key, "language": lang}, "expected": i18n._STRINGS[lang][key]})
+    return {"health_i18n": cases}
+
+
 def main() -> None:
     reference = {
         **_units_cases(),
@@ -366,6 +472,9 @@ def main() -> None:
         **_booking_change_cases(),
         **_club_yaml_cases(),
         **_store_players_cases(),
+        **_store_scrape_health_cases(),
+        **_scrape_health_warning_cases(),
+        **_health_i18n_cases(),
     }
     json.dump(reference, sys.stdout, indent=2, sort_keys=True)
     print()

@@ -656,6 +656,15 @@ struct DayCardHeader: View {
                         .background(Color.yellow.opacity(0.15), in: Capsule())
                         .foregroundStyle(Color.yellow)
                         .help(pick.reasons.isEmpty ? t("tip.pick") : pick.reasons.joined(separator: ", "))
+                } else if let alternative = model.alternatives[day.date] {
+                    // Too dark for this course, but a shorter round on another one
+                    // still fits (2026-10-05) -- the TUI's "★ 16:10 · 9H" Pick cell.
+                    // Secondary tint, not the pick's yellow, so it never reads as this
+                    // course's own pick; the tooltip names the course. A click
+                    // switches to that course and jumps to the slot.
+                    ShorterRoundBadge(alternative: alternative) {
+                        model.jumpToShorterRound(on: day.date, alternative)
+                    }
                 } else if let reasons = model.verdicts[day.date]?.unplayable, !reasons.isEmpty {
                     // Why there's no pick (2026-09-27, bundle C of the TUI/GUI
                     // consistency audit) -- the TUI has always said "too dark to
@@ -674,6 +683,35 @@ struct DayCardHeader: View {
             .frame(width: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
             HeatStrip(buckets: day.heatStrip)
         }
+    }
+}
+
+/// The shorter-round alternative in `DayCardHeader`'s pick badge slot -- "★ 16:10 · 9H"
+/// in the pick's own capsule, font and padding, only the tint differs (2026-10-05).
+/// Full-size text, not shrunk to fit: `Metrics.bookingBadge` was widened for it
+/// instead, on every row alike, so the grid stays aligned.
+struct ShorterRoundBadge: View {
+    let alternative: ShorterRound
+    let action: () -> Void
+    @ObservedObject private var scale = AppScale.shared
+    @ObservedObject private var language = AppLanguage.shared
+
+    var body: some View {
+        Button(action: action) {
+            Label("\(alternative.time) · \(t("overview.pick_holes", ["n": "\(alternative.holes)"]))",
+                  systemImage: "star.fill")
+                .font(scaledFont(.caption)).lineLimit(1)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Color.secondary.opacity(0.12), in: Capsule())
+                .foregroundStyle(.secondary)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        // Capped at the slot's width, so a longer value truncates rather than spill.
+        .frame(maxWidth: scale.scaled(Metrics.bookingBadge), alignment: .trailing)
+        .help(t("overview.pick_alternative", ["time": alternative.time, "course": alternative.course,
+                                              "holes": "\(alternative.holes)"])
+              + " " + t("tip.pick_alternative_click"))
     }
 }
 
@@ -763,7 +801,8 @@ enum Scraper {
             // --force: an explicit Refresh must actually do something. Without it the
             // scraper's own per-course/date interval usually decides nothing is due,
             // and the button looks broken (see scrape_once.main()'s docstring).
-            task.arguments = ["--force"]
+            // --source gui tags this pass's scrape_runs row (2026-10-05, scrape health).
+            task.arguments = ["--force", "--source", "gui"]
             // stdout (scrape_once's _log lines) is never read, so it goes nowhere rather
             // than into a pipe: an unread pipe fills at ~64 KB and blocks the scraper.
             // stderr is drained to EOF *before* waiting for the same reason.
@@ -797,6 +836,9 @@ final class OverviewModel: ObservableObject {
     @Published var isScraping = false
     @Published var problem: String?
     @Published var lastScrape: Date?
+    /// The club's recent `scrape_runs`, summarized (2026-10-05, see ScrapeHealth.swift)
+    /// -- drives the footer's health warning and the freshness dot's red/amber.
+    @Published var scrapeHealth: ScrapeHealth = .empty
     @Published var banners: [Banner] = []
     /// Set only while browsing a club that has no `clubs/*.yaml` -- "browse
     /// before saving," the one Tier 2 gap this prototype's own README flagged
@@ -811,6 +853,9 @@ final class OverviewModel: ObservableObject {
     @Published var picks: [String: DayPick] = [:]
     /// Per date: your window and, with no pick, why -- see `DayVerdict`.
     @Published var verdicts: [String: DayVerdict] = [:]
+    /// Per date: a shorter round on another course for a day too dark to finish
+    /// this one (2026-10-05) -- see `ShorterRound`.
+    @Published var alternatives: [String: ShorterRound] = [:]
     /// Set when your window opens too late to finish before dark, several days
     /// running -- see `WindowHint` and ContentView's own hint row.
     @Published var windowHint: WindowHint?
@@ -866,6 +911,33 @@ final class OverviewModel: ObservableObject {
         return day.visibleSlots.first { $0.time >= wanted }?.time
     }
 
+    /// The `scrollRequest` waiting for `course`'s days to load -- set by
+    /// `jumpToShorterRound`, applied by `applyPendingJump()` once `reload()` has
+    /// the new course's days on screen (the jump can't scroll to a day that
+    /// isn't loaded yet).
+    var pendingJump: (course: String, target: ScrollTarget)?
+
+    /// Clicking a shorter-round badge (2026-10-05): switch the course picker to
+    /// that course -- the same path a manual switch takes (ContentView's
+    /// `onChange(of: model.course)` collapses and reloads) -- then jump to the
+    /// slot through the usual `scrollRequest`/`highlightedSlot` mechanism.
+    func jumpToShorterRound(on date: String, _ alternative: ShorterRound) {
+        guard courses.contains(alternative.course) else { return }
+        let target = ScrollTarget(date: date, time: alternative.time)
+        if course == alternative.course { scrollRequest = target; return }
+        pendingJump = (alternative.course, target)
+        expanded = []
+        course = alternative.course
+    }
+
+    /// Hands a `pendingJump` to `scrollRequest` once its course is the one
+    /// loaded; dropped if the course moved on to something else meanwhile.
+    func applyPendingJump() {
+        guard let pending = pendingJump else { return }
+        pendingJump = nil
+        if pending.course == course { scrollRequest = pending.target }
+    }
+
     private var watcher: Timer?
     private var seenModification: Date?
     /// The (clubPath, course) `picks`/`verdicts`/`windowHint` currently on screen
@@ -914,6 +986,11 @@ final class OverviewModel: ObservableObject {
     /// small `ObservableObject` that only that one small view observes, so the tick
     /// no longer touches `OverviewModel`'s own `objectWillChange` at all.
     func freshnessColor(now: Date) -> Color {
+        // Health first (2026-10-05): a rejected login or failing scrapes colour the dot
+        // even while the last saved schedule still looks recent enough to be green.
+        if let warning = healthWarning(now: now) {
+            return warning.status == .failing ? .red : .orange
+        }
         guard let lastScrape else { return .secondary }
         let threshold = Self.freshnessThreshold(intervalMinutes: scrapeIntervals.normal,
                                                 bookedIntervalMinutes: scrapeIntervals.booked,
@@ -932,6 +1009,13 @@ final class OverviewModel: ObservableObject {
     static func freshnessThreshold(intervalMinutes: Int, bookedIntervalMinutes: Int, anyBooked: Bool) -> TimeInterval {
         let minutes = anyBooked ? min(intervalMinutes, bookedIntervalMinutes) : intervalMinutes
         return (Double(minutes) * 1.25 + 15) * 60
+    }
+
+    /// The footer's scrape-health warning, nil while healthy -- same text and thresholds
+    /// as the TUI's `#status` line (scrape_health.py), against the same interval the
+    /// scraper itself uses.
+    func healthWarning(now: Date) -> ScrapeHealthWarning? {
+        ScrapeHealthRules.warning(scrapeHealth, intervalMinutes: scrapeIntervals.normal, now: now)
     }
 
     func freshnessText(now: Date) -> String {
@@ -1121,8 +1205,9 @@ final class OverviewModel: ObservableObject {
     /// to show -- otherwise the previous club's banners, hint and "updated N min ago"
     /// stayed on screen under a never-scraped club.
     func clearClubState() {
-        days = []; picks = [:]; verdicts = [:]; windowHint = nil; banners = []
-        lastScrape = nil; friendNames = []; playerGenders = [:]; picksRequestKey = nil
+        days = []; picks = [:]; verdicts = [:]; alternatives = [:]; windowHint = nil; banners = []
+        pendingJump = nil
+        lastScrape = nil; scrapeHealth = .empty; friendNames = []; playerGenders = [:]; picksRequestKey = nil
         picksGeneration += 1  // a fetch still running for the old club must not land
     }
 
@@ -1144,6 +1229,7 @@ final class OverviewModel: ObservableObject {
                 let friends = Store.friendNames(dbPath: path)
                 let genders = Store.playerGenders(dbPath: path)
                 let scrape = Store.lastScrape(dbPath: path)
+                let health = Store.scrapeHealth(dbPath: path)
                 let bans = Store.banners(dbPath: path)
                 DispatchQueue.main.async {
                     guard let self, self.clubPath == path, self.course == course else { return }
@@ -1151,8 +1237,10 @@ final class OverviewModel: ObservableObject {
                     self.friendNames = friends
                     self.playerGenders = genders
                     self.lastScrape = scrape
+                    self.scrapeHealth = health
                     self.banners = bans
                     self.bannersPath = path
+                    self.applyPendingJump()
                 }
             }
         } else {
@@ -1162,8 +1250,10 @@ final class OverviewModel: ObservableObject {
             expanded = keepOpen          // you were reading -- same rule as the TUI's
                                          // own keep_cursor fix (v0.30.0).
             lastScrape = Store.lastScrape(dbPath: clubPath)
+            scrapeHealth = Store.scrapeHealth(dbPath: clubPath)
             banners = Store.banners(dbPath: clubPath)
             bannersPath = clubPath
+            applyPendingJump()
         }
 
         // Cleared synchronously the moment club/course actually changes, not left to
@@ -1184,6 +1274,7 @@ final class OverviewModel: ObservableObject {
         if Self.picksRequestChanged(from: picksRequestKey, to: (requestPath, requestCourse)) {
             picks = [:]
             verdicts = [:]
+            alternatives = [:]
             windowHint = nil
         }
 
@@ -1234,6 +1325,7 @@ final class OverviewModel: ObservableObject {
                 self.picksRequestKey = (requestPath, requestCourse)
                 self.picks = result.picks
                 self.verdicts = result.verdicts
+                self.alternatives = result.alternatives
                 self.windowHint = result.hint
             }
             if self.picksInFlight == nil, self.picksRerunQueued {
@@ -1309,25 +1401,43 @@ final class FreshnessClock: ObservableObject {
 /// the same reason `FreshnessClock` exists: isolate the 2-second tick to the one
 /// small view that actually needs it, instead of `ContentView`'s (and thereby the
 /// whole visible day list's) body re-running every tick.
-private struct FreshnessRow: View {
+///
+/// Internal rather than private (2026-10-05) so `VisualRegressionRunner` can render it
+/// with `fixedNow` -- a real clock would make every reference image a moving target.
+struct FreshnessRow: View {
     @ObservedObject var model: OverviewModel
+    var fixedNow: Date?
     @ObservedObject private var scale = AppScale.shared
     @StateObject private var clock = FreshnessClock()
 
     var body: some View {
+        let now = fixedNow ?? clock.now
+        let warning = model.healthWarning(now: now)
         HStack(spacing: 6) {
+            // Scrape health (2026-10-05), only while unhealthy. Left of the dot, so the
+            // dot, the freshness text and the version keep their right-anchored spots;
+            // the footer's Spacer absorbs the width, and at a narrow window this line
+            // truncates (layoutPriority -1) rather than pushing anything else. The
+            // tooltip carries the whole line plus the raw error.
+            if let warning {
+                Text(warning.text).font(scaledFont(.caption2))
+                    .foregroundStyle(warning.status == .failing ? Color.red : Color.orange)
+                    .lineLimit(1).truncationMode(.tail)
+                    .layoutPriority(-1)
+            }
             if model.isScraping {
                 ProgressView().controlSize(.small).scaleEffect(0.7)
                 Text(t("overview.checking")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .lineLimit(1)
             } else {
-                Circle().fill(model.freshnessColor(now: clock.now))
+                Circle().fill(model.freshnessColor(now: now))
                     .frame(width: scale.scaled(Metrics.freshnessDot),
                            height: scale.scaled(Metrics.freshnessDot))
-                Text(model.freshnessText(now: clock.now)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                Text(model.freshnessText(now: now)).font(scaledFont(.caption2)).foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
+        .help(warning?.detail ?? "")
         .onAppear { clock.start() }
     }
 }
@@ -1395,12 +1505,7 @@ struct ContentView: View {
             if let hint = model.windowHint {
                 HStack(spacing: 8) {
                     Image(systemName: "lightbulb.fill").font(scaledFont(.caption)).foregroundStyle(.yellow)
-                    Text(t("hint.window_too_late", [
-                        "after": hint.windowAfter,
-                        "hours": hoursText(hint.roundMinutes),
-                        "sunset": hint.sunset,
-                        "latest": hint.latestStart,
-                    ]))
+                    Text(windowHintText(hint))
                     .font(scaledFont(.caption))
                     Spacer()
                     Button(t("action.preferences")) { showingPreferences.value = true }

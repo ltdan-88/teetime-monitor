@@ -5,6 +5,8 @@ func runPicksClientTests() {
     Harness.group("PicksClient") {
         testParsesPickWindowAndUnplayable()
         testParsesTheWindowHint()
+        testParsesTheShorterRoundAlternative()
+        testWindowHintTextNamesTheShorterRoundCourse()
         testVisibleSlotsRunSunriseRowToSunsetRow()
     }
 }
@@ -53,4 +55,44 @@ private func testVisibleSlotsRunSunriseRowToSunsetRow() {
     let noSun = Day(date: "2026-09-28", slots: slots, weather: [], sunrise: nil, sunset: nil,
                     events: [], bookedTime: nil)
     Harness.check("every slot without sun times", noSun.visibleSlots.count == 6)
+}
+
+/// `picks_cli.py`'s optional per-date `"alternative"` (2026-10-05): parsed when
+/// present, nothing when absent (older picks_cli builds) or malformed.
+private func testParsesTheShorterRoundAlternative() {
+    let result = PicksClient.parse([
+        "2026-10-05": ["time": NSNull(), "window": ["after": "16:00", "before": NSNull()],
+                       "unplayable": ["daylight"],
+                       "alternative": ["course": "9 Loch Tee 1", "time": "16:10", "holes": 9]],
+        "2026-10-06": ["time": NSNull(), "window": ["after": "16:00", "before": NSNull()],
+                       "unplayable": ["daylight"]],
+        "2026-10-07": ["time": NSNull(), "alternative": ["course": "9 Loch Tee 1", "time": "16:10"]],
+        "_hint": ["window_after": "16:00", "latest_start": "14:50", "sunset": "18:50", "round_minutes": 240,
+                  "days": 3, "alternative_courses": ["9 Loch Tee 1"]],
+    ])
+    Harness.check("alternative parses",
+                  result.alternatives["2026-10-05"] == ShorterRound(course: "9 Loch Tee 1", time: "16:10", holes: 9))
+    Harness.check("still no pick for that day", result.picks["2026-10-05"] == nil)
+    Harness.check("absent alternative -> none", result.alternatives["2026-10-06"] == nil)
+    Harness.check("alternative without holes -> none", result.alternatives["2026-10-07"] == nil)
+    Harness.check("hint carries the alternative courses", result.hint?.alternativeCourses == ["9 Loch Tee 1"])
+    let older = PicksClient.parse([
+        "_hint": ["window_after": "16:00", "latest_start": "14:50", "sunset": "18:50", "round_minutes": 240],
+    ])
+    Harness.check("an older hint has no alternative courses", older.hint?.alternativeCourses == [])
+}
+
+private func testWindowHintTextNamesTheShorterRoundCourse() {
+    AppLanguage.shared.code = "en"
+    var hint = WindowHint(windowAfter: "16:00", latestStart: "14:50", sunset: "18:50", roundMinutes: 240)
+    Harness.check("no alternative, no extra sentence", !windowHintText(hint).contains("shorter"))
+    hint.alternativeCourses = ["9 Loch Tee 1", "6 Loch Platz"]
+    Harness.check("names every alternative course",
+                  windowHintText(hint).hasSuffix("A shorter round still fits before dark on 9 Loch Tee 1, 6 Loch Platz."))
+    AppLanguage.shared.code = "de"
+    Harness.check("German wording, same as the TUI",
+                  windowHintText(hint).hasSuffix("Eine kürzere Runde passt noch vor Sonnenuntergang auf 9 Loch Tee 1, 6 Loch Platz."))
+    Harness.check("German holes suffix is L", t("overview.pick_holes", ["n": "9"]) == "9L")
+    AppLanguage.shared.code = "en"
+    Harness.check("English holes suffix is H", t("overview.pick_holes", ["n": "9"]) == "9H")
 }

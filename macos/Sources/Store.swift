@@ -542,6 +542,28 @@ enum Store {
         return f.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
     }
 
+    /// This club's `scrape_runs`, summarized exactly as `storage.scrape_health()` does
+    /// (2026-10-05, see ScrapeHealth.swift). Read-only, and `.empty` -- no warning --
+    /// for a database that predates the table (or doesn't exist yet): `query()`
+    /// treats the failed prepare as "no rows".
+    static func scrapeHealth(dbPath: String) -> ScrapeHealth {
+        guard let db = openDB(dbPath) else { return .empty }
+        defer { sqlite3_close(db) }
+        var runs: [ScrapeHealth.Run] = []
+        query(db, "SELECT started_at, finished_at, attempted, saved, authenticated, error_kind, error_message "
+              + "FROM scrape_runs ORDER BY started_at DESC, id DESC") { s in
+            runs.append(ScrapeHealth.Run(
+                startedAt: column(s, 0) ?? "",
+                finishedAt: column(s, 1) ?? "",
+                attempted: Int(sqlite3_column_int(s, 2)),
+                saved: Int(sqlite3_column_int(s, 3)),
+                authenticated: sqlite3_column_type(s, 4) == SQLITE_NULL ? nil : Int(sqlite3_column_int(s, 4)),
+                errorKind: column(s, 5),
+                errorMessage: column(s, 6)))
+        }
+        return ScrapeHealth.summarize(runs)
+    }
+
     /// Every date this course has ever been scraped for, oldest first -- mirrors
     /// `storage.distinct_scraped_dates()` exactly. The heatmap (see Analytics.swift)
     /// needs the *whole* history, unlike `days()` below, which only ever loads a

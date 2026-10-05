@@ -39,7 +39,10 @@ something about it changes.
 1. **Open it.** You land on the next few bookable days, one row each.
 2. **Read the Pick column.** Each day already says what it thinks: a ★ recommended
    time, your confirmed booking, or why nothing there qualifies ("too dark to
-   finish", "no dry picks").
+   finish", "no dry picks"). When your course is too dark to finish but a shorter
+   one at the club still fits, the cell suggests that instead — e.g. "★ 16:10 · 9H"
+   (the TUI names the course under the table when you highlight the day; in the
+   GUI, hover it for the course or click it to switch to that course).
 3. **Press enter on a day** to open its actual tee times in place, and enter again
    on one to mark it as yours once you've booked it on pc caddie.
 4. **Forget about it.** It keeps scraping in the background. If someone joins your
@@ -230,7 +233,12 @@ directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
 ~/.local/share/teetime-monitor/
     <club_id>.db            # scrape history, confirmed bookings (SQLite)
     club-directory.json     # cached platform club list
+    backups/<club_id>-YYYY-MM-DD.db  # daily copy by the background agent, newest 7 kept
 ```
+
+If scraping goes wrong for a while — pc caddie rejecting your login, or the tee sheet
+failing to load several passes in a row — both apps say so next to "Updated … ago"
+(the GUI's status dot turns amber/red too). Nothing extra is shown while all is well.
 
 Upgrading from before v0.31.0? The first launch copies `./clubs`, `./data` and
 `./.env` across automatically and tells you what it moved. It copies rather than

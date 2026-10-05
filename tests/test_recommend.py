@@ -934,3 +934,187 @@ def test_ranked_matches_passes_each_courses_round_duration_to_the_ai(monkeypatch
     ranked_matches(schedules, default_criteria_from_config(config), config)
 
     assert calls[0]["round_duration_minutes"] == {"18 Loch Tee 1": 250, "Tee 10 (9 Loch)": 110}
+
+
+# --- shorter_round_alternative (2026-10-05) ---------------------------------------
+
+
+# Monday 2026-10-05, a 16:00 weekday window, sunset 18:50: a 4 h 18-hole round
+# no longer fits (latest start 14:50), a 2 h 9-hole round still does (16:50).
+_ALT_DAY = "2026-10-05"
+_ALT_CONFIG = {"availability": {"weekday_window": {"after": "16:00"}}}
+
+
+def _alt_schedule(course: str, times: list[str], weather: list | None = None, booked: int = 0) -> Schedule:
+    return Schedule(
+        date=_ALT_DAY, course=course,
+        slots=[Slot(time=time, booked=booked, capacity=4) for time in times],
+        weather=weather or [],
+        sun_times=SunTimes(sunrise="07:30", sunset="18:50"),
+    )
+
+
+def _alt_courses(*schedules: Schedule) -> dict[str, Schedule]:
+    return {schedule.course: schedule for schedule in schedules}
+
+
+def test_shorter_round_alternative_offers_a_nine_hole_round_when_daylight_alone_rules_out_eighteen():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00", "16:10"]),
+        _alt_schedule("9 Loch Tee 1", ["15:50", "16:10", "16:20"]),  # 15:50 is outside the window
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) == {
+        "course": "9 Loch Tee 1", "time": "16:10", "holes": 9,
+    }
+
+
+def test_shorter_round_alternative_none_when_the_selected_course_has_a_pick():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["14:00"]),
+        _alt_schedule("9 Loch Tee 1", ["16:10"]),
+    )
+    early = {"availability": {"weekday_window": {"after": "13:00"}}}
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, early) is None
+
+
+def test_shorter_round_alternative_none_when_weather_rules_the_day_out():
+    """Rain doesn't stop at a shorter round -- alone or alongside daylight."""
+    rain = [WeatherPoint(time=f"{h:02d}:00", precipitation_probability=90) for h in range(8, 20)]
+    config = {**_ALT_CONFIG, "preferences": {"avoid_rain": True}}
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"], weather=rain),  # too dark AND wet
+        _alt_schedule("9 Loch Tee 1", ["16:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config) is None
+    # Weather alone, with daylight fine (an early window): also none.
+    early_wet = {"availability": {"weekday_window": {"after": "09:00"}}, "preferences": {"avoid_rain": True}}
+    morning = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["09:00"], weather=rain),
+        _alt_schedule("9 Loch Tee 1", ["09:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", morning, early_wet) is None
+
+
+def test_shorter_round_alternative_applies_the_same_weather_rules_to_the_short_course():
+    late_rain = [WeatherPoint(time=f"{h:02d}:00", precipitation_probability=90) for h in range(16, 20)]
+    config = {**_ALT_CONFIG, "preferences": {"avoid_rain": True}}
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),  # no forecast here: daylight alone
+        _alt_schedule("9 Loch Tee 1", ["16:10"], weather=late_rain),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config) is None
+
+
+def test_shorter_round_alternative_skips_courses_with_an_unknown_hole_count():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("Kurzplatz", ["16:00"]),  # unknown -- never guessed
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) is None
+    # And with the *selected* course's own count unknown, nothing to compare against.
+    unknown_selected = _alt_courses(
+        _alt_schedule("Meisterschaftsplatz", ["16:00"]),
+        _alt_schedule("9 Loch Tee 1", ["16:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "Meisterschaftsplatz", unknown_selected, _ALT_CONFIG) is None
+
+
+def test_shorter_round_alternative_ignores_courses_that_are_not_shorter():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("18 Loch Tee 10", ["16:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) is None
+
+
+def test_shorter_round_alternative_picks_the_best_across_several_short_courses():
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("9 Loch Tee 1", ["16:30", "16:40"]),
+        _alt_schedule("6 Loch Platz", ["16:10", "16:30"]),
+        _alt_schedule("9 Loch Tee 10", ["16:30"], booked=4),  # full
+    )
+    # Earliest first, same as the main pick without AI ranking.
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) == {
+        "course": "6 Loch Platz", "time": "16:10", "holes": 6,
+    }
+    # A tie on time goes to the course with more holes.
+    tied = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("6 Loch Platz", ["16:10"]),
+        _alt_schedule("9 Loch Tee 1", ["16:10"]),
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", tied, _ALT_CONFIG)["course"] == "9 Loch Tee 1"
+
+
+def test_shorter_round_alternative_ranks_like_the_main_pick_with_friends():
+    config = {**_ALT_CONFIG, "preferences": {"prioritize_friends": True}}
+    friend_slot = Schedule(
+        date=_ALT_DAY, course="9 Loch Tee 1",
+        slots=[Slot(time="16:10", booked=0, capacity=4), Slot(time="16:30", booked=1, capacity=4, players=["Anna Bauer"])],
+        sun_times=SunTimes(sunrise="07:30", sunset="18:50"),
+    )
+    courses = _alt_courses(_alt_schedule("18 Loch Tee 1", ["16:00"]), friend_slot)
+    result = recommend.shorter_round_alternative(
+        _ALT_DAY, "18 Loch Tee 1", courses, config, friend_names={"Anna Bauer"}
+    )
+    assert result == {"course": "9 Loch Tee 1", "time": "16:30", "holes": 9}
+
+
+def test_shorter_round_alternative_none_without_a_sibling_scraped_for_that_date():
+    alone = _alt_courses(_alt_schedule("18 Loch Tee 1", ["16:00"]))
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", alone, _ALT_CONFIG) is None
+    other_day = Schedule(
+        date="2026-10-06", course="9 Loch Tee 1", slots=[Slot(time="16:10", booked=0, capacity=4)],
+        sun_times=SunTimes(sunrise="07:30", sunset="18:50"),
+    )
+    mixed = {**alone, "9 Loch Tee 1": other_day}
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", mixed, _ALT_CONFIG) is None
+
+
+def test_shorter_round_alternative_uses_the_selected_sunset_for_a_sibling_without_sun_times():
+    """A sibling saved without sun times must not pass the daylight check
+    outright -- 18:40 on an 18:50 sunset is exactly what this feature rules out."""
+    no_sun = Schedule(
+        date=_ALT_DAY, course="9 Loch Tee 1", slots=[Slot(time="18:40", booked=0, capacity=4)], sun_times=None
+    )
+    courses = _alt_courses(_alt_schedule("18 Loch Tee 1", ["16:00"]), no_sun)
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) is None
+    # A slot that does finish before that sunset is still offered.
+    no_sun.slots.append(Slot(time="16:20", booked=0, capacity=4))
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, _ALT_CONFIG) == {
+        "course": "9 Loch Tee 1", "time": "16:20", "holes": 9,
+    }
+    assert no_sun.sun_times is None  # the caller's own schedule isn't mutated
+
+
+def test_shorter_round_alternative_respects_party_size():
+    config = {"availability": {"weekday_window": {"after": "16:00"}, "min_open_spots": 3}}
+    courses = _alt_courses(
+        _alt_schedule("18 Loch Tee 1", ["16:00"]),
+        _alt_schedule("9 Loch Tee 1", ["16:10"], booked=2),  # only 2 free
+    )
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config) is None
+
+
+def test_shorter_round_alternative_never_calls_ai_ranking(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("no AI call for the alternative")
+
+    monkeypatch.setattr(recommend.ai_assist, "rank_slots", boom)
+    config = {**_ALT_CONFIG, "ai_assist": {"enabled": True}}
+    courses = _alt_courses(_alt_schedule("18 Loch Tee 1", ["16:00"]), _alt_schedule("9 Loch Tee 1", ["16:10"]))
+    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config)["time"] == "16:10"
+
+
+def test_window_too_late_hint_names_the_alternative_courses():
+    config = {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30}
+    two_days = [_sunny_schedule("2026-09-28"), _sunny_schedule("2026-09-29")]
+    alternatives = {
+        "2026-09-28": {"course": "9 Loch Tee 1", "time": "16:00", "holes": 9},
+        "2026-09-29": {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9},
+        "2026-09-30": {"course": "6 Loch Platz", "time": "16:10", "holes": 6},  # not a flagged day
+    }
+    hint = recommend.window_too_late_hint(two_days, config, alternatives)
+    assert hint["alternative_courses"] == ["9 Loch Tee 1"]
+    assert "alternative_courses" not in recommend.window_too_late_hint(two_days, config, {"2026-09-28": None})

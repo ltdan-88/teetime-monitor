@@ -108,6 +108,18 @@ func makeTestDB(_ path: String) {
         member_status TEXT,
         handicap REAL
     );
+    CREATE TABLE scrape_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        attempted INTEGER NOT NULL DEFAULT 0,
+        saved INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
+        authenticated INTEGER,
+        error_kind TEXT,
+        error_message TEXT
+    );
     """
     sqlite3_exec(db, schema, nil, nil, nil)
     sqlite3_close(db)

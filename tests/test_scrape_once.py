@@ -2,6 +2,7 @@ import sqlite3
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from datetime import date as date_cls
 
 import httpx
 import pytest
@@ -970,7 +971,7 @@ def test_main_passes_force_through_when_asked(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda *a, **k: {"club_id": "0000001"})
     seen = []
     monkeypatch.setattr(scrape_once, "scrape_due_for_club",
-                        lambda slug, config, force=False: seen.append(force))
+                        lambda slug, config, force=False, **_: seen.append(force))
 
     scrape_once.main(["--force"])
     scrape_once.main(["-f"])
@@ -987,7 +988,7 @@ def test_main_defaults_to_the_normal_interval(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda *a, **k: {"club_id": "0000001"})
     seen = []
     monkeypatch.setattr(scrape_once, "scrape_due_for_club",
-                        lambda slug, config, force=False: seen.append(force))
+                        lambda slug, config, force=False, **_: seen.append(force))
 
     scrape_once.main([])
 
@@ -1300,3 +1301,381 @@ def test_run_watches_a_nine_hole_booking_over_a_nine_hole_window(tmp_path, monke
     )
 
     assert scrape_once.run("0000001", "9 Loch Tee 1", "2026-09-06", config={}) == []
+
+
+# --- scrape health: one scrape_runs row per scrape_due_for_club() call (2026-10-05) --
+# pc caddie rejected the login for ~20 hours and every pass silently went anonymous;
+# see storage.py's module docstring. ------------------------------------------------
+
+
+def _runs(tmp_path, club_id="0000001"):
+    with sqlite3.connect(tmp_path / f"{club_id}.db") as conn:
+        conn.row_factory = sqlite3.Row
+        return [dict(row) for row in conn.execute("SELECT * FROM scrape_runs ORDER BY id")]
+
+
+def _one_course_pass(monkeypatch, tmp_path, run=None, due=True):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a", "B": "b"})
+    monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-10-05"])
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: due)
+    monkeypatch.setattr(
+        scrape_once, "run", run or (lambda club_id, course, date, config, slug, client=None, **_: [])
+    )
+
+
+def _with_credentials(monkeypatch, login):
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("max@example.org", "s3cret!"))
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", lambda *a, **k: ReservationsSync([]))
+    monkeypatch.setattr(scrape_once, "login", login)
+
+
+class _FakeClient:
+    def close(self):
+        pass
+
+
+def test_a_successful_pass_records_one_run(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}, source="tui")
+    (run,) = _runs(tmp_path)
+    assert (run["source"], run["attempted"], run["saved"], run["failed"]) == ("tui", 2, 2, 0)
+    assert run["authenticated"] is None  # no credentials configured
+    assert run["error_kind"] is None and run["error_message"] is None
+    assert run["started_at"] <= run["finished_at"]
+
+
+def test_a_pass_with_nothing_due_still_records_a_successful_run(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path, due=False)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["source"], run["attempted"], run["saved"], run["error_kind"]) == ("agent", 0, 0, None)
+    assert scrape_once.storage.scrape_health(tmp_path / "0000001.db")["last_success_at"] == run["finished_at"]
+
+
+def test_a_logged_in_pass_records_authenticated(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+    _with_credentials(monkeypatch, lambda club_id, username, password: _FakeClient())
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert run["authenticated"] == 1 and run["error_kind"] is None
+
+
+def test_a_rejected_login_is_recorded_even_though_the_pass_continues_anonymously(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def rejected(club_id, username, password):
+        raise scrape_once.LoginError("Login failed for club 0000001 — check PCC_USER/PCC_PASS in .env.")
+
+    _with_credentials(monkeypatch, rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["saved"], run["authenticated"], run["error_kind"]) == (2, 0, "login_rejected")
+    assert "Login failed for club 0000001" in run["error_message"]
+    health = scrape_once.storage.scrape_health(tmp_path / "0000001.db")
+    assert health["login_rejected_since"] == run["started_at"]
+    assert health["consecutive_failed_runs"] == 0  # data still arrived
+
+
+def test_a_login_rejected_by_the_reservations_sync_counts_when_the_course_list_fails(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def no_table(club_id):
+        raise scrape_once.NoTeeSheetError("Club 0000001 doesn't publish an online tee sheet")
+
+    def rejected(*a, **k):
+        raise scrape_once.LoginError("Login failed")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", no_table)
+    monkeypatch.setattr(scrape_once.club_config, "resolve_credentials", lambda slug: ("user", "pass"))
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    # Both went wrong, but the pass got nothing because of the course list -- that's the
+    # cause the "failing" line must name (2026-10-05, review). authenticated=0 still
+    # keeps an ongoing login-rejected streak open (see storage.scrape_health()).
+    assert (run["authenticated"], run["error_kind"], run["attempted"]) == (0, "no_tee_sheet", 0)
+    health = scrape_once.storage.scrape_health(tmp_path / "0000001.db")
+    assert health["consecutive_failed_runs"] == 1
+
+
+def test_a_course_list_failure_keeps_an_ongoing_login_streak_open(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def rejected(*a, **k):
+        raise scrape_once.LoginError("Login failed")
+
+    _with_credentials(monkeypatch, rejected)
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})  # saved anonymously
+
+    def no_table(club_id):
+        raise scrape_once.NoTeeSheetError("Club 0000001 doesn't publish an online tee sheet")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", no_table)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    first, second = _runs(tmp_path)
+    assert (second["error_kind"], second["authenticated"]) == ("no_tee_sheet", 0)
+    health = scrape_once.storage.scrape_health(tmp_path / "0000001.db")
+    assert health["login_rejected_since"] == first["started_at"]
+
+
+def test_a_pass_that_saved_still_reports_the_rejected_login_over_a_flaky_course(tmp_path, monkeypatch):
+    # A success either way -- so the login, the one the user can fix, is what it records
+    # (otherwise one flaky course per pass would hide a day-long rejection).
+    def flaky(club_id, course, date, config, slug, client=None, **_):
+        if course == "B":
+            raise scrape_once.EmptyScheduleError("B/2026-10-05 came back with no tee times")
+        return []
+
+    _one_course_pass(monkeypatch, tmp_path, run=flaky)
+
+    def rejected(club_id, username, password):
+        raise scrape_once.LoginError("Login failed")
+
+    _with_credentials(monkeypatch, rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["saved"], run["failed"], run["error_kind"]) == (1, 1, "login_rejected")
+
+
+def test_idle_passes_with_a_rejected_login_warn_about_the_login_not_failing_scrapes(tmp_path, monkeypatch):
+    # The 2026-10-03 incident's shape: launchd every 15 min, most passes with nothing due,
+    # every one of them rejected at login. Before the 2026-10-05 review fix, three such
+    # passes turned the amber login line into a red "Scrapes failing".
+    from src import scrape_health
+
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def rejected(*a, **k):
+        raise scrape_once.LoginError("Login failed for club 0000001")
+
+    _with_credentials(monkeypatch, rejected)
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})  # one pass that saved
+    monkeypatch.setattr(scrape_once, "_should_scrape", lambda *a: False)
+    for _ in range(4):
+        scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    runs = _runs(tmp_path)
+    assert [(r["attempted"], r["authenticated"], r["error_kind"]) for r in runs[1:]] == [(0, 0, "login_rejected")] * 4
+    health = scrape_once.storage.scrape_health(tmp_path / "0000001.db")
+    assert health["consecutive_failed_runs"] == 0
+    assert health["login_rejected_since"] == runs[0]["started_at"]
+    now = datetime.fromisoformat(runs[-1]["finished_at"])
+    assert scrape_health.health_status(health, 360, now) == ("login_rejected", runs[0]["started_at"])
+
+
+def test_a_network_error_is_recorded_as_network(tmp_path, monkeypatch):
+    def offline(*a, **k):
+        raise httpx.ConnectError("[Errno 8] nodename nor servname provided")
+
+    _one_course_pass(monkeypatch, tmp_path, run=offline)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    # The pass stops at the first transport error -- only that one pair was attempted.
+    assert (run["attempted"], run["saved"], run["failed"], run["error_kind"]) == (1, 0, 1, "network")
+    assert "nodename" in run["error_message"]
+
+
+def test_a_course_list_timeout_is_recorded_as_network(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def timeout(club_id):
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", timeout)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["attempted"], run["error_kind"]) == (0, "network")
+
+
+def test_no_tee_sheet_is_recorded_as_no_tee_sheet(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def no_table(club_id):
+        raise scrape_once.NoTeeSheetError("Club 0000001 doesn't publish an online tee sheet on pc caddie")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", no_table)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["attempted"], run["saved"], run["error_kind"]) == (0, 0, "no_tee_sheet")
+    assert scrape_once.storage.scrape_health(tmp_path / "0000001.db")["consecutive_failed_runs"] == 1
+
+
+def test_one_failing_course_is_recorded_as_other_while_the_rest_save(tmp_path, monkeypatch):
+    def flaky(club_id, course, date, config, slug, client=None, **_):
+        if course == "B":
+            raise scrape_once.EmptyScheduleError("B/2026-10-05 came back with no tee times")
+        return []
+
+    _one_course_pass(monkeypatch, tmp_path, run=flaky)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert (run["attempted"], run["saved"], run["failed"], run["error_kind"]) == (2, 1, 1, "other")
+
+
+def test_an_error_message_never_carries_the_credentials(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def leaky(club_id, username, password):
+        raise scrape_once.LoginError(f"rejected {username} / {password}")
+
+    _with_credentials(monkeypatch, leaky)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    (run,) = _runs(tmp_path)
+    assert "max@example.org" not in run["error_message"] and "s3cret!" not in run["error_message"]
+    assert run["error_message"] == "rejected *** / ***"
+
+
+def test_a_pass_that_gave_up_on_the_lock_records_nothing(tmp_path, monkeypatch, capsys):
+    # The pass holding the lock records its own row (2026-10-05, review).
+    _one_course_pass(monkeypatch, tmp_path)
+    monkeypatch.setattr(scrape_once, "CLUB_LOCK_WAIT_SECONDS", 0)
+    scrape_once.storage.init_db(tmp_path / "0000001.db")
+    with scrape_once._club_lock("0000001"):
+        scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    assert _runs(tmp_path) == []
+    assert "still running" in capsys.readouterr().out
+
+
+def test_a_lock_timeout_mid_outage_leaves_the_login_streak_alone(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def rejected(*a, **k):
+        raise scrape_once.LoginError("Login failed")
+
+    _with_credentials(monkeypatch, rejected)
+    monkeypatch.setattr(scrape_once, "scrape_my_reservations", rejected)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    monkeypatch.setattr(scrape_once, "CLUB_LOCK_WAIT_SECONDS", 0)
+    with scrape_once._club_lock("0000001"):
+        scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}, source="gui")
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    first, _second = _runs(tmp_path)
+    health = scrape_once.storage.scrape_health(tmp_path / "0000001.db")
+    assert health["login_rejected_since"] == first["started_at"]
+    assert health["consecutive_failed_runs"] == 0
+
+
+def test_every_call_records_exactly_one_run(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+    for _ in range(3):
+        scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}, source="gui")
+    assert [run["source"] for run in _runs(tmp_path)] == ["gui"] * 3
+
+
+def test_an_unknown_source_is_refused(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+    with pytest.raises(ValueError):
+        scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}, source="cron")
+
+
+def test_a_failure_to_record_never_fails_the_pass(tmp_path, monkeypatch, capsys):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def locked(**kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(scrape_once.storage, "record_scrape_run", locked)
+    assert scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}) == []
+    assert "couldn't record this scrape run" in capsys.readouterr().out
+
+
+# --- daily backups (2026-10-05) ---------------------------------------------------
+
+
+def _backups(tmp_path):
+    return sorted(path.name for path in (tmp_path / "backups").glob("*.db"))
+
+
+def test_a_successful_agent_pass_backs_up_the_database_once_a_day(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+    today = date_cls.today().isoformat()
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    assert _backups(tmp_path) == [f"0000001-{today}.db"]
+    backup = tmp_path / "backups" / f"0000001-{today}.db"
+    with sqlite3.connect(backup) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM scrape_runs").fetchone() == (1,)
+    stamp = backup.stat().st_mtime_ns
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    assert backup.stat().st_mtime_ns == stamp  # today's already exists -- left alone
+
+
+@pytest.mark.parametrize("source", ["tui", "gui"])
+def test_interactive_passes_never_back_up(tmp_path, monkeypatch, source):
+    _one_course_pass(monkeypatch, tmp_path)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}, source=source)
+    assert not (tmp_path / "backups").exists()
+
+
+def test_a_failed_agent_pass_does_not_back_up(tmp_path, monkeypatch):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def no_table(club_id):
+        raise scrape_once.NoTeeSheetError("no tee sheet")
+
+    monkeypatch.setattr(scrape_once, "fetch_course_aliases", no_table)
+    scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
+    assert not (tmp_path / "backups").exists()
+
+
+def test_backups_keep_only_the_newest_seven_per_club(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    scrape_once.storage.init_db(tmp_path / "0000001.db")
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    for day in range(1, 10):
+        (backups / f"0000001-2026-09-{day:02d}.db").write_bytes(b"old")
+    (backups / "0352002-2026-09-01.db").write_bytes(b"another club")
+
+    written = scrape_once._daily_backup("0000001", today="2026-10-05")
+
+    assert written == backups / "0000001-2026-10-05.db"
+    assert _backups(tmp_path) == [
+        "0000001-2026-09-04.db", "0000001-2026-09-05.db", "0000001-2026-09-06.db", "0000001-2026-09-07.db",
+        "0000001-2026-09-08.db", "0000001-2026-09-09.db", "0000001-2026-10-05.db", "0352002-2026-09-01.db",
+    ]
+
+
+def test_a_backup_error_is_logged_and_never_fails_the_pass(tmp_path, monkeypatch, capsys):
+    _one_course_pass(monkeypatch, tmp_path)
+
+    def disk_full(source, destination):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(scrape_once.storage, "backup_db", disk_full)
+    assert scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}) == []
+    assert "daily backup failed: No space left on device" in capsys.readouterr().out
+    assert len(_runs(tmp_path)) == 1
+
+
+# --- `--source` on the console script ---------------------------------------------
+
+
+def _capture_sources(monkeypatch, tmp_path):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(scrape_once.club_config, "list_clubs", lambda *a, **k: ["home"])
+    monkeypatch.setattr(scrape_once.club_config, "load_club_config", lambda *a, **k: {"club_id": "0000001"})
+    seen = []
+    monkeypatch.setattr(
+        scrape_once, "scrape_due_for_club",
+        lambda slug, config, force=False, source="agent": seen.append((force, source)),
+    )
+    return seen
+
+
+def test_main_tags_runs_with_the_source_it_was_given(tmp_path, monkeypatch):
+    seen = _capture_sources(monkeypatch, tmp_path)
+    scrape_once.main(["--force", "--source", "gui"])
+    scrape_once.main(["--source=tui"])
+    scrape_once.main([])  # launchd passes nothing
+    assert seen == [(True, "gui"), (False, "tui"), (False, "agent")]
+
+
+def test_main_refuses_an_unknown_source(tmp_path, monkeypatch, capsys):
+    seen = _capture_sources(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        scrape_once.main(["--source", "cron"])
+    assert exit_info.value.code == 2
+    assert seen == []
+    assert "invalid choice" in capsys.readouterr().err

@@ -86,6 +86,61 @@ private let multiPlayers: [KnownPlayer] = [
                 isFriend: false, gender: "unknown", memberStatus: "member", handicap: 5.0),
 ]
 
+/// Four days, one per thing the pick badge slot can hold: a booking, the ★ pick, a
+/// shorter round on another course (2026-10-05) and the too-dark moon -- the
+/// fixture that catches the alternative's wider "★ 16:10 · 9H" pushing the
+/// HeatStrip (or anything left of it) out of its column.
+private let badgeDayFixtures: [Day] = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"].map { date in
+    Day(date: date, slots: [], weather: dayWeather(low: 6, high: 15, code: 3, rainPercent: 10, windKPH: 12),
+        sunrise: "07:30", sunset: "18:50", events: [], bookedTime: date == "2026-10-05" ? "10:20" : nil)
+}
+
+private func badgeModel() -> OverviewModel {
+    let model = OverviewModel()
+    model.picks = ["2026-10-06": DayPick(time: "16:00", score: 0, reasons: [])]
+    model.alternatives = ["2026-10-07": ShorterRound(course: "9 Loch Tee 1", time: "16:10", holes: 9)]
+    model.verdicts = ["2026-10-08": DayVerdict(windowAfter: "16:00", windowBefore: nil, unplayable: ["daylight"])]
+    return model
+}
+
+/// Fixed "now" for the footer case -- a Monday noon, UTC (see main.swift's pinned zone).
+let footerNow = ISO8601DateFormatter().date(from: "2026-10-05T12:00:00Z")!
+
+private func footerISO(minutesAgo: Double) -> String {
+    ISO8601DateFormatter().string(from: footerNow.addingTimeInterval(-minutesAgo * 60))
+}
+
+/// Healthy, login rejected (the real 2026-10-03 incident's shape), failing.
+let footerHealthModels: [OverviewModel] = {
+    func model(_ health: ScrapeHealth) -> OverviewModel {
+        let model = OverviewModel()
+        model.lastScrape = footerNow.addingTimeInterval(-10 * 60)
+        model.scrapeHealth = health
+        return model
+    }
+    let recent = footerISO(minutesAgo: 5)
+    return [
+        model(ScrapeHealth(lastRunAt: recent, lastSuccessAt: recent)),
+        model(ScrapeHealth(lastRunAt: recent, lastSuccessAt: recent, lastErrorKind: "login_rejected",
+                           loginRejectedSince: footerISO(minutesAgo: 41 * 60 + 15))),
+        model(ScrapeHealth(lastRunAt: recent, lastSuccessAt: footerISO(minutesAgo: 60),
+                           lastErrorKind: "no_tee_sheet", consecutiveFailedRuns: 3,
+                           failingSince: footerISO(minutesAgo: 45))),
+    ]
+}()
+
+/// ContentView's footer row, right-hand half: Spacer, then status + "·" + version.
+private func footerRow(_ model: OverviewModel) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+        Spacer(minLength: 12)
+        HStack(spacing: 6) {
+            FreshnessRow(model: model, fixedNow: footerNow)
+            Text("·").font(scaledFont(.caption2)).foregroundStyle(.tertiary)
+            Text("v0.64.0").font(scaledFont(.caption2)).foregroundStyle(.secondary)
+        }
+    }
+}
+
 let allCases: [VisualRegressionCase] = [
     // Wide enough that leadingSummary's own natural content and the trailing
     // heat-strip/badge overlay (anchored to leadingSummary's *resolved* frame,
@@ -103,6 +158,17 @@ let allCases: [VisualRegressionCase] = [
             .padding(8)
         )
     },
+    VisualRegressionCase(name: "day-card-header-badges", size: CGSize(width: 760, height: 220)) {
+        let model = badgeModel()
+        return AnyView(
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(badgeDayFixtures) { day in
+                    DayCardHeader(day: day, model: model)
+                }
+            }
+            .padding(8)
+        )
+    },
     VisualRegressionCase(name: "slot-row-multi", size: CGSize(width: 520, height: 140)) {
         let model = OverviewModel()
         return AnyView(
@@ -110,6 +176,22 @@ let allCases: [VisualRegressionCase] = [
                 ForEach(multiSlotDay.slots) { slot in
                     SlotRow(slot: slot, day: multiSlotDay, model: model)
                 }
+            }
+            .padding(8)
+        )
+    },
+    // The footer's right-hand cluster in its three states (2026-10-05, scrape health):
+    // healthy, login rejected, failing. The dot, the freshness text and the version must
+    // keep the same right-anchored spots in all three -- the warning only ever takes
+    // room from the Spacer on its left (the same Spacer(minLength: 12) ContentView's
+    // footer row uses), and the narrow last row shows it truncating rather than pushing.
+    VisualRegressionCase(name: "footer-health-multi", size: CGSize(width: 640, height: 130)) {
+        AnyView(
+            VStack(alignment: .trailing, spacing: 8) {
+                ForEach(Array(footerHealthModels.enumerated()), id: \.offset) { _, model in
+                    footerRow(model)
+                }
+                footerRow(footerHealthModels[1]).frame(width: 360)
             }
             .padding(8)
         )

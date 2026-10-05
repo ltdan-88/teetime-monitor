@@ -26,7 +26,7 @@ def _no_background_scraping(monkeypatch):
     runtime jumped from ~15s to over a minute once this shipped, before this fixture
     was added. A no-op by default; a test that specifically wants to exercise the
     real wiring overrides `scrape_once.scrape_due_for_club` itself locally."""
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: [])
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: [])
 
 
 
@@ -1432,6 +1432,71 @@ def test_day_pick_text_generic_message_when_both_reasons_apply(tmp_path):
     assert "playable" in text
 
 
+def _too_dark_for_eighteen(tmp_path, monkeypatch, nine_hole_times=("16:10", "16:20")):
+    """Monday 2026-10-05, a 16:00 window, sunset 18:50: an 18-hole round no
+    longer fits, a 9-hole round on the same club's other course does -- the
+    real October situation behind the shorter-round alternative (2026-10-05)."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    config = {"availability": {"weekday_window": {"after": "16:00"}}}
+    sun = SunTimes(sunrise="07:30", sunset="18:50")
+    schedule = Schedule(
+        date="2026-10-05", course="18 Loch Tee 1", slots=[Slot(time="16:00", booked=0, capacity=4)], sun_times=sun
+    )
+    db = scrape_once._db_path("0000001")
+    storage.save_schedule(schedule, path=db)
+    storage.save_schedule(
+        Schedule(
+            date="2026-10-05", course="9 Loch Tee 1",
+            slots=[Slot(time=t, booked=0, capacity=4) for t in nine_hole_times], sun_times=sun,
+        ),
+        path=db,
+    )
+    return schedule, config
+
+
+def test_day_pick_text_offers_a_shorter_round_instead_of_too_dark(tmp_path, monkeypatch):
+    schedule, config = _too_dark_for_eighteen(tmp_path, monkeypatch)
+    text = tui._day_pick_text(schedule, config, None, False, "0000001")
+    # Dimmed as a whole, like the GUI badge's secondary tint (2026-10-05).
+    assert text == "[dim]★  16:10 · 9H[/]"
+    assert "dark" not in text
+    # Never wider than the "too dark to finish" note it replaces.
+    assert tui._cell_visible_width(text) <= tui._cell_visible_width(i18n.t("overview.no_daylight_picks"))
+
+
+def test_day_pick_text_shorter_round_says_loch_in_german(tmp_path, monkeypatch):
+    schedule, config = _too_dark_for_eighteen(tmp_path, monkeypatch)
+    i18n.set_language("de")
+    assert tui._day_pick_text(schedule, config, None, False, "0000001").endswith("16:10 · 9L[/]")
+
+
+def test_day_pick_text_still_too_dark_without_a_shorter_round_that_fits(tmp_path, monkeypatch):
+    schedule, config = _too_dark_for_eighteen(tmp_path, monkeypatch, nine_hole_times=("17:30",))
+    assert "dark" in tui._day_pick_text(schedule, config, None, False, "0000001")
+
+
+def test_shorter_round_alternative_is_memoized_in_the_pick_cache(tmp_path, monkeypatch):
+    schedule, config = _too_dark_for_eighteen(tmp_path, monkeypatch)
+    cache: dict = {}
+    first = tui._shorter_round_alternative(schedule, config, "0000001", cache)
+    assert first == {"course": "9 Loch Tee 1", "time": "16:10", "holes": 9}
+    assert cache[("alternative", "2026-10-05", "18 Loch Tee 1")] == first
+    monkeypatch.setattr(tui.storage, "courses_scraped_on", lambda *a, **k: pytest.fail("not cached"))
+    assert tui._shorter_round_alternative(schedule, config, "0000001", cache) == first
+
+
+def test_window_hint_text_names_the_shorter_round_course():
+    hint = {
+        "window_after": "16:00", "latest_start": "14:50", "sunset": "18:50", "round_minutes": 240, "days": 3,
+        "alternative_courses": ["9 Loch Tee 1"],
+    }
+    assert "A shorter round still fits before dark on 9 Loch Tee 1." in tui._window_hint_text(hint)
+    i18n.set_language("de")
+    assert "Eine kürzere Runde passt noch vor Sonnenuntergang auf 9 Loch Tee 1." in tui._window_hint_text(hint)
+    hint.pop("alternative_courses")
+    assert "kürzere" not in tui._window_hint_text(hint)
+
+
 # --- OverviewScreen itself ------------------------------------------------------------
 
 
@@ -1784,6 +1849,77 @@ def test_overview_screen_explains_a_window_that_opens_too_late_once(tmp_path, mo
             await pilot.pause()
             hint = str(app.screen.query_one("#hint").content)
             assert "16:00" in hint and "14:40" in hint and "19:10" in hint
+
+    _run(scenario())
+
+
+def test_overview_screen_shows_the_shorter_round_in_the_pick_column_and_hint(tmp_path, monkeypatch):
+    """2026-10-05: with a 9-hole course scraped alongside, the too-late days say
+    "★ 16:00 · 9H" and the hint names where it fits; the day still expands to
+    the selected 18-hole course."""
+    _two_too_late_weekdays(tmp_path, monkeypatch)
+    for day in ("2026-09-28", "2026-09-29"):
+        storage.save_schedule(
+            Schedule(
+                date=day, course="9 Loch Tee 1",
+                slots=[Slot(time=f"{h:02d}:00", booked=0, capacity=4) for h in range(8, 19)],
+                sun_times=SunTimes(sunrise="07:20", sunset="19:10"),
+            ),
+            path=scrape_once._db_path("0000001"),
+        )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            hint = str(app.screen.query_one("#hint").content)
+            assert "on 9 Loch Tee 1" in hint
+            table = app.screen.query_one("#overview-table", DataTable)
+            pick = Text.from_markup(app.screen._row_header_cells["2026-09-28"][2]).plain
+            assert pick == "★  16:00 · 9H"
+            table.focus()
+            table.move_cursor(row=0)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.screen.course == "18 Loch Tee 1"
+            assert app.screen._row_index[table.cursor_row] == ("2026-09-28", "16:00")
+
+    _run(scenario())
+
+
+def test_overview_screen_names_a_single_days_shorter_round_course_in_row_detail(tmp_path, monkeypatch):
+    """2026-10-05: one too-dark day isn't enough for the window hint, so the
+    "★ 16:00 · 9H" cell would name no course anywhere -- the highlighted row's
+    #row-detail does, the TUI's stand-in for the GUI badge's tooltip."""
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    monkeypatch.setattr(
+        tui.OverviewScreen, "_config",
+        lambda self: {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30},
+    )
+    for course in ("18 Loch Tee 1", "9 Loch Tee 1"):
+        storage.save_schedule(
+            Schedule(
+                date="2026-09-28", course=course,
+                slots=[Slot(time=f"{h:02d}:00", booked=0, capacity=4) for h in range(8, 19)],
+                sun_times=SunTimes(sunrise="07:20", sunset="19:10"),
+            ),
+            path=scrape_once._db_path("0000001"),
+        )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert str(app.screen.query_one("#hint").content) == ""
+            assert Text.from_markup(app.screen._row_header_cells["2026-09-28"][2]).plain == "★  16:00 · 9H"
+            table = app.screen.query_one("#overview-table", DataTable)
+            table.focus()
+            table.move_cursor(row=app.screen._row_index.index(("2026-09-28", None)))
+            await pilot.pause()
+            detail = Text.from_markup(str(app.screen.query_one("#row-detail").content)).plain
+            assert "16:00 on 9 Loch Tee 1 (9 holes)" in detail
 
     _run(scenario())
 
@@ -4290,7 +4426,7 @@ def test_periodic_scrape_runs_once_on_open_with_the_active_slug_and_config(tmp_p
 
     calls = []
 
-    def fake_scrape(slug, config, force=False):
+    def fake_scrape(slug, config, force=False, **_):
         calls.append((slug, config))
         return []
 
@@ -4325,7 +4461,7 @@ def test_periodic_scrape_picks_up_a_club_config_change_mid_session(tmp_path, mon
     monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: club_cfg)
 
     calls = []
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: calls.append(config) or [])
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: calls.append(config) or [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -4364,7 +4500,7 @@ def test_periodic_scrape_still_runs_for_a_club_visited_without_saving_it(tmp_pat
     monkeypatch.setattr(tui.club_directory, "load_cached_directory", lambda *a, **k: [])
 
     calls = []
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: calls.append(config) or [])
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: calls.append(config) or [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -4394,7 +4530,7 @@ def test_periodic_scrape_skips_a_new_pass_while_one_is_already_running(tmp_path,
         lambda slug, *a, **k: {"club_id": "0000001", "default_course": "9 Loch Tee 1"},
     )
     calls = []
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: calls.append(1) or [])
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: calls.append(1) or [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -4432,7 +4568,7 @@ def test_periodic_scrape_shows_refreshing_then_refreshed_status(tmp_path, monkey
     proceed = threading.Event()
     started = threading.Event()
 
-    def fake_scrape(slug, config, force=False):
+    def fake_scrape(slug, config, force=False, **_):
         started.set()
         proceed.wait(timeout=2)
         return []
@@ -4527,7 +4663,7 @@ def test_a_failing_background_scrape_shows_an_error_instead_of_exiting(tmp_path,
     # worker exit_on_error.
     _home_club_only(monkeypatch, tmp_path)
 
-    def offline(slug, config, force=False):
+    def offline(slug, config, force=False, **_):
         raise ConnectionError("network unreachable")
 
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", offline)
@@ -4553,7 +4689,7 @@ def test_the_background_scrape_runs_on_a_daemon_thread(tmp_path, monkeypatch):
     monkeypatch.setattr(
         scrape_once,
         "scrape_due_for_club",
-        lambda slug, config, force=False: daemon_flags.append(threading.current_thread().daemon) or [],
+        lambda slug, config, force=False, **_: daemon_flags.append(threading.current_thread().daemon) or [],
     )
 
     async def scenario():
@@ -4623,7 +4759,7 @@ def test_switching_club_mid_scrape_scrapes_the_new_club_when_the_pass_ends(tmp_p
     release = threading.Event()
     scraped = []
 
-    def slow_scrape(slug, config, force=False):
+    def slow_scrape(slug, config, force=False, **_):
         if config["club_id"] == "0000001":
             release.wait(timeout=5)
         scraped.append(config["club_id"])
@@ -5057,7 +5193,7 @@ def test_overview_screen_switches_club_inline_and_keeps_periodic_scrape_in_sync(
         lambda club_id: {"9 Loch Tee 1": "COU1"} if club_id == "0500000" else {"18 Loch Tee 1": "COUB"},
     )
     calls = []
-    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False: calls.append((slug, config)) or [])
+    monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: calls.append((slug, config)) or [])
 
     async def scenario():
         app = tui.TeetimeApp()
@@ -6054,7 +6190,7 @@ def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, mon
     calls = []
     monkeypatch.setattr(
         scrape_once, "scrape_due_for_club",
-        lambda slug, config, force=False: calls.append(force) or [],
+        lambda slug, config, force=False, **_: calls.append(force) or [],
     )
 
     async def scenario():
@@ -6367,3 +6503,98 @@ def test_start_resumes_on_the_clubs_default_course_not_the_last_used_one(tmp_pat
             assert app.screen.course == "9 Loch Tee 1"
 
     _run(scenario())
+
+
+# --- scrape health (2026-10-05): a ~20-hour silent login rejection nobody noticed --
+# shown under #status only while unhealthy, same text as the GUI footer's ---------
+
+
+def _seed_runs(tmp_path, *runs):
+    """(minutes_ago, saved, authenticated, error_kind) per run, oldest first."""
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    for minutes_ago, saved, authenticated, error_kind in runs:
+        started = now - timedelta(minutes=minutes_ago)
+        storage.record_scrape_run(
+            started_at=started.isoformat(), finished_at=(started + timedelta(seconds=30)).isoformat(),
+            source="agent", attempted=saved if saved else 1, saved=saved, failed=0 if saved else 1,
+            authenticated=authenticated, error_kind=error_kind, path=tmp_path / "0000001.db",
+        )
+
+
+def test_the_overview_warns_about_a_rejected_login(tmp_path, monkeypatch):
+    _home_club_only(monkeypatch, tmp_path)
+    _seed_runs(tmp_path, (60, 6, True, None), (45, 6, False, "login_rejected"), (30, 6, False, "login_rejected"))
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            status = app.screen.query_one("#status", Static)
+            await _wait_until(pilot, lambda: "Login rejected" in str(status.content))
+            assert "Login rejected since" in str(status.content)
+            assert "check Settings → Login" in str(status.content)
+            assert status.styles.display == "block"
+
+            # An error written by any other call site keeps the health line below it.
+            status.update(i18n.t("status.refresh_failed", error="offline"))
+            assert str(status.content).splitlines()[0] == "Refresh failed: offline"
+            assert "Login rejected since" in str(status.content).splitlines()[1]
+
+            # Fixed: the next good login ends the streak, and the line goes away.
+            _seed_runs(tmp_path, (0, 6, True, None))
+            app.screen.refresh_health()
+            assert "Login rejected" not in str(status.content)
+
+    _run(scenario())
+
+
+def test_the_overview_warns_when_scrapes_keep_failing(tmp_path, monkeypatch):
+    _home_club_only(monkeypatch, tmp_path)
+    _seed_runs(tmp_path, (90, 6, None, None), (45, 0, None, "no_tee_sheet"), (30, 0, None, "no_tee_sheet"),
+               (15, 0, None, "no_tee_sheet"))
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            status = app.screen.query_one("#status", Static)
+            await _wait_until(pilot, lambda: "Scrapes failing" in str(status.content))
+            assert str(status.content).endswith(": pc caddie showed no tee sheet[/]")
+
+    _run(scenario())
+
+
+def test_a_healthy_club_shows_no_health_line(tmp_path, monkeypatch):
+    _home_club_only(monkeypatch, tmp_path)
+    _seed_runs(tmp_path, (30, 0, None, "network"), (15, 6, True, None))
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            await pilot.pause()
+            status = app.screen.query_one("#status", Static)
+            assert "⚠" not in str(status.content)
+            assert status.styles.display == "none"  # today's look: nothing extra
+
+    _run(scenario())
+
+
+def test_the_background_scrape_is_tagged_as_the_tui(tmp_path, monkeypatch):
+    _home_club_only(monkeypatch, tmp_path)
+    sources = []
+    monkeypatch.setattr(
+        scrape_once, "scrape_due_for_club",
+        lambda slug, config, force=False, source="agent": sources.append(source) or [],
+    )
+
+    async def scenario():
+        app = tui.TeetimeApp()
+        async with app.run_test() as pilot:
+            await _reach_overview(app, pilot)
+            await _wait_until(pilot, lambda: sources)
+
+    _run(scenario())
+    assert sources and set(sources) == {"tui"}
