@@ -15,8 +15,10 @@ was a move, not a redesign. Rich markup and everything widget-shaped (`_day_pick
 `_alternative_pick_text()`, `_locked_day_texts()`, ...) stays in `tui.py`.
 """
 
+import sqlite3
 import time
 from datetime import date as date_cls
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -132,6 +134,7 @@ def _compute_crowd_estimates(
     club_id: str,
     db_path: Path | None = None,
     fetch_holidays: bool = True,
+    use_holidays: bool = True,
 ) -> dict[tuple[str, str, str], float]:
     """{(date, course, time): predicted occupancy 0-1} for every slot across
     `schedules` — the actual `analytics.crowd_heatmap()`/`predict_crowding()` work,
@@ -164,8 +167,15 @@ def _compute_crowd_estimates(
     from.
 
     `fetch_holidays=False` (the overview's synchronous render) uses only the
-    holidays already cached -- see `_holidays_for_club()`."""
-    holidays = _holidays_for_club(config, fetch=fetch_holidays)
+    holidays already cached -- see `_holidays_for_club()`.
+
+    `use_holidays=False` ignores public holidays altogether (no cache read, no
+    fetch): a holiday then counts as the ordinary weekday it falls on. Used by
+    `_quality_crowd_estimates()`, whose numbers must come out identical in the TUI
+    (whose holiday cache is warm after the first paint) and in a fresh `picks_cli.py`
+    process for the GUI (whose is always cold, and fetching three years of holidays
+    per GUI reload is not worth it)."""
+    holidays = _holidays_for_club(config, fetch=fetch_holidays) if use_holidays else []
     vacation_ranges = _vacation_ranges_for_club(config)
     resolved_db_path = db_path if db_path is not None else _db_path(club_id)
     heatmaps: dict[str, dict] = {}
@@ -218,6 +228,50 @@ def _crowd_estimates(
     return _compute_crowd_estimates(schedules, config, club_id, db_path=db_path)
 
 
+def _quality_crowd_estimates(schedule: Schedule, config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
+    """The crowd estimates `quality.score_matches()` weighs for one day's Pick
+    (2026-10-05) -- always computed, unlike `_crowd_estimates()` (AI-gated), because
+    the score is no longer an AI-only nicety. Holiday-blind on purpose, see
+    `_compute_crowd_estimates()`'s `use_holidays`. Best effort: the crowd is one factor
+    of four, so an unreadable history database just means the factor is skipped, never
+    that the day loses its Pick."""
+    try:
+        return _compute_crowd_estimates([schedule], config, club_id, use_holidays=False)
+    except (OSError, sqlite3.Error):
+        return {}
+
+
+def _local_now() -> datetime:
+    """The wall clock `quality.score_matches()` judges "already under way" by, read
+    through `clock.py` like every other time in this module (naive, machine-local --
+    the same convention `picks_cli._slot_markers()` and the TUI use for past slots)."""
+    hour, minute = clock.now_hhmm().split(":")
+    return datetime.combine(date_cls.fromisoformat(clock.today()), datetime.min.time()).replace(
+        hour=int(hour), minute=int(minute)
+    )
+
+
+def _sibling_sun_times(schedule: Schedule, club_id: str):
+    """Sun times for a schedule that was saved without its own (2026-10-05): another
+    course of the same club scraped for the same date -- sunset is the same across the
+    club's courses (`recommend.shorter_round_alternative()` borrows it the same way).
+    Scoring only (`quality.score_matches()`'s daylight factor). None when `schedule`
+    has its own, no sibling has any, or the DB is unreadable."""
+    if schedule.sun_times is not None:
+        return None
+    try:
+        path = _db_path(club_id)
+        for course in storage.courses_scraped_on(schedule.date, path=path):
+            if course == schedule.course:
+                continue
+            sibling = storage.load_latest_schedule(course, schedule.date, path=path)
+            if sibling is not None and sibling.sun_times is not None:
+                return sibling.sun_times
+    except (OSError, sqlite3.Error):
+        pass
+    return None
+
+
 def _availability_pipeline(
     schedule: Schedule, config: dict, club_id: str, cache: dict | None = None
 ) -> tuple[list, list]:
@@ -228,17 +282,23 @@ def _availability_pipeline(
     against, not an error.
 
     `playable` goes through `recommend.ranked_matches()` (not a bare
-    `exclude_unplayable()`, as this used to call directly) — the exact same pipeline
-    `weekly_picks()` uses, so "the best slot for one day" can never disagree with "the
-    best slots for the week" about what counts as best. With `ai_assist.enabled`
-    false (the default), `ranked_matches()` returns exactly what `exclude_unplayable()`
-    alone would have — same items, same order — so this is a behavior-preserving
-    change until AI ranking is actually turned on; only then does `playable`'s order
-    start reflecting genuine judgment instead of plain chronological order. Direct
-    feedback this responds to (2026-09-08): "why does it always recommend 16:00 on
-    any other day?" — `_day_pick_text()` used to take the literal earliest playable
-    time, which is exactly 16:00 every day once a saved window starts at 16:00 and
-    that slot happens to be open, regardless of how good the rest of the window is.
+    `exclude_unplayable()`, as this used to call directly) — the same filtering
+    pipeline `weekly_picks()` uses, so both agree on which slots are playable at all.
+    They no longer agree on the *order* (2026-10-05): this passes `rank_by_quality=True`
+    while `weekly_picks()` and the ad hoc search stay chronological, since their lists
+    span many days and a score sort would shuffle the days. Direct feedback this
+    responds to (2026-09-08): "why does it always recommend 16:00 on any other day?"
+    — `_day_pick_text()` used to take the literal earliest playable time, which is
+    exactly 16:00 every day once a saved window starts at 16:00 and that slot happens
+    to be open, regardless of how good the rest of the window is. Until 2026-10-05
+    only AI ranking could change that (`ai_assist.enabled`, paid); now `playable` is
+    always ordered by `quality.py`'s free, deterministic score (`rank_by_quality=True`:
+    dry/calm weather, room around the group, a quiet hour, daylight to spare), friend
+    and handicap preferences above it and chronological order breaking ties, so
+    `playable[0]` is the best slot, and carries `quality_reasons` saying why. With AI
+    on, the AI still has the last word (it receives this list). The ★ markers
+    (`_recommended_times_for()`) are untouched: they are every slot in `playable`,
+    whatever its order.
 
     `cache` is an optional memo, keyed by (date, course). Measured 2026-09-17:
     `_render_table()` reaches this twice for every expanded day with identical
@@ -268,6 +328,7 @@ def _availability_pipeline(
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
     crowd_estimates = _crowd_estimates([schedule], config, club_id)
+    quality_crowd = _quality_crowd_estimates(schedule, config, club_id)
     friend_names = storage.load_friend_names(path=_db_path(club_id))
     known_handicaps = storage.load_known_handicaps(path=_db_path(club_id))
     my_handicap = storage.load_my_handicap(path=_db_path(club_id))
@@ -279,6 +340,10 @@ def _availability_pipeline(
         friend_names,
         known_handicaps=known_handicaps,
         my_handicap=my_handicap,
+        rank_by_quality=True,
+        now=_local_now(),
+        quality_crowd_estimates=quality_crowd,
+        quality_sun_times=_sibling_sun_times(schedule, club_id),
     )
     result = (candidates, playable)
     if cache is not None:

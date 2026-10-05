@@ -52,6 +52,7 @@ sign-off on the actual numbers later; flagged rather than silently assumed.
 """
 
 import dataclasses
+from datetime import datetime
 
 from . import ai_assist, i18n, playability
 from . import weather as weather_module
@@ -394,10 +395,12 @@ def shorter_round_alternative(
     `_round_duration_minutes()`, the same daylight buffer and weather limits --
     then `_deterministic_order()`. Deliberately no `ai_assist.rank_slots()` call:
     this is a fallback suggestion shown in place of a "too dark" note, not worth
-    a paid call per course per day. Without AI, "best" is the same as the main
-    pick's: earliest first (across all siblings; on a tie, the course with more
-    holes -- closer to the round you wanted -- then by name), re-ordered only by
-    the friends/HCP preferences."""
+    a paid call per course per day. "Best" here is still earliest first (across
+    all siblings; on a tie, the course with more holes -- closer to the round you
+    wanted -- then by name), re-ordered only by the friends/HCP preferences: unlike
+    the main pick (2026-10-05, `quality.py`) it is not quality-scored, since the
+    sibling courses have no crowd history loaded here and a dark-hours fallback is
+    not worth a second scoring path."""
     selected = schedules_by_course.get(selected_course)
     if selected is None or selected.date != date or not config.get("availability"):
         return None
@@ -451,6 +454,10 @@ def ranked_matches(
     friend_names: set[str] | None = None,
     known_handicaps: dict[str, float] | None = None,
     my_handicap: float | None = None,
+    rank_by_quality: bool = False,
+    now: datetime | None = None,
+    quality_crowd_estimates: dict[tuple[str, str, str], float] | None = None,
+    quality_sun_times=None,
 ) -> list[SlotMatch]:
     """Search + exclude_unplayable + (best-effort) AI ranking for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on
@@ -505,10 +512,52 @@ def ranked_matches(
     names) feeds into the same per-candidate description `friend_count` already
     does, and `my_handicap` itself joins the `preferences` JSON already sent
     wholesale in the prompt, since it's a fact about the user, not a per-slot one.
+
+    `rank_by_quality` (2026-10-05, off by default) orders the playable slots by
+    `quality.score_matches()` -- weather margin, room around the group, predicted
+    crowd, daylight cushion -- best first, so the first match is "the best slot", not
+    just "the earliest". Equal scores keep chronological order (date, time, course).
+    The friend and handicap sorts below it are stable, so they stay *above* the
+    score: the score only orders within an equal friend/handicap tier. Each match's
+    `score` is then the quality score and `quality_reasons` its reason keys. With AI
+    ranking on, the AI receives this score-sorted list (same single call, same cache)
+    and still decides the final order; `quality_reasons` survive it (its own prose
+    lands in `reasons`). Off, `ranked_matches()` behaves exactly as before -- the ad hoc
+    search keeps its chronological list, since its results span many days and a
+    score-sort across them would shuffle the days. `now` is the club's wall clock for
+    `quality.score_matches()`'s "slot already under way" rule. Its crowd factor reads
+    `quality_crowd_estimates`, falling back to `crowd_estimates` -- a separate argument
+    because `crowd_estimates` also reaches the AI prompt, and that must stay opt-in
+    (`avoid_predicted_crowd`) while the free score always wants the crowd (no history:
+    the factor is skipped, see there). `quality_sun_times` is the same kind of
+    scoring-only extra: a sibling course's sun times for a schedule that has none of its
+    own (see `quality.score_matches()`'s `fallback_sun_times`).
+
+    With `rank_by_quality`, a slot already under way today is the *primary* ordering key:
+    the friend and handicap sorts run over the slots still ahead only and the past ones
+    follow chronologically, so a friend in a 16:00 slot can't make it the Pick at 16:05
+    (2026-10-05).
     """
     candidates = search(schedules, criteria)
     playable = exclude_unplayable(candidates, schedules, config)
-    playable = _deterministic_order(playable, config, friend_names, known_handicaps, my_handicap)
+    if rank_by_quality:
+        # Imported here: quality.py imports this module for the shared round-duration
+        # and weather-limit logic, so a top-level import would be circular.
+        from . import quality
+
+        crowd = quality_crowd_estimates if quality_crowd_estimates is not None else crowd_estimates
+        scored = quality.score_matches(playable, schedules, config, crowd, now, quality_sun_times)
+        scored.sort(key=lambda s: (-s.score, s.match.date, s.match.slot.time, s.match.course))
+        for item in scored:
+            item.match.score = item.score
+            item.match.quality_reasons = item.reasons
+        # Slots already under way sort below every slot still ahead whatever their friends
+        # or handicap tier (2026-10-05): order only the future ones, append the past.
+        future = [item.match for item in scored if item.score != quality.PAST_SLOT_SCORE]
+        past = [item.match for item in scored if item.score == quality.PAST_SLOT_SCORE]
+        playable = _deterministic_order(future, config, friend_names, known_handicaps, my_handicap) + past
+    else:
+        playable = _deterministic_order(playable, config, friend_names, known_handicaps, my_handicap)
 
     ai_config = config.get("ai_assist", {})
     if not ai_config.get("enabled", False):

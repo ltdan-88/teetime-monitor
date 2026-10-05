@@ -12,6 +12,8 @@ func runPicksClientTests() {
         testParsesTheSlotMarkers()
         testSlotMarkerPicksStarOverMoon()
         testSlotMarkersClearWithTheirVerdicts()
+        testParsesQualityReasonsAndAIReasons()
+        testPickTooltipLocalisesReasonKeys()
     }
 }
 
@@ -172,4 +174,44 @@ private func testSlotMarkersClearWithTheirVerdicts() {
     model.reload()
     Harness.check("no verdict, so no marker, after switching away",
                   model.verdicts["2026-10-06"]?.marker(for: "16:00") == nil)
+}
+
+/// 2026-10-05 (`quality.py`): `reasons` are the deterministic reason keys, in the order
+/// Python sent them; the AI's own sentences are separate and optional.
+private func testParsesQualityReasonsAndAIReasons() {
+    let result = PicksClient.parse([
+        "2026-10-06": ["time": "16:10", "score": 71.5, "reasons": ["dry", "room_around", "daylight_spare"],
+                       "window": ["after": "16:00", "before": NSNull()]],
+        "2026-10-07": ["time": "16:00", "score": 88.0, "reasons": ["quiet"], "ai_reasons": ["emptier later"],
+                       "window": ["after": "16:00", "before": NSNull()]],
+        "2026-10-08": ["time": "16:00", "score": 50.0, "reasons": [String](),
+                       "window": ["after": "16:00", "before": NSNull()]],
+    ])
+    Harness.checkEqual("reason keys keep their order", result.picks["2026-10-06"]?.reasons ?? [],
+                       ["dry", "room_around", "daylight_spare"])
+    Harness.checkEqual("the score comes through", result.picks["2026-10-06"]?.score ?? 0, 71.5)
+    Harness.checkEqual("no ai_reasons key: none", result.picks["2026-10-06"]?.aiReasons ?? ["x"], [])
+    Harness.checkEqual("the AI's sentences are separate", result.picks["2026-10-07"]?.aiReasons ?? [], ["emptier later"])
+    Harness.checkEqual("a pick with nothing notable has no reasons", result.picks["2026-10-08"]?.reasons ?? ["x"], [])
+}
+
+/// The badge tooltip decodes keys with the very strings the TUI's #row-detail uses
+/// (`overview.pick_reasons` + `quality.reason.*`, cross-checked in test_i18n.py).
+private func testPickTooltipLocalisesReasonKeys() {
+    AppLanguage.shared.code = "en"
+    Harness.checkEqual("english, three reasons",
+                       pickTooltip(reasons: ["dry", "room_around", "daylight_spare"]),
+                       "Picked for: dry · room around you · daylight to spare")
+    Harness.checkEqual("no reasons: the plain label", pickTooltip(reasons: []), "Recommended pick")
+    Harness.checkEqual("an unknown key is skipped, never shown raw",
+                       pickTooltip(reasons: ["dry", "not_a_reason"]), "Picked for: dry")
+    Harness.checkEqual("the AI's sentences follow", pickTooltip(reasons: ["quiet"], aiReasons: ["emptier later"]),
+                       "Picked for: quiet hour · emptier later")
+    Harness.checkEqual("AI sentences alone", pickTooltip(reasons: [], aiReasons: ["emptier later"]), "emptier later")
+    AppLanguage.shared.code = "de"
+    Harness.checkEqual("german",
+                       pickTooltip(reasons: ["dry", "calm", "mild", "quiet"]),
+                       "Gewählt wegen: trocken · kaum Wind · mild · ruhige Stunde")
+    Harness.checkEqual("german, no reasons", pickTooltip(reasons: []), "Empfohlene Auswahl")
+    AppLanguage.shared.code = "en"
 }

@@ -2,7 +2,8 @@
 `search_cli.py`'s ad hoc search (2026-09-27).
 
 Direct follow-up: the TUI's Overview has shown a "★ HH:MM" recommended pick per
-day (best still-playable slot, AI-ranked with `reasons` once `ai_assist.enabled`)
+day (best still-playable slot by `quality.py`'s score, AI-ranked once `ai_assist.enabled`,
+with reason keys in `reasons`)
 since 2026-09-08 (`tui.py`'s `_day_pick_text()`, `pipeline.py`'s `_availability_pipeline()`), but
 the GUI's Overview never had an equivalent — surfaced once AI ranking actually
 started working end to end and there was still nothing to see in the Overview
@@ -23,13 +24,26 @@ array -- an O(1) lookup for the GUI, no client-side searching:
     {"2026-09-27": {"time": "09:10", "score": 85.0, "reasons": ["dry", "calm"]},
      "2026-09-28": null}
 
+The pick is the day's *best* playable slot, not the earliest (2026-10-05,
+`quality.py`: weather margin, room around the group, predicted crowd, daylight
+cushion -- friend/handicap preferences above it, earliest first on a tie), and
+`score` is that 0-100 quality score. `reasons` are reason KEYS, at most three, best
+contribution first, from this fixed set (the GUI localises them via its own
+"quality.reason.<key>" strings, the TUI via `i18n.py`'s; never prose):
+
+    "dry"  "calm"  "mild"  "room_around"  "quiet"  "daylight_spare"
+
+`reasons` is `[]` when nothing about the slot is notably good. With AI ranking on
+(`ai_assist.enabled`) the AI chooses among the same candidates, `score` is then its
+own 0-100 score, and its free-text sentences arrive as the optional `"ai_reasons"`
+(absent when there are none); `reasons` stays the deterministic keys either way.
+
 `null` covers every "nothing to show" case `_day_pick_text()` also collapses to
 a plain dash for (no `availability` rules configured yet, no schedule scraped
 for that date, or genuinely nothing playable) -- the GUI only needs to know
 whether there's a pick to render, not which of those three reasons applies, so
 this stays a flat map rather than replicating the TUI's three distinct
-"no dry picks"/"too dark to finish"/generic messages. `reasons` is `[]`
-whenever `ai_assist.enabled` is off, same as the TUI's own Pick column.
+"no dry picks"/"too dark to finish"/generic messages.
 
 Since 2026-09-27 a scraped day with no pick is still an object, with `"time":
 null`, its `"window"` and, when candidates existed but none was playable,
@@ -76,7 +90,7 @@ open (nearly all, not all, carry the notice; none when fully locked) and its "to
 like the TUI's rows do. A day with no availability
 rules and no too-late slot stays `null`; with one it is an object with `"time": null`:
 
-    {"2026-10-06": {"time": "16:00", "score": 0.0, "reasons": [], "window": {...},
+    {"2026-10-06": {"time": "16:00", "score": 61.0, "reasons": ["dry"], "window": {...},
                     "recommended": ["16:00", "16:10"], "too_late": ["17:30", "17:40"]}}
 
 Exit code 0 whenever the script actually ran, even if every date came back
@@ -214,7 +228,9 @@ def main(argv: list[str] | None = None) -> None:
         }
         if playable:
             top = playable[0]
-            entry.update({"time": top.slot.time, "score": top.score, "reasons": top.reasons})
+            entry.update({"time": top.slot.time, "score": top.score, "reasons": top.quality_reasons})
+            if top.reasons:  # the AI's own sentences, see the module docstring
+                entry["ai_reasons"] = top.reasons
         elif candidates:
             entry["unplayable"] = sorted(recommend.unplayable_reasons(candidates, [schedule], config))
             # A shorter round on a sibling course that still finishes before dark

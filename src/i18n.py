@@ -106,6 +106,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "overview.hint_alternative": "A shorter round still fits before dark on {courses}.",
         # The same sentence as the GUI tooltip, for #row-detail (2026-10-05).
         "overview.pick_alternative": "Too dark to finish here — a shorter round still fits: {time} on {course} ({holes} holes).",
+        # Why the Pick is the Pick (2026-10-05, quality.py): the #row-detail sentence and the GUI's
+        # tooltip; the reasons are joined with " · ".
+        "overview.pick_reasons": "Picked for: {reasons}",
+        "quality.reason.dry": "dry",
+        "quality.reason.calm": "calm",
+        "quality.reason.mild": "mild",
+        "quality.reason.room_around": "room around you",
+        "quality.reason.quiet": "quiet hour",
+        "quality.reason.daylight_spare": "daylight to spare",
         # A day that isn't bookable yet (2026-10-05): the Pick cell's "🔒 Wed 21:00" and its
         # sentence, shared with the GUI's tooltip. {when} is "Wed 21:00", "today 20:00" or,
         # when the club names no hour, just "Wed".
@@ -443,6 +452,15 @@ _STRINGS: dict[str, dict[str, str]] = {
         "overview.pick_holes": "{n}L",
         "overview.hint_alternative": "Eine kürzere Runde passt noch vor Sonnenuntergang auf {courses}.",
         "overview.pick_alternative": "Zu dunkel zum Fertigspielen — eine kürzere Runde passt noch: {time} auf {course} ({holes} Loch).",
+        # Why the Pick is the Pick (2026-10-05, quality.py): the #row-detail sentence and the GUI's
+        # tooltip; the reasons are joined with " · ".
+        "overview.pick_reasons": "Gewählt wegen: {reasons}",
+        "quality.reason.dry": "trocken",
+        "quality.reason.calm": "kaum Wind",
+        "quality.reason.mild": "mild",
+        "quality.reason.room_around": "viel Platz um dich",
+        "quality.reason.quiet": "ruhige Stunde",
+        "quality.reason.daylight_spare": "Tageslicht in Reserve",
         "lock.today": "heute",
         "lock.month.1": "Jan",
         "lock.month.2": "Feb",
