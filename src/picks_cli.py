@@ -3,15 +3,16 @@
 
 Direct follow-up: the TUI's Overview has shown a "★ HH:MM" recommended pick per
 day (best still-playable slot, AI-ranked with `reasons` once `ai_assist.enabled`)
-since 2026-09-08 (`tui.py`'s `_day_pick_text()`/`_availability_pipeline()`), but
+since 2026-09-08 (`tui.py`'s `_day_pick_text()`, `pipeline.py`'s `_availability_pipeline()`), but
 the GUI's Overview never had an equivalent — surfaced once AI ranking actually
 started working end to end and there was still nothing to see in the Overview
 itself (only the ad hoc Search sheet, which already goes through
 `recommend.ranked_matches()` via `search_cli.py`).
 
-Reuses `tui._availability_pipeline()` directly, the exact function
+Reuses `pipeline._availability_pipeline()` directly, the exact function
 `_day_pick_text()` itself calls, rather than reimplementing the selection --
-this can never drift from what the TUI would show for the same data. `--db-path`/
+this can never drift from what the TUI would show for the same data. (Since
+2026-10-05 it imports `pipeline.py`, not the Textual `tui.py`.) `--db-path`/
 `--club-slug`/`--course`/`--from`/`--days` are the same flags `search_cli.py`
 already takes, same reasoning: `_resolved_config()` builds the identical merged
 config either script would use for this club.
@@ -74,13 +75,10 @@ the same rules `_availability_pipeline()` itself checks against.
 
 import json
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
-from . import booking_window, recommend, storage
-from . import tui as tui_module
-
-_NOW = lambda: datetime.now(UTC)  # noqa: E731 — patched in tests, like tui._NOW_UTC
+from . import booking_window, clock, pipeline, recommend, storage
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -103,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     club_id = Path(db_path).stem
-    config = tui_module._resolved_config(club_slug)
+    config = pipeline._resolved_config(club_slug)
     # Checked once, up front, rather than per date: a config with no `availability`
     # block at all short-circuits every date to `None` immediately, same as
     # _day_pick_text()'s own early return, without loading a single schedule first.
@@ -117,7 +115,7 @@ def main(argv: list[str] | None = None) -> None:
     # pipeline result computed just above it instead of ranking the day twice.
     cache: dict = {}
     tz = booking_window.club_timezone(config)
-    now = _NOW()
+    now = clock.now_utc()
     for offset in range(days):
         one_date = (start + timedelta(days=offset)).isoformat()
         schedule = storage.load_latest_schedule(course, one_date, path=Path(db_path))
@@ -140,7 +138,7 @@ def main(argv: list[str] | None = None) -> None:
             picks[one_date] = None
             continue
         schedules.append(schedule)
-        candidates, playable = tui_module._availability_pipeline(schedule, config, club_id, cache)
+        candidates, playable = pipeline._availability_pipeline(schedule, config, club_id, cache)
         # Every day with a schedule gets an object now, pick or not (2026-09-27,
         # bundle C of the TUI/GUI consistency audit): `window` is what the GUI
         # dims out-of-window slots and scrolls to on expand with -- decided here
@@ -161,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
             # A shorter round on a sibling course that still finishes before dark
             # (2026-10-05) -- only ever on a day ruled out by daylight alone. Same
             # helper the TUI's Pick column calls, against this --db-path.
-            alternative = tui_module._shorter_round_alternative(
+            alternative = pipeline._shorter_round_alternative(
                 schedule, config, club_id, cache, db_path=Path(db_path)
             )
             if alternative is not None:

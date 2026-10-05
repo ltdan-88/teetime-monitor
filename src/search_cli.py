@@ -35,17 +35,19 @@ skipping any date nothing's been scraped for yet. Keeps the boundary small (type
 criteria in, matches out) rather than round-tripping a whole schedule list through
 JSON on every search.
 
-`--club-slug` resolves the exact same merged config `_resolved_config()` builds for
-the TUI (club YAML `availability`/`preferences`/`ai_assist`/`round_duration_minutes`
-shallow-merged with global preferences) — reused directly, not re-derived, so this
-can never drift from what the TUI itself would compute for the same club.
+`--club-slug` resolves the exact same merged config `pipeline._resolved_config()`
+builds for the TUI (club YAML `availability`/`preferences`/`ai_assist`/
+`round_duration_minutes` shallow-merged with global preferences) — reused directly,
+not re-derived, so this can never drift from what the TUI itself would compute for
+the same club. (Since 2026-10-05 this script imports `pipeline.py`, not the Textual
+`tui.py`.)
 
 **`crowd_estimates` (real as of 2026-09-25, previously a flagged gap here):** this
 *is* a live network fetch (`analytics.crowd_heatmap()` needs a club's public
 holidays), but that's no obstacle for a script that's allowed to block — the
 "offline" framing that used to justify skipping it was really about not adding
 network I/O to a call site (`OverviewScreen`'s render path) that runs on every
-table redraw, not about this CLI specifically. `tui._crowd_estimates()` — the
+table redraw, not about this CLI specifically. `pipeline._crowd_estimates()` — the
 exact function `SearchScreen._run_search()` itself calls — is reused directly, so
 this can't drift from what the TUI computes for the same club; it already gates
 itself on `ai_assist.avoid_predicted_crowd`, same as there. Its `db_path` is
@@ -72,8 +74,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import storage
-from . import tui as tui_module
+from . import pipeline, storage
 from .models import TimeWindow
 from .recommend import only_with_friend, only_with_player, ranked_matches
 from .search import SearchCriteria
@@ -122,7 +123,7 @@ def main(argv: list[str] | None = None) -> None:
 
     criteria = _criteria_from_payload(payload)
     club_id = Path(db_path).stem
-    config = tui_module._resolved_config(club_slug)
+    config = pipeline._resolved_config(club_slug)
 
     start = date.fromisoformat(from_date)
     schedules = []
@@ -132,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
         if schedule is not None:
             schedules.append(schedule)
 
-    crowd_estimates = tui_module._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
+    crowd_estimates = pipeline._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
     friend_names = storage.load_friend_names(path=Path(db_path))
     known_handicaps = storage.load_known_handicaps(path=Path(db_path))
     my_handicap = storage.load_my_handicap(path=Path(db_path))

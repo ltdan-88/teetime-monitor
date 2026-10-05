@@ -373,6 +373,7 @@ python -m src.tui
 ```
 src/
 ├── tui.py                    # die Anwendung -- Club-Suche, Übersicht, Suche, Heatmap
+├── pipeline.py / clock.py    # Empfehlungslogik ohne UI (nutzen die CLIs); Zeit-Schnittstelle
 ├── scraper.py                # Abruf, Login, Auswertung der Startliste
 ├── scrape_once.py            # geplanter Abruf + Abgleich mit „Meine Reservierungen"
 ├── storage.py                # SQLite-Persistenz

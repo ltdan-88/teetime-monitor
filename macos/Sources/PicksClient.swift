@@ -67,7 +67,7 @@ struct PicksResult {
 }
 
 /// Shells out to `teetime-monitor-picks`, the Tier 2 console script wrapping
-/// `tui._availability_pipeline()` -- same hybrid split `SearchClient` already
+/// `pipeline._availability_pipeline()` -- same hybrid split `SearchClient` already
 /// follows, for the same reason: the pick selection (hard filters, weather/daylight
 /// playability, AI ranking) is real, non-trivial business logic this app doesn't
 /// reimplement, and reusing the exact function `_day_pick_text()` itself calls means

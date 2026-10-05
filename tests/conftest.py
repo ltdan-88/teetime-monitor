@@ -3,22 +3,23 @@
 Added 2026-09-16 during a full-project audit, which found the suite was
 *time-of-day dependent*: green when run before 21:00 local, red after it.
 `OverviewScreen._render_table()` drops today's own row entirely once
-`tui._NOW_HHMM() > tui.TODAY_HIDDEN_AFTER_HHMM` ("21:00") — a real, wanted
+`clock.now_hhmm() > tui.TODAY_HIDDEN_AFTER_HHMM` ("21:00") — a real, wanted
 feature (2026-09-11: "I would prefer that the current day disappears ...
 whenever it is after 9 pm") — but ~34 tests build their fixtures around
-`tui._TODAY()` and assert on a row count or a column width that silently
+`clock.today()` and assert on a row count or a column width that silently
 changes once that cutoff passes. Nothing was wrong with the app; the tests
 just read the real wall clock.
 
-Freezing `_NOW_HHMM` for every test fixes the whole class at once rather than
-patching each affected test. 08:00 is deliberately early: before the cutoff,
+Freezing `clock.now_hhmm` (the one seam `tui.py` and `pipeline.py` both read,
+2026-10-05) for every test fixes the whole class at once rather than patching
+each affected test. 08:00 is deliberately early: before the cutoff,
 so today's row is always present, and before any realistic tee time, so
 `_initial_date()`'s own "every slot has already passed" heuristic doesn't
 kick in either.
 
 A test that genuinely cares about a *different* time of day (the "today
 disappears after 9pm" tests, `_initial_date()`'s own cases) still
-monkeypatches `_NOW_HHMM` itself in its own body — that runs after this
+monkeypatches `clock.now_hhmm` itself in its own body — that runs after this
 fixture and wins, so those keep testing exactly what they always did.
 """
 
@@ -27,6 +28,7 @@ import sys
 import pytest
 
 from src import (
+    clock,
     club_config,
     club_directory,
     env_file,
@@ -34,8 +36,8 @@ from src import (
     global_preferences,
     i18n,
     paths,
+    pipeline,
     scrape_once,
-    tui,
 )
 
 # Well before TODAY_HIDDEN_AFTER_HHMM ("21:00") and before any realistic tee
@@ -45,7 +47,7 @@ FROZEN_NOW_HHMM = "08:00"
 
 @pytest.fixture(autouse=True)
 def _frozen_clock(monkeypatch):
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: FROZEN_NOW_HHMM)
+    monkeypatch.setattr(clock, "now_hhmm", lambda: FROZEN_NOW_HHMM)
 
 
 @pytest.fixture(autouse=True)
@@ -128,23 +130,23 @@ def _no_real_credentials_by_default(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_stale_holiday_cache(monkeypatch):
-    """`tui._HOLIDAY_CACHE` is deliberate process-lifetime state (see its own
+    """`pipeline._HOLIDAY_CACHE` is deliberate process-lifetime state (see its own
     docstring) -- exactly the kind of module-level global that leaks between
     tests in the same pytest process. Caught before it could actually bite:
     `test_holidays_for_club_returns_the_fetched_list` and
     `test_holidays_for_club_returns_empty_list_on_a_failed_fetch` both use
-    country_code "DE" against the same frozen `_TODAY()` year (see
+    country_code "DE" against the same frozen `clock.today()` year (see
     `_frozen_clock` above) -- without this, whichever of the two runs first
     would cache its own result under that (country_code, year) key, and the
     other would silently read the first one's cached list back instead of
     exercising its own mocked `fetch_public_holidays()` at all.
     """
-    monkeypatch.setattr(tui, "_HOLIDAY_CACHE", {})
+    monkeypatch.setattr(pipeline, "_HOLIDAY_CACHE", {})
 
 
 @pytest.fixture(autouse=True)
 def _no_stale_heatmap_cache(monkeypatch):
-    """`tui._HEATMAP_CACHE` is deliberate process-lifetime state (see its own
+    """`pipeline._HEATMAP_CACHE` is deliberate process-lifetime state (see its own
     docstring), so it leaks between tests exactly like `_HOLIDAY_CACHE` above.
 
     Its key includes the database's own (mtime_ns, size), which makes a real stale
@@ -153,7 +155,7 @@ def _no_stale_heatmap_cache(monkeypatch):
     same fingerprint within one run. Isolating it costs nothing and removes the
     question entirely, rather than relying on that argument holding forever.
     """
-    monkeypatch.setattr(tui, "_HEATMAP_CACHE", {})
+    monkeypatch.setattr(pipeline, "_HEATMAP_CACHE", {})
 
 
 @pytest.fixture(autouse=True)

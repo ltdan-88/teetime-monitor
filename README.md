@@ -362,6 +362,7 @@ python -m src.tui
 ```
 src/
 ├── tui.py                    # the app -- club browser, overview, search, heatmap
+├── pipeline.py / clock.py    # headless recommendation logic (what the CLIs import); the time seam
 ├── scraper.py                # fetch, login, tee-sheet parsing
 ├── scrape_once.py            # scheduled scrape + "My Reservations" sync
 ├── storage.py                # SQLite persistence

@@ -9,7 +9,7 @@ from textual.app import App, ComposeResult
 from textual.command import CommandPalette
 from textual.widgets import Button, DataTable, Input, Label, OptionList, Select, Static, Switch
 
-from src import env_file, i18n, scrape_once, storage, theme, tui, user_config
+from src import clock, env_file, geocode, i18n, pipeline, scrape_once, storage, theme, tui, user_config
 from src.club_config import list_clubs as _real_list_clubs
 from src.club_config import load_club_config as _real_load_club_config
 from src.club_config import save_club_config as _real_save_club_config
@@ -222,16 +222,16 @@ async def _reach_overview(app, pilot, club_id="0000001"):
 
 def test_initial_date_returns_today_when_no_cached_schedule(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == clock.today()
 
 
 def test_initial_date_returns_today_when_a_slot_is_still_upcoming(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "14:00")
-    schedule = Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="15:00", booked=0, capacity=4)])
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "14:00")
+    schedule = Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="15:00", booked=0, capacity=4)])
     storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
 
-    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == clock.today()
 
 
 def test_initial_date_returns_tomorrow_when_every_slot_has_passed(tmp_path, monkeypatch):
@@ -239,11 +239,11 @@ def test_initial_date_returns_tomorrow_when_every_slot_has_passed(tmp_path, monk
     from datetime import timedelta
 
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
-    schedule = Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "22:00")
+    schedule = Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
     storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
 
-    expected = (date_cls.fromisoformat(tui._TODAY()) + timedelta(days=1)).isoformat()
+    expected = (date_cls.fromisoformat(clock.today()) + timedelta(days=1)).isoformat()
     assert tui._initial_date("0000001", "18 Loch Tee 1") == expected
 
 
@@ -251,11 +251,11 @@ def test_initial_date_ignores_a_different_course(tmp_path, monkeypatch):
     # Every slot passed, but for a different course -- today's own course has no
     # cached schedule yet, so this should still return today, not tomorrow.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "22:00")
-    schedule = Schedule(date=tui._TODAY(), course="9 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "22:00")
+    schedule = Schedule(date=clock.today(), course="9 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)])
     storage.save_schedule(schedule, path=scrape_once._db_path("0000001"))
 
-    assert tui._initial_date("0000001", "18 Loch Tee 1") == tui._TODAY()
+    assert tui._initial_date("0000001", "18 Loch Tee 1") == clock.today()
 
 
 # --- Per-slot rendering helpers -- shared by both OverviewScreen's own expanded
@@ -448,8 +448,8 @@ def test_compute_slot_rows_placeholder_for_a_block_reason_with_no_label():
 
 
 def test_compute_slot_rows_dims_past_slots_on_todays_date(monkeypatch):
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "11:18")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "11:18")
     schedule = Schedule(
         date="2026-09-07",
         course="18 Loch Tee 1",
@@ -470,16 +470,16 @@ def test_compute_slot_rows_does_not_dim_slots_on_a_different_date(monkeypatch):
     # "Today" is tomorrow relative to this schedule's own date -- late in the day,
     # so every slot would be "in the past" if the check didn't first confirm the
     # schedule's own date is even today at all.
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-08")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "23:59")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-08")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "23:59")
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="06:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", set(), None)
     assert rows[0].time_cell == "   06:00"
 
 
 def test_compute_slot_rows_dims_a_blocked_past_slot_too(monkeypatch):
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "16:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "16:00")
     schedule = Schedule(
         date="2026-09-07", course="18 Loch Tee 1",
         slots=[Slot(time="15:30", booked=4, capacity=4, block_reason="Golf Beginner Kurs")],
@@ -494,8 +494,8 @@ def test_compute_slot_rows_appends_the_crowd_marker_to_occupancy(monkeypatch):
     # into the timeslots in overview screen?" -- crowd_estimates is an optional
     # trailing parameter (default None), so every other test in this section
     # above keeps working unchanged.
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     crowd_estimates = {("2026-09-07", "18 Loch Tee 1", "09:00"): 1.0}  # "full"
 
@@ -509,8 +509,8 @@ def test_compute_slot_rows_omits_the_crowd_marker_for_a_past_slot(monkeypatch):
     # A past slot's real occupancy is already final -- a "usually busy" note
     # isn't actionable for a slot that's already gone, same reasoning ★/🌙
     # already skip past slots for.
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "11:18")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "11:18")
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
     crowd_estimates = {("2026-09-07", "18 Loch Tee 1", "09:00"): 1.0}
 
@@ -526,8 +526,8 @@ def test_compute_slot_rows_stars_a_recommended_slot():
 
 
 def test_compute_slot_rows_does_not_star_a_past_matching_slot(monkeypatch):
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "15:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "15:00")
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="14:00", booked=0, capacity=4)])
     rows = tui._compute_slot_rows(schedule, {}, "metric", "2026-09-07", {"14:00"}, None)
     # Still dimmed (it's past), but not starred -- recommending something already
@@ -1013,7 +1013,7 @@ def test_resolved_config_still_applies_global_preferences_to_an_unsaved_club(mon
 
 def test_resolved_config_geocodes_an_unsaved_club_from_its_name(monkeypatch, tmp_path):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: (48.78, 9.68))
+    monkeypatch.setattr(geocode, "find_club_location", lambda name: (48.78, 9.68))
 
     config = tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
 
@@ -1023,7 +1023,7 @@ def test_resolved_config_geocodes_an_unsaved_club_from_its_name(monkeypatch, tmp
 def test_resolved_config_caches_the_geocoded_location_for_next_time(monkeypatch, tmp_path):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     calls = []
-    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: calls.append(name) or (48.78, 9.68))
+    monkeypatch.setattr(geocode, "find_club_location", lambda name: calls.append(name) or (48.78, 9.68))
 
     tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
     tui._resolved_config(None, "0000002", "Golfclub Sonnenberg e.V.")
@@ -1040,7 +1040,7 @@ def test_resolved_config_skips_geocoding_without_a_name(monkeypatch, tmp_path):
     def fail(name):
         raise AssertionError("should not have tried to geocode without a name")
 
-    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+    monkeypatch.setattr(geocode, "find_club_location", fail)
 
     config = tui._resolved_config(None, "0000002", "")
 
@@ -1056,7 +1056,7 @@ def test_resolved_config_does_not_override_a_location_already_saved(monkeypatch,
     def fail(name):
         raise AssertionError("should not have re-geocoded a club that already has a saved location")
 
-    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+    monkeypatch.setattr(geocode, "find_club_location", fail)
 
     config = tui._resolved_config("home-club", "0000002", "Golfclub Sonnenberg e.V.")
 
@@ -1069,7 +1069,7 @@ def test_resolved_config_fills_in_a_missing_location_even_for_a_saved_club(monke
     # or not clubs/*.yaml exists at all.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: {})
-    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: (48.78, 9.68))
+    monkeypatch.setattr(geocode, "find_club_location", lambda name: (48.78, 9.68))
 
     config = tui._resolved_config("home-club", "0000002", "Golfclub Sonnenberg e.V.")
 
@@ -1080,15 +1080,15 @@ def test_resolved_config_remembers_a_failed_geocode_until_the_retry_interval(mon
     # _config() runs on the UI thread on every resize/expand/confirm: an un-
     # geocodable name used to mean a fresh blocking Nominatim request each time.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "_GEOCODE_FAILURES", {})
+    monkeypatch.setattr(pipeline, "_GEOCODE_FAILURES", {})
     calls = []
-    monkeypatch.setattr(tui.geocode, "find_club_location", lambda name: calls.append(name) or None)
+    monkeypatch.setattr(geocode, "find_club_location", lambda name: calls.append(name) or None)
 
     tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
     tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
     assert calls == ["Golfclub Nirgendwo"]
 
-    monkeypatch.setattr(tui, "_GEOCODE_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(pipeline, "_GEOCODE_RETRY_SECONDS", 0.0)
     tui._resolved_config(None, "0000002", "Golfclub Nirgendwo")
     assert len(calls) == 2  # retried once the interval passed
 
@@ -1101,7 +1101,7 @@ def test_resolved_config_never_geocodes_the_slug_fallback_name(monkeypatch, tmp_
     def fail(name):
         raise AssertionError("should not have geocoded a slug")
 
-    monkeypatch.setattr(tui.geocode, "find_club_location", fail)
+    monkeypatch.setattr(geocode, "find_club_location", fail)
 
     assert "location" not in tui._resolved_config(None, "0000002", "club-0000002")
 
@@ -1324,7 +1324,7 @@ def _locked_schedule(date: str, reason: str = _LOCK_NOTICE, count: int = 30) -> 
 @pytest.fixture
 def _scrape_clock(monkeypatch):
     """18:28 CEST on Mon 2026-10-05 -- the observed scrape (16:28 UTC)."""
-    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 16, 28, tzinfo=UTC))
+    monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 10, 5, 16, 28, tzinfo=UTC))
 
 
 def test_day_pick_text_shows_when_a_locked_day_opens_later_today(_scrape_clock):
@@ -1372,12 +1372,12 @@ def test_day_pick_text_a_confirmed_booking_beats_the_lock(_scrape_clock):
 
 
 def test_day_pick_text_no_lock_once_the_day_has_opened(monkeypatch):
-    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 18, 0, tzinfo=UTC))  # 20:00 CEST
+    monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 10, 5, 18, 0, tzinfo=UTC))  # 20:00 CEST
     assert tui._day_pick_text(_locked_schedule("2026-10-09"), {}, None, False, "0000001") == "[dim]—[/]"
 
 
 def test_day_pick_text_lock_follows_the_club_timezone(monkeypatch):
-    monkeypatch.setattr(tui, "_NOW_UTC", lambda: datetime(2026, 10, 5, 18, 30, tzinfo=UTC))
+    monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 10, 5, 18, 30, tzinfo=UTC))
     schedule = _locked_schedule("2026-10-09")
     assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"  # Berlin: opened 18:00 UTC
     assert tui._day_pick_text(schedule, {"timezone": "Europe/Lisbon"}, None, False, "0000001") == "[dim]🔒 today 20:00[/]"
@@ -1428,7 +1428,7 @@ def test_overview_legend_lists_the_lock():
 def test_overview_screen_shows_the_lock_and_names_the_opening_in_row_detail(tmp_path, monkeypatch, _scrape_clock):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-10-05")
+    monkeypatch.setattr(clock, "today", lambda: "2026-10-05")
     monkeypatch.setattr(tui.OverviewScreen, "_config", lambda self: {"overview_days": 6})
     storage.save_schedule(_locked_schedule("2026-10-10"), path=scrape_once._db_path("0000001"))
 
@@ -1757,7 +1757,7 @@ def test_overview_screen_shows_temperature_precipitation_wind_and_events_columns
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -1802,7 +1802,7 @@ def test_overview_screen_events_column_uses_full_width_when_the_terminal_is_wide
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -1836,7 +1836,7 @@ def test_overview_screen_events_column_caps_and_wraps_when_the_terminal_is_too_n
     long_event_name = "Vierer-Clubmeisterschaften 2026 Runde 1 Qualifikation Herren und Damen"
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -1870,7 +1870,7 @@ def test_overview_screen_drops_events_on_a_terminal_too_narrow_for_it(tmp_path, 
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -1929,7 +1929,7 @@ def test_overview_screen_expanded_day_never_runs_wider_than_its_viewport(tmp_pat
     many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[
                 Slot(time=f"{hour:02d}:{minute:02d}", booked=4, capacity=4, players=many_players)
@@ -1946,7 +1946,7 @@ def test_overview_screen_expanded_day_never_runs_wider_than_its_viewport(tmp_pat
         async with app.run_test(size=(120, 24)) as pilot:
             await pilot.pause()
             screen = app.screen
-            screen._expanded_dates = {tui._TODAY()}
+            screen._expanded_dates = {clock.today()}
             await screen.load_overview(keep_cursor=True)
             await pilot.pause()
             table = screen.query_one("#overview-table", DataTable)
@@ -1962,7 +1962,7 @@ def _two_too_late_weekdays(tmp_path, monkeypatch):
     own situation found in the 2026-09-27 audit (latest start ~14:40)."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-28")
     monkeypatch.setattr(
         tui.OverviewScreen, "_config",
         lambda self: {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30},
@@ -2004,7 +2004,7 @@ def test_overview_hint_and_picks_cli_hint_agree_when_a_day_is_locked(tmp_path, m
 
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-28")
     config = {
         "availability": {"weekday_window": {"after": "16:00"}},
         "daylight_buffer_minutes": 30,
@@ -2012,9 +2012,9 @@ def test_overview_hint_and_picks_cli_hint_agree_when_a_day_is_locked(tmp_path, m
     }
     monkeypatch.setattr(tui.OverviewScreen, "_config", lambda self: config)
     monkeypatch.setattr(tui, "_resolved_config", lambda *a, **k: config)
+    monkeypatch.setattr(pipeline, "_resolved_config", lambda *a, **k: config)  # picks_cli reads it from pipeline
     now = datetime(2026, 9, 28, 9, 0, tzinfo=UTC)  # 11:00 CEST
-    monkeypatch.setattr(tui, "_NOW_UTC", lambda: now)
-    monkeypatch.setattr(picks_cli, "_NOW", lambda: now)
+    monkeypatch.setattr(clock, "now_utc", lambda: now)
     sun = SunTimes(sunrise="07:20", sunset="19:10")
     db = scrape_once._db_path("0000001")
     storage.save_schedule(
@@ -2085,7 +2085,7 @@ def test_overview_screen_names_a_single_days_shorter_round_course_in_row_detail(
     #row-detail does, the TUI's stand-in for the GUI badge's tooltip."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-28")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-28")
     monkeypatch.setattr(
         tui.OverviewScreen, "_config",
         lambda self: {"availability": {"weekday_window": {"after": "16:00"}}, "daylight_buffer_minutes": 30},
@@ -2202,7 +2202,7 @@ def test_overview_screen_rows_stay_one_line_with_the_full_text_on_row_detail(tmp
     many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=4, capacity=4, players=many_players)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -2215,7 +2215,7 @@ def test_overview_screen_rows_stay_one_line_with_the_full_text_on_row_detail(tmp
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             screen = app.screen
-            screen._expanded_dates = {tui._TODAY()}
+            screen._expanded_dates = {clock.today()}
             await screen.load_overview(keep_cursor=True)
             await pilot.pause()
             table = screen.query_one("#overview-table", DataTable)
@@ -2245,7 +2245,7 @@ def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_pa
     many_players = ["Christel Römer-Dold", "Gertrud Zimmermann", "Geraldine Piper", "Margit Kraut"]
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=4, capacity=4, players=many_players)],
             weather=[_weather("09:00", prob=5, temp=20.0, wind=40, code=1)],
@@ -2258,7 +2258,7 @@ def test_overview_screen_pick_column_gets_free_space_events_does_not_need(tmp_pa
         async with app.run_test(size=(100, 24)) as pilot:
             await pilot.pause()
             screen = app.screen
-            screen._expanded_dates = {tui._TODAY()}
+            screen._expanded_dates = {clock.today()}
             await screen.load_overview(keep_cursor=True)
             await pilot.pause()
             table = screen.query_one("#overview-table", DataTable)
@@ -2328,7 +2328,7 @@ def test_switcher_status_readout_reflows_on_resize(tmp_path, monkeypatch):
 
 def test_overview_screen_greys_out_a_date_the_club_has_not_opened_yet(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [tui._TODAY()])  # only today
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [clock.today()])  # only today
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
@@ -2366,10 +2366,10 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
     them -- no separate screen involved either way."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
         Schedule(
-            date=tui._TODAY(),
+            date=clock.today(),
             course="18 Loch Tee 1",
             slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="09:10", booked=4, capacity=4)],
         ),
@@ -2383,19 +2383,19 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
             table = app.screen.query_one("#overview-table", DataTable)
             table.focus()
             collapsed_row_count = table.row_count
-            assert app.screen._row_index[0] == (tui._TODAY(), None)
+            assert app.screen._row_index[0] == (clock.today(), None)
 
             await pilot.press("enter")
             await pilot.pause()
             assert table.row_count == collapsed_row_count + 2  # today's own 2 slots inserted
-            assert app.screen._row_index[1] == (tui._TODAY(), "09:00")
-            assert app.screen._row_index[2] == (tui._TODAY(), "09:10")
-            assert tui._TODAY() in app.screen._expanded_dates
+            assert app.screen._row_index[1] == (clock.today(), "09:00")
+            assert app.screen._row_index[2] == (clock.today(), "09:10")
+            assert clock.today() in app.screen._expanded_dates
 
             await pilot.press("enter")  # same row -- cursor didn't move
             await pilot.pause()
             assert table.row_count == collapsed_row_count
-            assert tui._TODAY() not in app.screen._expanded_dates
+            assert clock.today() not in app.screen._expanded_dates
 
     _run(scenario())
 
@@ -2403,8 +2403,8 @@ def test_overview_screen_enter_expands_and_collapses_a_day_row_in_place(tmp_path
 def test_sticky_header_appears_once_scrolled_past_the_expanded_days_own_row(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     db_path = scrape_once._db_path("0000001")
     # Many slots, so the expanded day's own rows overflow a short terminal --
     # real scrolling is the whole point of this test, not just a couple of rows
@@ -2464,8 +2464,8 @@ def test_sticky_header_appears_once_scrolled_past_the_expanded_days_own_row(tmp_
 def test_sticky_header_matches_the_column_widths_overview_table_itself_uses(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     db_path = scrape_once._db_path("0000001")
     slots = [Slot(time=f"{h:02d}:{m:02d}", booked=0, capacity=4) for h in range(7, 19) for m in (0, 30)]
     storage.save_schedule(Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=slots), path=db_path)
@@ -2497,8 +2497,8 @@ def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_c
     # the AI-ranking use of the same prediction still does.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-07")  # a Monday
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-07")  # a Monday
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     db_path = scrape_once._db_path("0000001")
     for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 prior Mondays, always full
         storage.save_schedule(
@@ -2565,9 +2565,9 @@ def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, mon
     highlighted row, reached here through the overview instead."""
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2583,7 +2583,7 @@ def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, mon
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.ConfirmBookingScreen)
-            assert app.screen.date == tui._TODAY()
+            assert app.screen.date == clock.today()
             assert app.screen.default_time == "09:00"
 
     _run(scenario())
@@ -2592,9 +2592,9 @@ def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, mon
 def test_overview_screen_enter_derives_holes_from_a_nine_hole_course(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="9 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="9 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2620,13 +2620,13 @@ def test_overview_screen_enter_on_an_already_confirmed_slot_offers_to_cancel_it(
     # for its own highlighted row, ported here once that screen was retired.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
     storage.save_confirmed_booking(
-        ConfirmedBooking(date=tui._TODAY(), course="18 Loch Tee 1", time="09:00", source="manual"),
+        ConfirmedBooking(date=clock.today(), course="18 Loch Tee 1", time="09:00", source="manual"),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2642,7 +2642,7 @@ def test_overview_screen_enter_on_an_already_confirmed_slot_offers_to_cancel_it(
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, tui.CancelBookingScreen)
-            assert app.screen.date == tui._TODAY()
+            assert app.screen.date == clock.today()
             assert app.screen.time == "09:00"
 
     _run(scenario())
@@ -2651,13 +2651,13 @@ def test_overview_screen_enter_on_an_already_confirmed_slot_offers_to_cancel_it(
 def test_overview_screen_cancel_booking_screen_keep_dismisses_without_changing_anything(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
     storage.save_confirmed_booking(
-        ConfirmedBooking(date=tui._TODAY(), course="18 Loch Tee 1", time="09:00", source="manual", confirmed_at="t1"),
+        ConfirmedBooking(date=clock.today(), course="18 Loch Tee 1", time="09:00", source="manual", confirmed_at="t1"),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2679,21 +2679,21 @@ def test_overview_screen_cancel_booking_screen_keep_dismisses_without_changing_a
 
     _run(scenario())
 
-    still_confirmed = storage.load_confirmed_booking("18 Loch Tee 1", tui._TODAY(), path=scrape_once._db_path("0000001"))
+    still_confirmed = storage.load_confirmed_booking("18 Loch Tee 1", clock.today(), path=scrape_once._db_path("0000001"))
     assert still_confirmed is not None and still_confirmed.time == "09:00"
 
 
 def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_sentinel(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
     storage.save_confirmed_booking(
         ConfirmedBooking(
-            date=tui._TODAY(), course="18 Loch Tee 1", time="09:00", source="my_reservations", confirmed_at="t1"
+            date=clock.today(), course="18 Loch Tee 1", time="09:00", source="my_reservations", confirmed_at="t1"
         ),
         path=scrape_once._db_path("0000001"),
     )
@@ -2715,16 +2715,16 @@ def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_se
 
     _run(scenario())
 
-    cancelled = storage.load_confirmed_booking("18 Loch Tee 1", tui._TODAY(), path=scrape_once._db_path("0000001"))
+    cancelled = storage.load_confirmed_booking("18 Loch Tee 1", clock.today(), path=scrape_once._db_path("0000001"))
     assert cancelled is not None and cancelled.time is None
 
 
 def test_overview_screen_highlights_todays_row_when_today_still_has_upcoming_slots(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2752,9 +2752,9 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
     # simply a side effect of that, not this function's own doing.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "20:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "20:00")
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="19:50", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
 
@@ -2780,7 +2780,7 @@ def test_overview_screen_highlights_tomorrows_row_once_today_is_fully_closed(tmp
 def test_overview_screen_drops_todays_row_once_past_the_cutoff(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "21:01")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "21:01")
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
@@ -2789,7 +2789,7 @@ def test_overview_screen_drops_todays_row_once_past_the_cutoff(tmp_path, monkeyp
             table = app.screen.query_one("#overview-table", DataTable)
             # Today's own row is gone entirely -- not just deprioritized -- so only
             # the remaining overview_days - 1 rows (tomorrow onward) show at all.
-            assert tui._TODAY() not in app.screen._row_dates
+            assert clock.today() not in app.screen._row_dates
             assert table.row_count == 4
 
     _run(scenario())
@@ -2799,13 +2799,13 @@ def test_overview_screen_keeps_todays_row_exactly_at_the_cutoff(tmp_path, monkey
     # TODAY_HIDDEN_AFTER_HHMM itself is still shown -- only strictly *after* it hides.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: tui.TODAY_HIDDEN_AFTER_HHMM)
+    monkeypatch.setattr(clock, "now_hhmm", lambda: tui.TODAY_HIDDEN_AFTER_HHMM)
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert tui._TODAY() in app.screen._row_dates
+            assert clock.today() in app.screen._row_dates
 
     _run(scenario())
 
@@ -2813,13 +2813,13 @@ def test_overview_screen_keeps_todays_row_exactly_at_the_cutoff(tmp_path, monkey
 def test_overview_screen_keeps_todays_row_well_before_the_cutoff(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert tui._TODAY() in app.screen._row_dates
+            assert clock.today() in app.screen._row_dates
 
     _run(scenario())
 
@@ -5685,7 +5685,7 @@ def test_holidays_for_club_remembers_a_failed_fetch_until_the_retry_interval(mon
     assert len(calls) == 3  # the second call didn't hit the network again
 
     failing[0] = False
-    monkeypatch.setattr(tui, "_HOLIDAY_RETRY_SECONDS", 0.0)
+    monkeypatch.setattr(pipeline, "_HOLIDAY_RETRY_SECONDS", 0.0)
     assert tui._holidays_for_club(config) == ["2026-01-01"]
     assert len(calls) == 6
 
@@ -5719,26 +5719,26 @@ def test_overview_render_never_fetches_holidays_on_the_event_loop(tmp_path, monk
 
     monkeypatch.setattr(tui.calendar_context, "fetch_public_holidays", fetch)
     storage.save_schedule(
-        Schedule(date=tui._TODAY(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
+        Schedule(date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
         path=scrape_once._db_path("0000001"),
     )
 
     # Holds off _finish_fresh_load()'s off-thread warm, so the expand below renders
     # against a cold cache.
     monkeypatch.setattr(tui, "_FIRST_SCRAPE_DELAY_SECONDS", 60)
-    monkeypatch.setattr(tui, "_NOW_HHMM", lambda: "08:00")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
         async with app.run_test() as pilot:
             await pilot.pause()
             screen = app.screen
-            screen._toggle_expanded(tui._TODAY(), screen._row_index.index((tui._TODAY(), None)))
-            assert (tui._TODAY(), "09:00") in screen._row_index  # the expanded slot row rendered
-            key = ("DE", int(tui._TODAY()[:4]))
-            assert key not in tui._HOLIDAY_CACHE
+            screen._toggle_expanded(clock.today(), screen._row_index.index((clock.today(), None)))
+            assert (clock.today(), "09:00") in screen._row_index  # the expanded slot row rendered
+            key = ("DE", int(clock.today()[:4]))
+            assert key not in pipeline._HOLIDAY_CACHE
             await screen.load_overview(keep_cursor=True)  # a background refresh warms it off-thread
-            assert key in tui._HOLIDAY_CACHE
+            assert key in pipeline._HOLIDAY_CACHE
 
     _run(scenario())
     assert on_loop == []
@@ -5747,7 +5747,7 @@ def test_overview_render_never_fetches_holidays_on_the_event_loop(tmp_path, monk
 def test_cached_crowd_heatmap_reuses_the_result_for_an_unchanged_database(tmp_path, monkeypatch):
     # Added 2026-09-17 after profiling: crowd_heatmap() walks every scraped date and
     # was being re-run once per expanded day on every render (~15ms each against real
-    # data). See tui._HEATMAP_CACHE's own docstring.
+    # data). See pipeline._HEATMAP_CACHE's own docstring.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     db_path = scrape_once._db_path("0000001")
     storage.save_schedule(
@@ -6413,7 +6413,7 @@ def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, mon
 def _overview_with_days(tmp_path, monkeypatch, dates):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(tui, "_TODAY", lambda: dates[0])
+    monkeypatch.setattr(clock, "today", lambda: dates[0])
     db_path = scrape_once._db_path("0000001")
     for date in dates:
         storage.save_schedule(
@@ -6487,7 +6487,7 @@ def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears
             await pilot.pause()
 
             # The window shrinks under the cursor -- the day it was on is gone.
-            monkeypatch.setattr(tui, "_TODAY", lambda: "2026-09-19")
+            monkeypatch.setattr(clock, "today", lambda: "2026-09-19")
             await screen.load_overview(keep_cursor=True)
             await pilot.pause()
 

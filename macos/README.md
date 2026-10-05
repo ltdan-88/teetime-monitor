@@ -455,7 +455,7 @@ real Gemini key working end to end: reasons showed up in Search, nothing
 changed in the Overview.
 
 New `teetime-monitor-picks` console script (`src/picks_cli.py`, sitting right
-next to `search_cli.py`) calls `tui._availability_pipeline()` directly for
+next to `search_cli.py`) calls `pipeline._availability_pipeline()` directly for
 each date in a window -- the exact function the TUI's own Pick column calls --
 so the GUI's pick can never disagree with what the TUI shows for the same
 data. New `PicksClient.swift` mirrors `SearchClient.swift`'s shell-out shape;
@@ -680,7 +680,7 @@ Club's own rows now do the same: each has an **Open** button (ordered first,
 same convention as that screen's own footer) alongside **Add**, either usable
 without the other. New `teetime-monitor-preview-club` console script wraps
 exactly two existing calls rather than reimplementing anything —
-`tui._resolved_config(club_slug=None, club_id, club_name)` and
+`pipeline._resolved_config(club_slug=None, club_id, club_name)` and
 `scrape_once.scrape_due_for_club(slug=None, config, force=True)`, the same two
 calls `TeetimeApp._open_club()`/`_periodic_scrape()` already make for an
 unsaved club, `slug=None` already an ordinary, handled case throughout
@@ -703,7 +703,7 @@ crowd_heatmap()` needs a live public-holidays fetch this offline-by-design CLI
 doesn't make"). That framing didn't actually hold up: nothing stops a script
 from making a live fetch, it was really about not adding one to a call site
 that runs on every table redraw (`OverviewScreen`'s own render path), which
-this CLI isn't. `tui._crowd_estimates()` — the exact function `SearchScreen.
+this CLI isn't. `pipeline._crowd_estimates()` — the exact function `SearchScreen.
 _run_search()` itself calls, gated the same way on `ai_assist.
 avoid_predicted_crowd` — is now reused directly, so AI ranking run from the
 Swift app's own Search sheet can no longer drift from what the TUI computes
@@ -1073,7 +1073,7 @@ weekday/weekend windows, buffers), edit for this one search, same "starts from y
 defaults" UX that screen shares with the Preferences screen itself. New console
 script `teetime-monitor-search` (`src/search_cli.py`) wraps the exact
 `recommend.ranked_matches()` pipeline `SearchScreen._run_search()` uses, reusing
-`tui._resolved_config()` directly for the config merge so it can't drift from what
+`pipeline._resolved_config()` directly for the config merge so it can't drift from what
 the TUI itself would compute. Only the typed criteria cross over stdin as JSON;
 schedules are loaded by the script itself straight from the club's own SQLite
 database, not round-tripped through the pipe -- results (a JSON array) come back
