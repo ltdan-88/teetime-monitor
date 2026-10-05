@@ -189,7 +189,7 @@ enum CalendarContext {
 /// all, just a third-party JSON API passthrough with nothing to interpret, so
 /// there's no drift risk in calling it directly from Swift instead of shelling
 /// out. Caches only successful fetches for the process's lifetime, same rule
-/// `tui.py`'s own `_HOLIDAY_CACHE`/`_holidays_for_club()` follow -- a transient
+/// `pipeline.py`'s own `_HOLIDAY_CACHE`/`_holidays_for_club()` follow -- a transient
 /// network failure stays retryable next time rather than becoming a sticky "no
 /// holidays" for the rest of the session.
 final class HolidaysCache {

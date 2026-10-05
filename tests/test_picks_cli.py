@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src import global_preferences, picks_cli
+from src import clock, global_preferences, picks_cli, pipeline
 from src.models import Schedule, Slot, SunTimes
 from src.storage import save_schedule
 
@@ -245,7 +245,7 @@ def _locked_schedule(date="2026-10-09", reason=_NOTICE, count=30):
 @pytest.fixture
 def _scrape_clock(monkeypatch):
     # 18:28 CEST on 2026-10-05, the observed scrape (16:28 UTC)
-    monkeypatch.setattr(picks_cli, "_NOW", lambda: datetime(2026, 10, 5, 16, 28, tzinfo=UTC))
+    monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 10, 5, 16, 28, tzinfo=UTC))
 
 
 def test_a_locked_day_carries_when_it_opens(tmp_path, capsys, _scrape_clock):
@@ -283,7 +283,7 @@ def test_the_locked_key_is_absent_for_an_open_day(tmp_path, capsys, _scrape_cloc
 
 
 def test_the_locked_key_is_absent_once_the_opening_time_has_passed(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr(picks_cli, "_NOW", lambda: datetime(2026, 10, 5, 18, 0, tzinfo=UTC))  # 20:00 CEST
+    monkeypatch.setattr(clock, "now_utc", lambda: datetime(2026, 10, 5, 18, 0, tzinfo=UTC))  # 20:00 CEST
     db = tmp_path / "club.db"
     save_schedule(_locked_schedule(), path=db)
 
@@ -308,10 +308,8 @@ def test_a_locked_day_has_no_pick_even_with_availability_rules(tmp_path, capsys,
 
 
 def test_the_club_timezone_decides_when_a_day_opens(tmp_path, capsys, monkeypatch, _scrape_clock):
-    from src import tui
-
-    real = tui._resolved_config
-    monkeypatch.setattr(tui, "_resolved_config", lambda slug, *a, **k: {**real(slug, *a, **k), "timezone": "Europe/Lisbon"})
+    real = pipeline._resolved_config
+    monkeypatch.setattr(pipeline, "_resolved_config", lambda slug, *a, **k: {**real(slug, *a, **k), "timezone": "Europe/Lisbon"})
     db = tmp_path / "club.db"
     save_schedule(_locked_schedule(), path=db)
 

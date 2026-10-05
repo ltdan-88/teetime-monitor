@@ -121,7 +121,7 @@ def test_bad_stdin_json_is_rejected(tmp_path, monkeypatch, capsys):
 
 def test_crowd_estimates_reach_ai_ranking_same_as_the_tui(tmp_path, monkeypatch, capsys):
     """The gap this closes: search_cli.py used to never compute crowd_estimates at
-    all, unlike SearchScreen._run_search()'s own call to tui._crowd_estimates() --
+    all, unlike SearchScreen._run_search()'s own call to pipeline._crowd_estimates() --
     see this module's own docstring. club_id is derived from --db-path's own
     filename stem (the fixed <club_id>.db convention), so the history feeding the
     heatmap has to actually live at that name, not an arbitrary tmp_path file like

@@ -79,7 +79,7 @@ struct PreferencesSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(t("prefs.title")).font(scaledFont(.title2)).bold().padding([.top, .horizontal], 16)
-            // Genuinely true, not a hope: `_resolved_config()` (tui.py) calls
+            // Genuinely true, not a hope: `_resolved_config()` (pipeline.py) calls
             // `global_preferences.load_preferences()` fresh, uncached, on every render
             // -- so a running TUI already picks up anything saved here on its very next
             // refresh (periodic or manual), with no restart and no need to even reopen
@@ -453,7 +453,7 @@ struct SettingsSheet: View {
                 // `load_dotenv()` once at import time -- so unlike units, those two
                 // genuinely need the terminal app restarted, not just reopened, to see a
                 // change made here. Verified directly against src/i18n.py and
-                // src/tui.py's `_resolved_config()` rather than assumed.
+                // src/pipeline.py's `_resolved_config()` rather than assumed.
                 Section {
                     Picker(t("settings.units"), selection: $units.value) {
                         Text(t("settings.metric")).tag("metric"); Text(t("settings.imperial")).tag("imperial")

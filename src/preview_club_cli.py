@@ -12,7 +12,7 @@ docstring: "a club reached from the directory usually has no saved file at all,
 and that's a normal state"). This wraps that same unsaved-club path as a console
 script, reusing it directly rather than re-deriving it:
 
-- `tui._resolved_config(club_slug=None, club_id, club_name)` -- the exact call
+- `pipeline._resolved_config(club_slug=None, club_id, club_name)` -- the exact call
   `_open_club()` itself makes for a club with no saved YAML, which still merges
   in your global availability/preferences and best-effort geocodes a location
   for weather (see that function's own docstring on why `club_id`/`club_name`
@@ -62,8 +62,7 @@ guaranteeing a particular result" distinction those two make.
 import json
 import sys
 
-from . import scrape_once
-from . import tui as tui_module
+from . import pipeline, scrape_once
 from .scraper import NoTeeSheetError, fetch_course_aliases
 
 
@@ -92,7 +91,7 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({"ok": False, "reason": "course_fetch_failed", "error": str(exc)}))
         sys.exit(1)
 
-    config = {**tui_module._resolved_config(None, club_id, club_name), "club_id": club_id}
+    config = {**pipeline._resolved_config(None, club_id, club_name), "club_id": club_id}
     # The GUI is this script's only caller (OverviewModel.startPreview/refreshNow).
     scrape_once.scrape_due_for_club(None, config, force=True, source="gui")
     print(json.dumps({"ok": True}))
