@@ -178,7 +178,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Button, Collapsible, Header, Input, Label, Select, Static, Switch
+from textual.widgets import Button, Collapsible, Input, Label, Select, Static, Switch
 
 from . import clock, club_config, global_preferences, i18n, storage, units
 from . import theme as theme_module
@@ -189,6 +189,7 @@ from .recommend import (
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
     DEFAULT_AVOID_WIND_KPH,
 )
+from .safe_header import SafeHeader
 from .scrape_once import (
     DEFAULT_SCRAPE_INTERVAL_MINUTES,
     DEFAULT_SCRAPE_INTERVAL_MINUTES_BOOKED,
@@ -1053,7 +1054,7 @@ class SettingsScreen(Screen[dict | None]):
         return self.club_id if self.club_id is not None else _any_favorite_club_id()
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         with VerticalScroll(id="fields"):
             values = config_to_widget_values(self.config, self.fields_shown)
             fields_by_group: dict[str, list[Field]] = {}

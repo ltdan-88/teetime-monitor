@@ -58,10 +58,11 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Header, Input, Static
+from textual.widgets import Button, Input, Static
 
 from . import env_file, i18n, scraper
 from . import theme as theme_module
+from .safe_header import SafeHeader
 from .translated_footer import TranslatedFooter
 
 
@@ -136,7 +137,7 @@ class CredentialsScreen(Screen[bool]):
         self.title = i18n.t("credentials.title")
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Static(i18n.t("credentials.intro"), id="intro")
         existing_username = env_file.load_env_value("PCC_USER", self.env_path) or ""
         password_hint_key = (

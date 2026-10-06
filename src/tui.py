@@ -169,7 +169,7 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.system_commands import SystemCommandsProvider
-from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static, Switch
+from textual.widgets import Button, DataTable, Input, Label, OptionList, Select, Static, Switch
 from textual.widgets.data_table import RowDoesNotExist
 from textual.widgets.option_list import Option
 
@@ -209,6 +209,7 @@ from .pipeline import (
     _too_late_for_daylight,
     _vacation_ranges_for_club,
 )
+from .safe_header import SafeHeader
 from .scrape_once import _db_path
 from .scraper import (
     NoTeeSheetError,
@@ -619,7 +620,7 @@ class ClubBrowserScreen(Screen[str | None]):
         self._favoriting: set[str] = set()
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Label(i18n.t("picker.club_title"))
         yield Input(placeholder=i18n.t("picker.club_search_placeholder"), id="club-search")
         yield OptionList(id="club-results")
@@ -908,7 +909,7 @@ class CoursePickerScreen(Screen[str | None]):
         self.courses = courses
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Label(i18n.t("picker.course_title"))
         yield OptionList(*[Option(course, id=course) for course in self.courses])
         yield TranslatedFooter(self._FOOTER_BINDINGS)
@@ -977,7 +978,7 @@ class ConfirmBookingScreen(Screen[bool]):
         self.default_holes = default_holes
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         with Vertical(id="confirm-form"):
             yield Label(i18n.t("confirm.title", date=self.date))
             yield Label(i18n.t("confirm.time_label"))
@@ -1071,7 +1072,7 @@ class CancelBookingScreen(Screen[bool]):
         self.time = time
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         with Vertical(id="confirm-form"):
             yield Label(i18n.t("cancel_booking.title", date=self.date, time=self.time))
             yield Static("", id="confirm-status")
@@ -2851,7 +2852,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         self._sticky_dirty = True
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield from self._compose_switcher()
         yield _AutoHideStatic("", id="banners")
         yield _StatusLine("", id="status")
@@ -4138,7 +4139,7 @@ class SearchScreen(Screen[None]):
         self._player_filter = ""
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         availability = self.config.get("availability", {})
         weekday_window = availability.get("weekday_window") or {}
         weekend_window = availability.get("weekend_window") or {}
@@ -4581,7 +4582,7 @@ class HeatmapScreen(Screen[None]):
         self.config = config
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Static("", id="weekday-title")
         yield DataTable(id="weekday-grid")
         yield Static("", id="special-title")
@@ -4689,7 +4690,7 @@ class HeatmapReadinessScreen(Screen[None]):
         self.config = config
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Static("", id="weekday-title")
         yield DataTable(id="weekday-table")
         yield Static("", id="special-title")
@@ -5226,6 +5227,15 @@ class TeetimeApp(App[None]):
             return
         if course in courses or self.screen is not screen:
             return
+        # Let the overview finish composing before it is popped: a fast course-list answer used
+        # to pop it while its Header was still empty, and Textual's own Header then raised
+        # NoMatches('HeaderTitle') from a title watcher (2026-10-06, flaky startup test).
+        for _ in range(40):
+            if self.screen is not screen:
+                return
+            if screen.query("HeaderTitle") and screen.query("#course-select"):
+                break
+            await asyncio.sleep(0.05)
         self.run_worker(self._restart_with_pickers(), exclusive=True, group="switch")
 
     async def _restart_with_pickers(self) -> None:

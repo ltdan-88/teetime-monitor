@@ -43,12 +43,13 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import DataTable, Header, Input, Label, Static, Switch
+from textual.widgets import DataTable, Input, Label, Static, Switch
 from textual.widgets.data_table import RowDoesNotExist
 
 from . import i18n, storage
 from . import theme as theme_module
 from .models import KnownPlayer, family_name
+from .safe_header import SafeHeader
 from .scrape_once import _db_path
 from .translated_footer import TranslatedFooter
 
@@ -139,7 +140,7 @@ class KnownPlayersScreen(Screen[str | None]):
         self.title = i18n.t("players.picker_title" if self.pick else "players.title")
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Static(i18n.t("players.picker_intro" if self.pick else "players.intro"), id="intro")
         if self.db_path is None:
             yield Static(i18n.t("players.no_club"), id="empty")
