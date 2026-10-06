@@ -96,6 +96,30 @@ def _network_checks(offline: bool) -> list[Check]:
     return checks
 
 
+def _player_name_summary(conn: sqlite3.Connection) -> str:
+    """Whether the latest scrapes carry real player names, and whether the last scrape pass
+    was logged in. Names come only from a logged-in scrape (and only if the club shares them),
+    so "0 of N booked slots named" with a set login points at the login step of the scrape,
+    not at parsing (2026-10-06, a Windows install showed tee times but no names)."""
+    try:
+        booked, named = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(s.players IS NOT NULL AND s.players NOT IN ('', '[]')), 0) "
+            "FROM slots s JOIN (SELECT MAX(id) AS id FROM scrapes WHERE date >= date('now', '-1 day') GROUP BY course, date) latest "
+            "ON s.scrape_id = latest.id WHERE s.booked > 0"
+        ).fetchone()
+        run = conn.execute(
+            "SELECT authenticated, error_kind FROM scrape_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.Error:
+        return "player names: unknown"
+    text = f"player names: {named} of {booked} booked slots named on upcoming days"
+    if run is not None:
+        authenticated, error_kind = run
+        state = {1: "logged in", 0: "NOT logged in (anonymous)"}.get(authenticated, "login not attempted")
+        text += f"; last pass {state}" + (f", {error_kind}" if error_kind else "")
+    return text
+
+
 def _club_checks(now: datetime) -> list[Check]:
     checks: list[Check] = []
     slugs = club_config.list_clubs()
@@ -123,10 +147,11 @@ def _club_checks(now: datetime) -> list[Check]:
             with sqlite3.connect(db_path) as conn:
                 journal = conn.execute("PRAGMA journal_mode").fetchone()[0]
                 last = conn.execute("SELECT MAX(scraped_at) FROM scrapes").fetchone()[0]
+                names = _player_name_summary(conn)
             size_mb = db_path.stat().st_size / 1_000_000
             health = storage.scrape_health(db_path)
             warning = scrape_health.health_warning(health, interval, now)
-            detail = f"{login}; database {size_mb:.1f} MB ({journal}); last scrape {last or 'never'}"
+            detail = f"{login}; database {size_mb:.1f} MB ({journal}); last scrape {last or 'never'}; {names}"
             if warning:
                 checks.append(("WARN", f"Club {slug} ({club_id})", f"{detail}; {warning}"))
             else:

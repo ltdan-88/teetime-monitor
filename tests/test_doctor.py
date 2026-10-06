@@ -96,3 +96,32 @@ def test_tui_main_routes_doctor_flag(monkeypatch):
     with pytest.raises(SystemExit) as exit_info:
         tui.main()
     assert exit_info.value.code == 0 and called == [["--doctor", "--offline"]]
+
+
+def test_player_name_summary_reports_named_slots_and_login_state(tmp_path):
+    from datetime import UTC, date, datetime, timedelta
+
+    db = tmp_path / "club.db"
+    storage.save_schedule(
+        Schedule(
+            date=(date.today() + timedelta(days=2)).isoformat(),
+            course="18 Loch Tee 1",
+            slots=[
+                Slot("09:00", 2, 4, players=["Max Mustermann", "Erika Musterfrau"]),
+                Slot("09:10", 1, 4),  # booked but anonymous
+                Slot("09:20", 0, 4),  # free, not counted
+            ],
+        ),
+        path=db,
+    )
+    now = datetime.now(UTC).isoformat()
+    storage.record_scrape_run(
+        started_at=now, finished_at=now, source="agent", attempted=1, saved=1, failed=0,
+        authenticated=False, error_kind="login_rejected", path=db,
+    )
+    import sqlite3
+
+    with sqlite3.connect(db) as conn:
+        text = doctor._player_name_summary(conn)
+    assert "1 of 2 booked slots named" in text
+    assert "NOT logged in" in text and "login_rejected" in text
