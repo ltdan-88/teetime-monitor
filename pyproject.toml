@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.69.2"
+version = "0.70.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -32,6 +32,8 @@ dependencies = [
     # Windows ships no IANA tz database, and booking_window.py's club timezone (a day's
     # "ab 20 Uhr" in Europe/Berlin, DST included) needs one -- added 2026-10-05.
     "tzdata>=2024.1; sys_platform == 'win32'",
+    # Trust the OS certificate store (corporate HTTPS inspection) -- see src/net.py.
+    "truststore>=0.9",
 ]
 
 [project.optional-dependencies]

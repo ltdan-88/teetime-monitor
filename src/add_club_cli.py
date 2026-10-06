@@ -25,7 +25,7 @@ Exit code 0 whenever a club_id was actually given (this always succeeds from the
 import json
 import sys
 
-from . import club_config
+from . import club_config, net
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -36,6 +36,7 @@ def _flag(argv: list[str], name: str) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     club_id = _flag(argv, "--club-id")
     name = _flag(argv, "--name") or ""

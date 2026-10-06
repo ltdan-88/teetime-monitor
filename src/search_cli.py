@@ -74,7 +74,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import pipeline, storage
+from . import net, pipeline, storage
 from .models import TimeWindow
 from .recommend import only_with_friend, only_with_player, ranked_matches
 from .search import SearchCriteria
@@ -104,6 +104,7 @@ def _criteria_from_payload(payload: dict) -> SearchCriteria:
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     db_path = _flag(argv, "--db-path")
     course = _flag(argv, "--course")

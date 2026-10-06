@@ -346,16 +346,18 @@ Register-ScheduledTask -TaskName "teetime-monitor-scrape" -Action $action `
 
 Empty `scrape.log` means no errors.
 
-If your company inspects HTTPS traffic and launch fails with a certificate error, point
-the app at your company's CA bundle with a per-user environment variable (no admin), so
-new terminals and the scheduled task see it too — not just the current window:
+The app trusts your operating system's certificate store (Windows Certificate Store,
+macOS Keychain), so a company that inspects HTTPS traffic with its own root certificate
+usually needs nothing extra. Only if you still get a certificate error, point the app at
+a CA bundle with a per-user environment variable (no admin) — it takes precedence over
+the system store, and new terminals and the scheduled task see it too:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("SSL_CERT_FILE", "C:\path\to\ca-bundle.pem", "User")
 ```
 
 Open a new terminal afterwards; sign out and back in once so the scheduled task picks it
-up as well.
+up as well. `teetime-monitor --doctor` shows which certificate source is in use.
 
 ### From source
 
@@ -378,6 +380,8 @@ src/
 ├── scraper.py                # fetch, login, tee-sheet parsing
 ├── scrape_once.py            # scheduled scrape + "My Reservations" sync
 ├── storage.py                # SQLite persistence
+├── net.py                    # trust the OS certificate store (corporate HTTPS inspection)
+├── doctor.py                 # `--doctor` environment report
 ├── search.py / recommend.py  # hard filters, then weather/daylight + AI ranking
 ├── quality.py                # the free, explainable slot score behind the ★ Pick
 ├── ai_assist.py              # the three AI calls (classify, rank, summarize), multi-provider
@@ -405,6 +409,11 @@ built the way they were.
 </details>
 
 ## Troubleshooting
+
+**Not sure what's wrong?** `teetime-monitor --doctor` prints a one-page environment report —
+version, folders, certificate source, connectivity to pc caddie, each club's database and
+last scrape, login/AI-key status (set / not set, never the values), the background scraper —
+ready to paste into a bug report. `--doctor --offline` skips the one network check.
 
 **"No tee sheet found" for a club I know exists.** Some clubs don't publish one
 through pc caddie at all — that's reported cleanly rather than as an error. Check

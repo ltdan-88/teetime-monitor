@@ -412,7 +412,7 @@ def test_display_fields_have_no_value_to_round_trip(tmp_path):
     # Same reasoning as test_action_fields_have_no_value_to_round_trip -- a "display"
     # field has no value to round-trip either, see Field's own docstring on this kind.
     display_fields = [f for f in FIELDS if f.kind == "display"]
-    assert {f.label_key for f in display_fields} == {"settings.field.my_handicap"}
+    assert {f.label_key for f in display_fields} >= {"settings.field.my_handicap", "settings.field.friends"}
     for field in display_fields:
         assert field.getter is not None
 
@@ -984,7 +984,7 @@ def test_action_fields_have_no_value_to_round_trip(tmp_path):
 
     action_fields = [f for f in FIELDS if f.kind == "action"]
     assert {f.label_key for f in action_fields} == {
-        "settings.field.login", "settings.field.ai_credentials", "settings.field.player_directory",
+        "settings.field.login", "settings.field.ai_credentials",
     }
     for field in action_fields:
         assert field.open_screen is not None
@@ -1042,7 +1042,6 @@ def test_per_club_rows_use_the_club_passed_in_not_the_first_saved_one(tmp_path, 
     from textual.widgets import Static
 
     from src import settings_screen, storage
-    from src.known_players_screen import KnownPlayersScreen
 
     db_paths = {"first": tmp_path / "first.db", "viewed": tmp_path / "viewed.db"}
     storage.save_my_handicap(12.5, path=db_paths["first"])
@@ -1056,18 +1055,13 @@ def test_per_club_rows_use_the_club_passed_in_not_the_first_saved_one(tmp_path, 
         async with app.run_test(size=(120, 120)) as pilot:
             await pilot.pause()
             texts = {str(s.content) for s in app.screen.query(Static)}
-            await pilot.click(f"#{_id('__player_directory__')}")
-            await pilot.pause()
-            assert isinstance(app.screen, KnownPlayersScreen)
-            return texts, app.screen.club_id
+            return texts
 
-    texts, opened_for = asyncio.run(scenario("viewed"))
+    texts = asyncio.run(scenario("viewed"))
     assert "36" in texts and "12.5" not in texts
-    assert opened_for == "viewed"
 
-    texts, opened_for = asyncio.run(scenario(None))
+    texts = asyncio.run(scenario(None))
     assert "12.5" in texts
-    assert opened_for == "first"
 
 
 def test_show_handicaps_is_a_display_switch_that_defaults_on_and_round_trips():

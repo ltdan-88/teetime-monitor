@@ -184,7 +184,6 @@ from . import clock, club_config, global_preferences, i18n, storage, units
 from . import theme as theme_module
 from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
-from .known_players_screen import KnownPlayersScreen
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
     DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
@@ -380,6 +379,11 @@ def _current_theme() -> str:
     """The saved theme, or the resolved default when nothing has been saved yet — so
     the dropdown opens on what's actually showing rather than on a blank."""
     return theme_module.load_saved_theme() or theme_module.resolve_theme_name()
+
+
+def _friends_hint(club_id: str | None) -> str:
+    """Read-only hint next to the "Prioritize friends" switch: where friends are marked."""
+    return i18n.t("settings.friends_hint")
 
 
 def _my_handicap_display(club_id: str | None) -> str:
@@ -591,18 +595,17 @@ FIELDS: list[Field] = [
         "settings.group.priorities",
         getter=_my_handicap_display,
     ),
-    # Same "action" kind and open_screen mechanism as settings.field.login/
-    # ai_credentials above -- added 2026-09-27, direct follow-up to authenticated
-    # scraping making real names possible at all: prioritize_friends has been a
-    # no-op preference since it was first added, since no friends list ever existed
-    # to check a slot's players against. This is where that list is actually
-    # browsed/edited, right next to the toggle it finally gives real effect to.
+    # Was an "action" row opening the player directory (2026-09-27); replaced by this
+    # hint (2026-10-06, direct question "is this redundant?"): the directory is one key
+    # away on the overview (`p`, also in the Actions menu), so a second way in only
+    # duplicated it. The hint keeps the discoverability -- this is where you'd wonder
+    # how to mark friends -- without the duplicate entry point.
     Field(
-        "settings.field.player_directory",
-        ("__player_directory__",),
-        "action",
+        "settings.field.friends",
+        ("__friends_hint__",),
+        "display",
         "settings.group.priorities",
-        open_screen=lambda club_id: KnownPlayersScreen(club_id),
+        getter=_friends_hint,
     ),
     # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
     # be an option in the settings menu" -- ai_assist was originally kept per-club

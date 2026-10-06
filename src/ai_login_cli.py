@@ -42,10 +42,11 @@ import json
 import os
 import sys
 
-from . import ai_assist, env_file, global_preferences, paths
+from . import ai_assist, env_file, global_preferences, net, paths
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     _ = argv if argv is not None else sys.argv[1:]  # no flags of its own, unlike login_cli.py's --club-id
 
     try:

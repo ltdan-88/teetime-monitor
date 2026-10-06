@@ -109,7 +109,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import booking_window, clock, pipeline, recommend, storage
+from . import booking_window, clock, net, pipeline, recommend, storage
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -146,6 +146,7 @@ def _slot_markers(schedule, config: dict, recommended: set[str], one_date: str) 
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     db_path = _flag(argv, "--db-path")
     course = _flag(argv, "--course")

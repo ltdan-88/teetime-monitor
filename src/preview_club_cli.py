@@ -62,7 +62,7 @@ guaranteeing a particular result" distinction those two make.
 import json
 import sys
 
-from . import pipeline, scrape_once
+from . import net, pipeline, scrape_once
 from .scraper import NoTeeSheetError, fetch_course_aliases
 
 
@@ -74,6 +74,7 @@ def _flag(argv: list[str], name: str) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     club_id = _flag(argv, "--club-id")
     club_name = _flag(argv, "--club-name") or ""
