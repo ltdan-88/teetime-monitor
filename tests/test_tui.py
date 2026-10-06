@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -4616,12 +4617,19 @@ def test_start_falls_back_to_pickers_when_the_remembered_course_is_gone_from_the
 
     # The overview opens at once on the remembered course and is validated in the
     # background (2026-10-01); a course no longer on the club's list pops back out.
-    monkeypatch.setattr(tui, "fetch_course_aliases", lambda club_id: ["18 Loch Tee 1"])
+    def slow_course_list(club_id):
+        # A real fetch takes ~1 s; answering instantly popped the overview before Textual had
+        # composed its Header, a race inside the library (NoMatches 'HeaderTitle') that made
+        # this test flaky on slow CI runners (2026-10-06).
+        time.sleep(0.3)
+        return ["18 Loch Tee 1"]
+
+    monkeypatch.setattr(tui, "fetch_course_aliases", slow_course_list)
 
     async def scenario():
         app = tui.TeetimeApp()
         async with app.run_test() as pilot:
-            for _ in range(40):
+            for _ in range(80):
                 if isinstance(app.screen, tui.ClubBrowserScreen):
                     break
                 await pilot.pause(0.05)

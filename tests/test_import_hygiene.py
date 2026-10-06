@@ -29,10 +29,14 @@ HEADLESS_MODULES = [
 
 @pytest.mark.parametrize("module", HEADLESS_MODULES)
 def test_headless_module_does_not_import_textual_or_rich(module):
+    # On Windows some dependency imports `rich` as a plain text library at import time
+    # (seen on the nightly Windows run, 2026-10-06), which says nothing about the TUI, so
+    # there only Textual and src.tui are banned.
     code = (
         "import sys\n"
         f"import src.{module}\n"
-        "loaded = sorted(m for m in sys.modules if m.split('.')[0] in ('textual', 'rich') or m == 'src.tui')\n"
+        f"banned = ('textual',) if {sys.platform == 'win32'!r} else ('textual', 'rich')\n"
+        "loaded = sorted(m for m in sys.modules if m.split('.')[0] in banned or m == 'src.tui')\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True)

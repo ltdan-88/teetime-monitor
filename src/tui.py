@@ -166,6 +166,7 @@ from textual import events
 from textual.app import App, ComposeResult, SystemCommand
 from textual.command import DiscoveryHit
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.system_commands import SystemCommandsProvider
 from textual.widgets import Button, DataTable, Header, Input, Label, OptionList, Select, Static, Switch
@@ -2459,11 +2460,17 @@ class _ClubCourseSwitcher:
             # courses, and _switch_club() has already filled in the new ones.
             return
         courses = [self.course, *(c for c in courses if c != self.course)]
-        select = self.query_one("#course-select", Select)
-        select.set_options((course, course) for course in courses)
-        self._known_courses = courses
-        self._apply_switcher_layout()
-        select.value = self.course
+        try:
+            select = self.query_one("#course-select", Select)
+            select.set_options((course, course) for course in courses)
+            self._known_courses = courses
+            self._apply_switcher_layout()
+            select.value = self.course
+        except NoMatches:
+            # The screen was popped while the fetch was running (a remembered course that no
+            # longer exists sends the app back to the pickers, and its own course check can
+            # win that race). An unhandled error here ended the whole app (2026-10-06).
+            return
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.value is Select.BLANK:
