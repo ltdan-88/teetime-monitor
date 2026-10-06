@@ -64,7 +64,6 @@ struct PreferencesSheet: View {
     @ObservedObject private var language = AppLanguage.shared
     @StateObject private var prefs = Box(Preferences.load())
     @StateObject private var status = Box<String?>(nil)
-    @StateObject private var showingPlayerDirectory = Box(false)
 
     private var myHandicapDisplay: String {
         guard !dbPath.isEmpty, let handicap = Store.myHandicap(dbPath: dbPath) else {
@@ -143,8 +142,8 @@ struct PreferencesSheet: View {
                 }
                 Section(t("prefs.section.priorities")) {
                     Toggle(t("prefs.prioritize_friends"), isOn: $prefs.value.prioritizeFriends)
-                    Button(t("prefs.player_directory")) { showingPlayerDirectory.value = true }
-                        .disabled(dbPath.isEmpty)
+                    Text(t("prefs.friends_hint"))
+                        .font(scaledFont(.caption)).foregroundStyle(.secondary)
                     HStack {
                         Text(t("prefs.hcp_preference"))
                         Spacer()
@@ -186,7 +185,6 @@ struct PreferencesSheet: View {
             .padding(16)
         }
         .sheetFrame(SheetSize.form)
-        .sheet(isPresented: $showingPlayerDirectory.value) { PlayerDirectorySheet(dbPath: dbPath) }
     }
 }
 

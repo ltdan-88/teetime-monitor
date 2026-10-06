@@ -42,7 +42,7 @@ ground here, a refresh either updated the cache or it didn't.
 import json
 import sys
 
-from . import club_config, club_directory
+from . import club_config, club_directory, net
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -53,6 +53,7 @@ def _flag(argv: list[str], name: str) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     fallback_club_id = _flag(argv, "--club-id")
 

@@ -45,10 +45,11 @@ skipped or inconclusive. Exit code 1 only when `saved` is false.
 import json
 import sys
 
-from . import env_file, paths, scraper
+from . import env_file, net, paths, scraper
 
 
 def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     club_id = None
     if "--club-id" in argv:

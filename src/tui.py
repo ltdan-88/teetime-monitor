@@ -181,6 +181,7 @@ from . import (
     club_directory,
     global_preferences,
     i18n,
+    net,
     paths,
     quality,
     recommend,
@@ -5488,9 +5489,14 @@ class TeetimeApp(App[None]):
 
 def main() -> None:
     paths.force_utf8_stdio()
+    net.use_system_trust_store()
     if "--version" in sys.argv or "-v" in sys.argv:
         print(f"teetime-monitor {_version()}")
         return
+    if "--doctor" in sys.argv:
+        from . import doctor
+
+        sys.exit(doctor.main(sys.argv[1:]))
     # See paths.py: state lives in fixed locations now, so an install that predates
     # 2026-09-17 has its clubs/database/credentials brought across on first launch.
     # Printed before the TUI takes the screen -- once the alternate buffer is up,

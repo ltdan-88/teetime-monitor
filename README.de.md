@@ -356,17 +356,18 @@ Register-ScheduledTask -TaskName "teetime-monitor-scrape" -Action $action `
 
 Ist `scrape.log` leer, gab es keine Fehler.
 
-Prüft deine Firma den HTTPS-Verkehr und der Start scheitert mit einem Zertifikatsfehler,
-verweise die App über eine Umgebungsvariable pro Benutzer (ohne Admin) auf das CA-Bundle
-der Firma — dann sehen sie auch neue Terminals und die geplante Aufgabe, nicht nur das
-aktuelle Fenster:
+Die App vertraut dem Zertifikatsspeicher deines Betriebssystems (Windows-Zertifikatsspeicher,
+macOS-Schlüsselbund). Eine Firma, die HTTPS-Verkehr mit eigenem Stammzertifikat prüft, braucht
+deshalb meist nichts Zusätzliches. Nur wenn trotzdem ein Zertifikatsfehler kommt, verweise die
+App über eine Umgebungsvariable pro Benutzer (ohne Admin) auf ein CA-Bundle — sie hat Vorrang vor dem
+Systemspeicher, und auch neue Terminals und die geplante Aufgabe sehen sie:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("SSL_CERT_FILE", "C:\pfad\ca-bundle.pem", "User")
 ```
 
 Danach ein neues Terminal öffnen; einmal ab- und wieder anmelden, damit auch die geplante
-Aufgabe sie übernimmt.
+Aufgabe sie übernimmt. `teetime-monitor --doctor` zeigt, welche Zertifikatsquelle genutzt wird.
 
 ### Aus dem Quellcode
 
@@ -389,6 +390,8 @@ src/
 ├── scraper.py                # Abruf, Login, Auswertung der Startliste
 ├── scrape_once.py            # geplanter Abruf + Abgleich mit „Meine Reservierungen"
 ├── storage.py                # SQLite-Persistenz
+├── net.py                    # Zertifikatsspeicher des Betriebssystems nutzen (Firmen-HTTPS-Prüfung)
+├── doctor.py                 # `--doctor`-Umgebungsbericht
 ├── search.py / recommend.py  # harte Filter, dann Wetter/Tageslicht + KI-Bewertung
 ├── quality.py                # kostenlose, erklärbare Slot-Bewertung hinter dem ★
 ├── ai_assist.py              # die drei KI-Aufrufe (einordnen, bewerten, zusammenfassen), mehrere Anbieter
@@ -416,6 +419,11 @@ einiges so gebaut wurde, wie es gebaut ist.
 </details>
 
 ## Wenn etwas klemmt
+
+**Unklar, was los ist?** `teetime-monitor --doctor` gibt einen einseitigen Umgebungsbericht aus —
+Version, Ordner, Zertifikatsquelle, Verbindung zu pc caddie, Datenbank und letzter Abruf je Club,
+Login-/KI-Schlüssel-Status (gesetzt / nicht gesetzt, nie die Werte), der Hintergrund-Scraper —
+zum Einfügen in einen Fehlerbericht. `--doctor --offline` überspringt die eine Netzwerkprüfung.
 
 **„No tee sheet found" bei einem Club, den es wirklich gibt.** Manche Clubs
 veröffentlichen über pc caddie schlicht keine Startliste — das wird sauber gemeldet und

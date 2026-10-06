@@ -81,7 +81,7 @@ from pathlib import Path
 
 import httpx
 
-from . import booking_watch, booking_window, club_config, global_preferences, paths, storage
+from . import booking_watch, booking_window, club_config, global_preferences, net, paths, storage
 from . import weather as weather_module
 from .models import ConfirmedBooking, SunTimes, WeatherPoint
 from .recommend import _round_duration_minutes, course_holes_override
@@ -1003,6 +1003,7 @@ def main(argv: list[str] | None = None) -> None:
     is also the only source that takes the daily backup, see `_daily_backup()`).
     """
     paths.force_utf8_stdio()
+    net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
     parser = argparse.ArgumentParser(prog="teetime-monitor-scrape", description="Scrape every saved club once.")
     parser.add_argument("-f", "--force", action="store_true", help="ignore the per-course/date scrape interval")
