@@ -413,7 +413,9 @@ built the way they were.
 **Not sure what's wrong?** `teetime-monitor --doctor` prints a one-page environment report —
 version, folders, certificate source, connectivity to pc caddie, each club's database and
 last scrape, login/AI-key status (set / not set, never the values), the background scraper —
-ready to paste into a bug report. `--doctor --offline` skips the one network check.
+ready to paste into a bug report. `--doctor --offline` skips the one network check;
+`--doctor --login-check` also logs in with your stored login and compares what a logged-in and an
+anonymous tee sheet show (never printing credentials) — for "login works but no player names".
 
 **"No tee sheet found" for a club I know exists.** Some clubs don't publish one
 through pc caddie at all — that's reported cleanly rather than as an error. Check

@@ -423,7 +423,9 @@ einiges so gebaut wurde, wie es gebaut ist.
 **Unklar, was los ist?** `teetime-monitor --doctor` gibt einen einseitigen Umgebungsbericht aus —
 Version, Ordner, Zertifikatsquelle, Verbindung zu pc caddie, Datenbank und letzter Abruf je Club,
 Login-/KI-Schlüssel-Status (gesetzt / nicht gesetzt, nie die Werte), der Hintergrund-Scraper —
-zum Einfügen in einen Fehlerbericht. `--doctor --offline` überspringt die eine Netzwerkprüfung.
+zum Einfügen in einen Fehlerbericht. `--doctor --offline` überspringt die eine Netzwerkprüfung; `--doctor --login-check` loggt sich
+zusätzlich mit dem gespeicherten Login ein und vergleicht, was eine eingeloggte und eine anonyme
+Startliste zeigen (ohne je Zugangsdaten auszugeben) — für „Login geht, aber keine Spielernamen“.
 
 **„No tee sheet found" bei einem Club, den es wirklich gibt.** Manche Clubs
 veröffentlichen über pc caddie schlicht keine Startliste — das wird sauber gemeldet und

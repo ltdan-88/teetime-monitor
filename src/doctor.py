@@ -2,8 +2,10 @@
 reports (2026-10-06). Plain English on purpose -- it's meant to be pasted into an issue
 or a chat. It never prints secrets: credentials and API keys show only as set / not set.
 
-Makes at most one network request (HTTPS to www.pccaddie.net, to test connectivity and
-certificate trust, the usual failure on a corporate PC); `--offline` skips it. Exit code
+Makes at most one network request by default (HTTPS to www.pccaddie.net, to test connectivity and
+certificate trust, the usual failure behind a proxy); `--offline` skips it. `--login-check` also logs
+in with the stored credentials and compares logged-in and anonymous tee sheets (never printing
+credentials), for "login works but no player names". Exit code
 1 when a check failed, 0 otherwise (warnings don't fail).
 """
 
@@ -17,7 +19,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import ai_assist, club_config, global_preferences, net, paths, scrape_health, scrape_once, storage
+from . import ai_assist, club_config, global_preferences, net, paths, scrape_health, scrape_once, scraper, storage
 
 CONNECTIVITY_URL = "https://www.pccaddie.net/"
 
@@ -120,6 +122,70 @@ def _player_name_summary(conn: sqlite3.Connection) -> str:
     return text
 
 
+def _login_probe(slug: str, config: dict) -> list[Check]:
+    """`--doctor --login-check`: log in with the stored credentials (the report never contains
+    them) and compare what the tee sheet shows to a logged-in session against an anonymous
+    one. Meant for "login works but there are no player names" (2026-10-06, a Windows install):
+    scraper.login() counts any answer without a password field as success, so a block page or
+    consent wall would pass; this shows what the session really sees."""
+    club_id = str(config.get("club_id") or "")
+    label = f"Login check {slug}"
+    user, password = club_config.resolve_credentials(club_id)
+    if not (user and password):
+        return [("WARN", label, "no login stored for this club")]
+    try:
+        client = scraper.login(club_id, user, password)
+    except scraper.LoginError:
+        return [("FAIL", label, "pc caddie rejected the stored login")]
+    except Exception as exc:  # noqa: BLE001
+        return [("FAIL", label, f"login request failed: {type(exc).__name__}: {exc}")]
+    checks: list[Check] = []
+    try:
+        cookie_names = sorted({cookie.name for cookie in client.cookies.jar})
+        checks.append(("INFO", label, f"login answered; session cookies: {', '.join(cookie_names) or 'none'}"))
+        aliases = scraper.fetch_course_aliases(club_id)
+        course = config.get("default_course") if config.get("default_course") in aliases else next(iter(aliases))
+        dates = scraper.fetch_available_dates(club_id)
+        day = dates[0] if dates else (datetime.now(UTC).date().isoformat())
+        page = client.get(scraper.club_url(club_id, scraper.TEE_SHEET_CATEGORY, day, aliases[course]))
+        soup = scraper.BeautifulSoup(page.text, "html.parser")
+        title = (soup.title.get_text(strip=True) if soup.title else "")[:80]
+        spans = [span.get_text(strip=True) for span in soup.select(".tt-show-name")]
+        placeholders = {text for text in spans if text in scraper.KNOWN_ANONYMIZED_LABELS}
+        other = [text for text in spans if text and text not in scraper.KNOWN_ANONYMIZED_LABELS]
+        logout = any(marker in page.text.lower() for marker in ("logout", "abmelden", "se déconnecter"))
+        checks.append((
+            "INFO", label,
+            f"{course} {day}: HTTP {page.status_code}, title {title!r}, final URL path {page.url.path}, "
+            f"login form present: {scraper._PASSWORD_FIELD in page.text}, logout link: {logout}",
+        ))
+        authed = scraper.scrape_schedule(club_id, course, day, aliases, client=client)
+        anon = scraper.scrape_schedule(club_id, course, day, aliases)
+
+        def named(schedule) -> int:
+            return sum(len(slot.players) for slot in schedule.slots)
+
+        verdict = "OK" if named(authed) > 0 else "WARN"
+        checks.append((
+            verdict, label,
+            f"named seats: logged in {named(authed)}, anonymous {named(anon)}; seat labels on the page: "
+            f"{len(other)} name-like, {len(spans) - len(other)} placeholder/empty"
+            + (f" (placeholders: {'; '.join(sorted(placeholders))})" if placeholders else ""),
+        ))
+        if verdict == "WARN":
+            checks.append((
+                "INFO", label,
+                "0 names while logged in: either this pc caddie account has not enabled name sharing at "
+                "this club (placeholders such as 'Belegt'/'Occupied' stay), or the session is not really "
+                "logged in (no logout link, a different title, or a login form on the page).",
+            ))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("FAIL", label, f"probe failed: {type(exc).__name__}: {exc}"))
+    finally:
+        client.close()
+    return checks
+
+
 def _club_checks(now: datetime) -> list[Check]:
     checks: list[Check] = []
     slugs = club_config.list_clubs()
@@ -196,9 +262,17 @@ def _scheduler_check() -> Check:
     return ("INFO", "Background scraper", f"no built-in check for {system}; use cron or a systemd timer")
 
 
-def collect(offline: bool = False, now: datetime | None = None) -> list[Check]:
+def collect(offline: bool = False, now: datetime | None = None, login_check: bool = False) -> list[Check]:
     now = now or datetime.now(UTC)
     checks = _system_checks() + _folder_checks() + _network_checks(offline) + _club_checks(now) + _ai_checks()
+    if login_check and not offline:
+        for slug in club_config.list_clubs():
+            try:
+                config = club_config.load_club_config(slug)
+            except Exception:  # noqa: BLE001 -- already reported by _club_checks
+                continue
+            if config.get("club_id"):
+                checks += _login_probe(slug, config)
     checks.append(_scheduler_check())
     return checks
 
@@ -215,6 +289,6 @@ def render(checks: list[Check]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    checks = collect(offline="--offline" in argv)
+    checks = collect(offline="--offline" in argv, login_check="--login-check" in argv)
     print(render(checks))
     return 1 if any(status == "FAIL" for status, _, _ in checks) else 0

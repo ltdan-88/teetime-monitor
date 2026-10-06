@@ -80,9 +80,9 @@ def test_a_missing_ai_key_is_a_warning_and_never_printed(monkeypatch):
 
 
 def test_exit_code_is_one_only_when_a_check_failed(monkeypatch, capsys):
-    monkeypatch.setattr(doctor, "collect", lambda offline=False: [("OK", "a", "fine"), ("WARN", "b", "meh")])
+    monkeypatch.setattr(doctor, "collect", lambda offline=False, login_check=False: [("OK", "a", "fine"), ("WARN", "b", "meh")])
     assert doctor.main(["--offline"]) == 0
-    monkeypatch.setattr(doctor, "collect", lambda offline=False: [("FAIL", "a", "broken")])
+    monkeypatch.setattr(doctor, "collect", lambda offline=False, login_check=False: [("FAIL", "a", "broken")])
     assert doctor.main([]) == 1
     assert "1 failed" in capsys.readouterr().out
 
@@ -125,3 +125,84 @@ def test_player_name_summary_reports_named_slots_and_login_state(tmp_path):
         text = doctor._player_name_summary(conn)
     assert "1 of 2 booked slots named" in text
     assert "NOT logged in" in text and "login_rejected" in text
+
+
+class _FakeCookie:
+    def __init__(self, name):
+        self.name = name
+
+
+class _FakeResponse:
+    status_code = 200
+    url = type("U", (), {"path": "/clubs/0000001/app.php"})()
+
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeClient:
+    def __init__(self, text):
+        self._text = text
+        self.cookies = type("J", (), {"jar": [_FakeCookie("PHPSESSID")]})()
+        self.closed = False
+
+    def get(self, url):
+        return _FakeResponse(self._text)
+
+    def close(self):
+        self.closed = True
+
+
+def _probe_setup(monkeypatch, page_html, authed_names):
+    from src import scraper
+
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda club_id: ("demo-user", "super-secret-password"))
+    client = _FakeClient(page_html)
+    monkeypatch.setattr(scraper, "login", lambda *a, **k: client)
+    monkeypatch.setattr(scraper, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": "ALIAS"})
+    monkeypatch.setattr(scraper, "fetch_available_dates", lambda club_id: ["2026-10-07"])
+
+    def fake_schedule(club_id, course, day, aliases=None, client=None):
+        players = authed_names if client is not None else []
+        return Schedule(date=day, course=course, slots=[Slot("09:00", 2, 4, players=list(players))])
+
+    monkeypatch.setattr(scraper, "scrape_schedule", fake_schedule)
+    return client
+
+
+def test_login_check_reports_names_without_leaking_credentials(monkeypatch):
+    client = _probe_setup(
+        monkeypatch,
+        "<html><title>Tee sheet</title><a href='?logout'>Logout</a>"
+        "<span class='tt-show-name'>Max Mustermann</span><span class='tt-show-name'>Belegt</span></html>",
+        ["Max Mustermann", "Erika Musterfrau"],
+    )
+    checks = doctor._login_probe("demo", {"club_id": "0000001"})
+    text = doctor.render(checks)
+    assert "named seats: logged in 2, anonymous 0" in text
+    assert "logout link: True" in text and "PHPSESSID" in text
+    assert "super-secret-password" not in text and "demo-user" not in text
+    assert client.closed and _statuses(checks)["Login check demo"] in {"OK", "INFO"}
+
+
+def test_login_check_warns_when_logged_in_but_no_names(monkeypatch):
+    _probe_setup(monkeypatch, "<html><title>Access denied</title></html>", [])
+    checks = doctor._login_probe("demo", {"club_id": "0000001"})
+    statuses = [status for status, _, _ in checks]
+    assert "WARN" in statuses
+    assert any("not really" in detail for _, _, detail in checks)
+    assert any("logout link: False" in detail for _, _, detail in checks)
+
+
+def test_login_check_rejected_login_is_a_failure(monkeypatch):
+    from src import scraper
+
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda club_id: ("u", "p"))
+
+    def reject(*a, **k):
+        raise scraper.LoginError("no")
+
+    monkeypatch.setattr(scraper, "login", reject)
+    assert doctor._login_probe("demo", {"club_id": "0000001"})[0][0] == "FAIL"
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda club_id: ("", ""))
+    assert doctor._login_probe("demo", {"club_id": "0000001"})[0][0] == "WARN"
