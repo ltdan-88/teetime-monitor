@@ -350,7 +350,7 @@ def run(
             "keeping the previous scrape"
         )
     _attach_weather(latest, config, club_id, course, date, weather_cache)
-    storage.save_schedule(latest, path=db_path)
+    storage.save_schedule(latest, path=db_path, authenticated=client is not None)
 
     # Piggybacks on this same scrape rather than a separate pass over the whole
     # database -- see storage.record_seen_players()'s own docstring. A dict keyed by
@@ -600,7 +600,7 @@ def _club_config_and_slug_for_id(club_id: str) -> tuple[dict, str | None]:
     return {}, None
 
 
-def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
+def _should_scrape(club_id: str, course: str, date: str, config: dict, logged_in: bool = False) -> bool:
     """Whether this course/date is actually due for a re-scrape yet, per the club's
     adjustable interval (shorter once a confirmed booking exists for that date) — see
     the module docstring's "Adjustable scrape interval". Lets `main()` be scheduled to
@@ -610,6 +610,12 @@ def _should_scrape(club_id: str, course: str, date: str, config: dict) -> bool:
     last = storage.last_scraped_at(course, date, path=db_path)
     if last is None:
         return True  # never scraped for this course/date -- always due
+    # A day stored without names is due as soon as a login is available (2026-10-06, a Windows
+    # install: its first scrape ran before the login worked, and the later logged-in passes
+    # then skipped every day until the 6-hour interval ran out, so the names stayed missing).
+    # Rows from before this was recorded count as anonymous, once; after that they are marked.
+    if logged_in and storage.last_scrape_authenticated(course, date, path=db_path) is not True:
+        return True
 
     confirmed = storage.load_confirmed_booking(course, date, path=db_path)
     is_booked = confirmed is not None and confirmed.time is not None
@@ -948,7 +954,9 @@ def _scrape_due_for_club_locked(
                 counted = False
                 try:
                     # Inside the try: a sqlite "database is locked" here must not end the pass.
-                    if not force and not _should_scrape(club_id, course, target_date, config):
+                    if not force and not _should_scrape(
+                        club_id, course, target_date, config, logged_in=client is not None
+                    ):
                         continue
                     stats.attempted += 1
                     counted = True
