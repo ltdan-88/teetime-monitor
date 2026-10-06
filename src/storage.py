@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS scrapes (
     scraped_at TEXT NOT NULL,  -- ISO 8601 timestamp
     sunrise TEXT,              -- HH:MM, local time -- NULL if never fetched
     sunset TEXT,               -- HH:MM, local time -- NULL if never fetched
-    events TEXT                -- JSON-encoded list[str] -- NULL/'[]' means none
+    events TEXT,               -- JSON-encoded list[str] -- NULL/'[]' means none
+    authenticated INTEGER      -- 1 logged-in fetch (real names), 0 anonymous, NULL unknown (older rows)
 );
 
 CREATE TABLE IF NOT EXISTS slots (
@@ -288,6 +289,8 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(path) as conn:
         conn.executescript(SCHEMA)
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(scrapes)")}
+        if "authenticated" not in existing_columns:
+            conn.execute("ALTER TABLE scrapes ADD COLUMN authenticated INTEGER")
         for column in ("sunrise", "sunset", "events"):
             if column not in existing_columns:
                 conn.execute(f"ALTER TABLE scrapes ADD COLUMN {column} TEXT")
@@ -308,17 +311,23 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
-def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
+def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH, authenticated: bool | None = None) -> int:
     """Log one scrape's slots (and weather/sun times/events, if present) as a new
-    batch — never overwrite, history matters. Returns the new scrape's row id."""
+    batch — never overwrite, history matters. Returns the new scrape's row id.
+    `authenticated` records whether the fetch was logged in (names visible): True/False, or
+    None when unknown -- scrape_once re-fetches anonymous days once a login is available."""
     init_db(path)
     scraped_at = datetime.now(UTC).isoformat()
     sunrise = schedule.sun_times.sunrise if schedule.sun_times is not None else None
     sunset = schedule.sun_times.sunset if schedule.sun_times is not None else None
     with _connect(path) as conn:
         cursor = conn.execute(
-            "INSERT INTO scrapes (course, date, scraped_at, sunrise, sunset, events) VALUES (?, ?, ?, ?, ?, ?)",
-            (schedule.course, schedule.date, scraped_at, sunrise, sunset, json.dumps(schedule.events)),
+            "INSERT INTO scrapes (course, date, scraped_at, sunrise, sunset, events, authenticated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                schedule.course, schedule.date, scraped_at, sunrise, sunset, json.dumps(schedule.events),
+                None if authenticated is None else int(authenticated),
+            ),
         )
         scrape_id = cursor.lastrowid
         conn.executemany(
@@ -354,6 +363,18 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH) -> int:
             ],
         )
         return scrape_id
+
+
+def last_scrape_authenticated(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> bool | None:
+    """Whether the most recent scrape of this course/date was a logged-in fetch (True/False),
+    or None when unknown (a row from before this was recorded) or never scraped."""
+    init_db(path)
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT authenticated FROM scrapes WHERE course = ? AND date = ? ORDER BY id DESC LIMIT 1",
+            (course, date),
+        ).fetchone()
+    return None if row is None or row[0] is None else bool(row[0])
 
 
 def last_scraped_at(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> str | None:

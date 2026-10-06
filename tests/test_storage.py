@@ -1466,3 +1466,26 @@ def test_legacy_migration_copies_wal_pending_commits(tmp_path, monkeypatch):
     finally:
         holder.close()
     assert distinct_scraped_dates("c", path=data / "0000001.db") == ["2026-09-06"]
+
+
+def test_scrapes_record_whether_they_were_logged_in_and_old_databases_gain_the_column(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    with sqlite3.connect(db) as conn:  # a database from before the column existed
+        conn.executescript(
+            "CREATE TABLE scrapes (id INTEGER PRIMARY KEY AUTOINCREMENT, course TEXT NOT NULL, date TEXT NOT NULL,"
+            " scraped_at TEXT NOT NULL, sunrise TEXT, sunset TEXT, events TEXT);"
+        )
+    storage.init_db(db)
+    with sqlite3.connect(db) as conn:
+        assert "authenticated" in {row[1] for row in conn.execute("PRAGMA table_info(scrapes)")}
+
+    schedule = Schedule(date="2026-10-07", course="18 Loch Tee 1", slots=[Slot("09:00", 1, 4)])
+    assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is None  # never scraped
+    storage.save_schedule(schedule, path=db)
+    assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is None  # unknown
+    storage.save_schedule(schedule, path=db, authenticated=False)
+    assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is False
+    storage.save_schedule(schedule, path=db, authenticated=True)
+    assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is True
