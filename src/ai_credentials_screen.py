@@ -40,10 +40,11 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Header, Input, Select, Static
+from textual.widgets import Button, Input, Select, Static
 
 from . import ai_assist, env_file, global_preferences, i18n
 from . import theme as theme_module
+from .safe_header import SafeHeader
 from .translated_footer import TranslatedFooter
 
 _PROVIDER_LABEL_KEYS = {
@@ -115,7 +116,7 @@ class AICredentialsScreen(Screen[bool]):
         return [(i18n.t(_PROVIDER_LABEL_KEYS[p]), p) for p in ai_assist.PROVIDERS]
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield SafeHeader()
         yield Static(i18n.t("ai_credentials.intro"), id="intro")
         current_provider = _active_provider()
         with Vertical():
