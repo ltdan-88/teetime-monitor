@@ -21,6 +21,7 @@ runPicksClientTests()
 runPlayerDirectoryTests()
 runPlayerDirectoryReviewFixTests()
 runOverviewModelTests()
+runPartySizeTests()
 runClubDefaultsTests()
 runScrapeHealthTests()
 

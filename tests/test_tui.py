@@ -2994,6 +2994,8 @@ def test_edit_settings_saves_and_reflects_immediately_in_the_overview(tmp_path, 
             # Back on the overview, reloaded -- a saved availability change can
             # immediately affect its per-day pick column and "This week's picks".
             assert isinstance(app.screen, tui.OverviewScreen)
+            # ...and its Group dropdown shows the group size Preferences just saved.
+            assert app.screen.query_one("#group-select", Select).value == "3"
 
     _run(scenario())
 
@@ -7062,3 +7064,281 @@ def test_legend_has_the_handicap_line_in_both_languages():
         assert "(18,4) = Handicap des Spielers" in tui._legend_pairs(tui.OVERVIEW_LEGEND)
     finally:
         i18n.set_language("en")
+
+
+# --- quick party-size (Group) dropdown on the overview (2026-10-09) ---------------------
+
+
+def _seed_party_size_day(tmp_path, monkeypatch, preferences=None):
+    """Tomorrow, three slots with 2 / 4 / 3 free places: a group of 1 can play all of them,
+    a group of 3 only the last two, a group of 4 only the 4-free one."""
+    from datetime import date as date_cls
+    from datetime import timedelta
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    tomorrow = (date_cls.fromisoformat(clock.today()) + timedelta(days=1)).isoformat()
+    storage.save_schedule(
+        Schedule(
+            date=tomorrow,
+            course="18 Loch Tee 1",
+            slots=[
+                Slot(time="10:00", booked=2, capacity=4),
+                Slot(time="11:00", booked=0, capacity=4),
+                Slot(time="12:00", booked=1, capacity=4),
+            ],
+            sun_times=SunTimes(sunrise="06:00", sunset="21:00"),
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+    base = {
+        "availability": {
+            "min_open_spots": 1,
+            "weekday_window": {"after": "08:00"},
+            "weekend_window": {"after": "08:00"},
+            "buffer_before_minutes": 15,
+        },
+        "units": "imperial",
+        "something_unknown": {"keep": ["me"]},
+    }
+    tui.global_preferences.save_preferences({**base, **(preferences or {})})
+    return tomorrow
+
+
+def _pick_cell(screen, date):
+    return screen._row_header_cells[date][tui.OverviewScreen._PICK_COLUMN_INDEX]
+
+
+def test_group_select_is_labelled_and_fits_beside_club_course_and_status(tmp_path, monkeypatch):
+    _seed_party_size_day(tmp_path, monkeypatch)
+
+    async def scenario():
+        for width, status_inline in ((120, True), (80, None)):
+            app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1", club_name="Musterhausen"))
+            async with app.run_test(size=(width, 30)) as pilot:
+                await pilot.pause()
+                screen = app.screen
+                labels = {str(label.content) for label in screen.query(Label)}
+                assert i18n.t("switcher.group_label") in labels
+                club, course, group = (screen.query_one(f"#{n}-select") for n in ("club", "course", "group"))
+                assert club.region.y == course.region.y == group.region.y
+                assert club.region.right <= course.region.x < course.region.right <= group.region.x
+                assert group.region.right <= width
+                assert str(group.value) == "1"
+                if status_inline:
+                    status = screen.query_one("_RefreshStatus")
+                    assert status.region.y == club.region.y
+                    assert group.region.right <= status.region.x
+
+    _run(scenario())
+
+
+def test_group_select_reflows_when_the_terminal_is_narrow(tmp_path, monkeypatch):
+    _seed_party_size_day(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(
+            tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1", club_name="A Very Long Golf Club Name e.V. Musterhausen")
+        )
+        async with app.run_test(size=(60, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            club, course, group = (screen.query_one(f"#{n}-select") for n in ("club", "course", "group"))
+            assert course.region.y > club.region.y
+            assert group.region.right <= 60
+            assert group.region.x >= course.region.right  # course and group share line two
+
+    _run(scenario())
+
+
+def test_group_select_change_saves_the_preference_and_keeps_every_other_key(tmp_path, monkeypatch):
+    _seed_party_size_day(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#group-select", Select).value = "3"
+            await _wait_until(pilot, lambda: tui.global_preferences.load_min_open_spots() == 3)
+
+    _run(scenario())
+    saved = tui.global_preferences.load_preferences()
+    assert saved["availability"] == {
+        "min_open_spots": 3,
+        "weekday_window": {"after": "08:00"},
+        "weekend_window": {"after": "08:00"},
+        "buffer_before_minutes": 15,
+    }
+    assert saved["units"] == "imperial"
+    assert saved["something_unknown"] == {"keep": ["me"]}
+
+
+def _slot_stars(screen, date):
+    table = screen.query_one("#overview-table", DataTable)
+    return {
+        slot_time: "★" in table.get_row_at(index)[0].plain
+        for index, (row_date, slot_time) in enumerate(screen._row_index)
+        if row_date == date and slot_time
+    }
+
+
+def test_group_select_rerenders_the_pick_and_star_markers_without_a_scrape(tmp_path, monkeypatch):
+    tomorrow = _seed_party_size_day(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen._expanded_dates = {tomorrow}
+            await screen.load_overview(keep_cursor=True)
+            await pilot.pause()
+            before_pick = str(_pick_cell(screen, tomorrow))
+            assert _slot_stars(screen, tomorrow) == {"10:00": True, "11:00": True, "12:00": True}
+
+            screen.query_one("#group-select", Select).value = "3"
+            await _wait_until(pilot, lambda: "10:00" not in str(_pick_cell(screen, tomorrow)))
+            await pilot.pause()
+            after_pick = str(_pick_cell(screen, tomorrow))
+            assert after_pick != before_pick and "10:00" not in after_pick
+            assert _slot_stars(screen, tomorrow) == {"10:00": False, "11:00": True, "12:00": True}
+
+            screen.query_one("#group-select", Select).value = "4"
+            await _wait_until(pilot, lambda: _slot_stars(screen, tomorrow)["12:00"] is False)
+            assert _slot_stars(screen, tomorrow) == {"10:00": False, "11:00": True, "12:00": False}
+            assert "11:00" in str(_pick_cell(screen, tomorrow))
+
+            screen.query_one("#group-select", Select).value = "1"
+            await _wait_until(pilot, lambda: _slot_stars(screen, tomorrow)["10:00"])
+            assert str(_pick_cell(screen, tomorrow)) == before_pick
+
+    _run(scenario())
+
+
+def test_group_select_follows_a_preferences_change_made_elsewhere(tmp_path, monkeypatch):
+    tomorrow = _seed_party_size_day(tmp_path, monkeypatch)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert screen.query_one("#group-select", Select).value == "1"
+            assert "10:00" in str(_pick_cell(screen, tomorrow))
+            tui.global_preferences.save_min_open_spots(3)  # the Preferences screen / the GUI
+            await screen.load_overview(keep_cursor=True)  # any background refresh
+            await pilot.pause()
+            assert screen.query_one("#group-select", Select).value == "3"
+            assert "10:00" not in str(_pick_cell(screen, tomorrow))
+            # ...and that sync alone did not write anything back.
+            assert tui.global_preferences.load_min_open_spots() == 3
+
+    _run(scenario())
+
+
+def test_a_group_change_during_the_slow_ai_pass_is_not_overwritten_by_the_old_picks(tmp_path, monkeypatch):
+    """2026-10-09 review: _finish_fresh_load's AI pass (seconds of LLM calls) captured the
+    config before a Group change and used to swap its old-size cache in afterwards."""
+    tomorrow = _seed_party_size_day(tmp_path, monkeypatch, preferences={"ai_assist": {"enabled": True}})
+    original = tui.OverviewScreen._prewarm_pick_cache
+
+    async def scenario():
+        started, gate = asyncio.Event(), asyncio.Event()
+        calls = {"ai": 0}
+
+        async def fake_prewarm(self, config, dates, open_dates, cache=None):
+            # Only the *first* AI-enabled pass (the fresh load's) is slow; the pipeline
+            # itself runs with AI off so nothing goes to the network.
+            if config.get("ai_assist", {}).get("enabled"):
+                calls["ai"] += 1
+                if calls["ai"] == 1:
+                    started.set()
+                    await gate.wait()
+            off = {**config, "ai_assist": {**config.get("ai_assist", {}), "enabled": False}}
+            await original(self, off, dates, open_dates, cache)
+
+        monkeypatch.setattr(tui.OverviewScreen, "_prewarm_pick_cache", fake_prewarm)
+        monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            screen = app.screen
+            await asyncio.wait_for(started.wait(), 5)
+            screen._expanded_dates = {tomorrow}
+            screen.query_one("#group-select", Select).value = "3"
+            await _wait_until(pilot, lambda: _slot_stars(screen, tomorrow).get("10:00") is False)
+            assert _slot_stars(screen, tomorrow) == {"10:00": False, "11:00": True, "12:00": True}
+            gate.set()  # the old-size AI pass finishes now
+            await _wait_until(pilot, lambda: all(w.is_finished for w in app.workers if w.group == "ai-picks"))
+            await pilot.pause()
+            assert _slot_stars(screen, tomorrow) == {"10:00": False, "11:00": True, "12:00": True}
+            assert "10:00" not in str(_pick_cell(screen, tomorrow))
+
+    _run(scenario())
+
+
+def test_a_group_change_while_a_load_reads_its_config_does_not_flip_the_dropdown_back(tmp_path, monkeypatch):
+    """2026-10-09 review: load_overview synced the dropdown from a config read before the
+    change, reverting it to the old size while the file already held the new one."""
+    _seed_party_size_day(tmp_path, monkeypatch)
+    original = tui.OverviewScreen._config
+    entered, release, armed = threading.Event(), threading.Event(), {"on": False}
+
+    def slow_config(self):
+        config = original(self)  # read before the user's change...
+        if armed["on"]:
+            armed["on"] = False
+            entered.set()
+            release.wait(5)  # ...and handed back after it
+        return config
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            monkeypatch.setattr(tui.OverviewScreen, "_config", slow_config)
+            armed["on"] = True
+            load = asyncio.create_task(screen.load_overview(keep_cursor=True))
+            await _wait_until(pilot, entered.is_set)
+            screen.query_one("#group-select", Select).value = "3"
+            await pilot.pause()
+            release.set()
+            await load
+            await pilot.pause()
+            assert screen.query_one("#group-select", Select).value == "3"
+            assert tui.global_preferences.load_min_open_spots() == 3
+
+    _run(scenario())
+
+
+def test_a_new_overview_screen_opens_on_the_saved_group_size(tmp_path, monkeypatch):
+    # The Preferences screen rebuilds the OverviewScreen on return (_rebuild_current_screen).
+    _seed_party_size_day(tmp_path, monkeypatch)
+    tui.global_preferences.save_min_open_spots(4)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#group-select", Select).value == "4"
+
+    _run(scenario())
+
+
+def test_group_select_survives_an_out_of_range_saved_value(tmp_path, monkeypatch):
+    _seed_party_size_day(tmp_path, monkeypatch)
+    tui.global_preferences.save_min_open_spots(6)
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            assert app.screen.query_one("#group-select", Select).value == "6"
+            await pilot.pause(0.3)
+
+    _run(scenario())
+    assert tui.global_preferences.load_min_open_spots() == 6  # not clobbered by a transient value
+
+
+def test_group_label_is_translated():
+    assert i18n._STRINGS["en"]["switcher.group_label"] == "Group:"
+    assert i18n._STRINGS["de"]["switcher.group_label"] == "Gruppe:"

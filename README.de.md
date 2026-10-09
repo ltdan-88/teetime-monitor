@@ -123,6 +123,7 @@ Abstand du zur Gruppe davor und dahinter haben willst. Zeiten, auf die alles zut
 bekommen automatisch ein ★ — für den Normalfall musst du nie suchen. Das gilt global,
 nicht pro Club: wann du kannst, hängt schließlich nicht davon ab, welchen Platz du
 gerade anschaust.
+Die Gruppengröße änderst du direkt in der Übersicht (Auswahl „Gruppe“ neben Club und Platz, in beiden Apps).
 
 Ein 🌙 markiert jede Startzeit, deren Runde vor Sonnenuntergang nicht mehr fertig wird —
 gerechnet mit deinem eigenen Tempo für 9 oder 18 Loch.

@@ -1268,6 +1268,9 @@ final class OverviewModel: ObservableObject {
     /// ranking calls). Everything else fetches straight away.
     func reload(offMain: Bool = false, picksDelay: TimeInterval = 0) {
         guard !clubPath.isEmpty, !course.isEmpty else { clearClubState(); return }
+        // The TUI may have saved another group size since: the picker follows (its
+        // onChange re-fetches the picks; the fetch below is the latest-wins twin).
+        if Thread.isMainThread { AppPartySize.shared.refreshFromFile() }
         let keepOpen = expanded          // a background refresh must not collapse what
         if offMain {
             // Course switch: the SQLite reads (6 days of slots + weather) ran on the
@@ -1344,6 +1347,14 @@ final class OverviewModel: ObservableObject {
         } else {
             fetchPicks()
         }
+    }
+
+    /// The group size changed (the overview's Group picker, or Preferences): the days on
+    /// screen are unchanged, only which slots count as recommended moves, so just the
+    /// picks (badges, star markers, window hint) are fetched again -- no scrape, no
+    /// blanking in between.
+    func partySizeChanged() {
+        fetchPicks()
     }
 
     /// Bumped per picks request (and by `clearClubState()`); a result is applied only
@@ -1511,6 +1522,7 @@ struct ContentView: View {
     @ObservedObject private var theme = AppTheme.shared
     @ObservedObject private var scale = AppScale.shared
     @ObservedObject private var language = AppLanguage.shared
+    @ObservedObject private var partySize = AppPartySize.shared
 
     private var appVersionString: String {
         "v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
@@ -1678,6 +1690,24 @@ struct ContentView: View {
                     model.expanded = []  // switching course collapses every day (direct request, 2026-10-03)
                     model.reload(offMain: true)
                 }
+
+                // Group (party size), 2026-10-09 -- "who plays today?" without Preferences ->
+                // Save -> back. Same label + Picker pattern as Club/Course, in the same row,
+                // and like them no .frame(width:) on the Picker (see the note above): its
+                // choices are single digits, so the menu is the same width for 1-4 anyway.
+                // Shares AppPartySize with Preferences' "Min open spots" row, so each shows
+                // what the other saved; the TUI's Group dropdown writes the same preference.
+                Text(t("overview.group")).font(scaledFont(.caption2)).foregroundStyle(.secondary)
+                    .padding(.leading, 6)
+                IntChoicePicker(choices: AppPartySize.choices,
+                                value: Binding(get: { partySize.value }, set: { partySize.choose($0) }))
+                    .font(scaledFont(.body)).fontWeight(.semibold)
+                    .help(t("prefs.min_open_spots_label"))
+                    .onChange(of: partySize.value) { _, _ in model.partySizeChanged() }
+                    // Back from the TUI (or any other process) with a different group size saved.
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                        partySize.refreshFromFile()
+                    }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

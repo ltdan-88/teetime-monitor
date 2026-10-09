@@ -2212,9 +2212,27 @@ _SWITCHER_CSS = """
 #club-row {
     height: auto;
 }
-#club-row-fields, #club-pair, #course-pair {
+#club-row-fields, #club-pair, #course-pair, #course-group, #group-pair {
     width: auto;
     height: 1;
+}
+/* Group (party size) dropdown, 2026-10-09: beside Course on the same row, sized by
+   _apply_switcher_layout() like the other two. */
+#group-select {
+    width: 5;
+}
+#group-label {
+    width: auto;
+    padding: 0 1 0 3;
+}
+/* Course and Group only stack when the terminal is too narrow for both on one line. */
+#course-group.stack-group {
+    layout: vertical;
+    height: auto;
+}
+#course-group.stack-group #group-label {
+    width: 10;
+    padding: 0 2 0 0;
 }
 /* Beside the club picker, the course label only needs its own text plus a
    gap -- the fixed .switcher-label width is for aligning stacked rows. */
@@ -2308,6 +2326,14 @@ class _ClubCourseSwitcher:
             favorites = [(self.club_id, self.club_name or self.club_slug or self.club_id), *favorites]
         return [(name, club_id) for club_id, name in favorites]
 
+    def _group_select_options(self) -> list[tuple[str, str]]:
+        """1-4 players for the Group dropdown, plus the saved value when a hand-edited
+        file holds one outside that range (same convention as the Preferences form)."""
+        options = list(MIN_OPEN_SPOTS_CHOICES)
+        if str(self._party_size) not in {value for _, value in options}:
+            options = [(str(self._party_size), str(self._party_size)), *options]
+        return options
+
     def _compose_switcher(self) -> ComposeResult:
         with Vertical(id="switcher"):
             # club-row-fields nests the label+dropdown separately from
@@ -2328,17 +2354,26 @@ class _ClubCourseSwitcher:
                             self._club_select_options(), value=self.club_id, allow_blank=False,
                             compact=True, id="club-select",
                         )
-                    with Horizontal(id="course-pair"):
-                        yield Label(i18n.t("switcher.course_label"), classes="switcher-label", id="course-label")
-                        # Just the current course at first -- the club's full list
-                        # needs a live fetch (fetch_course_aliases()), kicked off
-                        # from on_mount() instead so compose() itself never blocks
-                        # on the network, same rule every other screen here
-                        # already follows.
-                        yield Select(
-                            [(self.course, self.course)], value=self.course, allow_blank=False,
-                            compact=True, id="course-select",
-                        )
+                    with Horizontal(id="course-group"):
+                        with Horizontal(id="course-pair"):
+                            yield Label(i18n.t("switcher.course_label"), classes="switcher-label", id="course-label")
+                            # Just the current course at first -- the club's full list
+                            # needs a live fetch (fetch_course_aliases()), kicked off
+                            # from on_mount() instead so compose() itself never blocks
+                            # on the network, same rule every other screen here
+                            # already follows.
+                            yield Select(
+                                [(self.course, self.course)], value=self.course, allow_blank=False,
+                                compact=True, id="course-select",
+                            )
+                        # Quick party-size override (2026-10-09, "who plays today?"):
+                        # availability.min_open_spots, the same value as Preferences.
+                        with Horizontal(id="group-pair"):
+                            yield Label(i18n.t("switcher.group_label"), classes="switcher-label", id="group-label")
+                            yield Select(
+                                self._group_select_options(), value=str(self._party_size), allow_blank=False,
+                                compact=True, id="group-select",
+                            )
                 yield _RefreshStatus()
 
     # How much room the refresh-status readout itself needs to read
@@ -2353,6 +2388,8 @@ class _ClubCourseSwitcher:
     # docstring for why live-measuring the widget itself was dropped).
     _SELECT_CHROME_WIDTH = 4
     _SELECT_MAX_WIDTH = 60
+    # #group-select: one digit plus Select's chrome.
+    _GROUP_SELECT_WIDTH = 5
     # #switcher's own horizontal padding (`padding: 1 2 0 2`).
     _SWITCHER_PADDING = 4
 
@@ -2399,12 +2436,22 @@ class _ClubCourseSwitcher:
         )
         club_pair_width = self._SWITCHER_LABEL_WIDTH + club_select_width
         inline_course_label_width = _cell_visible_width(i18n.t("switcher.course_label")) + 4
-        one_row_width = club_pair_width + inline_course_label_width + course_select_width
+        inline_group_width = _cell_visible_width(i18n.t("switcher.group_label")) + 4 + self._GROUP_SELECT_WIDTH
+        one_row_width = club_pair_width + inline_course_label_width + course_select_width + inline_group_width
         two_lines = one_row_width > w
         course_pair_width = (
             self._SWITCHER_LABEL_WIDTH if two_lines else inline_course_label_width
         ) + course_select_width
-        fields_width = max(club_pair_width, course_pair_width) if two_lines else one_row_width
+        # Narrow: club on line one, course + group on line two; only when even that
+        # is too wide does the group take a third line (aligned under the labels).
+        stack_group = two_lines and course_pair_width + inline_group_width > w
+        group_pair_width = (
+            self._SWITCHER_LABEL_WIDTH + self._GROUP_SELECT_WIDTH if stack_group else inline_group_width
+        )
+        course_group_width = (
+            max(course_pair_width, group_pair_width) if stack_group else course_pair_width + group_pair_width
+        )
+        fields_width = max(club_pair_width, course_group_width) if two_lines else one_row_width
         stacked = (w - fields_width) < self._STATUS_MIN_WIDTH
         self.query_one("#club-row").set_class(stacked, "stacked")
         fields = self.query_one("#club-row-fields")
@@ -2412,8 +2459,13 @@ class _ClubCourseSwitcher:
         fields.styles.width = fields_width
         self.query_one("#club-pair").styles.width = club_pair_width
         self.query_one("#course-pair").styles.width = course_pair_width
+        group = self.query_one("#course-group")
+        group.set_class(stack_group, "stack-group")
+        group.styles.width = course_group_width
+        self.query_one("#group-pair").styles.width = group_pair_width
         self.query_one("#club-select").styles.width = club_select_width
         self.query_one("#course-select").styles.width = course_select_width
+        self.query_one("#group-select").styles.width = self._GROUP_SELECT_WIDTH
 
     async def _refresh_course_options(self) -> None:
         """Fills the course selector in with the active club's *real* course list,
@@ -2480,6 +2532,8 @@ class _ClubCourseSwitcher:
             self.run_worker(self._switch_club(event.value), exclusive=True, group="switch")
         elif event.select.id == "course-select" and event.value != self.course:
             self.run_worker(self._switch_course(event.value), exclusive=True, group="switch")
+        elif event.select.id == "group-select":
+            self._on_party_size_selected(int(event.value))
 
     async def _switch_club(self, club_id: str) -> None:
         """The inline club selector's own version of `TeetimeApp._open_club()` --
@@ -2810,6 +2864,14 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # ("alternative", date, course) keys (2026-10-05).
         self._pick_cache: dict[tuple, object] = {}
         self._overview_generation = 0
+        # The group size the Group dropdown shows (availability.min_open_spots), read
+        # fresh from preferences.yaml: a Preferences save rebuilds this screen, so a
+        # new instance always starts from the saved value (2026-10-09).
+        self._party_size = global_preferences.load_min_open_spots()
+        # Bumped on every change of the dropdown's group size, so a pick cache that was
+        # being built meanwhile (`_finish_fresh_load()`'s slow AI pass) is known to be
+        # for the old size and is rebuilt instead of overwriting the new picks.
+        self._party_epoch = 0
         # Every day-summary row's own cell tuple, keyed by date -- the exact
         # `(day_cell, condition_cell, ..., pick_cell)` _render_table() itself
         # just handed to add_row() for that date, kept around so
@@ -3018,6 +3080,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         if not self._cached_dates:
             return  # the first resume, before load_overview() has painted anything
         self.refresh_banners()
+        if self._sync_party_size():
+            self.run_worker(self._rerender_for_party_size(), exclusive=True, group="party-size")
+            return
         self._rerender_preserving_cursor(self.query_one("#overview-table", DataTable).cursor_row)
 
     def action_refresh(self) -> None:
@@ -3696,9 +3761,15 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         # Off the event loop: _config() may geocode a club with no saved
         # location (a live Nominatim request) the first time it's resolved.
+        party_epoch = self._party_epoch
         config = await asyncio.to_thread(self._config)
         if stale():
             return
+        # A Preferences/GUI change since the last load. Skipped when the dropdown itself
+        # changed while the config was being read: that config predates the new size and
+        # would flip the dropdown back to the old one (2026-10-09 review).
+        if party_epoch == self._party_epoch:
+            self._sync_party_size(config)
         # A fresh open paints from local data only (remembered open dates, local
         # ranking) and finishes the slow network/AI work in `_finish_fresh_load()`.
         fresh = not keep_cursor
@@ -3748,13 +3819,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 exclusive=True,
                 group="ai-picks",
             )
-        alternatives = {
-            schedule.date: _shorter_round_alternative(schedule, config, self.club_id, self._pick_cache)
-            for schedule in schedules
-        }
-        self.query_one("#hint", _AutoHideStatic).update(
-            _window_hint_text(recommend.window_too_late_hint(schedules, config, alternatives))
-        )
+        self._update_window_hint(schedules, config)
         table = self.query_one("#overview-table", DataTable)
 
         if keep_cursor:
@@ -3781,6 +3846,94 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         self._schedules = schedules
 
+    def _update_window_hint(self, schedules: list[Schedule], config: dict) -> None:
+        """The one-line "window opens too late" hint under the switcher, from the
+        current pick cache."""
+        alternatives = {
+            schedule.date: _shorter_round_alternative(schedule, config, self.club_id, self._pick_cache)
+            for schedule in schedules
+        }
+        self.query_one("#hint", _AutoHideStatic).update(
+            _window_hint_text(recommend.window_too_late_hint(schedules, config, alternatives))
+        )
+
+    def _on_party_size_selected(self, spots: int) -> None:
+        """The Group dropdown changed (2026-10-09): save `availability.min_open_spots`
+        (every other key stays as it is, via `global_preferences.save_min_open_spots()`)
+        and redraw picks and ★ markers from local data -- no scrape."""
+        if spots == self._party_size:
+            return  # a programmatic sync, or the same value picked again
+        previous = self._party_size
+        self._party_size = spots
+        self._party_epoch += 1
+        try:
+            global_preferences.save_min_open_spots(spots)
+        except Exception as exc:  # noqa: BLE001 -- unwritable config dir, etc.
+            self._party_size = previous
+            self._party_epoch += 1
+            self.query_one("#status", Static).update(i18n.t("settings.not_saved", error=exc))
+            self._show_party_size(previous)
+            return
+        self.run_worker(self._rerender_for_party_size(), exclusive=True, group="party-size")
+
+    def _show_party_size(self, spots: int) -> None:
+        """Put `spots` in the dropdown without it counting as a user change."""
+        self._party_size = spots
+        self._party_epoch += 1
+        try:
+            select = self.query_one("#group-select", Select)
+        except NoMatches:
+            return  # the screen is going away
+        if str(spots) not in {value for _, value in self._group_select_options()}:
+            select.set_options(self._group_select_options())
+        if select.value != str(spots):
+            select.value = str(spots)
+
+    def _sync_party_size(self, config: dict | None = None) -> bool:
+        """Follow a change made elsewhere (Preferences, the GUI): True when the saved
+        group size differs from what the dropdown shows. Does not redraw."""
+        if config is None:
+            saved = global_preferences.load_min_open_spots()
+        else:
+            try:
+                saved = max(1, int((config.get("availability") or {}).get("min_open_spots", 1)))
+            except (TypeError, ValueError):
+                saved = 1
+        if saved == self._party_size:
+            return False
+        self._show_party_size(saved)
+        return True
+
+    async def _rerender_for_party_size(self) -> None:
+        """Redraw Pick column, ★ markers and the window hint for the new group size.
+        `_pick_cache` memoizes `_availability_pipeline()` per (date, course), computed
+        with the old party size, so it is rebuilt (off-thread, like `load_overview()`)
+        before the synchronous render. The loaded days and holidays stay as they are:
+        neither depends on the group size, and no scrape or date fetch happens."""
+        if not self._cached_dates:
+            return  # nothing painted yet: the first load_overview() reads the new value
+        dates, open_dates = list(self._cached_dates), set(self._cached_open_dates)
+        config = await asyncio.to_thread(self._config)
+        ai_on = bool(config.get("availability")) and config.get("ai_assist", {}).get("enabled", False)
+        local_config = {**config, "ai_assist": {**config.get("ai_assist", {}), "enabled": False}}
+
+        def stale() -> bool:
+            return not self.is_attached or not self.app.is_running
+
+        for pass_config in (local_config, config) if ai_on else (config,):
+            cache: dict = {}
+            await self._prewarm_pick_cache(pass_config, dates, open_dates, cache)
+            if stale():
+                return
+            self._pick_cache = cache
+            try:
+                table = self.query_one("#overview-table", DataTable)
+                self._rerender_preserving_cursor(table.cursor_row)
+                self._update_window_hint(self._schedules, config)
+            except NoMatches:
+                # Resumed under Preferences just as _rebuild_current_screen() replaced it.
+                return
+
     async def _finish_fresh_load(
         self, config: dict, local_config: dict, dates: list[str], open_dates: set[str], ai_on: bool, generation: int
     ) -> None:
@@ -3798,6 +3951,25 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         def rerender() -> None:
             table = self.query_one("#overview-table", DataTable)
             self._rerender_preserving_cursor(table.cursor_row)
+
+        async def build_picks(ai: bool) -> dict | None:
+            """A pick cache for the *current* config. `config` above was read before a
+            Group change could happen, and the AI pass runs for seconds, so the config is
+            re-resolved per attempt and a cache built while the group size changed is
+            discarded and rebuilt (2026-10-09 review: it used to overwrite the new
+            size's picks and ★ markers). None: stale, or the size kept changing."""
+            for _ in range(3):
+                epoch = self._party_epoch
+                current = await asyncio.to_thread(self._config)
+                if not ai:
+                    current = {**current, "ai_assist": {**current.get("ai_assist", {}), "enabled": False}}
+                cache: dict = {}
+                await self._prewarm_pick_cache(current, dates, open_dates, cache)
+                if stale():
+                    return None
+                if epoch == self._party_epoch:
+                    return cache
+            return None
 
         try:
             await asyncio.sleep(_FIRST_SCRAPE_DELAY_SECONDS)
@@ -3817,15 +3989,15 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if real_open != open_dates or real_dates != dates:
                 dates, open_dates = real_dates, real_open
                 self._cached_dates, self._cached_open_dates = dates, open_dates
-                await self._prewarm_pick_cache(local_config if ai_on else config, dates, open_dates)
-                if stale():
+                cache = await build_picks(ai=False)
+                if cache is None:
                     return
+                self._pick_cache.update(cache)
                 rerender()
             if not ai_on:
                 return
-            fresh_cache: dict = {}
-            await self._prewarm_pick_cache(config, dates, open_dates, fresh_cache)
-            if stale():
+            fresh_cache = await build_picks(ai=True)
+            if fresh_cache is None:
                 return
             self._pick_cache = fresh_cache
             rerender()
