@@ -70,6 +70,14 @@ struct Preferences {
         return load(from: YAML.parse(text))
     }
 
+    /// What the Preferences sheet opens on: the file, group size included (2026-10-09).
+    /// The singleton behind the overview's Group picker may be stale -- the TUI can have
+    /// saved a different size since -- and Save would write that stale value back over
+    /// it; the sheet's `.onAppear` brings the singleton up to the file instead.
+    static func withSharedPartySize() -> Preferences {
+        load()
+    }
+
     static func load(from root: YAMLValue) -> Preferences {
         var p = Preferences()
         let avail = root["availability"]
@@ -206,6 +214,29 @@ struct Preferences {
         let dir = (Self.path() as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         try YAML.dump(.map(root)).write(toFile: Self.path(), atomically: true, encoding: .utf8)
+    }
+
+    /// Changes only `availability.min_open_spots` (2026-10-09, the overview's quick Group
+    /// picker): the rest of the file -- other availability values, unknown keys -- is
+    /// written back exactly as it was read, unlike `save()`, which also rewrites every
+    /// key this struct models.
+    static func setMinOpenSpots(_ spots: Int) throws {
+        let existing = (try? String(contentsOfFile: path(), encoding: .utf8)).map(YAML.parse) ?? .map([])
+        var root = existing.asMap ?? []
+        var availability: [(String, YAMLValue)] = existing["availability"]?.asMap ?? []
+        if let i = availability.firstIndex(where: { $0.0 == "min_open_spots" }) {
+            availability[i].1 = .int(spots)
+        } else {
+            availability.append(("min_open_spots", .int(spots)))
+        }
+        if let i = root.firstIndex(where: { $0.0 == "availability" }) {
+            root[i].1 = .map(availability)
+        } else {
+            root.append(("availability", .map(availability)))
+        }
+        let dir = (path() as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try YAML.dump(.map(root)).write(toFile: path(), atomically: true, encoding: .utf8)
     }
 
     private func windowPairs(after: String?, before: String?) -> [(String, YAMLValue)] {

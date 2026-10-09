@@ -77,3 +77,46 @@ final class AppShowHandicaps: ObservableObject {
         value = Preferences.load().showHandicaps
     }
 }
+
+/// The group size (`availability.min_open_spots`, 1-4): one shared value behind the
+/// overview's quick "Group" picker and Preferences' "Min open spots (party size)" row
+/// (2026-10-09), same singleton shape as `AppShowHandicaps`. Seeded from
+/// `preferences.yaml`, the file the TUI reads too.
+final class AppPartySize: ObservableObject {
+    static let shared = AppPartySize()
+    static let choices = [1, 2, 3, 4]
+
+    @Published var value: Int
+
+    /// Writes the preference; a seam so tests don't touch the real file.
+    var persist: (Int) throws -> Void = { try Preferences.setMinOpenSpots($0) }
+    /// Reads the saved preference; a seam like `persist`.
+    var loadSaved: () -> Int = { Preferences.load().minOpenSpots }
+
+    private init() {
+        value = Preferences.load().minOpenSpots
+    }
+
+    /// Follows a change made behind this app's back (the TUI's Group dropdown or its
+    /// Preferences, another GUI process): re-reads the file and publishes only when it
+    /// differs. Called when Preferences opens, on app activation and from each
+    /// `OverviewModel.reload()`. Every write here is synchronous (`choose()`), so the
+    /// file is always the truth -- there is no pending write to protect (2026-10-09).
+    func refreshFromFile() {
+        let saved = loadSaved()
+        if saved != value { value = saved }
+    }
+
+    /// The picker's choice: written first, shown only once it is saved (a failed write
+    /// leaves the old value on screen). Returns whether it was saved. Re-reads the file
+    /// first, so picking the size the picker still shows after an outside change (the
+    /// TUI saved a different one) is a real write, not a no-op.
+    @discardableResult
+    func choose(_ spots: Int) -> Bool {
+        refreshFromFile()
+        guard spots != value else { return true }
+        do { try persist(spots) } catch { objectWillChange.send(); return false }  // re-reads the picker's binding
+        value = spots
+        return true
+    }
+}
