@@ -59,6 +59,7 @@ enum PreviewClient {
         switch obj["reason"] as? String {
         case "missing_club_id": return t("error.generic")
         case "no_tee_sheet": return t("error.preview_no_tee_sheet")
+        case "login_required": return t("error.preview_login_required")
         case "course_fetch_failed":
             return t("error.preview_fetch_failed", ["error": obj["error"] as? String ?? "?"])
         default: return t("error.generic")

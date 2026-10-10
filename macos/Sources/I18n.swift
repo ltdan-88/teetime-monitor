@@ -587,6 +587,7 @@ private let englishStrings: [String: String] = [
     "error.add_failed": "Couldn't save this club.",
     "error.preview_missing": "teetime-monitor-preview-club not found — install it with Homebrew.",
     "error.preview_no_tee_sheet": "This club doesn't publish an online tee sheet.",
+    "error.preview_login_required": "This club doesn't show its tee sheet without a member login for that club (pc caddie answered \"unauthorized\"), so it can't be opened here.",
     "error.preview_fetch_failed": "Couldn't load this club's course list: {error}",
 
     // Login results
@@ -989,6 +990,7 @@ private let germanStrings: [String: String] = [
     "error.add_failed": "Dieser Club konnte nicht gespeichert werden.",
     "error.preview_missing": "teetime-monitor-preview-club nicht gefunden — mit Homebrew installieren.",
     "error.preview_no_tee_sheet": "Dieser Club veröffentlicht keinen Online-Spielplan.",
+    "error.preview_login_required": "Dieser Club zeigt seinen Spielplan nur mit einem Mitglieds-Login für diesen Club (pc caddie meldete \"nicht autorisiert\") und lässt sich hier deshalb nicht öffnen.",
     "error.preview_fetch_failed": "Die Platzliste konnte nicht geladen werden: {error}",
 
     // Login results
