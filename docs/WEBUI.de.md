@@ -21,7 +21,8 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
   Spielerliste scrollt unter einer festen Suche mit A–Z-Index. **Einstellungen > Skalierung** macht die ganze Seite
   kleiner oder größer (nur in diesem Browser; der Browser-Zoom, Strg +/-, geht auch).
 - **Aktualisieren** lädt neue Startzeiten; beim Öffnen der Seite wird auch geladen, was fällig ist.
-- Deutsch oder Englisch (Einstellungen > Sprache), dunkel oder hell nach deinem System, und Einzeltasten wie in
+- Deutsch oder Englisch (Einstellungen > Sprache), dieselben elf Farbthemen wie in Terminal- und Mac-App
+  (Einstellungen > Anzeige > Theme; ohne Auswahl folgt es dem Dunkel/Hell deines Systems), und Einzeltasten wie in
   der Terminal-App: `r` aktualisieren, `s` suchen, `h` Heatmap, `p` Spieler, `e` Präferenzen, `,` Einstellungen,
   `a` Club hinzufügen, `?` Legende, Esc schließt ein Fenster.
 

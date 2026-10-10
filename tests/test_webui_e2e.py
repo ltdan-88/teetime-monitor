@@ -328,6 +328,23 @@ def test_the_default_course_sits_on_the_club_row(ui):
     _close_sheet(ui)
 
 
+def test_a_theme_can_be_chosen_and_survives_a_reload(ui):
+    background = "getComputedStyle(document.body).backgroundColor"
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('#f-theme')")
+    ui.set("#f-theme", "solarized-light")
+    ui.wait(f"{background} === 'rgb(253, 246, 227)'")
+    ui.shot("theme-solarized-light")
+    _close_sheet(ui)
+    ui.js("location.reload()")
+    ui.wait(f"document.querySelectorAll('.card').length > 0 && {background} === 'rgb(253, 246, 227)'")
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('#f-theme')")
+    ui.set("#f-theme", "catppuccin")
+    ui.wait(f"{background} === 'rgb(30, 30, 46)'")
+    _close_sheet(ui)
+
+
 def test_the_scale_can_be_changed_and_is_remembered(ui):
     assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
     _open_sheet(ui, ",", "Settings")
@@ -360,6 +377,9 @@ def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
     ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=520, deviceScaleFactor=1, mobile=False)
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 8")
+    heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
+    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
+    assert ui.js("document.querySelector('.player-list li:not(.letter) .player-meta').textContent.trim()") in ("Male", "Female", "Unknown")
     assert ui.count("li.letter") >= 3
     assert ui.count(".alpha button") >= 3
     top = ui.js("document.querySelector('.players-tools').getBoundingClientRect().top")

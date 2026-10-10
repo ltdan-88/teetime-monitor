@@ -15,6 +15,8 @@ sunrise to the slot nearest sunset.
 """
 
 import importlib.metadata
+import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -30,6 +32,7 @@ from .. import (
     scrape_once,
     storage,
     units,
+    user_config,
     weather_icons,
 )
 from ..models import ConfirmedBooking
@@ -47,6 +50,27 @@ def version() -> str:
         return importlib.metadata.version("teetime-monitor")
     except importlib.metadata.PackageNotFoundError:
         return "dev"
+
+
+THEMES_FILE = Path(__file__).resolve().parent / "static" / "themes.json"
+THEME_ENV_VAR = "TEETIME_MONITOR_THEME"  # as theme.py; not imported from there (it pulls in Textual)
+
+
+def theme_names() -> list[str]:
+    """The palettes the page offers (static/themes.json: the terminal and Mac apps' own eleven)."""
+    return [name for name in json.loads(THEMES_FILE.read_text(encoding="utf-8")) if not name.startswith("_")]
+
+
+def saved_theme() -> str | None:
+    """The theme in force the way the terminal app resolves it: the environment variable, else the saved
+    THEME= (shared with the terminal and Mac apps); None when neither names a known theme (the page then
+    follows the system's dark or light)."""
+    names = theme_names()
+    chosen = os.environ.get(THEME_ENV_VAR)
+    if chosen in names:
+        return chosen
+    saved = user_config.load_value("THEME", user_config.CONFIG_FILE)
+    return saved if saved in names else None
 
 
 def db_path_for(club_id: str) -> Path:
@@ -118,6 +142,7 @@ def bootstrap() -> dict:
         "language": i18n.get_language(),
         "units": config.get("units", units.DEFAULT_UNITS),
         "show_handicaps": bool(config.get("show_handicaps", True)),
+        "theme": saved_theme(),
         "clubs": club_entries(),
         "last": last,
     }

@@ -125,7 +125,7 @@ def players(slug: str | None, club_id: str | None) -> dict:
         "players": [
             {
                 "name": p.name,
-                "gender": p.gender if p.gender in ("male", "female") else None,
+                "gender": p.gender,
                 "member_status": p.member_status,
                 "handicap": p.handicap,
                 "friend": p.is_friend,

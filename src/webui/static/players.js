@@ -68,11 +68,12 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
           <button class=${'star-btn' + (player.friend ? ' on' : '')} onClick=${() => toggle(player)} aria-pressed=${player.friend}
             title=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend')} aria-label=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend') + ': ' + player.name}>
             <${Icon} name="star" size=${18} style=${player.friend ? 'fill:currentColor' : ''} /></button>
-          <span class=${'player-name' + (player.gender === 'female' ? ' alt' : '') + (player.friend ? ' f' : '')}>${player.name}</span>
+          <span class=${'player-name' + (player.gender === 'female' ? ' alt' : '') + (player.friend ? ' f' : '')} title=${player.name}>${player.name}</span>
+          <span class="dim player-meta">${player.gender ? t('players.gender.' + player.gender) : ''}</span>
           <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
         </li>`;
-  return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="medium" fixed>
+  return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="directory" fixed>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     <p class="hint">${t('players.intro')}</p>
     <div class="players-tools">
@@ -81,8 +82,14 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
       <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
       <label class="check"><${Switch} id="p-friends" checked=${friendsOnly} onChange=${setFriendsOnly} /> ${t('players.friends_only')}</label>
     </div>
+    ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}
     ${data && data.players.length === 0 && html`<div class="empty small"><h3>${t('players.empty_title')}</h3><p>${t('players.empty')}</p></div>`}
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
+    ${data && data.players.length > 0 && html`
+      <div class="player-head" aria-hidden="true">
+        <span></span><span>${t('players.column.name')}</span><span>${t('players.column.gender')}</span>
+        <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span>
+      </div>`}
     <div class="player-scroll">
       <ul class="player-list scroll">
         ${grouped

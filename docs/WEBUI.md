@@ -20,7 +20,8 @@ card layout of the Mac app (light when your system is light), in English or Germ
   search with an A–Z index. **Settings > Scale** makes the whole page smaller or larger (this browser only; the
   browser's own zoom, Ctrl +/-, works too).
 - **Refresh** fetches new tee sheets; opening the page also fetches whatever is due.
-- English or German (Settings > Language), dark or light following your system, and single-letter keys like the
+- English or German (Settings > Language), the same eleven colour themes as the terminal and Mac apps
+  (Settings > Display > Theme; with none chosen it follows your system's dark or light), and single-letter keys like the
   terminal app: `r` refresh, `s` search, `h` heatmap, `p` players, `e` preferences, `,` settings, `a` add club,
   `?` legend, Esc closes a window.
 

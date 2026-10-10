@@ -16,7 +16,7 @@ list. The colour theme is a terminal-app notion; the browser follows the system.
 import os
 from typing import Any
 
-from .. import ai_assist, club_config, env_file, global_preferences, i18n, pipeline, units
+from .. import ai_assist, club_config, env_file, global_preferences, i18n, pipeline, units, user_config
 from ..ai_login_cli import save_ai_key
 from ..login_cli import save_login
 from . import data
@@ -156,7 +156,21 @@ def ai() -> dict:
 
 def settings_payload(club_id: str | None) -> dict:
     """Everything the Settings sheet shows."""
-    return {**schema("settings", club_id), "clubs": clubs_overview(), "account": account(), "ai": ai()}
+    return {
+        **schema("settings", club_id),
+        "clubs": clubs_overview(),
+        "account": account(),
+        "ai": ai(),
+        "theme": data.saved_theme(),
+    }
+
+
+def set_theme(name: str) -> dict:
+    """Save the colour theme (the THEME= setting the terminal and Mac apps read too)."""
+    if name not in data.theme_names():
+        return {"error": "unknown_theme"}
+    user_config.save_value("THEME", name, user_config.CONFIG_FILE)
+    return {"ok": True}
 
 
 def set_default_course(slug: str, course: str) -> dict:

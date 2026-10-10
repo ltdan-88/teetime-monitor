@@ -283,3 +283,36 @@ export function useLoad(loader, deps) {
   useEffect(run, [run]);
   return { ...state, reload: run };
 }
+
+// ---------------------------------------------------------------- themes
+// The same eleven palettes as the terminal and Mac apps (themes.json), saved in the same THEME=
+// setting. With none saved, the system decides: Catppuccin Mocha (dark) or Latte (light).
+
+let THEMES = null;
+
+export async function loadThemes() {
+  if (!THEMES) {
+    const all = await api('/themes.json');
+    delete all._note;
+    THEMES = all;
+  }
+  return THEMES;
+}
+
+export const themeNames = () => Object.keys(THEMES || {});
+export const themeLabel = (name) => name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+export function systemTheme() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'catppuccin-latte' : 'catppuccin';
+}
+
+export function applyTheme(name) {
+  const palette = THEMES && (THEMES[name] || THEMES[systemTheme()]);
+  if (!palette) return;
+  const root = document.documentElement;
+  root.style.setProperty('--bg', palette.background);
+  root.style.setProperty('--surface', palette.surface);
+  root.style.setProperty('--text', palette.foreground);
+  root.style.setProperty('--accent', palette.accent);
+  root.setAttribute('data-scheme', palette.dark ? 'dark' : 'light');
+}
