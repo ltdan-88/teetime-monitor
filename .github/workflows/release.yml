@@ -90,3 +90,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$GITHUB_REF_NAME" macos/dist/TeetimeMonitor-*-arm64.zip macos/dist/TeetimeMonitor-*-arm64.zip.sha256 --clobber
+
+  # The portable Windows app (2026-10-10): built, checked in a clean environment on a Windows
+  # runner (windows/verify_portable.py), then attached to the Release next to the Mac zip.
+  windows-app:
+    needs: release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the portable zip
+        run: python windows/build_portable.py
+
+      - name: Verify it in a clean environment
+        run: python windows/verify_portable.py
+
+      - name: Attach to the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" windows/dist/TeetimeMonitor-*-windows-x64.zip windows/dist/TeetimeMonitor-*-windows-x64.zip.sha256 --clobber
