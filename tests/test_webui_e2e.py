@@ -301,6 +301,78 @@ def test_the_language_switches_to_german_and_back(ui):
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Refresh' || document.querySelector('.tool-label')?.textContent === 'Updating…'", 30)
 
 
+def test_reset_filters_clears_everything_without_searching_again(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.res').length > 3")
+    rows = ui.count(".res")
+    ui.set("#s-spots", "3")
+    ui.set("#s-wd-after", "10")
+    ui.click(".crit-actions .btn", "Reset")
+    ui.wait("document.querySelector('#s-spots').value === '1' && document.querySelector('#s-wd-after').value === ''")
+    assert ui.js("document.querySelector('#s-before').value") == "0"
+    assert ui.count(".res") == rows  # the results stay until you search again
+    ui.click(".crit-actions .btn.pri")  # no window at all means any time: more matches than with your Preferences
+    ui.wait(f"document.querySelectorAll('.res').length > {rows}")
+    _close_sheet(ui)
+
+
+def test_the_default_course_sits_on_the_club_row(ui):
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('.club-head .select select')")
+    heads = ui.js(
+        """(() => { const r = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
+        const head = document.querySelector('.club-head');
+        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.btn'))]; })()"""
+    )
+    assert max(heads) - min(heads) < 4, heads  # name, course and Remove on one line
+    _close_sheet(ui)
+
+
+def test_the_scale_can_be_changed_and_is_remembered(ui):
+    assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('#f-scale')")
+    ui.set("#f-scale", "100")
+    ui.wait("getComputedStyle(document.documentElement).fontSize === '16px'")
+    ui.js("localStorage.getItem('tm_scale') === '100' || (() => { throw new Error('not saved'); })()")
+    ui.set("#f-scale", "80")
+    ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
+    _close_sheet(ui)
+
+
+def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
+    ui.js("window.scrollTo(0, 0)")
+    ui.click("button.dh", index=3)  # opens the fourth day (the accordion closes the others)
+    ui.wait("document.querySelectorAll('.card')[3].classList.contains('open')")
+    pick = ui.text(".card.open .pill.pick").strip()
+    ui.wait(f"(() => {{ const r = document.querySelector('.card.open [data-slot$=\" {pick}\"]'); if (!r) return false; const b = r.getBoundingClientRect(); return b.top > 100 && b.bottom < window.innerHeight; }})()")
+    ui.js("window.scrollBy(0, 400)")
+    ui.wait("(() => { const h = document.querySelector('.card.open .dh-wrap').getBoundingClientRect().top; const bar = document.querySelector('.toolbar').getBoundingClientRect().bottom; return Math.abs(h - bar) < 3; })()")
+    dimmed = ui.count(".card.open .slot.dimmed")
+    assert dimmed > 5  # slots outside your availability window are dimmed
+    ui.js("window.scrollTo(0, 0)")
+    ui.click("button.dh", index=3)
+    ui.click("button.dh", index=1)
+    ui.wait("document.querySelectorAll('.card')[1].classList.contains('open')")
+
+
+def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=520, deviceScaleFactor=1, mobile=False)
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li').length > 8")
+    assert ui.count("li.letter") >= 3
+    assert ui.count(".alpha button") >= 3
+    top = ui.js("document.querySelector('.players-tools').getBoundingClientRect().top")
+    ui.js("document.querySelector('.player-list').scrollTop = 120")
+    assert ui.js("document.querySelector('.player-list').scrollTop") > 0
+    assert ui.js("document.querySelector('.players-tools').getBoundingClientRect().top") == top  # the search stays put
+    ui.js("document.querySelector('.player-list').scrollTop = 0")
+    ui.js("document.querySelector('.alpha button:last-child').click()")  # jumps to the last letter
+    ui.wait("document.querySelector('.player-list').scrollTop > 20")
+    _close_sheet(ui)
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)

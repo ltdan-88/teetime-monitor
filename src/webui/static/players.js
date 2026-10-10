@@ -17,6 +17,20 @@ function sorted(players, key) {
   return rank ? base.sort((a, b) => rank(a) - rank(b)) : base;
 }
 
+/** Groups of players by the first letter of their family name, '#' for anything else (only
+ *  meaningful when the list is sorted by name). */
+function byLetter(players) {
+  const groups = [];
+  for (const player of players) {
+    const initial = familyName(player.name).charAt(0).toUpperCase();
+    const letter = /\p{L}/u.test(initial) ? initial : '#';
+    const last = groups[groups.length - 1];
+    if (last && last.letter === letter) last.players.push(player);
+    else groups.push({ letter, players: [player] });
+  }
+  return groups;
+}
+
 export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data, error, reload } = useLoad(() => api('/api/players' + query(ref)), [club.id]);
@@ -41,7 +55,24 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
       setLocal((current) => ({ ...current, [player.name]: player.friend }));
     }
   }
-  return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="medium">
+  const grouped = sort === 'name' ? byLetter(rows) : null;
+  const letters = grouped ? grouped.map((group) => group.letter).filter((letter, i, all) => all.indexOf(letter) === i) : [];
+  const jump = (letter) => {
+    // scrollTo on the list itself: scrollIntoView would also move every scrollable parent
+    const list = document.querySelector('.player-list');
+    const target = document.getElementById('letter-' + letter);
+    if (list && target) list.scrollTo({ top: target.offsetTop, behavior: 'smooth' });
+  };
+  const row = (player) => html`
+        <li>
+          <button class=${'star-btn' + (player.friend ? ' on' : '')} onClick=${() => toggle(player)} aria-pressed=${player.friend}
+            title=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend')} aria-label=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend') + ': ' + player.name}>
+            <${Icon} name="star" size=${18} style=${player.friend ? 'fill:currentColor' : ''} /></button>
+          <span class=${'player-name' + (player.gender === 'female' ? ' alt' : '') + (player.friend ? ' f' : '')}>${player.name}</span>
+          <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
+          <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
+        </li>`;
+  return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="medium" fixed>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     <p class="hint">${t('players.intro')}</p>
     <div class="players-tools">
@@ -52,17 +83,16 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
     </div>
     ${data && data.players.length === 0 && html`<div class="empty small"><h3>${t('players.empty_title')}</h3><p>${t('players.empty')}</p></div>`}
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
-    <ul class="player-list">
-      ${rows.map((player) => html`
-        <li>
-          <button class=${'star-btn' + (player.friend ? ' on' : '')} onClick=${() => toggle(player)} aria-pressed=${player.friend}
-            title=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend')} aria-label=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend') + ': ' + player.name}>
-            <${Icon} name="star" size=${18} style=${player.friend ? 'fill:currentColor' : ''} /></button>
-          <span class=${'player-name' + (player.gender === 'female' ? ' alt' : '') + (player.friend ? ' f' : '')}>${player.name}</span>
-          <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
-          <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
-        </li>`)}
-    </ul>
+    <div class="player-scroll">
+      <ul class="player-list scroll">
+        ${grouped
+          ? grouped.map((group, index) => html`
+              <li class="letter" id=${index === grouped.findIndex((g) => g.letter === group.letter) ? 'letter-' + group.letter : null}>${group.letter}</li>
+              ${group.players.map(row)}`)
+          : rows.map(row)}
+      </ul>
+      ${grouped && letters.length > 1 && html`<nav class="alpha" aria-label=${t('players.index')}>${letters.map((letter) => html`<button onClick=${() => jump(letter)}>${letter}</button>`)}</nav>`}
+    </div>
     ${data && data.my_handicap != null && showHandicaps && html`<p class="hint">${t('settings.field.my_handicap')}: ${hcpText(data.my_handicap)}</p>`}
   <//>`;
 }

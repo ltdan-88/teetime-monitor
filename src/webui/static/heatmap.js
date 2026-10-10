@@ -25,11 +25,11 @@ function Grid({ title, keys, labels, group, hours, minSamples }) {
   return html`
     <div class="hm-grid">
       <p class="lab">${title}</p>
-      <div class="hm-row hm-head" style=${{ gridTemplateColumns: `44px repeat(${keys.length}, minmax(34px, 1fr))` }}>
+      <div class="hm-row hm-head" style=${{ gridTemplateColumns: `2.75rem repeat(${keys.length}, minmax(2.1rem, 1fr))` }}>
         <span></span>${labels.map((label) => html`<span class="hd">${label}</span>`)}
       </div>
       ${hours.map((hour) => html`
-        <div class="hm-row" style=${{ gridTemplateColumns: `44px repeat(${keys.length}, minmax(34px, 1fr))` }}>
+        <div class="hm-row" style=${{ gridTemplateColumns: `2.75rem repeat(${keys.length}, minmax(2.1rem, 1fr))` }}>
           <span class="num hour">${hour}</span>
           ${keys.map((key) => html`<${Cell} bucket=${group[key] && group[key][hour]} minSamples=${minSamples} />`)}
         </div>`)}

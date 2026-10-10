@@ -184,7 +184,10 @@
   "minute": "minute",
   "players.intro": "Every real name your own scrapes have seen (only possible once logged in; see Settings). Click a star to mark or unmark a friend. Friends are starred in the Overview and rank higher.",
   "legend.recommended": "recommended time",
-  "legend.too_late": "too late to finish before dark"
+  "legend.too_late": "too late to finish before dark",
+  "settings.scale": "Scale",
+  "settings.scale.default": "default",
+  "players.index": "Jump to letter"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -371,6 +374,9 @@
   "minute": "Minute",
   "players.intro": "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich; siehe Einstellungen). Klicke auf einen Stern, um jemanden als Freund/in zu markieren oder zu entfernen. Freunde sind in der Übersicht mit ★ markiert und werden bevorzugt.",
   "legend.recommended": "empfohlene Zeit",
-  "legend.too_late": "zu spät, um vor Dunkelheit fertig zu werden"
+  "legend.too_late": "zu spät, um vor Dunkelheit fertig zu werden",
+  "settings.scale": "Skalierung",
+  "settings.scale.default": "Standard",
+  "players.index": "Zum Buchstaben springen"
  }
 }

@@ -115,6 +115,35 @@ export function conditionKind(code) {
 
 export const occupancyColor = (ratio) => (ratio == null ? 'var(--faint)' : ratio >= 1 ? 'var(--red)' : ratio >= 0.5 ? 'var(--orange)' : 'var(--green)');
 
+// ---------------------------------------------------------------- scale
+// Everything is sized in rem, so the whole page scales with the root font size. 80% is the default
+// (the browser's own zoom, Ctrl +/-, works on top of it); Settings > Scale changes it, per browser.
+
+export const SCALES = [70, 80, 90, 100, 110, 125];
+export const DEFAULT_SCALE = 80;
+
+export function getScale() {
+  try {
+    const saved = Number(localStorage.getItem('tm_scale'));
+    return SCALES.includes(saved) ? saved : DEFAULT_SCALE;
+  } catch (_) {
+    return DEFAULT_SCALE;
+  }
+}
+
+export function setScale(percent) {
+  try {
+    localStorage.setItem('tm_scale', String(percent));
+  } catch (_) {
+    /* private window: applies for this page only */
+  }
+  applyScale(percent);
+}
+
+export function applyScale(percent = getScale()) {
+  document.documentElement.style.fontSize = (16 * percent) / 100 + 'px';
+}
+
 // ---------------------------------------------------------------- icons
 
 const CLOUD = 'M7 17a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17.2 8.2 3.9 3.9 0 0 1 17 17z';
@@ -154,7 +183,9 @@ const ICONS = {
 };
 
 export function Icon({ name, size = 20, ...rest }) {
-  return html`<svg width=${size} height=${size} viewBox="0 0 24 24" aria-hidden="true" ...${rest}>${ICONS[name]}</svg>`;
+  // sized in rem, like everything else, so Settings > Scale scales the icons too
+  const side = size / 16 + 'rem';
+  return html`<svg width=${side} height=${side} viewBox="0 0 24 24" aria-hidden="true" ...${rest}>${ICONS[name]}</svg>`;
 }
 
 export function Condition({ code, size = 24 }) {
@@ -179,7 +210,7 @@ export function useEscape(handler) {
 }
 
 /** A modal sheet over the page: Escape or a click on the dim area closes it. */
-export function Sheet({ title, onClose, size = 'medium', children, footer }) {
+export function Sheet({ title, onClose, size = 'medium', fixed = false, children, footer }) {
   useEscape(onClose);
   const ref = useRef(null);
   useEffect(() => {
@@ -189,12 +220,12 @@ export function Sheet({ title, onClose, size = 'medium', children, footer }) {
   }, []);
   return html`
     <div class="scrim" onMouseDown=${(event) => event.target === event.currentTarget && onClose()}>
-      <div class=${'sheet ' + size} role="dialog" aria-modal="true" aria-label=${title} tabindex="-1" ref=${ref}>
+      <div class=${'sheet ' + size + (fixed ? ' tall' : '')} role="dialog" aria-modal="true" aria-label=${title} tabindex="-1" ref=${ref}>
         <header class="sheet-head">
           <h2>${title}</h2>
           <button class="icon-btn" onClick=${onClose} aria-label=${t('close')} title=${t('close')}><${Icon} name="close" size=${18} /></button>
         </header>
-        <div class="sheet-body">${children}</div>
+        <div class=${'sheet-body' + (fixed ? ' fixed' : '')}>${children}</div>
         ${footer && html`<footer class="sheet-foot">${footer}</footer>`}
       </div>
     </div>`;
