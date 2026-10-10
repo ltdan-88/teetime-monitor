@@ -145,19 +145,10 @@ def _slot_markers(schedule, config: dict, recommended: set[str], one_date: str) 
     return markers
 
 
-def main(argv: list[str] | None = None) -> None:
-    net.use_system_trust_store()
-    argv = argv if argv is not None else sys.argv[1:]
-    db_path = _flag(argv, "--db-path")
-    course = _flag(argv, "--course")
-    club_slug = _flag(argv, "--club-slug")
-    from_date = _flag(argv, "--from") or date.today().isoformat()
-    days = int(_flag(argv, "--days") or "6")
-
-    if not db_path or not course:
-        print(json.dumps({"error": "missing --db-path or --course"}))
-        sys.exit(1)
-
+def compute_picks(db_path: str, course: str, club_slug: str | None, from_date: str, days: int) -> dict:
+    """The JSON object `main()` prints (see the module docstring), as a dict -- split out
+    2026-10-10 so the web UI's server (`src/webui/`) can call it in-process instead of
+    spawning this script for every Overview refresh."""
     club_id = Path(db_path).stem
     config = pipeline._resolved_config(club_slug)
     # Checked once, up front, rather than per date: a config with no `availability`
@@ -253,7 +244,23 @@ def main(argv: list[str] | None = None) -> None:
     hint = recommend.window_too_late_hint(schedules, config, alternatives) if has_availability else None
     if hint is not None:
         picks["_hint"] = hint
-    print(json.dumps(picks))
+    return picks
+
+
+def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
+    argv = argv if argv is not None else sys.argv[1:]
+    db_path = _flag(argv, "--db-path")
+    course = _flag(argv, "--course")
+    club_slug = _flag(argv, "--club-slug")
+    from_date = _flag(argv, "--from") or date.today().isoformat()
+    days = int(_flag(argv, "--days") or "6")
+
+    if not db_path or not course:
+        print(json.dumps({"error": "missing --db-path or --course"}))
+        sys.exit(1)
+
+    print(json.dumps(compute_picks(db_path, course, club_slug, from_date, days)))
 
 
 if __name__ == "__main__":

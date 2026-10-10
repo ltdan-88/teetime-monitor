@@ -22,6 +22,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -34,6 +36,59 @@ def report(ok: bool, what: str, detail: str = "") -> None:
     print(f"{'PASS' if ok else 'FAIL'}  {what}" + (f" -- {detail}" if detail and not ok else ""), flush=True)
     if not ok:
         failures.append(what)
+
+
+def check_web_server(command: list[str], env: dict, cwd, version: str) -> None:
+    """Start the browser version through its launcher (no window: --no-browser), read the link it
+    prints, and talk to it like a browser would: the page and the data need the link's token; the
+    bare address does not get anything."""
+    import http.cookiejar
+    import queue
+    import re
+    import urllib.error
+    import urllib.request
+
+    process = subprocess.Popen(
+        command, env=dict(env, PYTHONUNBUFFERED="1"), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )  # fmt: skip
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True).start()
+    seen, url = [], None
+    deadline = time.time() + 90
+    while time.time() < deadline and url is None and process.poll() is None:
+        try:
+            line = lines.get(timeout=1)
+        except queue.Empty:
+            continue
+        seen.append(line)
+        match = re.search(r"http://127\.0\.0\.1:\d+/\?t=[\w-]+", line)
+        url = match.group(0) if match else None
+    try:
+        report(url is not None, "the browser version starts and prints its link", "".join(seen)[-600:])
+        if url is None:
+            return
+        base = url.split("/?")[0]
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        page = opener.open(url, timeout=30).read().decode("utf-8")
+        report("Teetime Monitor" in page and "app.js" in page, "the link opens the page")
+        boot = json.loads(opener.open(base + "/api/bootstrap", timeout=30).read())
+        report(boot.get("version") == version, "the data endpoint answers with the app version", str(boot)[:200])
+        try:
+            urllib.request.urlopen(base + "/api/bootstrap", timeout=30)
+            denied = False
+        except urllib.error.HTTPError as error:
+            denied = error.code == 403
+        report(denied, "the bare address (no token) is refused")
+        script = opener.open(base + "/app.js", timeout=30).read()
+        report(b"htm-preact.js" in script and len(script) > 5000, "the page's script is served")
+    finally:
+        if sys.platform == "win32":  # the launcher is a cmd.exe wrapper: take its python child down too
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)
+        else:
+            process.kill()
+        process.wait(timeout=30)
 
 
 def elf_machine(path: Path) -> int | None:
@@ -78,7 +133,7 @@ def main() -> int:
     report(all(n == TOP or n.startswith(f"{TOP}/") for n in names), "every entry is inside the single TeetimeMonitor/ folder")
     root = unpacked / TOP
     launcher = root / "TeetimeMonitor.sh"
-    for needed in ("TeetimeMonitor.sh", "README.txt", "app/python/bin/python3"):
+    for needed in ("TeetimeMonitor.sh", "TeetimeMonitor-Web.sh", "README.txt", "app/python/bin/python3"):
         report((root / needed).is_file(), f"contains {needed}")
     report(bool(launcher.stat().st_mode & stat.S_IXUSR), "the launcher is executable")
     report(not any((root / "app" / "python" / "bin" / n).is_symlink() and os.readlink(root / "app" / "python" / "bin" / n).startswith("/")
@@ -147,6 +202,9 @@ asyncio.run(go())
     result = run([str(python), "-I", "-B", "-c", headless], extra=app_env)
     report(result.returncode == 0 and "SCREEN" in result.stdout, "the app starts headless and shows a screen",
            f"exit {result.returncode}: {result.stdout[-300:]} {result.stderr[-900:]}")  # fmt: skip
+
+    # (4b) the browser version, through its own launcher
+    check_web_server([str(root / "TeetimeMonitor-Web.sh"), "--no-browser"], env, work, version)
 
     # (5) only the unpacked folder was written to
     stray = [str(p.relative_to(home)) for p in home.rglob("*")]

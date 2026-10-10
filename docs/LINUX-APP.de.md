@@ -11,6 +11,9 @@ Ein Tarball zum Entpacken und Starten im Terminal. Kein Python, kein Paketmanage
 2. Irgendwo entpacken: `tar xzf TeetimeMonitor-*-linux-x86_64.tar.gz`
 3. Ein Terminal im neuen Ordner `TeetimeMonitor` öffnen und `./TeetimeMonitor.sh` ausführen.
 
+**Browser-Version:** `./TeetimeMonitor-Web.sh` startet die App stattdessen in einem Browserfenster (siehe
+[WEBUI.de.md](WEBUI.de.md)); eine erste Version nur mit der Übersicht.
+
 Den ersten Club und den pc-caddie-Login legst du in der App an; sonst funktioniert alles wie in der
 Terminal-App aus dem [README](../README.de.md). Ein modernes Terminal (GNOME Terminal, Konsole,
 kitty, …) mit Farben und UTF-8 sieht am besten aus.

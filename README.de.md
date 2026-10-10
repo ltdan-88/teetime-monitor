@@ -215,7 +215,8 @@ notarisiert, deshalb braucht das erste Öffnen einen zusätzlichen Schritt — d
 
 **Windows ohne Installation.** Für Windows gibt es eine portable Zip (nichts zu installieren, läuft aus
 jedem Ordner oder von einem USB-Stick): [**docs/WINDOWS-APP.de.md**](docs/WINDOWS-APP.de.md)
-([English](docs/WINDOWS-APP.md)). Unter Linux gibt es einen portablen Tarball:
+([English](docs/WINDOWS-APP.md)). Eine grafische Browser-Version für Windows und Linux (auch aus der Terminal-Installation startbar,
+`teetime-monitor-web`) steht in [**docs/WEBUI.de.md**](docs/WEBUI.de.md) ([English](docs/WEBUI.md)). Unter Linux gibt es einen portablen Tarball:
 [**docs/LINUX-APP.de.md**](docs/LINUX-APP.de.md) ([English](docs/LINUX-APP.md)).
 
 ## Tasten

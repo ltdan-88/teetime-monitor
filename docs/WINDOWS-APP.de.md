@@ -20,6 +20,9 @@ eingeschränkten Firmen-PC.
    Trotzdem ausführen**. Die App ist nicht mit einem kostenpflichtigen Zertifikat signiert, deshalb
    kennt Windows sie noch nicht.
 
+**Browser-Version:** Doppelklicke stattdessen **TeetimeMonitor-Web.cmd**, um die App in einem normalen Fenster mit
+Schaltflächen zu bekommen (siehe [WEBUI.de.md](WEBUI.de.md)); es ist eine erste Version nur mit der Übersicht.
+
 Es öffnet sich ein schwarzes Fenster, in dem die App läuft. Im **Windows Terminal** sieht sie
 schöner aus (öffnen, `TeetimeMonitor.cmd` hineinziehen, Enter). Den ersten Club und den pc-caddie-
 Login legst du in der App an (die Tasten stehen unten im Fenster); sonst funktioniert alles wie in

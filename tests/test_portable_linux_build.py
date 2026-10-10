@@ -54,3 +54,15 @@ def test_the_pinned_runtime_is_a_3_12_x86_64_glibc_build():
 
 def test_the_readme_names_the_launcher_and_the_data_folder():
     assert "./TeetimeMonitor.sh" in build.README and "userdata" in build.README
+
+
+def test_the_browser_launcher_starts_the_web_entry_point_and_is_valid_shell(tmp_path):
+    scripts = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
+    module, _, function = scripts["teetime-monitor-web"].partition(":")
+    text = build.WEB_LAUNCHER
+    assert f"from {module} import {function}" in text and "src.tui" not in text
+    assert "TEETIME_MONITOR_CONFIG_DIR=$here/userdata/config" in text and "umask 077" in text
+    script = tmp_path / "w.sh"
+    script.write_text(text, encoding="utf-8")
+    assert subprocess.run(["sh", "-n", str(script)], capture_output=True).returncode == 0
+    assert "TeetimeMonitor-Web.sh" in build.README
