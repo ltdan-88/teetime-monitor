@@ -112,6 +112,8 @@ for launcher in $actual; do
     case $launcher in
         teetime-monitor) args=(--version) ;;
         teetime-monitor-scrape) args=(--help) ;;
+        # Starts a server (and a browser) when run bare; --version only prints.
+        teetime-monitor-web) args=(--version) ;;
         # The helpers' contract is stdin JSON in, stdout JSON out, with no --help; with no
         # arguments and nothing on stdin each must answer with its own JSON error object.
         *) args=() ;;
@@ -119,7 +121,7 @@ for launcher in $actual; do
     clean "$BIN/$launcher" "${args[@]+"${args[@]}"}" </dev/null >"$TMP/l.out" 2>"$TMP/l.err"
     code=$?
     case $launcher in
-        teetime-monitor|teetime-monitor-scrape)
+        teetime-monitor|teetime-monitor-scrape|teetime-monitor-web)
             if [ $code -eq 0 ] && [ -s "$TMP/l.out" ]; then pass "launcher $launcher ${args[*]}"; else fail "launcher $launcher ${args[*]}" "exit $code $(head -c 200 "$TMP/l.err")"; fi ;;
         *)
             if grep -q Traceback "$TMP/l.err"; then

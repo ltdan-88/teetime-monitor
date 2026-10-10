@@ -20,6 +20,8 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tomllib
 import zipfile
 from pathlib import Path
@@ -53,6 +55,59 @@ def clean_env(profile: Path) -> dict[str, str]:
         "TMP": str(profile / "Temp"),
     }
     return env
+
+
+def check_web_server(command: list[str], env: dict, cwd, version: str) -> None:
+    """Start the browser version through its launcher (no window: --no-browser), read the link it
+    prints, and talk to it like a browser would: the page and the data need the link's token; the
+    bare address does not get anything."""
+    import http.cookiejar
+    import queue
+    import re
+    import urllib.error
+    import urllib.request
+
+    process = subprocess.Popen(
+        command, env=dict(env, PYTHONUNBUFFERED="1"), cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )  # fmt: skip
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(line) for line in process.stdout], daemon=True).start()
+    seen, url = [], None
+    deadline = time.time() + 90
+    while time.time() < deadline and url is None and process.poll() is None:
+        try:
+            line = lines.get(timeout=1)
+        except queue.Empty:
+            continue
+        seen.append(line)
+        match = re.search(r"http://127\.0\.0\.1:\d+/\?t=[\w-]+", line)
+        url = match.group(0) if match else None
+    try:
+        report(url is not None, "the browser version starts and prints its link", "".join(seen)[-600:])
+        if url is None:
+            return
+        base = url.split("/?")[0]
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        page = opener.open(url, timeout=30).read().decode("utf-8")
+        report("Teetime Monitor" in page and "app.js" in page, "the link opens the page")
+        boot = json.loads(opener.open(base + "/api/bootstrap", timeout=30).read())
+        report(boot.get("version") == version, "the data endpoint answers with the app version", str(boot)[:200])
+        try:
+            urllib.request.urlopen(base + "/api/bootstrap", timeout=30)
+            denied = False
+        except urllib.error.HTTPError as error:
+            denied = error.code == 403
+        report(denied, "the bare address (no token) is refused")
+        script = opener.open(base + "/app.js", timeout=30).read()
+        report(b"htm-preact.js" in script and len(script) > 5000, "the page's script is served")
+    finally:
+        if sys.platform == "win32":  # the launcher is a cmd.exe wrapper: take its python child down too
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)
+        else:
+            process.kill()
+        process.wait(timeout=30)
 
 
 def pe_machine(path: Path) -> int | None:
@@ -99,7 +154,7 @@ def main() -> int:
         archive.extractall(unzipped)
     report(all(name.startswith(f"{TOP}/") for name in names), "every zip entry is inside the single TeetimeMonitor/ folder")
     root = unzipped / TOP
-    for needed in ("TeetimeMonitor.cmd", "README.txt", "app/python.exe", "app/run.py", "app/python312._pth"):
+    for needed in ("TeetimeMonitor.cmd", "TeetimeMonitor-Web.cmd", "README.txt", "app/python.exe", "app/run.py", "app/python312._pth"):
         report((root / needed).is_file(), f"contains {needed}")
     launcher = str(root / "TeetimeMonitor.cmd")
 
@@ -162,6 +217,10 @@ asyncio.run(go())
     env_app = dict(env, TEETIME_MONITOR_CONFIG_DIR=str(config_dir), TEETIME_MONITOR_DATA_DIR=str(data_dir), PYTHONUTF8="1")
     result = subprocess.run([str(root / "app" / "python.exe"), "-c", headless], env=env_app, cwd=work, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
     report(result.returncode == 0 and "SCREEN" in result.stdout, "the app starts headless and shows a screen", f"exit {result.returncode}: {result.stdout[-300:]} {result.stderr[-900:]}")
+
+    # (4b) the browser version, through its own launcher
+    web_env = dict(env, TEETIME_MONITOR_CONFIG_DIR=str(config_dir), TEETIME_MONITOR_DATA_DIR=str(data_dir))
+    check_web_server(["cmd", "/c", str(root / "TeetimeMonitor-Web.cmd"), "--no-browser"], web_env, work, version)
 
     # (5) only the unzipped folder was written to
     stray = [str(p.relative_to(profile)) for p in profile.rglob("*") if p.is_file()]

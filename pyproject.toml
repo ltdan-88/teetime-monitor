@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.73.0"
+version = "0.74.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -73,6 +73,8 @@ teetime-monitor-ai-login = "src.ai_login_cli:main"
 # Headless per-day recommended pick for the macOS GUI's Overview (2026-09-27) --
 # see picks_cli.py's own docstring for the contract.
 teetime-monitor-picks = "src.picks_cli:main"
+# The local web UI for Windows/Linux (2026-10-10) -- see src/webui/server.py and docs/WEBUI.md.
+teetime-monitor-web = "src.webui.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -88,6 +90,8 @@ include = ["src*"]
 # error at all. Found live: installed v0.7.0 via the real Homebrew formula and
 # confirmed the file was actually missing from site-packages before adding this.
 src = ["club_directory_seed.json"]
+# The web UI's page (2026-10-10): HTML/CSS/JS and the vendored Preact, served by src/webui/server.py.
+"src.webui" = ["static/*", "static/vendor/*"]
 
 # Added 2026-09-16 (audit follow-up). Deliberately configured to match the code
 # that already exists rather than to impose a new style on 10k lines: line-length

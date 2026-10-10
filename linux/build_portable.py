@@ -60,6 +60,13 @@ export TEETIME_MONITOR_CONFIG_DIR TEETIME_MONITOR_DATA_DIR PYTHONNOUSERSITE
 exec "$here/app/python/bin/python3" -I -B -c 'import sys; sys.argv[0] = "teetime-monitor"; from src.tui import main; sys.exit(main())' "$@"
 """
 
+# The same launcher for the browser version (src/webui): opens a local page in a Chrome/Chromium/Edge app
+# window or your default browser, and stops by itself when that window is closed.
+WEB_LAUNCHER = LAUNCHER.replace(
+    "import sys; sys.argv[0] = \"teetime-monitor\"; from src.tui import main; sys.exit(main())",
+    "import sys; sys.argv[0] = \"teetime-monitor-web\"; from src.webui.server import main; sys.exit(main())",
+).replace("Run it in a terminal: ./TeetimeMonitor.sh   (--doctor checks the setup)", "Browser version: ./TeetimeMonitor-Web.sh   (--help lists the options)")
+
 README = """TEETIME MONITOR - portable Linux version
 ========================================
 
@@ -78,6 +85,9 @@ KEEP IT / REMOVE IT
 
 IF SOMETHING GOES WRONG
   Run   ./TeetimeMonitor.sh --doctor   - it checks the setup (network, certificates, login).
+  Prefer buttons over the terminal screen?  ./TeetimeMonitor-Web.sh  opens the same app in a browser
+  window (Chrome, Chromium or Edge as an app window, else your default browser) and stops by itself
+  when you close it. It listens on this computer only.
   Needs a 64-bit Intel/AMD Linux with glibc 2.28 or newer (Debian 10, Ubuntu 20.04, RHEL 8 or
   newer). Not for Alpine (musl) and not for ARM (Raspberry Pi).
 
@@ -191,6 +201,9 @@ def build() -> Path:
     launcher = stage / "TeetimeMonitor.sh"
     launcher.write_text(LAUNCHER, encoding="utf-8", newline="\n")
     launcher.chmod(0o755)
+    web_launcher = stage / "TeetimeMonitor-Web.sh"
+    web_launcher.write_text(WEB_LAUNCHER, encoding="utf-8", newline="\n")
+    web_launcher.chmod(0o755)
     (stage / "README.txt").write_text(README, encoding="utf-8", newline="\n")
 
     if sys.platform.startswith("linux"):

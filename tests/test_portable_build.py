@@ -59,3 +59,13 @@ def test_the_pinned_runtime_is_a_python_org_embeddable_3_12():
 
 def test_the_readme_points_at_the_files_it_names():
     assert "TeetimeMonitor.cmd" in build.README and "userdata" in build.README
+
+
+def test_the_browser_launcher_starts_the_web_entry_point_in_the_same_isolation():
+    scripts = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
+    module, _, function = scripts["teetime-monitor-web"].partition(":")
+    assert f"from {module} import {function}" in build.RUN_WEB_PY
+    assert '"%HERE%app\\python.exe" "%HERE%app\\run_web.py" %*' in build.WEB_LAUNCHER
+    assert 'set "TEETIME_MONITOR_CONFIG_DIR=%HERE%userdata\\config"' in build.WEB_LAUNCHER
+    build.WEB_LAUNCHER.encode("ascii")
+    assert "TeetimeMonitor-Web.cmd" in build.README

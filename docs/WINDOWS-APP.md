@@ -17,6 +17,9 @@ also runs from a USB stick or a folder on a locked-down work PC.
 5. If Windows says *“Windows protected your PC”*, click **More info → Run anyway**. The app is not
    signed with a paid certificate, so Windows does not know it yet.
 
+**Browser version:** double-click **TeetimeMonitor-Web.cmd** instead to get the app in a normal window with
+buttons (see [WEBUI.md](WEBUI.md)); it is a first version with the Overview only.
+
 A black window opens and the app starts in it. It looks nicer in **Windows Terminal** (open it, drag
 `TeetimeMonitor.cmd` into it, press Enter). Add your first club and your pc caddie login from inside
 the app (the on-screen keys are listed at the bottom); the rest works like the terminal app described
