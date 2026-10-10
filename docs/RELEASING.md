@@ -74,5 +74,20 @@ build and verify on demand and on pull requests touching `windows/`. What neithe
 Mark-of-the-Web / SmartScreen prompt, AppLocker or antivirus policy on a real company PC, and the
 interactive console.
 
+## The portable Linux app
+
+`python linux/build_portable.py` builds `linux/dist/TeetimeMonitor-<version>-linux-x86_64.tar.gz`
+(+ `.sha256`), the download described in [LINUX-APP.md](LINUX-APP.md): python-build-standalone's
+CPython 3.12 (pinned by URL and SHA-256) plus the `uv.lock` dependencies as manylinux x86_64 wheels
+and this project, with `TeetimeMonitor.sh` pointing config and data at `userdata/` beside it (the
+bytecode step runs on Linux only). `python linux/verify_portable.py` (Linux only) unpacks it with a
+scrubbed environment and checks version, doctor, imports, a headless TUI start, that nothing is
+written outside the folder and that every ELF file is x86-64.
+
+The **linux-app** job of the release workflow does both, runs the launcher once inside AlmaLinux 8
+(glibc 2.28, the oldest system the wheels support) and attaches the tarball and its `.sha256` to the
+Release. The **linux-portable** workflow does the same on demand and on pull requests touching
+`linux/`. Not covered: other distributions, and the interactive terminal.
+
 The Homebrew path is untouched: `build.sh` only gains an opt-in `TEETIME_MONITOR_SWIFT_TARGET`
 (set by `build_standalone.sh` so the binary targets macOS 14 whatever the build machine runs).

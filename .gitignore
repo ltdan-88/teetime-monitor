@@ -33,3 +33,6 @@ macos/dist/
 windows/build-portable/
 windows/cache/
 windows/dist/
+linux/build-portable/
+linux/cache/
+linux/dist/
