@@ -17,6 +17,7 @@ sunrise to the slot nearest sunset.
 import importlib.metadata
 import json
 import os
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -78,7 +79,7 @@ def db_path_for(club_id: str) -> Path:
 
 
 def club_entries() -> list[dict]:
-    """One entry per saved favorite club, newest-scraped first (the Mac app's order).
+    """One entry per saved favorite club, in alphabetical order (by name).
 
     A malformed `clubs/*.yaml` is skipped, as everywhere else. `name` falls back to the
     slug for a favorite saved before its name was known."""
@@ -100,7 +101,7 @@ def club_entries() -> list[dict]:
                 "last_success_at": health.get("last_success_at"),
             }
         )
-    entries.sort(key=lambda entry: entry["last_success_at"] or "", reverse=True)
+    entries.sort(key=lambda entry: (entry["name"].casefold(), entry["slug"]))
     return entries
 
 
@@ -304,9 +305,43 @@ def banners_for(db: Path) -> list[dict]:
     ]
 
 
-def overview(slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None) -> dict:
+_PICKS_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+_PICKS_LOCKS_GUARD = threading.Lock()
+
+
+def _picks_lock(key: tuple[str, str]) -> threading.Lock:
+    with _PICKS_LOCKS_GUARD:
+        return _PICKS_LOCKS.setdefault(key, threading.Lock())
+
+
+def _build_days(db: Path, course: str, today: str, window: int, picks: dict) -> list[dict]:
+    friends = storage.load_friend_names(db)
+    genders = storage.load_player_genders(db)
+    handicaps = storage.load_player_handicaps(db)
+    start = datetime.fromisoformat(today).date()
+    days = []
+    for offset in range(window):
+        date = (start + timedelta(days=offset)).isoformat()
+        schedule = storage.load_latest_schedule(course, date, path=db)
+        if schedule is None:
+            continue
+        booking = storage.load_confirmed_booking(course, date, path=db)
+        booked_time = booking.time if booking is not None else None
+        days.append(build_day(schedule, picks.get(date), friends, genders, handicaps, booked_time, today))
+    return days
+
+
+def overview(
+    slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None, picks: bool = True
+) -> dict:
     """The Overview for one club (saved, by `slug`; or just opened, by `club_id`) and course;
-    `{"error": ...}` for an unknown club."""
+    `{"error": ...}` for an unknown club.
+
+    The days come straight from the database; the recommended picks and the star/moon markers on slots
+    come from `picks_cli.compute_picks()`, which can take seconds (it ranks every day, and calls an AI
+    provider when AI ranking is on). With `picks=False` the days are returned at once without them and
+    marked `"picks_pending": true` (unless the picks are already cached); the page then asks again with
+    picks -- the way the Mac app fills its picks in after the list is up."""
     club = resolve_club(slug, club_id, name)
     if club is None:
         return {"error": "unknown_club"}
@@ -335,37 +370,35 @@ def overview(slug: str | None, course: str | None, club_id: str | None = None, n
             "warning": warning,
         },
         "days": [],
+        "picks_pending": False,
     }
     if course is None or not db.exists():
         return response
 
     today = clock.today()
     window = _overview_window(config)
-    mtime = db.stat().st_mtime
     key = (str(db), course)
-    cached = _OVERVIEW_CACHE.get(key)
-    if cached and cached[0] == mtime and cached[1] == today:
-        response["days"] = cached[2]["days"]
-        response["hint"] = cached[2]["hint"]
-        return response
 
-    picks = picks_cli.compute_picks(str(db), course, slug, today, window)
-    friends = storage.load_friend_names(db)
-    genders = storage.load_player_genders(db)
-    handicaps = storage.load_player_handicaps(db)
-    start = datetime.fromisoformat(today).date()
-    days = []
-    for offset in range(window):
-        date = (start + timedelta(days=offset)).isoformat()
-        schedule = storage.load_latest_schedule(course, date, path=db)
-        if schedule is None:
-            continue
-        booking = storage.load_confirmed_booking(course, date, path=db)
-        booked_time = booking.time if booking is not None else None
-        days.append(build_day(schedule, picks.get(date), friends, genders, handicaps, booked_time, today))
-    response["days"] = days
-    response["hint"] = picks.get("_hint")
-    _OVERVIEW_CACHE[key] = (mtime, today, {"days": days, "hint": response["hint"]})
+    def cached():
+        entry = _OVERVIEW_CACHE.get(key)
+        return entry[2] if entry and entry[0] == db.stat().st_mtime and entry[1] == today else None
+
+    hit = cached()
+    if hit is None and not picks:
+        response["days"] = _build_days(db, course, today, window, {})
+        response["hint"] = None
+        response["picks_pending"] = True
+        return response
+    if hit is None:
+        with _picks_lock(key):  # two requests for the same course wait for one ranking, not run two
+            hit = cached()
+            if hit is None:
+                mtime = db.stat().st_mtime
+                ranked = picks_cli.compute_picks(str(db), course, slug, today, window)
+                hit = {"days": _build_days(db, course, today, window, ranked), "hint": ranked.get("_hint")}
+                _OVERVIEW_CACHE[key] = (mtime, today, hit)
+    response["days"] = hit["days"]
+    response["hint"] = hit["hint"]
     return response
 
 

@@ -8,7 +8,7 @@ import {
 
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'de', label: 'Deutsch' }];
 
-export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, onChanged }) {
+export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, onDisplay, onLanguage }) {
   const [scale, setScaleState] = useState(getScale());
   const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const panel = useRef(null);
@@ -26,9 +26,16 @@ export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, 
     };
   }, [open]);
 
-  const saveSetting = async (field, value) => {
-    await post('/api/settings', { values: { [field]: value } });
-    onChanged(field);
+  // Units and handicaps only change how numbers are shown: the page applies them at once and saves in the
+  // background (a failed save puts the old value back). The language needs the page's texts again: reload.
+  const saveSetting = async (field, value, shown, previous) => {
+    if (shown) onDisplay(shown);
+    try {
+      await post('/api/settings', { values: { [field]: value } });
+      if (field === 'field-__language__') onLanguage();
+    } catch (error) {
+      if (shown && previous) onDisplay(previous);
+    }
   };
   const stepScale = (direction) => {
     const index = SCALES.indexOf(scale);
@@ -60,9 +67,9 @@ export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, 
             </span></div>
           <div class="field-row"><label for="v-units">${t('settings.field.units')}</label>
             <${Select} id="v-units" value=${units} options=${[{ value: 'metric', label: t('settings.units.metric') }, { value: 'imperial', label: t('settings.units.imperial') }]}
-              onChange=${(value) => saveSetting('field-units', value)} /></div>
+              onChange=${(value) => saveSetting('field-units', value, { units: value }, { units })} /></div>
           <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
-            <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value)} /></div>
+            <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, { showHandicaps: value }, { showHandicaps })} /></div>
         </div>`}
     </span>`;
 }

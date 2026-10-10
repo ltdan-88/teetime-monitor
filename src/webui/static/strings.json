@@ -195,7 +195,8 @@
   "search.from": "from",
   "search.to": "to",
   "search.time": "When",
-  "search.group": "Who"
+  "search.group": "Who",
+  "picks.loading": "updating picks…"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -393,6 +394,7 @@
   "search.from": "von",
   "search.to": "bis",
   "search.time": "Wann",
-  "search.group": "Wer"
+  "search.group": "Wer",
+  "picks.loading": "Empfehlungen werden berechnet…"
  }
 }
