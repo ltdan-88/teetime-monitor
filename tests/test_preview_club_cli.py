@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from src import preview_club_cli
 from src.scraper import NoTeeSheetError
 
@@ -17,6 +19,34 @@ def test_missing_club_id_is_rejected(capsys):
     result, code = _run(capsys, ["--club-name", "Golfclub Foo"])
     assert result == {"ok": False, "reason": "missing_club_id"}
     assert code == 1
+
+
+def _http_error(status):
+    import httpx
+
+    request = httpx.Request("GET", "https://www.pccaddie.net/clubs/0000001/app.php")
+    return httpx.HTTPStatusError("boom", request=request, response=httpx.Response(status, request=request))
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_club_that_needs_a_login_gets_its_own_reason(monkeypatch, capsys, status):
+    # 2026-10-10: the app showed "Client error '401 Unauthorized' for url ..." for such clubs.
+    def fail(club_id):
+        raise _http_error(status)
+
+    monkeypatch.setattr(preview_club_cli, "fetch_course_aliases", fail)
+    result, code = _run(capsys, ["--club-id", "0000001"])
+    assert result == {"ok": False, "reason": "login_required"}
+    assert code == 1
+
+
+def test_other_http_errors_stay_a_generic_fetch_failure(monkeypatch, capsys):
+    def fail(club_id):
+        raise _http_error(500)
+
+    monkeypatch.setattr(preview_club_cli, "fetch_course_aliases", fail)
+    result, _ = _run(capsys, ["--club-id", "0000001"])
+    assert result["reason"] == "course_fetch_failed"
 
 
 def test_no_tee_sheet_is_reported_not_swallowed(monkeypatch, capsys):

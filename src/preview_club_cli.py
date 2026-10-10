@@ -63,7 +63,7 @@ import json
 import sys
 
 from . import net, pipeline, scrape_once
-from .scraper import NoTeeSheetError, fetch_course_aliases
+from .scraper import NoTeeSheetError, fetch_course_aliases, login_required_status
 
 
 def _flag(argv: list[str], name: str) -> str | None:
@@ -89,6 +89,9 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({"ok": False, "reason": "no_tee_sheet"}))
         sys.exit(1)
     except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
+        if login_required_status(exc):
+            print(json.dumps({"ok": False, "reason": "login_required"}))
+            sys.exit(1)
         print(json.dumps({"ok": False, "reason": "course_fetch_failed", "error": str(exc)}))
         sys.exit(1)
 

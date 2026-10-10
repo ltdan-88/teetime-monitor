@@ -641,6 +641,14 @@ def _parse_my_reservations_html(html: str, known_courses: list[str] | None = Non
     return bookings
 
 
+def login_required_status(exc: BaseException) -> bool:
+    """Whether `exc` is pc caddie answering 401/403 -- the club does not show its tee sheet
+    without a (member) login. Callers turn this into a plain sentence instead of the raw
+    "Client error '401 Unauthorized' for url ..." (2026-10-10, direct report while trying
+    clubs that had never been opened)."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403)
+
+
 class NoTeeSheetError(Exception):
     """This club's pc caddie page has no online tee sheet at all.
 

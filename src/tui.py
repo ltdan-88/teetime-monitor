@@ -215,6 +215,7 @@ from .scraper import (
     NoTeeSheetError,
     fetch_available_dates,
     fetch_course_aliases,
+    login_required_status,
 )
 from .search import SearchCriteria, resolve_buffer_minutes
 from .settings_screen import (
@@ -1373,6 +1374,14 @@ class SlotRowCells(NamedTuple):
     events_cell: str
 
 
+def _course_fetch_error_text(exc: BaseException) -> str:
+    """The status text for a failed course-list fetch: a plain sentence when the club needs a
+    login to show its tee sheet (401/403), else the generic message with the error."""
+    if login_required_status(exc):
+        return i18n.t("app.club_requires_login")
+    return i18n.t("app.course_fetch_failed", error=exc)
+
+
 _HANDICAP_MARKUP = re.compile(r" \[dim\]\(\d+[.,]\d\)\[/\]")
 
 
@@ -2500,7 +2509,7 @@ class _ClubCourseSwitcher:
             self.query_one("#club-select", Select).value = self.club_id  # revert the dropdown
             return
         except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
-            self.query_one("#status", Static).update(i18n.t("app.course_fetch_failed", error=exc))
+            self.query_one("#status", Static).update(_course_fetch_error_text(exc))
             self.query_one("#club-select", Select).value = self.club_id
             return
         default_course = config.get("default_course")
@@ -5036,7 +5045,7 @@ class TeetimeApp(App[None]):
             return ""
         except Exception as exc:  # noqa: BLE001 — a live fetch can genuinely fail
             # (no network, site down, a wrong club id) and shouldn't crash the app.
-            message = i18n.t("app.course_fetch_failed", error=exc)
+            message = _course_fetch_error_text(exc)
             if status is not None:
                 status.update(message)
             else:

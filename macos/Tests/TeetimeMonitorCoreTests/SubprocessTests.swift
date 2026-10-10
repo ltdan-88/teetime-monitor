@@ -7,6 +7,7 @@ func runSubprocessTests() {
         testStdinAndStderr()
         testJSONAfterLogLines()
         testPreviewParseIgnoresLogLines()
+        testPreviewLoginRequiredIsPlain()
         testSearchParse()
         testTimeoutKillsTheChild()
         testSigtermIgnoringChildIsKilled()
@@ -267,6 +268,15 @@ private func testPreviewParseIgnoresLogLines() {
     Harness.check("a logged warning doesn't fail the preview", PreviewClient.parse(ok) == nil)
     let broken = SubprocessResult(status: 1, stdout: Data(), stderr: Data("Traceback".utf8))
     Harness.checkEqual("stderr surfaces on a real failure", PreviewClient.parse(broken), "Traceback")
+}
+
+/// A club that needs a member login gets a plain sentence, not "401 Unauthorized" (2026-10-10).
+private func testPreviewLoginRequiredIsPlain() {
+    let denied = SubprocessResult(status: 1, stdout: Data("{\"ok\": false, \"reason\": \"login_required\"}\n".utf8), stderr: Data())
+    let message = PreviewClient.parse(denied) ?? ""
+    Harness.check("explains that a member login is needed", message.contains("member login"))
+    Harness.check("no raw status text", !message.contains("401"))
+    Harness.check("German exists too", (I18n.strings["de"]?["error.preview_login_required"] ?? "").contains("Mitglieds-Login"))
 }
 
 private func testSearchParse() {
