@@ -383,6 +383,23 @@ def test_event_names_includes_block_time_reasons():
     assert _event_names(rows) == ["Herbstturnier"]
 
 
+def test_event_names_follow_the_sheet_order_not_the_alphabet():
+    # Direct report 2026-10-10: a frost closure (06:00-08:50) was listed after a 12:30 tournament
+    # because "9. ..." sorts before "wegen ...". Rows run in time order; so do the events.
+    def row(text):
+        return _row(
+            f'<tr data-status="block-time"><td colspan="4"><span class="tt-show-name">{text}</span></td></tr>'
+        )
+
+    rows = [
+        row("wegen Frost gesperrt"),
+        row("wegen Frost gesperrt"),  # the same closure spans many rows: listed once
+        row("9. Damengolf Ladies Captain Cup"),
+        row("Abendturnier"),
+    ]
+    assert _event_names(rows) == ["wegen Frost gesperrt", "9. Damengolf Ladies Captain Cup", "Abendturnier"]
+
+
 def test_event_names_excludes_disable_time_reasons():
     # An advance-booking-window notice is a per-slot booking-window mechanic, not a
     # day-level event -- must never show up here even though it does carry a
@@ -404,13 +421,13 @@ def test_event_names_excludes_blank_block_time_labels():
     assert _event_names(rows) == []
 
 
-def test_event_names_deduplicates_and_sorts():
+def test_event_names_deduplicates_and_keeps_first_seen_order():
     rows = [
         _row('<tr data-status="block-time"><td><span class="tt-show-name">Zebra Cup</span></td></tr>'),
         _row('<tr data-status="block-time"><td><span class="tt-show-name">Alpha Cup</span></td></tr>'),
         _row('<tr data-status="block-time"><td><span class="tt-show-name">Zebra Cup</span></td></tr>'),
     ]
-    assert _event_names(rows) == ["Alpha Cup", "Zebra Cup"]
+    assert _event_names(rows) == ["Zebra Cup", "Alpha Cup"]  # sheet order (time of day), not A-Z
 
 
 # ---------------------------------------------------------------------------
