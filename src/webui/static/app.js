@@ -101,6 +101,9 @@ function App() {
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
+  const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
+  const [picksPending, setPicksPending] = useState(false);
+  const loadSeq = useRef(0);
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
   const [, tick] = useState(0);
@@ -150,15 +153,31 @@ function App() {
   }, []);
 
   const loadOverview = useCallback(async (forView, forCourse) => {
-    try {
-      const result = await api('/api/overview' + query({ ...refOf(forView), course: forCourse }));
-      const now = current.current.view;
-      if (!now || refreshKeyOf(now) !== refreshKeyOf(forView)) return;
+    const mine = ++loadSeq.current;
+    const stale = () => mine !== loadSeq.current || !current.current.view || refreshKeyOf(current.current.view) !== refreshKeyOf(forView);
+    const apply = (result) => {
       setOverview(result);
       setCourse((previous) => (forCourse || previous === result.course ? previous : result.course));
       setOpenDate((previous) => (previous && result.days.some((day) => day.date === previous) ? previous : null));
       setFailure(null);
+    };
+    try {
+      // The days come straight from the database; the picks (which can take seconds, with AI ranking on)
+      // follow in a second request, so switching a course or a club never waits for them.
+      const quick = await api('/api/overview' + query({ ...refOf(forView), course: forCourse, picks: 0 }));
+      if (stale()) return;
+      apply(quick);
+      if (!quick.picks_pending) {
+        setPicksPending(false);
+        return;
+      }
+      setPicksPending(true);
+      const full = await api('/api/overview' + query({ ...refOf(forView), course: quick.course }));
+      if (stale()) return;
+      apply(full);
+      setPicksPending(false);
     } catch (error) {
+      if (!stale()) setPicksPending(false);
       handleError(error);
     }
   }, []);
@@ -178,6 +197,7 @@ function App() {
         await loadThemes();
         applyTheme(result.theme || systemTheme());
         setBoot(result);
+        setDisplay({ units: result.units, showHandicaps: result.show_handicaps });
         const last = result.last && result.clubs.find((club) => club.slug === result.last.slug);
         const first = last || result.clubs[0];
         if (first) {
@@ -194,7 +214,11 @@ function App() {
     const target = forView || current.current.view;
     if (!target) return;
     post('/api/refresh', { ...refOf(target), force: force || target.kind === 'preview' })
-      .then((status) => setRefresh({ running: !!status.running, error: status.running ? null : status.error }))
+      .then((status) => {
+        setRefresh({ running: !!status.running, error: status.running ? null : status.error });
+        // a Refresh that was already over when the answer came (nothing to fetch, or a very fast club) still reads the data again
+        if (force && !status.running) loadOverview(target, current.current.course);
+      })
       .catch(handleError);
   }
 
@@ -325,8 +349,8 @@ function App() {
   if (!boot) return null;
 
   const club = overview && overview.club;
-  const units = (overview && overview.units) || boot.units;
-  const showHandicaps = overview ? overview.show_handicaps : boot.show_handicaps;
+  const units = display ? display.units : boot.units;
+  const showHandicaps = display ? display.showHandicaps : boot.show_handicaps;
   const clubOptions = [...boot.clubs.map((entry) => ({ value: entry.slug, label: entry.name })), { value: ADD_CLUB, label: '＋ ' + t('addclub.title') + '…' }];
   const courseOptions = ((overview && overview.courses) || []).map((name) => ({ value: name, label: name }));
   const freshness = overview && overview.freshness;
@@ -353,7 +377,7 @@ function App() {
         ${tool('preferences', 'sliders', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'gear', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
-          onChanged=${(field) => { if (field === 'field-__language__') location.reload(); else { loadBoot(); if (view) loadOverview(view, course); } }} />
+          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} />
         </div>
       </header>
       <main class="main">
@@ -378,6 +402,7 @@ function App() {
         <div class="status">
           <span class=${'dot' + (freshness && freshness.warning ? ' warn' : refresh.running ? ' busy' : '')}></span>
           <span>${refresh.running ? t('refreshing') : updatedText(freshness && freshness.last_success_at)}</span>
+          ${picksPending && html`<span class="dim">· ${t('picks.loading')}</span>`}
           ${refresh.error && overview && overview.days.length > 0 && html`<span class="warning">${refreshErrorText(refresh.error)}</span>`}
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>

@@ -286,7 +286,9 @@ def test_add_club_finds_clubs_adds_one_and_opens_another(ui):
     ui.shot("preview")
     ui.click(".preview-bar .btn", "Close")
     ui.wait("!document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 0")
-    assert ui.count("#club option") == 3  # the demo club, the one just added, and "Add club..."
+    options = ui.js("[...document.querySelectorAll('#club option')].map((o) => o.textContent)")
+    assert len(options) == 3 and options[-1].startswith("＋"), options  # the demo club, the one just added, "Add club..."
+    assert options[:2] == sorted(options[:2], key=str.casefold), options  # clubs are in alphabetical order
 
 
 BACKGROUND = "getComputedStyle(document.body).backgroundColor"
@@ -368,6 +370,113 @@ def test_the_language_switches_to_german_in_the_view_menu_and_back(ui):
     assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
     ui.set("#v-language", "en")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Refresh' || document.querySelector('.tool-label')?.textContent === 'Updating…'", 30)
+
+
+def test_reset_filters_clears_everything_without_searching_again(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.res').length > 3")
+    rows = ui.count(".res")
+    ui.set("#s-spots", "3")
+    ui.set("#s-wd-after", "10")
+    ui.click(".criteria .actions .btn", "Reset")
+    ui.wait("document.querySelector('#s-spots').value === '1' && document.querySelector('#s-wd-after').value === ''")
+    assert ui.js("document.querySelector('#s-before').value") == "0"
+    assert ui.count(".res") == rows  # the results stay until you search again
+    ui.click(".criteria .actions .btn.pri")  # no window at all means any time: more matches than with your Preferences
+    ui.wait(f"document.querySelectorAll('.res').length > {rows}")
+    _close_sheet(ui)
+
+
+def test_the_default_course_sits_on_the_club_row(ui):
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('.club-head .select select')")
+    heads = ui.js(
+        """(() => { const r = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
+        const head = [...document.querySelectorAll('.club-head')].find((h) => h.querySelector('.select'));
+        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.btn'))]; })()"""
+    )
+    assert max(heads) - min(heads) < 4, heads  # name, course and Remove on one line
+    _close_sheet(ui)
+
+
+def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
+    ui.js("window.scrollTo(0, 0)")
+    ui.click("button.dh", index=3)  # opens the fourth day (the accordion closes the others)
+    ui.wait("document.querySelectorAll('.card')[3].classList.contains('open')")
+    pick = ui.text(".card.open .pill.pick").strip()
+    ui.wait(f"(() => {{ const r = document.querySelector('.card.open [data-slot$=\" {pick}\"]'); if (!r) return false; const b = r.getBoundingClientRect(); return b.top > 100 && b.bottom < window.innerHeight; }})()")
+    ui.js("window.scrollBy(0, 400)")
+    ui.wait("(() => { const h = document.querySelector('.card.open .dh-wrap').getBoundingClientRect().top; const bar = document.querySelector('.toolbar').getBoundingClientRect().bottom; return Math.abs(h - bar) < 3; })()")
+    dimmed = ui.count(".card.open .slot.dimmed")
+    assert dimmed > 5  # slots outside your availability window are dimmed
+    ui.js("window.scrollTo(0, 0)")
+    ui.click("button.dh", index=3)
+    ui.click("button.dh", index=1)
+    ui.wait("document.querySelectorAll('.card')[1].classList.contains('open')")
+
+
+def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=520, deviceScaleFactor=1, mobile=False)
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li').length > 8")
+    heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
+    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
+    assert ui.js("document.querySelector('.player-list li:not(.letter) .player-meta').textContent.trim()") in ("Male", "Female", "Unknown")
+    heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
+    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
+    edges = ui.js(
+        """(() => { const list = document.querySelector('.player-list').getBoundingClientRect();
+        const head = document.querySelector('.player-head .r').getBoundingClientRect();
+        const cell = document.querySelector('.player-list li:not(.letter):not(.player-head) .player-hcp').getBoundingClientRect();
+        return [list.right - cell.right, head.right - cell.right]; })()"""
+    )
+    assert edges[0] >= 8, edges  # the HCP column is not under the scrollbar
+    assert abs(edges[1]) < 1.5, edges  # and the header sits right above it
+    assert ui.count("li.letter") >= 3
+    assert ui.count(".alpha button") >= 3
+    top = ui.js("document.querySelector('.players-tools').getBoundingClientRect().top")
+    ui.js("document.querySelector('.player-list').scrollTop = 120")
+    assert ui.js("document.querySelector('.player-list').scrollTop") > 0
+    assert ui.js("document.querySelector('.players-tools').getBoundingClientRect().top") == top  # the search stays put
+    ui.js("document.querySelector('.player-list').scrollTop = 0")
+    ui.js("document.querySelector('.alpha button:last-child').click()")  # jumps to the last letter
+    ui.wait("document.querySelector('.player-list').scrollTop > 20")
+    _close_sheet(ui)
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_the_hover_highlight_covers_a_day_with_its_event_note(ui):
+    box = ui.js(
+        """(() => { const dh = [...document.querySelectorAll('button.dh')].find((b) => b.querySelector('.events'));
+        if (!dh) return null; const d = dh.getBoundingClientRect(); const e = dh.querySelector('.events').getBoundingClientRect();
+        return [d.top, d.bottom, e.top, e.bottom]; })()"""
+    )
+    assert box is not None, "the demo has days with events"
+    assert box[0] <= box[2] and box[3] <= box[1], box  # the note sits inside the button, so inside the highlight
+
+
+def test_the_days_show_before_the_picks_are_ready(ui):
+    """With AI ranking on, the picks take seconds: the days must not wait for them. The page's second
+    request (the one with picks) is held back here to see the in-between state."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = (url, options) => /api\\/overview/.test(String(url)) && !/picks=0/.test(String(url))
+          ? new Promise((done) => setTimeout(done, 2500)).then(() => real(url, options)) : real(url, options); })()"""
+    )
+    if not ui.count(".card.open"):
+        ui.click("button.dh", index=1)
+        ui.wait("document.querySelector('.card.open .slot.clickable')")
+    ui.click(".card.open .slot.clickable")  # marking a booking drops the ranked picks, so they are worked out again
+    ui.wait("document.querySelector('.sheet .btn.pri')")
+    ui.click(".sheet .btn.pri")
+    ui.wait("document.querySelector('.footer')?.textContent.includes('updating picks')", 30)
+    assert ui.count(".card") == 5  # the days are on screen while the picks are still being worked out
+    ui.wait("!document.querySelector('.footer')?.textContent.includes('updating picks')", 30)
+    ui.click(".card.open .slot.mine")  # put the booking back as it was
+    ui.wait("document.querySelector('.sheet .btn.danger')")
+    ui.click(".sheet .btn.danger")
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the delay again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
 def test_the_legend_and_escape(ui):

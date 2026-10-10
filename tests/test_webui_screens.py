@@ -154,6 +154,16 @@ def test_two_quick_saves_of_different_fields_both_survive(world):
     assert not errors and saved["units"] == "imperial" and saved["show_handicaps"] is False
 
 
+def test_display_only_changes_keep_the_ranked_picks_but_ranking_changes_drop_them(world):
+    data.overview(SLUG, COURSE)
+    assert data._OVERVIEW_CACHE
+    assert settings_api.save("settings", {"field-units": "imperial"}) == {"ok": True}
+    assert settings_api.save("settings", {"field-show_handicaps": False}) == {"ok": True}
+    assert data._OVERVIEW_CACHE  # units and handicaps do not change a single pick
+    assert settings_api.save("preferences", {"field-availability-min_open_spots": "3"}) == {"ok": True}
+    assert not data._OVERVIEW_CACHE
+
+
 def test_a_bad_number_is_refused_with_a_message_and_saves_nothing(world):
     before = global_preferences.load_preferences()
     result = settings_api.save("preferences", {"field-preferences-avoid_rain_mm": "lots"})

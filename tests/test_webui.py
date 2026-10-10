@@ -147,6 +147,25 @@ def test_overview_is_cached_until_the_database_changes(seeded, monkeypatch):
     assert len(calls) == 2
 
 
+def test_the_days_come_at_once_and_the_picks_follow(seeded, monkeypatch):
+    calls = []
+    real = data.picks_cli.compute_picks
+    monkeypatch.setattr(data.picks_cli, "compute_picks", lambda *a, **k: calls.append(a) or real(*a, **k))
+    quick = data.overview("golfclub-beispiel", COURSE, picks=False)
+    assert calls == [] and quick["picks_pending"] is True and len(quick["days"]) == 2
+    assert quick["days"][0]["pick"] is None and not any(s["recommended"] for s in quick["days"][0]["slots"])
+    full = data.overview("golfclub-beispiel", COURSE)
+    assert len(calls) == 1 and full["picks_pending"] is False
+    again = data.overview("golfclub-beispiel", COURSE, picks=False)  # ranked once: nothing is pending any more
+    assert len(calls) == 1 and again["picks_pending"] is False and again["days"] == full["days"]
+
+
+def test_clubs_are_listed_alphabetically(seeded):
+    for slug, name in (("zebra", "Zebra Golf"), ("alpha", "alpha golf"), ("mitte", "Mitte GC")):
+        club_config.save_club_config(slug, {"club_id": {"zebra": "0000003", "alpha": "0000004", "mitte": "0000005"}[slug], "name": name})
+    assert [c["name"] for c in data.club_entries()] == ["alpha golf", "Golfclub Beispiel", "Mitte GC", "Zebra Golf"]
+
+
 def test_club_entries_skip_a_file_without_a_club_id(seeded, tmp_path):
     (club_config.CLUBS_DIR / "broken.yaml").write_text("name: no id here\n", encoding="utf-8")
     assert [c["slug"] for c in data.club_entries()] == ["golfclub-beispiel"]

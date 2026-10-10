@@ -27,6 +27,7 @@ THEME_PATH = ("__theme__",)
 # switch, then on a menu) arrive as two requests at once, and without this the later write could carry the
 # earlier value of the other field.
 _SAVE_LOCK = threading.Lock()
+DISPLAY_ONLY = {"field-units", "field-show_handicaps", "field-__language__"}
 
 
 def _screen():
@@ -116,7 +117,8 @@ def _save(kind: str, submitted: dict[str, Any]) -> dict:
         if new_value != field.getter():
             field.setter(new_value)
     global_preferences.save_preferences(updated)
-    data._OVERVIEW_CACHE.clear()  # picks depend on the preferences
+    if not set(submitted) <= DISPLAY_ONLY:  # units, handicaps and language change no ranking: keep the picks
+        data._OVERVIEW_CACHE.clear()  # picks depend on the preferences
     return {"ok": True}
 
 

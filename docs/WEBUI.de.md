@@ -46,6 +46,17 @@ läuft es weiter, Strg+C beendet es immer. Weitere Optionen: `--no-browser` (nur
 Beim Öffnen fragt es wie die Terminal-App auch den Scraper nach allem, was fällig ist; die Fußzeile zeigt
 währenddessen *Aktualisiere…*. **Aktualisieren** lädt alles sofort.
 
+## Smartphone und Tablet
+
+Die Seite selbst passt sich an: bis zur Breite eines Smartphones stapeln sich die Formulare, die Werkzeugleiste
+verteilt sich auf zwei Zeilen, und jedes Bedienelement ist fingergroß (geprüft bei 390 px und in Tablet-Größen).
+Was **nicht** geht, ist sie dort auszuführen: das Programm (Scraping, dein pc-caddie-Login, die Daten) ist ein
+Python-Programm auf deinem Computer und lauscht nur auf diesem Computer (`127.0.0.1`); ein Smartphone oder Tablet
+kann es also nicht öffnen, und installieren lässt sich darauf nichts. Der Zugriff vom Smartphone im Heimnetz
+bräuchte eine Option „im Netzwerk lauschen“, was eine Sicherheitsentscheidung ist (Link und Token liefen
+unverschlüsselt durch dein WLAN) und deshalb bewusst noch fehlt. Eine echte Smartphone-App bräuchte das Scraping
+auf einem Server, den dieses Projekt nicht hat.
+
 ## Ist das sicher?
 
 Dein pc-caddie-Login steckt dahinter, deshalb ist es vorsichtig gebaut:

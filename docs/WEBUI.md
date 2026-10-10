@@ -43,6 +43,16 @@ it. Other options: `--no-browser` (only print the link), `--port N`, `--help`.
 When it opens, it also asks the scraper for anything that is due, like the terminal app does; the footer
 says *Updating…* meanwhile. **Refresh** fetches everything now.
 
+## Phones and tablets
+
+The page itself adapts: down to a phone's width the forms stack, the toolbar spreads over two rows and every control
+is finger-sized (checked at 390 px and on tablet sizes). What does **not** work is running it there: the program
+(scraping, your pc caddie login, the data) is a Python program on your computer and listens on that computer only
+(`127.0.0.1`), so a phone or tablet cannot open it, and nothing can be installed on one. Reaching it from a phone
+on your home network would need a "listen on the network" option, which is a security decision (the link and its
+token would travel unencrypted over your Wi-Fi), so it is deliberately not there yet. A real phone app would need
+the scraping on a server, which this project does not have.
+
 ## Is it safe?
 
 Your pc caddie login is behind it, so it is built conservatively:
