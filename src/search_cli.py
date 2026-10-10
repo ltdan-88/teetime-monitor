@@ -103,25 +103,9 @@ def _criteria_from_payload(payload: dict) -> SearchCriteria:
     )
 
 
-def main(argv: list[str] | None = None) -> None:
-    net.use_system_trust_store()
-    argv = argv if argv is not None else sys.argv[1:]
-    db_path = _flag(argv, "--db-path")
-    course = _flag(argv, "--course")
-    club_slug = _flag(argv, "--club-slug")
-    from_date = _flag(argv, "--from") or date.today().isoformat()
-    days = int(_flag(argv, "--days") or "6")
-
-    if not db_path or not course:
-        print(json.dumps({"error": "missing --db-path or --course"}))
-        sys.exit(1)
-
-    try:
-        payload = json.loads(sys.stdin.read())
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        print(json.dumps({"error": "bad_input"}))
-        sys.exit(1)
-
+def search_matches(db_path: str, course: str, club_slug: str | None, from_date: str, days: int, payload: dict) -> list[dict]:
+    """The ranked matches `main()` prints, as a list of dicts (the web UI calls this
+    in-process, 2026-10-10)."""
     criteria = _criteria_from_payload(payload)
     club_id = Path(db_path).stem
     config = pipeline._resolved_config(club_slug)
@@ -157,7 +141,7 @@ def main(argv: list[str] | None = None) -> None:
         matches = only_with_friend(matches, friend_names)
     if player_name := payload.get("player"):
         matches = only_with_player(matches, player_name)
-    print(json.dumps([
+    return [
         {
             "date": match.date,
             "course": match.course,
@@ -170,7 +154,29 @@ def main(argv: list[str] | None = None) -> None:
             "reasons": match.reasons,
         }
         for match in matches
-    ]))
+    ]
+
+
+def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
+    argv = argv if argv is not None else sys.argv[1:]
+    db_path = _flag(argv, "--db-path")
+    course = _flag(argv, "--course")
+    club_slug = _flag(argv, "--club-slug")
+    from_date = _flag(argv, "--from") or date.today().isoformat()
+    days = int(_flag(argv, "--days") or "6")
+
+    if not db_path or not course:
+        print(json.dumps({"error": "missing --db-path or --course"}))
+        sys.exit(1)
+
+    try:
+        payload = json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print(json.dumps({"error": "bad_input"}))
+        sys.exit(1)
+
+    print(json.dumps(search_matches(db_path, course, club_slug, from_date, days, payload)))
 
 
 if __name__ == "__main__":

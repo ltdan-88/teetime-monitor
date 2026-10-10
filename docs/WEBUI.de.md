@@ -3,14 +3,26 @@
 *[English version](WEBUI.md)*
 
 Eine grafische Version von Teetime Monitor, die in einem Browserfenster läuft, für Windows und Linux (der
-Mac hat seine eigene native App). Dieselben Daten und Empfehlungen wie die Terminal-App, im dunklen
+Mac hat seine eigene native App; es läuft auch auf dem Mac). Dieselben Daten und Empfehlungen wie die Terminal-App, im dunklen
 Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder Englisch.
 
-**Stand: erste Version.** Sie zeigt die **Übersicht**: Club und Platz wählen, jeden Tag mit Wetter,
-empfohlener Auswahl, deiner Buchung und Belegungsbalken sehen und einen Tag öffnen, um alle Startzeiten mit
-den Spielern zu sehen (Freunde mit ★). „Aktualisieren“ lädt neue Startzeiten. Suche, Crowd-Heatmap,
-Spielerverzeichnis, Einstellungen, Logins und *Club hinzufügen* gibt es vorerst nur in der Terminal-App und
-folgen; lege deine Clubs und Logins dort an (oder in der Mac-App).
+**Stand: vollständig.** Alles, was die Mac-App kann, ist hier:
+
+- **Übersicht:** Club und Platz wählen; jeder Tag mit Wetter, empfohlener Auswahl, deiner Buchung oder der Zeit,
+  zu der die Buchung öffnet, und Belegungsbalken. Einen Tag öffnen zeigt jede Startzeit mit Spielern (Freunde mit
+  ★, Namen nach Geschlecht gefärbt, auf Wunsch mit Handicap), Wetter je Zeit und Sonnenauf-/-untergang. Eine Zeit
+  anklicken markiert sie als deine Buchung, deine Buchung anklicken storniert sie. Hinweise („ein Spieler ist
+  deinem Flight beigetreten“) erscheinen oben.
+- **Suche**, **Crowd-Heatmap**, **Spieler** (Freunde), **Präferenzen** (Verfügbarkeit, Wetter, Tempo, Prioritäten),
+  **Einstellungen** (Clubs, pc-caddie-Login, Sprache, Einheiten, Scraping, KI-Ranking) und **Club hinzufügen**
+  (Clubverzeichnis durchsuchen, Club hinzufügen oder nur zum Ansehen öffnen).
+- **Aktualisieren** lädt neue Startzeiten; beim Öffnen der Seite wird auch geladen, was fällig ist.
+- Deutsch oder Englisch (Einstellungen > Sprache), dunkel oder hell nach deinem System, und Einzeltasten wie in
+  der Terminal-App: `r` aktualisieren, `s` suchen, `h` Heatmap, `p` Spieler, `e` Präferenzen, `,` Einstellungen,
+  `a` Club hinzufügen, `?` Legende, Esc schließt ein Fenster.
+
+Was bewusst anders ist als in der Mac-App: keine Menüleiste (alles steht in der Werkzeugleiste), Benachrichtigungen
+nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenster läuft nichts).
 
 ## Starten
 
@@ -41,6 +53,14 @@ Dein pc-caddie-Login steckt dahinter, deshalb ist es vorsichtig gebaut:
   anderswo.
 - Es braucht keine neue Software: reines Python aus der Standardbibliothek plus eine kleine mitgelieferte
   JavaScript-Bibliothek (Preact, siehe `src/webui/static/vendor/LICENSES.txt`).
+
+## Die Seite ändern
+
+Die Seite besteht aus einfachen JavaScript-Modulen in `src/webui/static/` (Preact + htm, mitgeliefert; kein Build-Schritt);
+ihre Texte stehen in `strings.json` (Deutsch und Englisch) plus im Katalog der App (`src/i18n.py`).
+`tests/test_webui_strings.py` prüft, dass jeder Text, den die Skripte benutzen, in beiden Sprachen existiert, und
+`tests/test_webui_e2e.py` (nur auf Wunsch: `TEETIME_E2E=1`, braucht Chrome, Chromium oder Edge) klickt alle Fenster
+eines Demo-Servers in einem echten Browser durch.
 
 ## Für Entwickler
 

@@ -1,0 +1,122 @@
+// Search: find the best open tee times in the coming days for criteria you set (prefilled from your
+// Preferences), ranked by the same pipeline as the Overview's picks.
+
+import {
+  html, t, useState, useEffect, useRef, Sheet, Select, TimeSelect, Status, Icon, api, post, query,
+  dayLabel, temperature, windSpeed, amount, round,
+} from '/lib.js';
+import { PlayerNames } from '/overview.js';
+
+const BUFFERS = [0, 5, 10, 15, 20, 30, 45, 60].map((n) => ({ value: String(n), label: n ? `${n} min` : '0' }));
+const SPOTS = [1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }));
+
+function WindowFields({ label, value, onChange, idPrefix }) {
+  const set = (key) => (time) => onChange({ ...value, [key]: time });
+  return html`
+    <div class="crit window">
+      <span class="lab">${label}</span>
+      <span class="time-pair">
+        <${TimeSelect} id=${idPrefix + '-after'} label=${label + ' ' + t('search.after')} value=${value.after || ''} onChange=${set('after')} />
+        <span class="dim">–</span>
+        <${TimeSelect} id=${idPrefix + '-before'} label=${label + ' ' + t('search.before')} value=${value.before || ''} onChange=${set('before')} />
+      </span>
+    </div>`;
+}
+
+function ResultRow({ match, units, showHandicaps, onMark }) {
+  const w = match.weather;
+  const open = Math.max(0, match.capacity - match.booked);
+  return html`
+    <div class="res">
+      <span class="res-date">${dayLabel(match.date)}</span>
+      <span class="num res-time">${match.time}</span>
+      <span class="res-open">${t('search.open_spots', { n: open })}</span>
+      <span class="res-people"><${PlayerNames} slot=${{ players: match.players, booked: match.booked }} showHandicaps=${showHandicaps} /></span>
+      <span class="res-notes">
+        ${match.flags.map((flag) => html`<span class="chip warn" title=${t('search.flag_tip.' + flag)}>${t('search.flag.' + flag)}</span>`)}
+        ${w && html`<span class="num dim wx-sum" title=${t('tip.rain')}>${w.temp != null ? temperature(w.temp, units) + '°' : ''}${w.rain != null ? ' ' + round(w.rain) + '%' + (w.rain_mm ? '/' + amount(w.rain_mm, units) : '') : ''}${w.wind != null ? ' ' + windSpeed(w.wind, units) : ''}</span>`}
+      </span>
+      <span class="res-action">
+        ${match.booked_by_you
+          ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
+          : html`<button class="btn small" onClick=${() => onMark(match)}>${t('search.mark_booked')}</button>`}
+      </span>
+    </div>`;
+}
+
+export function SearchSheet({ club, course, units, showHandicaps, onClose, onMark, refreshKey }) {
+  const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
+  const [defaults, setDefaults] = useState(null);
+  const [criteria, setCriteria] = useState(null);
+  const [players, setPlayers] = useState([]);
+  const [result, setResult] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState(null);
+  const first = useRef(true);
+
+  async function run(next) {
+    setSearching(true);
+    setError(null);
+    try {
+      setResult(await post('/api/search', { ...ref, course, criteria: next }));
+    } catch (failure) {
+      setError(t('error.title'));
+    }
+    setSearching(false);
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const loaded = await api('/api/search/defaults' + query(ref));
+        setDefaults(loaded);
+        setCriteria(loaded);
+        const list = await api('/api/players' + query(ref));
+        setPlayers(list.players.map((p) => p.name));
+        await run(loaded);
+      } catch (failure) {
+        setError(t('error.title'));
+      }
+    })();
+  }, []);
+
+  // A booking marked from the results changes them (the booked row), so search again.
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    if (criteria) run(criteria);
+  }, [refreshKey]);
+
+  const set = (key) => (value) => setCriteria((current) => ({ ...current, [key]: value }));
+  const matches = (result && result.matches) || [];
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide">
+    ${criteria && html`
+      <section class="criteria">
+        <p class="lab">${t('search.criteria')} <span class="lab-note">${t('search.prefill_note')}</span></p>
+        <form class="crit-grid" onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
+          <div class="crit"><label class="lab" for="s-spots">${t('settings.field.min_open_spots')}</label>
+            <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
+          <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
+          <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
+          <div class="crit"><label class="lab" for="s-before">${t('settings.field.buffer_before_minutes')}</label>
+            <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
+          <div class="crit"><label class="lab" for="s-after">${t('settings.field.buffer_after_minutes')}</label>
+            <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
+          <div class="crit"><label class="lab" for="s-player">${t('search.field.player')}</label>
+            <${Select} id="s-player" value=${criteria.player || ''}
+              options=${[{ value: '', label: t('search.field.player.any') }, ...players.map((name) => ({ value: name, label: name }))]} onChange=${set('player')} /></div>
+          <div class="crit"><span class="lab">${t('search.field.friends_only')}</span>
+            <label class="check"><input type="checkbox" checked=${criteria.friends_only} onChange=${(event) => set('friends_only')(event.target.checked)} /> ${t('search.friends_only_label')}</label></div>
+          <div class="crit-actions">
+            <button class="btn pri" type="submit" disabled=${searching}>${t(searching ? 'search.searching' : 'search.button')}</button>
+            <button class="btn" type="button" onClick=${() => { setCriteria(defaults); run(defaults); }}>${t('search.reset')}</button>
+          </div>
+        </form>
+      </section>`}
+    <${Status} kind="error">${error}<//>
+    ${result && html`
+      <p class="lab results-head">${t('search.results', { n: matches.length })}</p>
+      ${matches.length === 0
+        ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
+        : html`<div class="results">${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
+  <//>`;
+}

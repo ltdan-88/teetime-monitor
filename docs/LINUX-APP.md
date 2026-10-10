@@ -12,7 +12,7 @@ A tarball you unpack and run in a terminal. No Python, no package manager, no ro
 3. Open a terminal in the new `TeetimeMonitor` folder and run `./TeetimeMonitor.sh`.
 
 **Browser version:** run `./TeetimeMonitor-Web.sh` for the app in a browser window instead (see
-[WEBUI.md](WEBUI.md)); a first version with the Overview only.
+[WEBUI.md](WEBUI.md)); it has everything the terminal version has.
 
 Add your first club and your pc caddie login from inside the app; the rest works like the terminal app
 described in the [README](../README.md). A modern terminal (GNOME Terminal, Konsole, kitty, …) with

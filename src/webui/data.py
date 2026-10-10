@@ -25,12 +25,14 @@ from .. import (
     i18n,
     picks_cli,
     pipeline,
+    recommend,
     scrape_health,
     scrape_once,
     storage,
     units,
     weather_icons,
 )
+from ..models import ConfirmedBooking
 
 DAYTIME_START = "08:00"
 DAYTIME_END = "20:00"
@@ -82,6 +84,24 @@ def club_by_slug(slug: str) -> dict | None:
     return next((entry for entry in club_entries() if entry["slug"] == slug), None)
 
 
+def club_by_id(club_id: str) -> dict | None:
+    return next((entry for entry in club_entries() if entry["id"] == club_id), None)
+
+
+def resolve_club(slug: str | None = None, club_id: str | None = None, name: str | None = None) -> dict | None:
+    """A saved club by `slug` (or by id), else -- for a club opened from Add Club without saving it
+    -- a stand-in with `slug: None` (a club's database exists the moment it is scraped, saved or not)."""
+    if slug:
+        return club_by_slug(slug)
+    if club_id:
+        saved = club_by_id(club_id)
+        if saved is not None:
+            return saved
+        if club_id.isdigit():
+            return {"slug": None, "id": club_id, "name": name or club_id, "default_course": None, "last_success_at": None}
+    return None
+
+
 def courses_for(club_id: str) -> list[str]:
     db = db_path_for(club_id)
     if not db.exists():
@@ -97,6 +117,7 @@ def bootstrap() -> dict:
         "version": version(),
         "language": i18n.get_language(),
         "units": config.get("units", units.DEFAULT_UNITS),
+        "show_handicaps": bool(config.get("show_handicaps", True)),
         "clubs": club_entries(),
         "last": last,
     }
@@ -171,7 +192,13 @@ def _slot_weather(points: list, time: str) -> dict | None:
 
 
 def build_day(
-    schedule, pick: dict | None, friends: set[str], genders: dict[str, str], booked_time: str | None, today: str
+    schedule,
+    pick: dict | None,
+    friends: set[str],
+    genders: dict[str, str],
+    handicaps: dict[str, float],
+    booked_time: str | None,
+    today: str,
 ) -> dict:
     """One Overview day card (see the module docstring for the shape's source)."""
     sun = schedule.sun_times
@@ -198,7 +225,10 @@ def build_day(
                 "booked": slot.booked,
                 "capacity": slot.capacity,
                 "block_reason": slot.block_reason,
-                "players": [{"name": name, "friend": name in friends, "gender": genders.get(name)} for name in slot.players],
+                "players": [
+                    {"name": name, "friend": name in friends, "gender": genders.get(name), "hcp": handicaps.get(name)}
+                    for name in slot.players
+                ],
                 "weather": _slot_weather(schedule.weather, slot.time),
                 "sunrise": slot.time == sunrise_row,
                 "sunset": slot.time == sunset_row,
@@ -233,12 +263,30 @@ def _overview_window(config: dict) -> int:
     return max(1, min(int(days), scrape_once.MAX_OVERVIEW_DAYS)) if isinstance(days, int | float) else DEFAULT_OVERVIEW_DAYS
 
 
-def overview(slug: str, course: str | None) -> dict:
-    """The Overview for one saved club and course; `{"error": ...}` for an unknown club."""
-    club = club_by_slug(slug)
+def banners_for(db: Path) -> list[dict]:
+    """Unacknowledged booking changes, rendered in the current language (as the TUI's banners)."""
+    if not db.exists():
+        return []
+    return [
+        {
+            "id": change["id"],
+            "course": change["course"],
+            "date": change["date"],
+            "time": change["time"],
+            "text": i18n.render_booking_change(change["kind"], change["params"]) or change["message"],
+        }
+        for change in storage.load_unacknowledged_booking_changes(db)
+    ]
+
+
+def overview(slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None) -> dict:
+    """The Overview for one club (saved, by `slug`; or just opened, by `club_id`) and course;
+    `{"error": ...}` for an unknown club."""
+    club = resolve_club(slug, club_id, name)
     if club is None:
         return {"error": "unknown_club"}
     db = db_path_for(club["id"])
+    slug = club["slug"]
     config = pipeline._resolved_config(slug, club["id"], club["name"])
     courses = courses_for(club["id"])
     if course not in courses:
@@ -252,6 +300,9 @@ def overview(slug: str, course: str | None) -> dict:
         "courses": courses,
         "course": course,
         "units": config.get("units", units.DEFAULT_UNITS),
+        "show_handicaps": bool(config.get("show_handicaps", True)),
+        "preview": slug is None,
+        "banners": banners_for(db),
         "freshness": {
             "last_success_at": health.get("last_success_at"),
             "last_run_at": health.get("last_run_at"),
@@ -270,11 +321,13 @@ def overview(slug: str, course: str | None) -> dict:
     cached = _OVERVIEW_CACHE.get(key)
     if cached and cached[0] == mtime and cached[1] == today:
         response["days"] = cached[2]["days"]
+        response["hint"] = cached[2]["hint"]
         return response
 
     picks = picks_cli.compute_picks(str(db), course, slug, today, window)
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
+    handicaps = storage.load_player_handicaps(db)
     start = datetime.fromisoformat(today).date()
     days = []
     for offset in range(window):
@@ -284,8 +337,64 @@ def overview(slug: str, course: str | None) -> dict:
             continue
         booking = storage.load_confirmed_booking(course, date, path=db)
         booked_time = booking.time if booking is not None else None
-        days.append(build_day(schedule, picks.get(date), friends, genders, booked_time, today))
+        days.append(build_day(schedule, picks.get(date), friends, genders, handicaps, booked_time, today))
     response["days"] = days
     response["hint"] = picks.get("_hint")
-    _OVERVIEW_CACHE[key] = (mtime, today, {"days": days})
+    _OVERVIEW_CACHE[key] = (mtime, today, {"days": days, "hint": response["hint"]})
     return response
+
+
+# ---- bookings and notices ----------------------------------------------------------------
+
+
+def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
+    club = resolve_club(slug, club_id)
+    return (club, db_path_for(club["id"])) if club is not None else None
+
+
+def confirm_booking(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
+    """Mark `time` on `date` as your booking: the manual fallback the TUI's `c` key and the Mac
+    app's slot menu write (append-only: the newest row wins). Holes come from the course (name
+    heuristic or the club's `course_holes` override)."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    club, db = found
+    if not (isinstance(time, str) and len(time) == 5 and time[2] == ":" and time.replace(":", "").isdigit()):
+        return {"error": "bad_time"}
+    config = pipeline._resolved_config(club["slug"], club["id"], club["name"])
+    storage.save_confirmed_booking(
+        ConfirmedBooking(
+            date=date,
+            course=course,
+            time=time,
+            holes=recommend.holes_for_course(course, config),
+            source="manual",
+            confirmed_at=datetime.now(UTC).isoformat(),
+        ),
+        path=db,
+    )
+    _OVERVIEW_CACHE.clear()
+    return {"ok": True}
+
+
+def cancel_booking(slug: str | None, club_id: str | None, course: str, date: str) -> dict:
+    """Record 'not playing that day' (a new row with no time, as the TUI's cancel does)."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    _, db = found
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date=date, course=course, time=None, holes=None, source="manual", confirmed_at=datetime.now(UTC).isoformat()),
+        path=db,
+    )
+    _OVERVIEW_CACHE.clear()
+    return {"ok": True}
+
+
+def acknowledge_banners(slug: str | None, club_id: str | None, ids: list) -> dict:
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    storage.acknowledge_booking_changes([int(i) for i in ids if isinstance(i, int)], path=found[1])
+    return {"ok": True}

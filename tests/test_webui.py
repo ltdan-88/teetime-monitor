@@ -121,7 +121,7 @@ def test_overview_lists_days_slots_markers_and_the_booking(seeded):
     assert [s["time"] for s in today["slots"]] == ["07:10", "09:00", "09:10", "19:00"]
     first = today["slots"][0]
     assert first["sunrise"] and today["slots"][-1]["sunset"]
-    assert first["players"][0] == {"name": "Max Mustermann", "friend": True, "gender": "male"}
+    assert first["players"][0] == {"name": "Max Mustermann", "friend": True, "gender": "male", "hcp": None}
     assert first["players"][1]["gender"] == "female" and first["players"][1]["friend"] is False
     assert today["slots"][1]["booked_by_you"] is True
     assert today["slots"][2]["block_reason"] == "Turnier"
@@ -262,7 +262,7 @@ def test_refresh_runs_a_forced_scrape_in_the_background_and_reports_when_done(ru
     response, body = _request(running, "POST", "/api/refresh", body={"slug": "golfclub-beispiel", "force": True})
     assert response.status == 200
     for _ in range(100):
-        status = json.loads(_request(running, "GET", "/api/refresh/status?slug=golfclub-beispiel")[1])
+        status = json.loads(_request(running, "GET", "/api/refresh/status?key=golfclub-beispiel")[1])
         if not status["running"]:
             break
         time.sleep(0.05)
@@ -278,7 +278,7 @@ def test_a_failing_scrape_is_reported_not_fatal(running, monkeypatch):
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", boom)
     _request(running, "POST", "/api/refresh", body={"slug": "golfclub-beispiel", "force": False})
     for _ in range(100):
-        status = json.loads(_request(running, "GET", "/api/refresh/status?slug=golfclub-beispiel")[1])
+        status = json.loads(_request(running, "GET", "/api/refresh/status?key=golfclub-beispiel")[1])
         if not status["running"]:
             break
         time.sleep(0.05)
