@@ -211,8 +211,11 @@ Launchpad und Spotlight erscheinen lässt. Die volle Entstehungsgeschichte steht
 fertige **TeetimeMonitor-…-arm64.zip** mit der App und allem, was sie braucht. Voraussetzung ist
 ein Mac mit Apple-Chip (M1 oder neuer) und macOS 14 oder neuer. Die App ist nicht von Apple
 notarisiert, deshalb braucht das erste Öffnen einen zusätzlichen Schritt — die Anleitung steht in
-[**docs/MAC-APP.de.md**](docs/MAC-APP.de.md) ([English](docs/MAC-APP.md)). Unter Windows und Linux
-nimm die Terminal-App.
+[**docs/MAC-APP.de.md**](docs/MAC-APP.de.md) ([English](docs/MAC-APP.md)).
+
+**Windows ohne Installation.** Für Windows gibt es eine portable Zip (nichts zu installieren, läuft aus
+jedem Ordner oder von einem USB-Stick): [**docs/WINDOWS-APP.de.md**](docs/WINDOWS-APP.de.md)
+([English](docs/WINDOWS-APP.md)). Unter Linux nimm die Terminal-App.
 
 ## Tasten
 

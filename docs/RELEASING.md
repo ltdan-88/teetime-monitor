@@ -57,5 +57,22 @@ usable GUI session that one check only warns instead of blocking the upload). Th
 verification passes. What it cannot check: Gatekeeper's first-launch prompt on a downloaded
 (quarantined) copy, and macOS 14 itself — try a release on a second Mac before announcing it.
 
+## The portable Windows app
+
+`python windows/build_portable.py` builds `windows/dist/TeetimeMonitor-<version>-windows-x64.zip`
+(+ `.sha256`), the download described in [WINDOWS-APP.md](WINDOWS-APP.md): python.org's embeddable
+CPython 3.12 (pinned by URL and SHA-256) plus the `uv.lock` dependencies as `win_amd64` wheels and
+this project, with `TeetimeMonitor.cmd` pointing config and data at `userdata\` beside it. It
+needs only `uv` and Python, so the assembly can be checked on a Mac; the bytecode step runs on
+Windows only. `python windows/verify_portable.py` (Windows only) unpacks the zip into a temp folder
+and runs it with a scrubbed PATH and a fake user profile: version, doctor, every module importable,
+the TUI starting headless, nothing written outside the folder, x64 binaries only.
+
+The **windows-app** job of the release workflow does both and attaches the zip and its `.sha256` to
+the Release (like `mac-app`, re-running it is safe). The **windows-portable** workflow runs the same
+build and verify on demand and on pull requests touching `windows/`. What neither can check: the
+Mark-of-the-Web / SmartScreen prompt, AppLocker or antivirus policy on a real company PC, and the
+interactive console.
+
 The Homebrew path is untouched: `build.sh` only gains an opt-in `TEETIME_MONITOR_SWIFT_TARGET`
 (set by `build_standalone.sh` so the binary targets macOS 14 whatever the build machine runs).

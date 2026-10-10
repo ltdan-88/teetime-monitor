@@ -205,8 +205,9 @@ any other app. See [`macos/README.md`](macos/README.md) for the full build story
 **TeetimeMonitor-…-arm64.zip** with the app and everything it needs inside. It needs an Apple
 Silicon Mac (M1 or newer) and macOS 14 or newer. It is not notarized by Apple, so the first
 launch needs one extra step — the step-by-step guide is in
-[**docs/MAC-APP.md**](docs/MAC-APP.md) ([auf Deutsch](docs/MAC-APP.de.md)). On Windows and Linux
-use the terminal app above.
+[**docs/MAC-APP.md**](docs/MAC-APP.md) ([auf Deutsch](docs/MAC-APP.de.md)).
+On Windows there is a portable zip too (nothing to install, runs from any folder or USB stick):
+[**docs/WINDOWS-APP.md**](docs/WINDOWS-APP.md) ([auf Deutsch](docs/WINDOWS-APP.de.md)). On Linux use the terminal app above.
 
 ## Keys
 
