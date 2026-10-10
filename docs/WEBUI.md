@@ -15,6 +15,10 @@ card layout of the Mac app (light when your system is light), in English or Germ
 - **Search**, **Crowd heatmap**, **Players** (friends), **Preferences** (availability, weather, pace,
   priorities), **Settings** (clubs, pc caddie login, language, units, scraping, AI ranking) and **Add club**
   (search the club directory, add a club, or open one just to look at it).
+- Scrolling works like the Mac app: an opened day keeps its header pinned while its times scroll, opens at its
+  recommended time (slots outside your availability window are dimmed), and the player list scrolls under a fixed
+  search with an A–Z index. **Settings > Scale** makes the whole page smaller or larger (this browser only; the
+  browser's own zoom, Ctrl +/-, works too).
 - **Refresh** fetches new tee sheets; opening the page also fetches whatever is due.
 - English or German (Settings > Language), dark or light following your system, and single-letter keys like the
   terminal app: `r` refresh, `s` search, `h` heatmap, `p` players, `e` preferences, `,` settings, `a` add club,

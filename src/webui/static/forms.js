@@ -1,7 +1,9 @@
 // Preferences and Settings: forms generated from the server's field list (settings_api.py), plus the
 // Settings sheet's own sections (clubs, login, AI key).
 
-import { html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon } from '/lib.js';
+import {
+  html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon, SCALES, DEFAULT_SCALE, getScale, setScale,
+} from '/lib.js';
 
 // ---------------------------------------------------------------- generated form
 
@@ -15,8 +17,9 @@ function FieldControl({ field, value, onChange }) {
     placeholder=${field.kind === 'optional_float' ? t('off') : ''} onInput=${(event) => onChange(event.target.value)} />`;
 }
 
-/** The groups of fields; `values`/`setValue` are the form state ({field id: value}). */
-export function FieldGroups({ groups, values, setValue }) {
+/** The groups of fields; `values`/`setValue` are the form state ({field id: value}). `extras` maps
+ *  a group key to rows of this page's own (not saved with the rest) to append to that group. */
+export function FieldGroups({ groups, values, setValue, extras = {} }) {
   return groups.map((group) => html`
     <section class="group">
       <h3>${group.label}</h3>
@@ -25,7 +28,18 @@ export function FieldGroups({ groups, values, setValue }) {
           <label for=${'f-' + field.id}>${field.label}</label>
           <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
         </div>`)}
+      ${extras[group.key]}
     </section>`);
+}
+
+/** How large the page is: this browser only, applied at once, not saved with the settings. */
+function ScaleRow() {
+  const [percent, setPercent] = useState(getScale());
+  return html`
+    <div class="field-row"><label for="f-scale">${t('settings.scale')}</label>
+      <${Select} id="f-scale" value=${String(percent)}
+        options=${SCALES.map((value) => ({ value: String(value), label: value + ' %' + (value === DEFAULT_SCALE ? ' · ' + t('settings.scale.default') : '') }))}
+        onChange=${(value) => { setPercent(Number(value)); setScale(Number(value)); }} /></div>`;
 }
 
 function initialValues(groups) {
@@ -104,18 +118,16 @@ function ClubsSection({ clubs, onChanged, onAddClub }) {
           <div class="club-head">
             <strong>${club.name}</strong><span class="dim num">${club.id}</span>
             <span class="grow"></span>
+            ${club.courses.length > 0 && html`
+              <${Select} id=${'dc-' + club.id} aria-label=${t('club.default_course')} title=${t('club.default_course')}
+                value=${club.default_course || club.courses[0]}
+                options=${club.courses.map((course) => ({ value: course, label: course }))} onChange=${(course) => setDefault(club, course)} />`}
             ${confirmRemove === club.id
               ? html`<span class="inline-confirm">${t('club.remove_confirm', { name: club.name })}
                   <button class="btn danger" onClick=${() => remove(club)}>${t('club.remove')}</button>
                   <button class="btn" onClick=${() => setConfirmRemove(null)}>${t('cancel')}</button></span>`
               : html`<button class="btn" onClick=${() => setConfirmRemove(club.id)}><${Icon} name="trash" size=${16} />${t('club.remove')}</button>`}
           </div>
-          ${club.courses.length > 0 && html`
-            <div class="field-row">
-              <label for=${'dc-' + club.id}>${t('club.default_course')}</label>
-              <${Select} id=${'dc-' + club.id} value=${club.default_course || club.courses[0]}
-                options=${club.courses.map((course) => ({ value: course, label: course }))} onChange=${(course) => setDefault(club, course)} />
-            </div>`}
           ${club.course_holes.length > 0 && html`<p class="hint">${t('settings.course_holes.hint')}</p>`}
           ${club.course_holes.map((row) => html`
             <div class="field-row">
@@ -235,7 +247,7 @@ function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClu
     <div class="columns">
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
       <${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />
-      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} />
+      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} extras=${{ 'settings.group.display': html`<${ScaleRow} />` }} />
       ${aiGroup && html`
         <section class="group">
           <h3>${aiGroup.label}</h3>

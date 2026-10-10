@@ -1,10 +1,10 @@
 // Teetime Monitor web UI: the shell. Preact + htm, no build step; data from /api/* (src/webui/server.py).
 
 import {
-  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, updatedText, dayLabel,
+  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, updatedText, dayLabel, applyScale,
   Icon, Sheet, Select, Status,
 } from '/lib.js';
-import { DayCard, Banners } from '/overview.js';
+import { DayCard, Banners, focusTime } from '/overview.js';
 import { PreferencesSheet, SettingsSheet } from '/forms.js';
 import { AddClubSheet } from '/addclub.js';
 import { SearchSheet } from '/search.js';
@@ -12,6 +12,7 @@ import { HeatmapSheet } from '/heatmap.js';
 import { PlayersSheet } from '/players.js';
 
 const ADD_CLUB = '__add_club__';
+applyScale();
 
 const refOf = (view) => (view.kind === 'saved' ? { slug: view.slug } : { club_id: view.id, name: view.name });
 const refreshKeyOf = (view) => (view.kind === 'saved' ? view.slug : 'club:' + view.id);
@@ -103,6 +104,27 @@ function App() {
   const current = useRef({ view: null, course: null });
   current.current = { view, course };
   const lastSaved = useRef(null);
+  const focusOnOpen = useRef(null); // a day the user just opened: scroll to its pick once its slots are drawn
+
+  // The day header stays pinned under the toolbar while its slots scroll: tell the CSS how tall that is.
+  const ready = !!boot;
+  useEffect(() => {
+    const bar = document.querySelector('.toolbar');
+    if (!bar) return undefined;
+    const apply = () => document.documentElement.style.setProperty('--toolbar-h', bar.offsetHeight + 'px');
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [ready]);
+  useEffect(() => {
+    if (!openDate || focusOnOpen.current !== openDate || !overview) return;
+    focusOnOpen.current = null;
+    const day = overview.days.find((entry) => entry.date === openDate);
+    const time = day && focusTime(day);
+    const row = time && document.querySelector(`[data-slot="${openDate} ${time}"]`);
+    if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [openDate, overview]);
 
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
@@ -329,7 +351,7 @@ function App() {
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
           <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot}
-            onToggle=${() => setOpenDate(openDate === day.date ? null : day.date)} />`)}
+            onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
       </main>
       <footer class="footer">
         <div class="status">

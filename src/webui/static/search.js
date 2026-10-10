@@ -10,6 +10,18 @@ import { PlayerNames } from '/overview.js';
 const BUFFERS = [0, 5, 10, 15, 20, 30, 45, 60].map((n) => ({ value: String(n), label: n ? `${n} min` : '0' }));
 const SPOTS = [1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }));
 
+/** "Reset filters": every field cleared to "no filter" (any time, one spot, no buffer, nobody in
+ *  particular), deliberately not your saved Preferences, and it does not search again. */
+const CLEARED = {
+  min_open_spots: 1,
+  weekday_window: { after: '', before: '' },
+  weekend_window: { after: '', before: '' },
+  buffer_before_minutes: 0,
+  buffer_after_minutes: 0,
+  friends_only: false,
+  player: '',
+};
+
 function WindowFields({ label, value, onChange, idPrefix }) {
   const set = (key) => (time) => onChange({ ...value, [key]: time });
   return html`
@@ -46,7 +58,6 @@ function ResultRow({ match, units, showHandicaps, onMark }) {
 
 export function SearchSheet({ club, course, units, showHandicaps, onClose, onMark, refreshKey }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
-  const [defaults, setDefaults] = useState(null);
   const [criteria, setCriteria] = useState(null);
   const [players, setPlayers] = useState([]);
   const [result, setResult] = useState(null);
@@ -69,7 +80,6 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
     (async () => {
       try {
         const loaded = await api('/api/search/defaults' + query(ref));
-        setDefaults(loaded);
         setCriteria(loaded);
         const list = await api('/api/players' + query(ref));
         setPlayers(list.players.map((p) => p.name));
@@ -88,7 +98,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
 
   const set = (key) => (value) => setCriteria((current) => ({ ...current, [key]: value }));
   const matches = (result && result.matches) || [];
-  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide">
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed>
     ${criteria && html`
       <section class="criteria">
         <p class="lab">${t('search.criteria')} <span class="lab-note">${t('search.prefill_note')}</span></p>
@@ -96,9 +106,9 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
           <div class="crit"><label class="lab" for="s-spots">${t('settings.field.min_open_spots')}</label>
             <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
           <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
-          <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
           <div class="crit"><label class="lab" for="s-before">${t('settings.field.buffer_before_minutes')}</label>
             <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
+          <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
           <div class="crit"><label class="lab" for="s-after">${t('settings.field.buffer_after_minutes')}</label>
             <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
           <div class="crit"><label class="lab" for="s-player">${t('search.field.player')}</label>
@@ -108,7 +118,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
             <label class="check"><input type="checkbox" checked=${criteria.friends_only} onChange=${(event) => set('friends_only')(event.target.checked)} /> ${t('search.friends_only_label')}</label></div>
           <div class="crit-actions">
             <button class="btn pri" type="submit" disabled=${searching}>${t(searching ? 'search.searching' : 'search.button')}</button>
-            <button class="btn" type="button" onClick=${() => { setCriteria(defaults); run(defaults); }}>${t('search.reset')}</button>
+            <button class="btn" type="button" disabled=${searching} onClick=${() => setCriteria(CLEARED)}>${t('search.reset')}</button>
           </div>
         </form>
       </section>`}
@@ -117,6 +127,6 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
       <p class="lab results-head">${t('search.results', { n: matches.length })}</p>
       ${matches.length === 0
         ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
-        : html`<div class="results">${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
+        : html`<div class="results scroll">${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
   <//>`;
 }

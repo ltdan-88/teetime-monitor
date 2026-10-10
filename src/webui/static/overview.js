@@ -35,11 +35,27 @@ export function Badge({ day }) {
   return null;
 }
 
+/** The slot an opened day scrolls to: its ★ pick, else the first slot at or after your window
+ *  opens (the terminal app's and the Mac app's rule). null when neither is known. */
+export function focusTime(day) {
+  const wanted = (day.pick && day.pick.time) || (day.pick && day.pick.window && day.pick.window.after);
+  if (!wanted) return null;
+  const slot = day.slots.find((entry) => entry.time >= wanted);
+  return slot ? slot.time : null;
+}
+
+/** Outside your own availability window: still there to read, just dimmed. */
+function outsideWindow(day, slot) {
+  const win = day.pick && day.pick.window;
+  return !!win && ((win.after && slot.time < win.after) || (win.before && slot.time > win.before));
+}
+
 function DayHeader({ day, open, onToggle, units }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
   return html`
+    <div class="dh-wrap">
     <button class="dh" onClick=${onToggle} aria-expanded=${open} aria-label=${t(open ? 'collapse' : 'expand', { day: label })}>
       <${Icon} name="chevron" size=${18} class="chev" />
       <span class="day">${label}</span>
@@ -58,6 +74,7 @@ function DayHeader({ day, open, onToggle, units }) {
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
     </button>
     ${day.events.length > 0 && html`<div class="events">${day.events.join(' · ')}</div>`}
+    </div>
   `;
 }
 
@@ -78,6 +95,7 @@ export function PlayerNames({ slot, showHandicaps, anonymousCount }) {
 }
 
 function SlotRow({ slot, day, units, showHandicaps, onPick }) {
+  const dimmed = outsideWindow(day, slot);
   const capacity = slot.capacity > 0 ? slot.capacity : 4;
   const friendSeat = slot.players.some((player) => player.friend);
   const seats = Array.from({ length: capacity }, (_, i) => {
@@ -91,21 +109,22 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
   if (slot.past) classes.push('past');
   if (slot.booked_by_you) classes.push('mine');
   if (blocked) classes.push('blocked');
+  if (dimmed) classes.push('dimmed');
   const clickable = !blocked && !slot.past;
   if (clickable) classes.push('clickable');
   const activate = () => clickable && onPick(day, slot);
   return html`
-    <div class=${classes.join(' ')} role=${clickable ? 'button' : null} tabindex=${clickable ? 0 : null}
+    <div class=${classes.join(' ')} data-slot=${day.date + ' ' + slot.time} role=${clickable ? 'button' : null} tabindex=${clickable ? 0 : null}
       title=${clickable ? t(slot.booked_by_you ? 'booking.cancel_hint' : 'booking.mark_hint') : null}
       onClick=${activate} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), activate())}>
       <span class="time">
-        <span style="width:16px;display:inline-flex">
+        <span style="width:1rem;display:inline-flex">
           ${slot.recommended ? html`<${Icon} name="star" size=${14} style="color:var(--blue);fill:var(--blue)" />` : slot.too_late ? html`<${Icon} name="moon" size=${14} class="dim" />` : null}
         </span>
         <span style=${slot.booked_by_you ? { fontWeight: 700 } : null}>${slot.time}</span>
       </span>
       ${blocked
-        ? html`<span class="people blocked-note"><span class="dim" style="font-style:italic;font-size:13px">${slot.block_reason || t('not_bookable')}</span></span>`
+        ? html`<span class="people blocked-note"><span class="dim" style="font-style:italic;font-size:0.8125rem">${slot.block_reason || t('not_bookable')}</span></span>`
         : html`
           <span class="seats" title=${t('tip.seats', { booked: slot.booked, capacity })}>${seats}</span>
           <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>

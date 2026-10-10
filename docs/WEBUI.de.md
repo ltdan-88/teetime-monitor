@@ -16,6 +16,10 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
 - **Suche**, **Crowd-Heatmap**, **Spieler** (Freunde), **Präferenzen** (Verfügbarkeit, Wetter, Tempo, Prioritäten),
   **Einstellungen** (Clubs, pc-caddie-Login, Sprache, Einheiten, Scraping, KI-Ranking) und **Club hinzufügen**
   (Clubverzeichnis durchsuchen, Club hinzufügen oder nur zum Ansehen öffnen).
+- Das Scrollen funktioniert wie in der Mac-App: Ein geöffneter Tag behält seine Kopfzeile oben, während seine Zeiten
+  scrollen, öffnet bei seiner empfohlenen Zeit (Zeiten außerhalb deines Zeitfensters sind abgedunkelt), und die
+  Spielerliste scrollt unter einer festen Suche mit A–Z-Index. **Einstellungen > Skalierung** macht die ganze Seite
+  kleiner oder größer (nur in diesem Browser; der Browser-Zoom, Strg +/-, geht auch).
 - **Aktualisieren** lädt neue Startzeiten; beim Öffnen der Seite wird auch geladen, was fällig ist.
 - Deutsch oder Englisch (Einstellungen > Sprache), dunkel oder hell nach deinem System, und Einzeltasten wie in
   der Terminal-App: `r` aktualisieren, `s` suchen, `h` Heatmap, `p` Spieler, `e` Präferenzen, `,` Einstellungen,

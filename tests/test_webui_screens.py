@@ -230,6 +230,13 @@ def test_search_opens_with_your_availability_and_finds_slots_in_your_window(worl
     assert tools_api.run_search("nope", None, COURSE, defaults) == {"error": "unknown_club"}
 
 
+def test_a_blank_window_means_any_time_so_cleared_filters_find_everything(world):
+    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
+    times = {m["time"] for m in tools_api.run_search(SLUG, None, COURSE, blank)["matches"]}
+    assert {"07:10", "10:00"} <= times  # 07:10 is outside the 09:00-17:00 of your Preferences
+    assert tools_api._clean_window(None) == {"after": None, "before": None}
+
+
 def test_search_flags_the_weather_limits_you_set(world):
     global_preferences.save_preferences(
         {

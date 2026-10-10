@@ -106,11 +106,12 @@ def run_search(slug: str | None, club_id: str | None, course: str, criteria: dic
     return {"matches": matches, "days": SEARCH_DAYS, "units": config.get("units")}
 
 
-def _clean_window(raw) -> dict | None:
-    if not isinstance(raw, dict):
-        return None
-    after, before = (raw.get("after") or None), (raw.get("before") or None)
-    return {"after": after, "before": before} if (after or before) else None
+def _clean_window(raw) -> dict:
+    """A time window as the search takes it. A blank one is not "skip this kind of day" but "any
+    time" (`{"after": None, "before": None}`): what the Mac app sends too, and what "Reset filters"
+    leaves behind."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {"after": raw.get("after") or None, "before": raw.get("before") or None}
 
 
 # ---- players -----------------------------------------------------------------------------
