@@ -319,8 +319,9 @@ def test_a_theme_is_chosen_in_the_view_menu_and_survives_a_reload(ui):
     ui.set("#v-theme", "solarized-light")
     ui.wait(f"{BACKGROUND} === 'rgb(253, 246, 227)'")
     ui.shot("theme-solarized-light")
-    ui.js("location.reload()")
-    ui.wait(f"document.querySelectorAll('.card').length > 0 && {BACKGROUND} === 'rgb(253, 246, 227)'")
+    ui.js("window.__beforeReload = true; location.reload()")
+    # wait for the NEW page: the old one still shows cards and the theme until the reload replaces it
+    ui.wait(f"window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0 && {BACKGROUND} === 'rgb(253, 246, 227)'")
     _open_view(ui)
     ui.set("#v-theme", "catppuccin")
     ui.wait(f"{BACKGROUND} === 'rgb(30, 30, 46)'")
