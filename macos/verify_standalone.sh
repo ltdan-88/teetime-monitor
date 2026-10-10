@@ -215,11 +215,21 @@ if [ -z "$text_hits" ]; then pass "no launcher or text file names /opt/homebrew,
 # own executable legitimately contains the literal /opt/homebrew/bin (the Homebrew install's
 # search directory), so only it is exempt from that one string.
 bin_hits=$(grep -rl -e "$REPO" -e "$BUILD_HOME_PREFIX/" "$APP" 2>/dev/null | sed "s#^$APP/##")
+# Third-party compiled extensions (site-packages/**/*.so) are prebuilt PyPI wheels. Their own
+# build machines (GitHub runners: /Users/runner/..., Homebrew: /opt/homebrew) leave source paths
+# and library defaults in them. That says nothing about this build, so for them only the repo path
+# is a hit; the otool -L check below and the clean-environment run prove they need nothing outside.
+THIRD_PARTY_SO='^Contents/Resources/python/lib/python3.12/site-packages/.*\.so$'
+bin_hits=$(echo "$bin_hits" | while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if echo "$f" | grep -qE "$THIRD_PARTY_SO" && ! grep -qF -e "$REPO" "$APP/$f"; then continue; fi
+    echo "$f"
+done)
 # Same two documentation hits as bytecode, plus the cryptography wheel's statically linked
 # OpenSSL, whose compiled-in default config directory is the builder's Homebrew path
 # (OPENSSLDIR); nothing here uses it -- HTTPS trust comes from the macOS keychain (src/net.py).
 ALLOWED_BINARY='lib/python3.12/site-packages/platformdirs/__pycache__/macos.cpython-312.pyc|lib/python3.12/site-packages/cryptography/hazmat/bindings/_rust.abi3.so'
-bin_hits="$bin_hits $(grep -rl -e '/opt/homebrew' "$APP/Contents/Resources" 2>/dev/null | sed "s#^$APP/Contents/Resources/python/##; s#^$APP/##" | grep -vE "^($ALLOWED_BINARY|$ALLOWED_TEXT)$")"
+bin_hits="$bin_hits $(grep -rl -e '/opt/homebrew' "$APP/Contents/Resources" 2>/dev/null | sed "s#^$APP/Contents/Resources/python/##; s#^$APP/##" | grep -vE "^($ALLOWED_BINARY|$ALLOWED_TEXT)$" | grep -vE 'site-packages/.*\.so$')"
 bin_hits=$(echo $bin_hits)
 if [ -z "$bin_hits" ]; then pass "no binary file (Mach-O, bytecode) names /opt/homebrew, the repo path or the build user's home"; else fail "binary files naming /opt/homebrew, the repo path or the build user's home" "$(echo "$bin_hits" | tr ' ' '\n' | head -8 | tr '\n' ' ')"; fi
 bad_links=""
