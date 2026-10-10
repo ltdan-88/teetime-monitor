@@ -100,6 +100,13 @@ find "$SRC" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # whatever PyPI resolves today (an unlocked install once shipped anthropic 1.13 / pydantic 2.14
 # next to a lock of 1.7 / 2.13.5). --frozen: never rewrite the lock; --no-hashes: the pins
 # alone are enough here and keep uv's installer from demanding hashes for the project itself.
+# uv.lock is git-ignored (a developer's own file), so a fresh checkout -- the release runner -- has
+# none: resolve one now. CI installs without a lock too, so that is the set it tests (2026-10-10:
+# the first release run failed with "Unable to find lockfile").
+if [ ! -f "$REPO/uv.lock" ]; then
+  echo "no uv.lock in this checkout -- resolving one"
+  (cd "$REPO" && uv lock --quiet)
+fi
 uv export --frozen --no-dev --no-emit-project --no-hashes --no-header --quiet -o "$WORK/requirements.txt"
 [ -s "$WORK/requirements.txt" ] || { echo "error: uv export produced no requirements from uv.lock" >&2; exit 1; }
 uv pip install --python "$PY" --break-system-packages --no-cache --quiet -r "$WORK/requirements.txt"
