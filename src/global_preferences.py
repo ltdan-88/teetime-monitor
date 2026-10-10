@@ -95,27 +95,6 @@ def save_preferences(config: dict, path: Path | None = None) -> None:
     )
 
 
-def load_min_open_spots(path: Path | None = None) -> int:
-    """`availability.min_open_spots` (the group size), 1 when unset or unreadable.
-    Read by the overview's Group dropdown (2026-10-09)."""
-    availability = load_preferences(path).get("availability")
-    value = availability.get("min_open_spots", 1) if isinstance(availability, dict) else 1
-    try:
-        return max(1, int(value))
-    except (TypeError, ValueError):
-        return 1
-
-
-def save_min_open_spots(spots: int, path: Path | None = None) -> None:
-    """Change just `availability.min_open_spots` (2026-10-09, the overview's quick Group
-    dropdown): re-reads the file and writes it back through `save_preferences()` with every
-    other key, availability windows included, untouched."""
-    config = load_preferences(path)
-    availability = config.get("availability")
-    config["availability"] = {**(availability if isinstance(availability, dict) else {}), "min_open_spots": int(spots)}
-    save_preferences(config, path)
-
-
 def load_last_active_club(config_file: Path | None = None) -> dict | None:
     """The `{"club_id", "slug", "course"}` last successfully opened, or `None` if
     never set (a genuinely fresh install, or incomplete data). Added 2026-09-10,

@@ -359,15 +359,3 @@ def test_course_holes_strings_match_the_gui_word_for_word():
         swift_strings = dict(entry.findall(table))
         for key in keys:
             assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
-
-
-def test_group_label_matches_the_gui_word_for_word():
-    # 2026-10-09: the overview's Group dropdown. The TUI's labels carry a colon ("Club:"),
-    # the GUI's don't, so compare the word.
-    from pathlib import Path
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        assert dict(entry.findall(table))["overview.group"] == i18n._STRINGS[lang]["switcher.group_label"].rstrip(":")

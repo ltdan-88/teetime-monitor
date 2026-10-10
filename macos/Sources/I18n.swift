@@ -224,7 +224,6 @@ private let englishStrings: [String: String] = [
     // Overview
     "overview.club": "Club",
     "overview.course": "Course",
-    "overview.group": "Group",
     "overview.checking": "Checking pc caddie…",
     "overview.never_scraped": "never scraped",
     "overview.updated_never": "never scraped",
@@ -677,7 +676,6 @@ private let germanStrings: [String: String] = [
     // Overview
     "overview.club": "Club",
     "overview.course": "Platz",
-    "overview.group": "Gruppe",
     "overview.checking": "pc caddie wird abgefragt…",
     "overview.never_scraped": "noch nie abgerufen",
     "overview.updated_never": "noch nie abgerufen",

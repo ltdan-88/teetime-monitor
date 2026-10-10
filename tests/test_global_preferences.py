@@ -98,32 +98,3 @@ def test_show_handicaps_round_trips_through_the_preferences_file(tmp_path):
     global_preferences.save_preferences({"units": "metric", "show_handicaps": False}, path)
     assert global_preferences.load_preferences(path)["show_handicaps"] is False
     assert "show_handicaps: false" in path.read_text()
-
-
-def test_save_min_open_spots_changes_only_that_key(tmp_path):
-    path = tmp_path / "preferences.yaml"
-    global_preferences.save_preferences(
-        {
-            "availability": {"min_open_spots": 1, "weekday_window": {"after": "17:00"}, "hand_edited": 7},
-            "units": "imperial",
-            "ai_assist": {"enabled": True, "model": "x"},
-        },
-        path,
-    )
-    global_preferences.save_min_open_spots(3, path)
-    saved = global_preferences.load_preferences(path)
-    assert saved == {
-        "availability": {"min_open_spots": 3, "weekday_window": {"after": "17:00"}, "hand_edited": 7},
-        "units": "imperial",
-        "ai_assist": {"enabled": True, "model": "x"},
-    }
-    assert global_preferences.load_min_open_spots(path) == 3
-
-
-def test_min_open_spots_defaults_to_one_and_creates_the_availability_block(tmp_path):
-    path = tmp_path / "preferences.yaml"
-    assert global_preferences.load_min_open_spots(path) == 1
-    global_preferences.save_min_open_spots(2, path)
-    assert global_preferences.load_preferences(path) == {"availability": {"min_open_spots": 2}}
-    path.write_text("availability:\n  min_open_spots: lots\n", encoding="utf-8")
-    assert global_preferences.load_min_open_spots(path) == 1
