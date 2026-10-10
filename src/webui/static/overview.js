@@ -101,7 +101,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
   const seats = Array.from({ length: capacity }, (_, i) => {
     let cls = 'seat';
     if (i < slot.booked) cls += friendSeat && i === 0 && !slot.booked_by_you ? ' friend' : ' taken';
-    return html`<span class=${cls} style=${slot.booked_by_you && i === 0 ? { background: 'var(--blue)' } : null}></span>`;
+    return html`<span class=${cls} style=${slot.booked_by_you && i === 0 ? { background: 'var(--accent)' } : null}></span>`;
   });
   const w = slot.weather;
   const blocked = slot.block_reason !== null && slot.block_reason !== undefined;
@@ -119,7 +119,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
       onClick=${activate} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), activate())}>
       <span class="time">
         <span style="width:1rem;display:inline-flex">
-          ${slot.recommended ? html`<${Icon} name="star" size=${14} style="color:var(--blue);fill:var(--blue)" />` : slot.too_late ? html`<${Icon} name="moon" size=${14} class="dim" />` : null}
+          ${slot.recommended ? html`<${Icon} name="star" size=${14} style="color:var(--accent);fill:var(--accent)" />` : slot.too_late ? html`<${Icon} name="moon" size=${14} class="dim" />` : null}
         </span>
         <span style=${slot.booked_by_you ? { fontWeight: 700 } : null}>${slot.time}</span>
       </span>
@@ -130,7 +130,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
           <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>
           <span class="people">
             <${PlayerNames} slot=${slot} showHandicaps=${showHandicaps} />
-            ${slot.booked_by_you && html`<span class="note" style="color:var(--blue)"><${Icon} name="flag" size=${14} style="fill:currentColor" />${t('you')}</span>`}
+            ${slot.booked_by_you && html`<span class="note" style="color:var(--accent)"><${Icon} name="flag" size=${14} style="fill:currentColor" />${t('you')}</span>`}
             ${slot.sunrise && html`<span class="note"><${Icon} name="sunrise" size=${16} />${t('sunrise', { time: day.sunrise })}</span>`}
             ${slot.sunset && html`<span class="note"><${Icon} name="sunset" size=${16} />${t('sunset', { time: day.sunset })}</span>`}
           </span>`}

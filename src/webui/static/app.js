@@ -1,7 +1,7 @@
 // Teetime Monitor web UI: the shell. Preact + htm, no build step; data from /api/* (src/webui/server.py).
 
 import {
-  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, updatedText, dayLabel, applyScale,
+  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, updatedText, dayLabel, applyScale, loadThemes, applyTheme, systemTheme,
   Icon, Sheet, Select, Status,
 } from '/lib.js';
 import { DayCard, Banners, focusTime } from '/overview.js';
@@ -41,7 +41,7 @@ function Legend({ onClose }) {
       <dt><span class="pill pick"><${Icon} name="star" size=${14} style="fill:currentColor" />09:10</span></dt><dd>${t('legend.pick')}</dd>
       <dt><span class="pill booked"><${Icon} name="flag" size=${14} style="fill:currentColor" />11:00</span></dt><dd>${t('legend.booked')}</dd>
       <dt><span class="pill quiet"><${Icon} name="lock" size=${14} />Wed 21:00</span></dt><dd>${t('legend.locked')}</dd>
-      <dt><${Icon} name="star" size=${16} style="color:var(--blue);fill:var(--blue)" /></dt><dd>${t('legend.recommended')}</dd>
+      <dt><${Icon} name="star" size=${16} style="color:var(--accent);fill:var(--accent)" /></dt><dd>${t('legend.recommended')}</dd>
       <dt><${Icon} name="moon" size=${16} class="dim" /></dt><dd>${t('legend.too_late')}</dd>
     </dl>
     <dl class="legend">
@@ -133,6 +133,15 @@ function App() {
     document.title = t('app.title');
   });
 
+  // With no theme saved the page follows the system's dark or light.
+  useEffect(() => {
+    if (!boot || boot.theme || !window.matchMedia) return undefined;
+    const query = window.matchMedia('(prefers-color-scheme: light)');
+    const follow = () => applyTheme(systemTheme());
+    query.addEventListener('change', follow);
+    return () => query.removeEventListener('change', follow);
+  }, [boot && boot.theme]);
+
   const handleError = useCallback((error) => {
     setFailure(error && (error.status === 403 || error.name === 'TypeError') ? 'gone' : 'error');
   }, []);
@@ -163,6 +172,8 @@ function App() {
       try {
         const result = await api('/api/bootstrap');
         await loadStrings(result.language);
+        await loadThemes();
+        applyTheme(result.theme || systemTheme());
         setBoot(result);
         const last = result.last && result.clubs.find((club) => club.slug === result.last.slug);
         const first = last || result.clubs[0];

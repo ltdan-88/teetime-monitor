@@ -1,0 +1,14 @@
+{
+ "_note": "The same eleven palettes as the Mac app (macos/Sources/Theme.swift); the three phosphor/sands ones are the exact values of theme.py's CUSTOM_THEMES. accent, background, surface, foreground; dark says which fixed-hue variant (names, status colours) reads well on top.",
+ "catppuccin": {"accent": "#cba6f7", "background": "#1e1e2e", "surface": "#313244", "foreground": "#cdd6f4", "dark": true},
+ "catppuccin-latte": {"accent": "#8839ef", "background": "#eff1f5", "surface": "#ccd0da", "foreground": "#4c4f69", "dark": false},
+ "gruvbox": {"accent": "#fabd2f", "background": "#282828", "surface": "#3c3836", "foreground": "#ebdbb2", "dark": true},
+ "tokyonight": {"accent": "#7aa2f7", "background": "#1a1b26", "surface": "#24283b", "foreground": "#c0caf5", "dark": true},
+ "nord": {"accent": "#88c0d0", "background": "#2e3440", "surface": "#3b4252", "foreground": "#eceff4", "dark": true},
+ "dracula": {"accent": "#bd93f9", "background": "#282a36", "surface": "#44475a", "foreground": "#f8f8f2", "dark": true},
+ "solarized-dark": {"accent": "#268bd2", "background": "#002b36", "surface": "#073642", "foreground": "#eee8d5", "dark": true},
+ "solarized-light": {"accent": "#268bd2", "background": "#fdf6e3", "surface": "#eee8d5", "foreground": "#073642", "dark": false},
+ "green": {"accent": "#33ff66", "background": "#000000", "surface": "#114422", "foreground": "#33ff66", "dark": true},
+ "amber": {"accent": "#ffbf00", "background": "#000000", "surface": "#4d3800", "foreground": "#ffbf00", "dark": true},
+ "red-sands": {"accent": "#e7b000", "background": "#7a251e", "surface": "#6e6e6e", "foreground": "#d7c9a7", "dark": true}
+}

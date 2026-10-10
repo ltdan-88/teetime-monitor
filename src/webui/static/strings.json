@@ -187,7 +187,8 @@
   "legend.too_late": "too late to finish before dark",
   "settings.scale": "Scale",
   "settings.scale.default": "default",
-  "players.index": "Jump to letter"
+  "players.index": "Jump to letter",
+  "players.count": "{n} of {total} players"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -377,6 +378,7 @@
   "legend.too_late": "zu spät, um vor Dunkelheit fertig zu werden",
   "settings.scale": "Skalierung",
   "settings.scale.default": "Standard",
-  "players.index": "Zum Buchstaben springen"
+  "players.index": "Zum Buchstaben springen",
+  "players.count": "{n} von {total} Spielern"
  }
 }

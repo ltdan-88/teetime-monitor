@@ -3,6 +3,7 @@
 
 import {
   html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon, SCALES, DEFAULT_SCALE, getScale, setScale,
+  themeNames, themeLabel, applyTheme, systemTheme,
 } from '/lib.js';
 
 // ---------------------------------------------------------------- generated form
@@ -30,6 +31,15 @@ export function FieldGroups({ groups, values, setValue, extras = {} }) {
         </div>`)}
       ${extras[group.key]}
     </section>`);
+}
+
+/** The colour theme: the same eleven as the terminal and Mac apps, saved in the same setting. */
+function ThemeRow({ initial }) {
+  const [name, setName] = useState(initial || systemTheme());
+  return html`
+    <div class="field-row"><label for="f-theme">${t('settings.field.theme')}</label>
+      <${Select} id="f-theme" value=${name} options=${themeNames().map((value) => ({ value, label: themeLabel(value) }))}
+        onChange=${(value) => { setName(value); applyTheme(value); post('/api/theme', { name: value }).catch(() => {}); }} /></div>`;
 }
 
 /** How large the page is: this browser only, applied at once, not saved with the settings. */
@@ -247,7 +257,7 @@ function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClu
     <div class="columns">
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
       <${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />
-      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} extras=${{ 'settings.group.display': html`<${ScaleRow} />` }} />
+      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} extras=${{ 'settings.group.display': html`<${ThemeRow} initial=${data.theme} /><${ScaleRow} />` }} />
       ${aiGroup && html`
         <section class="group">
           <h3>${aiGroup.label}</h3>

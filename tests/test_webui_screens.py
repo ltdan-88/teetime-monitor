@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from src import club_config, club_directory, env_file, global_preferences, i18n, scrape_once, storage
+from src import club_config, club_directory, env_file, global_preferences, i18n, scrape_once, storage, theme, user_config
 from src.models import PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.webui import clubs_api, data, server, settings_api, tools_api
 
@@ -198,6 +198,35 @@ def test_ai_key_validation(world):
     assert settings_api.ai_key("openai", "")["reason"] == "api_key_required"
 
 
+# ---- themes ------------------------------------------------------------------------------------
+
+
+def test_the_page_offers_exactly_the_themes_of_the_terminal_and_mac_apps():
+    assert sorted(data.theme_names()) == sorted(theme.ALL_THEME_NAMES)
+
+
+def test_the_theme_is_saved_in_the_shared_setting_and_the_environment_wins(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
+    monkeypatch.delenv("TEETIME_MONITOR_THEME", raising=False)
+    assert data.saved_theme() is None and data.bootstrap()["theme"] is None  # none saved: the page follows the system
+    assert settings_api.set_theme("nord") == {"ok": True}
+    assert user_config.load_value("THEME", tmp_path / "config") == "nord"  # the very key theme.py reads
+    assert data.bootstrap()["theme"] == "nord" and settings_api.settings_payload(None)["theme"] == "nord"
+    monkeypatch.setenv("TEETIME_MONITOR_THEME", "dracula")
+    assert data.saved_theme() == "dracula"
+    assert settings_api.set_theme("not-a-theme") == {"error": "unknown_theme"}
+
+
+def test_every_theme_has_the_four_colours_the_page_needs():
+    import json
+
+    palettes = json.loads(data.THEMES_FILE.read_text(encoding="utf-8"))
+    for name in data.theme_names():
+        palette = palettes[name]
+        assert set(palette) == {"accent", "background", "surface", "foreground", "dark"}, name
+        assert all(palette[key].startswith("#") and len(palette[key]) == 7 for key in ("accent", "background", "surface", "foreground"))
+
+
 # ---- Add Club --------------------------------------------------------------------------------
 
 
@@ -307,7 +336,8 @@ def _call(web, method, path, body=None):
     return response.status, payload
 
 
-def test_every_screens_route_answers(running, monkeypatch):
+def test_every_screens_route_answers(running, monkeypatch, tmp_path):
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
     monkeypatch.setattr(tools_api.pipeline, "_holidays_for_club", lambda config, fetch=True: [])
     today = date.today().isoformat()
     status, strings = _call(running, "GET", "/api/strings")
@@ -331,6 +361,8 @@ def test_every_screens_route_answers(running, monkeypatch):
     assert _call(running, "POST", "/api/club/remove", {"club_id": "0000003"})[1]["ok"] is True
     assert _call(running, "POST", "/api/club/remove", {"club_id": "0000003"})[0] == 404
     assert _call(running, "GET", "/api/overview")[0] == 400
+    assert _call(running, "POST", "/api/theme", {"name": "nord"})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/theme", {"name": "nope"})[0] == 400
     assert _call(running, "GET", "/api/nothing")[0] == 404
 
 
