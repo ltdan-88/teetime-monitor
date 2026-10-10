@@ -215,7 +215,8 @@ notarisiert, deshalb braucht das erste Öffnen einen zusätzlichen Schritt — d
 
 **Windows ohne Installation.** Für Windows gibt es eine portable Zip (nichts zu installieren, läuft aus
 jedem Ordner oder von einem USB-Stick): [**docs/WINDOWS-APP.de.md**](docs/WINDOWS-APP.de.md)
-([English](docs/WINDOWS-APP.md)). Unter Linux nimm die Terminal-App.
+([English](docs/WINDOWS-APP.md)). Unter Linux gibt es einen portablen Tarball:
+[**docs/LINUX-APP.de.md**](docs/LINUX-APP.de.md) ([English](docs/LINUX-APP.md)).
 
 ## Tasten
 

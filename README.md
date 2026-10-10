@@ -207,7 +207,8 @@ Silicon Mac (M1 or newer) and macOS 14 or newer. It is not notarized by Apple, s
 launch needs one extra step — the step-by-step guide is in
 [**docs/MAC-APP.md**](docs/MAC-APP.md) ([auf Deutsch](docs/MAC-APP.de.md)).
 On Windows there is a portable zip too (nothing to install, runs from any folder or USB stick):
-[**docs/WINDOWS-APP.md**](docs/WINDOWS-APP.md) ([auf Deutsch](docs/WINDOWS-APP.de.md)). On Linux use the terminal app above.
+[**docs/WINDOWS-APP.md**](docs/WINDOWS-APP.md) ([auf Deutsch](docs/WINDOWS-APP.de.md)). On Linux there is a portable tarball:
+[**docs/LINUX-APP.md**](docs/LINUX-APP.md) ([auf Deutsch](docs/LINUX-APP.de.md)).
 
 ## Keys
 
