@@ -19,6 +19,8 @@ func runSubprocessTests() {
         testCandidateDirectoryOrder()
         testLocateOrder()
         testResolveHonoursTheOverrideAndCaches()
+        testBundledBinDirectory()
+        testBundledHelpersComeFirst()
         testTimeoutMessages()
     }
 }
@@ -165,6 +167,59 @@ private func testResolveHonoursTheOverrideAndCaches() {
     let tool = Subprocess.resolve("sh")
     Harness.check("which finds a PATH tool as the last fallback", tool != nil)
     Harness.checkEqual("and the answer is stable (cached)", Subprocess.resolve("sh"), tool)
+}
+
+/// The standalone app (2026-10-10): `<Resources>/bin` is looked in right after the developer
+/// override and before Homebrew; a bundle without one changes nothing.
+private func testBundledBinDirectory() {
+    Harness.checkEqual("the bundled bin comes after the override, before Homebrew",
+                       Subprocess.candidateDirectories(override: "/o", bundledBin: "/b", home: "/h"),
+                       ["/o", "/b", "/opt/homebrew/bin", "/usr/local/bin", "/h/.local/bin"])
+    Harness.checkEqual("no bundled bin: the old order",
+                       Subprocess.candidateDirectories(override: nil, bundledBin: nil, home: "/h"),
+                       ["/opt/homebrew/bin", "/usr/local/bin", "/h/.local/bin"])
+    let root = NSTemporaryDirectory() + "tm-bundle-\(UUID().uuidString)"
+    defer { try? FileManager.default.removeItem(atPath: root) }
+    try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
+    Harness.check("no nil resource URL, no bundled bin", Subprocess.bundledBinDirectory(resourceURL: nil) == nil)
+    Harness.check("a Resources without bin has none", Subprocess.bundledBinDirectory(resourceURL: URL(fileURLWithPath: root)) == nil)
+    FileManager.default.createFile(atPath: root + "/bin", contents: Data(), attributes: nil)
+    Harness.check("a plain file named bin is not a directory", Subprocess.bundledBinDirectory(resourceURL: URL(fileURLWithPath: root)) == nil)
+    try? FileManager.default.removeItem(atPath: root + "/bin")
+    try? FileManager.default.createDirectory(atPath: root + "/bin", withIntermediateDirectories: true)
+    Harness.checkEqual("a Resources with bin/ names it", Subprocess.bundledBinDirectory(resourceURL: URL(fileURLWithPath: root)),
+                       URL(fileURLWithPath: root).appendingPathComponent("bin").path)
+}
+
+private func testBundledHelpersComeFirst() {
+    let root = NSTemporaryDirectory() + "tm-bundled-\(UUID().uuidString)"
+    let override = root + "/override"
+    let resources = URL(fileURLWithPath: root + "/App.app/Contents/Resources")
+    defer { unsetenv(Subprocess.binDirVariable); Subprocess.resetResolveCache(); try? FileManager.default.removeItem(atPath: root) }
+    // A name nothing else on this machine has, so a Homebrew/PATH hit cannot confuse the order.
+    let name = "tm-bundled-\(UUID().uuidString.prefix(8))"
+    unsetenv(Subprocess.binDirVariable)
+    Subprocess.resetResolveCache()
+    Harness.check("no bundle, nothing installed: unresolved", Subprocess.resolve(name, resourceURL: nil) == nil)
+    Harness.check("an absent bundle bin falls back (still unresolved here)", Subprocess.resolve(name, resourceURL: resources) == nil)
+
+    let bundled = makeExecutable(resources.path + "/bin", name)
+    Subprocess.resetResolveCache()
+    Harness.checkEqual("the bundled launcher is found", Subprocess.resolve(name, resourceURL: resources), bundled)
+    Subprocess.resetResolveCache()
+    Harness.check("another bundle's launcher is not", Subprocess.resolve(name, resourceURL: URL(fileURLWithPath: root + "/Other")) == nil)
+
+    let overridden = makeExecutable(override, name)
+    setenv(Subprocess.binDirVariable, override, 1)
+    Harness.checkEqual("TEETIME_MONITOR_BIN_DIR beats the bundled one", Subprocess.resolve(name, resourceURL: resources), overridden)
+    // An override directory without the helper does not hide the bundled one.
+    setenv(Subprocess.binDirVariable, root + "/empty", 1)
+    Subprocess.resetResolveCache()
+    Harness.checkEqual("an override lacking the name falls through to the bundle", Subprocess.resolve(name, resourceURL: resources), bundled)
+    // A bundled bin directory that lacks this script still falls back to the old search (`which`).
+    unsetenv(Subprocess.binDirVariable)
+    Subprocess.resetResolveCache()
+    Harness.checkEqual("bundled bin without the script: the PATH fallback", Subprocess.resolve("sh", resourceURL: resources) != nil, true)
 }
 
 private func testTimeoutMessages() {

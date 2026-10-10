@@ -175,13 +175,26 @@ enum Subprocess {
     static let missCacheSeconds: TimeInterval = 30
     static let whichTimeout: TimeInterval = 3
 
-    /// The search order, one place: the override, Homebrew (Apple Silicon, then Intel),
-    /// then ~/.local/bin (where `uv tool install` puts console scripts).
-    static func candidateDirectories(override: String?, home: String) -> [String] {
+    /// The search order, one place: the override, the app's own bundled helpers (the
+    /// standalone download, 2026-10-10), Homebrew (Apple Silicon, then Intel), then
+    /// ~/.local/bin (where `uv tool install` puts console scripts). `bundledBin` is nil
+    /// for a Homebrew/`swift run` build, so that path is exactly what it always was.
+    static func candidateDirectories(override: String?, bundledBin: String? = nil, home: String) -> [String] {
         var dirs: [String] = []
         if let override, !override.isEmpty { dirs.append(override) }
+        if let bundledBin { dirs.append(bundledBin) }
         dirs += ["/opt/homebrew/bin", "/usr/local/bin", (home as NSString).appendingPathComponent(".local/bin")]
         return dirs
+    }
+
+    /// `<Resources>/bin` when the app carries its own Python and launchers (the standalone
+    /// zip from macos/build_standalone.sh), else nil. Takes the resource URL as a parameter
+    /// (`Bundle.main.resourceURL` in the app) so a test can point it at a fake bundle.
+    static func bundledBinDirectory(resourceURL: URL?) -> String? {
+        guard let resourceURL else { return nil }
+        let bin = resourceURL.appendingPathComponent("bin", isDirectory: true).path
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: bin, isDirectory: &isDirectory) && isDirectory.boolValue ? bin : nil
     }
 
     /// First executable `name` in `directories`, else whatever `which` finds. Uncached;
@@ -206,13 +219,20 @@ enum Subprocess {
     /// The path of the `teetime-monitor-*` console script `name`, or nil. A hit is cached
     /// for the app's lifetime (re-checked on use, so a removed binary is looked up again).
     static func resolve(_ name: String) -> String? {
+        resolve(name, resourceURL: Bundle.main.resourceURL)
+    }
+
+    /// `resolve(_:)` with the bundle's resource URL injected, for tests. The override
+    /// directory is still checked first and uncached; the bundled `bin` comes next.
+    static func resolve(_ name: String, resourceURL: URL?) -> String? {
         let override = getenv(binDirVariable).map { String(cString: $0) }
         if let override, !override.isEmpty {
             let path = (override as NSString).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: path) { return path }
         }
         return resolveCache.lookup(name) {
-            locate(name, directories: candidateDirectories(override: nil, home: NSHomeDirectory()),
+            locate(name, directories: candidateDirectories(override: nil, bundledBin: bundledBinDirectory(resourceURL: resourceURL),
+                                                           home: NSHomeDirectory()),
                    which: whichLookup)
         }
     }

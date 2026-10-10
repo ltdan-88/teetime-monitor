@@ -820,7 +820,7 @@ struct DayCardBody: View {
 /// one implementation of scraping and it stays in Python. See `macos/README.md`
 /// on why that split is the whole point of the hybrid.
 enum Scraper {
-    /// Resolved in one place, `Subprocess.resolve` (override dir, Homebrew, ~/.local/bin, `which`).
+    /// Resolved in one place, `Subprocess.resolve` (override dir, the app's bundled `bin`, Homebrew, ~/.local/bin, `which`).
     static func executable() -> String? { Subprocess.resolve("teetime-monitor-scrape") }
 
     /// A full pass takes roughly 20 seconds against a real club (and much longer if
