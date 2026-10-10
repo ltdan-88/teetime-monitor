@@ -1,0 +1,49 @@
+# Drives the browser version (src/webui) in a real browser: tests/test_webui_e2e.py starts a demo
+# server with a fake club (no network) and clicks through every screen, failing on any error in the
+# page. On Linux and on Windows, the two systems this GUI is for. Not a required check; look at it
+# when it is red. Screenshots of every screen are attached to the run.
+name: webui-e2e
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/webui/**"
+      - "src/picks_cli.py"
+      - "scripts/webui_demo.py"
+      - "tests/test_webui*.py"
+      - ".github/workflows/webui-e2e.yml"
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Click through every screen
+        env:
+          TEETIME_E2E: "1"
+          TEETIME_E2E_SHOTS: e2e-shots
+        run: pytest -q tests/test_webui_e2e.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webui-screens-${{ matrix.os }}
+          path: e2e-shots/*.png
+          retention-days: 7

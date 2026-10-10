@@ -70,7 +70,7 @@ def seed(directory: Path) -> None:
 
     today = datetime.now().date()
     codes = [1, 61, 3, 0, 80]
-    for offset in range(5):
+    for offset in range(-28, 5):  # four weeks of history (the heatmap needs finished days) and the coming five
         date = (today + timedelta(days=offset)).isoformat()
         slots = []
         minute = 7 * 60 + 10
@@ -84,15 +84,15 @@ def seed(directory: Path) -> None:
         weather = [
             WeatherPoint(
                 time=f"{hour:02d}:00",
-                precipitation_probability=[3, 70, 15, 3, 40][offset],
-                precipitation_mm=[0.0, 1.8, 0.0, 0.0, 0.4][offset],
-                wind_speed_kph=[16, 24, 16, 12, 22][offset] + (hour % 3) * 2,
-                temperature_c=[19, 13, 21, 19, 17][offset] + (hour - 8) * 0.3,
-                weather_code=codes[offset],
+                precipitation_probability=[3, 70, 15, 3, 40][max(offset, 0)],
+                precipitation_mm=[0.0, 1.8, 0.0, 0.0, 0.4][max(offset, 0)],
+                wind_speed_kph=[16, 24, 16, 12, 22][max(offset, 0)] + (hour % 3) * 2,
+                temperature_c=[19, 13, 21, 19, 17][max(offset, 0)] + (hour - 8) * 0.3,
+                weather_code=codes[max(offset, 0)],
             )
             for hour in range(6, 22)
         ]
-        events = [[], ["Vierer-Clubmeisterschaften AB"], [], ["AK 65 Herren"], []][offset]
+        events = [[], ["Vierer-Clubmeisterschaften AB"], [], ["AK 65 Herren"], []][max(offset, 0)]
         storage.save_schedule(
             Schedule(date=date, course=course, slots=slots, weather=weather, sun_times=SunTimes("07:12", "19:08"), events=events),
             path=db,
@@ -112,11 +112,23 @@ def main() -> None:
     parser.add_argument("directory", type=Path)
     parser.add_argument("--serve", action="store_true", help="start teetime-monitor-web on the demo data")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--offline", action="store_true", help="never touch the network: scrapes and previews do nothing")
     args = parser.parse_args()
     seed(args.directory.resolve())
     print(f"Demo data written to {args.directory.resolve()}")
     if args.serve:
-        from src.webui import server
+        from src import ai_assist, scrape_once, scraper
+        from src.webui import clubs_api, server
+
+        if args.offline:
+
+            def rejected(*_args, **_kwargs):
+                raise scraper.LoginError("offline demo")
+
+            scrape_once.scrape_due_for_club = lambda *a, **k: []
+            clubs_api.preview = lambda club_id, name: {"ok": False, "reason": "no_tee_sheet"}
+            scraper.login = rejected
+            ai_assist.verify_api_key = lambda provider: (False, None)
 
         server.main(["--keep-running", "--port", str(args.port), "--no-browser"])
 

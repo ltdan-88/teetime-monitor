@@ -101,7 +101,12 @@ def check_web_server(command: list[str], env: dict, cwd, version: str) -> None:
             denied = error.code == 403
         report(denied, "the bare address (no token) is refused")
         script = opener.open(base + "/app.js", timeout=30).read()
-        report(b"htm-preact.js" in script and len(script) > 5000, "the page's script is served")
+        library = opener.open(base + "/lib.js", timeout=30).read()
+        report(b"/lib.js" in script and b"htm-preact.js" in library, "the page's scripts are served")
+        strings = json.loads(opener.open(base + "/strings.json", timeout=30).read())
+        report(set(strings) == {"en", "de"} and len(strings["en"]) > 100, "the page's strings are served")
+        prefs = json.loads(opener.open(base + "/api/preferences", timeout=120).read())
+        report(len(prefs["groups"]) >= 3, "the Preferences form can be built (Textual is importable)")
     finally:
         if sys.platform == "win32":  # the launcher is a cmd.exe wrapper: take its python child down too
             subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)

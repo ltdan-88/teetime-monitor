@@ -3,14 +3,25 @@
 *[Deutsche Version](WEBUI.de.md)*
 
 A graphical version of Teetime Monitor that runs in a browser window, for Windows and Linux (the Mac has
-its own native app). It is the same data and the same recommendations as the terminal app, in the dark
+its own native app; it runs on a Mac too). It is the same data and the same recommendations as the terminal app, in the dark
 card layout of the Mac app (light when your system is light), in English or German.
 
-**Status: first version.** It shows the **Overview**: pick a club and course, see each day with weather,
-the recommended pick, your booking and the occupancy bar, and open a day to see every tee time with the
-players, friends starred. Refresh fetches new tee sheets. Search, the crowd heatmap, the player directory,
-Preferences, logins and *Add club* are still in the terminal app and will follow; add and log in to your
-clubs there first (or use the Mac app).
+**Status: complete.** Everything the Mac app does is here:
+
+- **Overview:** pick a club and course; each day with weather, the recommended pick, your booking or the
+  time its booking opens, and the occupancy bar. Open a day for every tee time with players (friends starred,
+  names coloured by gender, handicaps if you like), weather per slot and sunrise/sunset. Click a time to mark
+  it as your booking, click your booking to cancel it. Notices ("a player joined your flight") appear on top.
+- **Search**, **Crowd heatmap**, **Players** (friends), **Preferences** (availability, weather, pace,
+  priorities), **Settings** (clubs, pc caddie login, language, units, scraping, AI ranking) and **Add club**
+  (search the club directory, add a club, or open one just to look at it).
+- **Refresh** fetches new tee sheets; opening the page also fetches whatever is due.
+- English or German (Settings > Language), dark or light following your system, and single-letter keys like the
+  terminal app: `r` refresh, `s` search, `h` heatmap, `p` players, `e` preferences, `,` settings, `a` add club,
+  `?` legend, Esc closes a window.
+
+What differs from the Mac app on purpose: no menu bar (everything is in the toolbar), notifications only
+while the page is open, and no background scraper (nothing runs while the window is closed).
 
 ## Start it
 
@@ -37,6 +48,13 @@ Your pc caddie login is behind it, so it is built conservatively:
   the internet (strict Content-Security-Policy). No fonts, scripts or images come from anywhere else.
 - No new software is needed: it is plain Python from the standard library plus one small, bundled
   JavaScript library (Preact, see `src/webui/static/vendor/LICENSES.txt`).
+
+## Changing the page
+
+The page is plain JavaScript modules in `src/webui/static/` (Preact + htm, vendored; no build step); its texts
+are in `strings.json` (English and German) plus the app's own catalog (`src/i18n.py`). `tests/test_webui_strings.py`
+checks that every text the scripts use exists in both languages, and `tests/test_webui_e2e.py` (opt-in:
+`TEETIME_E2E=1`, needs Chrome, Chromium or Edge) clicks through every screen of a demo server in a real browser.
 
 ## For developers
 

@@ -52,11 +52,9 @@ def _flag(argv: list[str], name: str) -> str | None:
     return argv[idx + 1] if idx + 1 < len(argv) else None
 
 
-def main(argv: list[str] | None = None) -> None:
-    net.use_system_trust_store()
-    argv = argv if argv is not None else sys.argv[1:]
-    fallback_club_id = _flag(argv, "--club-id")
-
+def refresh_directory_cache(fallback_club_id: str | None = None) -> dict:
+    """Re-fetch and cache pc caddie's club list; returns what `main()` prints (the web UI
+    calls this in-process)."""
     credentials = club_directory.any_credentials()
     if credentials is not None:
         club_id, username, password = credentials
@@ -68,18 +66,25 @@ def main(argv: list[str] | None = None) -> None:
 
     if not club_id or not username or not password:
         reason = "needs_a_club" if club_directory.credentials_configured() else "needs_login"
-        print(json.dumps({"ok": False, "reason": reason}))
-        sys.exit(1)
+        return {"ok": False, "reason": reason}
 
     try:
         entries = club_directory.refresh_directory(club_id, username, password)
     except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
         # (network, pc caddie down, an unexpected page shape) -- same broad catch
         # action_refresh_directory() itself uses, for the same reason.
-        print(json.dumps({"ok": False, "reason": "fetch_failed", "error": str(exc)}))
-        sys.exit(1)
+        return {"ok": False, "reason": "fetch_failed", "error": str(exc)}
 
-    print(json.dumps({"ok": True, "count": len(entries)}))
+    return {"ok": True, "count": len(entries)}
+
+
+def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
+    argv = argv if argv is not None else sys.argv[1:]
+    result = refresh_directory_cache(_flag(argv, "--club-id"))
+    print(json.dumps(result))
+    if not result["ok"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

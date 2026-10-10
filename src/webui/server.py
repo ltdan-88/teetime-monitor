@@ -37,8 +37,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from .. import club_config, global_preferences, net, paths, scrape_once
-from . import data
+from .. import club_config, global_preferences, i18n, net, paths, scrape_once
+from . import clubs_api, data, settings_api, tools_api
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 COOKIE_NAME = "tm_session"
@@ -56,38 +56,42 @@ mimetypes.add_type("text/javascript", ".mjs")
 
 
 class Refresher:
-    """Runs scrapes in the background, one per club at a time, and reports their state --
-    what the Refresh button and the 'Updating...' indicator poll. A non-forced run honours
-    the per-course scrape interval (nothing is fetched while the data is fresh), exactly like
-    the terminal app's own timer; a forced one is the Refresh button."""
+    """Runs scrapes in the background, one per key at a time, and reports their state -- what the
+    Refresh button and the 'Updating...' indicator poll. The key is a saved club's slug, or
+    `club:<id>` for a club that is only being looked at. A non-forced run honours the per-course
+    scrape interval (nothing is fetched while the data is fresh), exactly like the terminal app's
+    own timer; a forced one is the Refresh button."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._state: dict[str, dict] = {}
 
-    def status(self, slug: str) -> dict:
+    def status(self, key: str) -> dict:
         with self._lock:
-            return dict(self._state.get(slug, {"running": False, "finished_at": None, "error": None}))
+            return dict(self._state.get(key, {"running": False, "finished_at": None, "error": None, "result": None}))
 
-    def start(self, slug: str, force: bool) -> dict:
+    def start(self, key: str, work) -> dict:
+        """Run `work()` in a thread unless this key is already running. A dict it returns with
+        `ok: False` (a club preview's rejection) is reported as the error."""
         with self._lock:
-            current = self._state.get(slug)
+            current = self._state.get(key)
             if current and current["running"]:
                 return dict(current)
-            self._state[slug] = {"running": True, "finished_at": None, "error": None}
-        threading.Thread(target=self._run, args=(slug, force), daemon=True, name=f"refresh-{slug}").start()
-        return self.status(slug)
+            self._state[key] = {"running": True, "finished_at": None, "error": None, "result": None}
+        threading.Thread(target=self._run, args=(key, work), daemon=True, name=f"refresh-{key}").start()
+        return self.status(key)
 
-    def _run(self, slug: str, force: bool) -> None:
-        error = None
+    def _run(self, key: str, work) -> None:
+        error, result = None, None
         try:
-            config = club_config.load_club_config(slug)
-            scrape_once.scrape_due_for_club(slug, config, force=force, source="gui")
+            result = work()
+            if isinstance(result, dict) and result.get("ok") is False:
+                error = result.get("reason", "failed")
         except Exception as exc:  # noqa: BLE001 -- surfaced to the page, never fatal
             error = f"{type(exc).__name__}: {exc}"
-            print(f"[webui] refresh of {slug} failed: {error}", file=sys.stderr)
+            print(f"[webui] refresh of {key} failed: {error}", file=sys.stderr)
         with self._lock:
-            self._state[slug] = {"running": False, "finished_at": time.time(), "error": error}
+            self._state[key] = {"running": False, "finished_at": time.time(), "error": error, "result": result}
 
 
 class WebServer(ThreadingHTTPServer):
@@ -247,36 +251,104 @@ class Handler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.OK, target.read_bytes(), content_type, {"Cache-Control": "no-cache"})
 
     def _api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
+        body = self._read_json() if method == "POST" else {}
+
         def arg(name: str) -> str | None:
+            if name in body and isinstance(body[name], str):
+                return body[name]
             return query.get(name, [None])[0]
 
-        if method == "GET" and path == "/api/bootstrap":
+        def ref() -> dict:
+            """Which club a request is about: a saved club's slug, or the id (and name) of one that is
+            only open for a look."""
+            return {"slug": arg("slug") or None, "club_id": arg("club_id") or None}
+
+        def reply(result: dict, error_status: int = HTTPStatus.NOT_FOUND) -> None:
+            return self._json(result, error_status if result.get("error") else 200)
+
+        route = (method, path)
+        if route == ("GET", "/api/bootstrap"):
             return self._json(data.bootstrap())
-        if method == "GET" and path == "/api/overview":
-            slug = arg("slug")
-            if not slug:
-                return self._json({"error": "missing_slug"}, HTTPStatus.BAD_REQUEST)
-            result = data.overview(slug, arg("course"))
-            return self._json(result, HTTPStatus.NOT_FOUND if result.get("error") else 200)
-        if method == "GET" and path == "/api/refresh/status":
-            return self._json(self.server.refresher.status(arg("slug") or ""))
-        if method == "POST" and path == "/api/refresh":
-            body = self._read_json()
-            slug = body.get("slug")
-            if not isinstance(slug, str) or data.club_by_slug(slug) is None:
+        if route == ("GET", "/api/strings"):
+            return self._json({"language": i18n.get_language(), "strings": i18n._STRINGS.get(i18n.get_language(), {})})
+        if route == ("GET", "/api/overview"):
+            if not (arg("slug") or arg("club_id")):
+                return self._json({"error": "missing_club"}, HTTPStatus.BAD_REQUEST)
+            return reply(data.overview(arg("slug"), arg("course"), arg("club_id"), arg("name")))
+        if route == ("GET", "/api/refresh/status"):
+            return self._json(self.server.refresher.status(arg("key") or ""))
+        if route == ("POST", "/api/refresh"):
+            club = data.resolve_club(arg("slug"), arg("club_id"), arg("name"))
+            if club is None:
                 return self._json({"error": "unknown_club"}, HTTPStatus.NOT_FOUND)
-            return self._json(self.server.refresher.start(slug, force=bool(body.get("force"))))
-        if method == "POST" and path == "/api/last":
-            body = self._read_json()
+            if club["slug"] is not None:
+                slug, force = club["slug"], bool(body.get("force"))
+
+                def work(slug=slug, force=force):
+                    scrape_once.scrape_due_for_club(slug, club_config.load_club_config(slug), force=force, source="gui")
+
+                return self._json(self.server.refresher.start(slug, work))
+            club_id, name = club["id"], club["name"]
+            return self._json(self.server.refresher.start(f"club:{club_id}", lambda: clubs_api.preview(club_id, name)))
+        if route == ("POST", "/api/last"):
             club = data.club_by_slug(str(body.get("slug", "")))
             course = body.get("course")
             if club is None or not isinstance(course, str) or not course:
                 return self._json({"error": "bad_request"}, HTTPStatus.BAD_REQUEST)
             global_preferences.save_last_active_club(club["id"], club["slug"], course)
             return self._json({"ok": True})
-        if method == "POST" and path == "/api/ping":
+        if route == ("POST", "/api/ping"):
             self.server.last_ping = time.monotonic()
             return self._json({"ok": True})
+
+        # bookings and notices
+        if route == ("POST", "/api/booking"):
+            return reply(data.confirm_booking(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
+        if route == ("POST", "/api/booking/cancel"):
+            return reply(data.cancel_booking(**ref(), course=arg("course") or "", date=arg("date") or ""))
+        if route == ("POST", "/api/banners/ack"):
+            ids = body.get("ids") if isinstance(body.get("ids"), list) else []
+            return reply(data.acknowledge_banners(**ref(), ids=ids))
+
+        # settings, preferences, account
+        if route == ("GET", "/api/settings"):
+            return self._json(settings_api.settings_payload(arg("club_id")))
+        if route == ("GET", "/api/preferences"):
+            return self._json(settings_api.schema("preferences", arg("club_id")))
+        if route in (("POST", "/api/settings"), ("POST", "/api/preferences")):
+            kind = "settings" if path.endswith("settings") else "preferences"
+            values = body.get("values") if isinstance(body.get("values"), dict) else {}
+            return reply(settings_api.save(kind, values), HTTPStatus.BAD_REQUEST)
+        if route == ("POST", "/api/login"):
+            return self._json(settings_api.login(arg("username") or "", body.get("password") or "", arg("club_id")))
+        if route == ("POST", "/api/ai-key"):
+            return self._json(settings_api.ai_key(arg("provider") or "", body.get("api_key") or ""))
+        if route == ("POST", "/api/club/default-course"):
+            return reply(settings_api.set_default_course(arg("slug") or "", arg("course") or ""))
+        if route == ("POST", "/api/club/holes"):
+            holes = body.get("holes")
+            return reply(settings_api.set_course_holes(arg("slug") or "", arg("course") or "", holes if isinstance(holes, int) else None))
+        if route == ("POST", "/api/club/add"):
+            return reply(clubs_api.add(arg("club_id") or "", arg("name") or ""), HTTPStatus.BAD_REQUEST)
+        if route == ("POST", "/api/club/remove"):
+            return reply(clubs_api.remove(arg("club_id") or ""))
+        if route == ("GET", "/api/directory"):
+            return self._json(clubs_api.search(arg("q") or ""))
+        if route == ("POST", "/api/directory/refresh"):
+            return self._json(clubs_api.refresh_directory())
+
+        # search, heatmap, players
+        if route == ("GET", "/api/search/defaults"):
+            return reply(tools_api.search_defaults(**ref()))
+        if route == ("POST", "/api/search"):
+            criteria = body.get("criteria") if isinstance(body.get("criteria"), dict) else {}
+            return reply(tools_api.run_search(**ref(), course=arg("course") or "", criteria=criteria))
+        if route == ("GET", "/api/heatmap"):
+            return reply(tools_api.heatmap(**ref(), course=arg("course")))
+        if route == ("GET", "/api/players"):
+            return reply(tools_api.players(**ref()))
+        if route == ("POST", "/api/players/friend"):
+            return reply(tools_api.set_friend(**ref(), name=arg("name") or "", is_friend=bool(body.get("friend"))))
         return self._json({"error": "not_found"}, HTTPStatus.NOT_FOUND)
 
 
@@ -347,6 +419,9 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_browser:
         open_window(server.url)
     threading.Thread(target=_watch_idle, args=(server,), daemon=True, name="idle-watch").start()
+    # The Preferences/Settings forms are generated from the terminal app's field list, whose import
+    # (Textual) takes a few seconds on a slow disk: do it now, in the background, not on first click.
+    threading.Thread(target=settings_api._screen, daemon=True, name="warm-up").start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

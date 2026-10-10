@@ -21,7 +21,7 @@ eingeschränkten Firmen-PC.
    kennt Windows sie noch nicht.
 
 **Browser-Version:** Doppelklicke stattdessen **TeetimeMonitor-Web.cmd**, um die App in einem normalen Fenster mit
-Schaltflächen zu bekommen (siehe [WEBUI.de.md](WEBUI.de.md)); es ist eine erste Version nur mit der Übersicht.
+Schaltflächen zu bekommen (siehe [WEBUI.de.md](WEBUI.de.md)); es kann alles, was die Terminal-Version kann.
 
 Es öffnet sich ein schwarzes Fenster, in dem die App läuft. Im **Windows Terminal** sieht sie
 schöner aus (öffnen, `TeetimeMonitor.cmd` hineinziehen, Enter). Den ersten Club und den pc-caddie-

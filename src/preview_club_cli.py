@@ -73,32 +73,34 @@ def _flag(argv: list[str], name: str) -> str | None:
     return argv[idx + 1] if idx + 1 < len(argv) else None
 
 
-def main(argv: list[str] | None = None) -> None:
-    net.use_system_trust_store()
-    argv = argv if argv is not None else sys.argv[1:]
-    club_id = _flag(argv, "--club-id")
-    club_name = _flag(argv, "--club-name") or ""
-
+def preview_club(club_id: str | None, club_name: str = "") -> dict:
+    """Make sure `club_id`'s database holds a fresh scrape and return what `main()` prints
+    (the web UI calls this in-process)."""
     if not club_id:
-        print(json.dumps({"ok": False, "reason": "missing_club_id"}))
-        sys.exit(1)
+        return {"ok": False, "reason": "missing_club_id"}
 
     try:
         fetch_course_aliases(club_id)
     except NoTeeSheetError:
-        print(json.dumps({"ok": False, "reason": "no_tee_sheet"}))
-        sys.exit(1)
+        return {"ok": False, "reason": "no_tee_sheet"}
     except Exception as exc:  # noqa: BLE001 -- a live fetch can genuinely fail
         if login_required_status(exc):
-            print(json.dumps({"ok": False, "reason": "login_required"}))
-            sys.exit(1)
-        print(json.dumps({"ok": False, "reason": "course_fetch_failed", "error": str(exc)}))
-        sys.exit(1)
+            return {"ok": False, "reason": "login_required"}
+        return {"ok": False, "reason": "course_fetch_failed", "error": str(exc)}
 
     config = {**pipeline._resolved_config(None, club_id, club_name), "club_id": club_id}
-    # The GUI is this script's only caller (OverviewModel.startPreview/refreshNow).
+    # The GUIs are this script's callers (OverviewModel.startPreview/refreshNow, the web UI).
     scrape_once.scrape_due_for_club(None, config, force=True, source="gui")
-    print(json.dumps({"ok": True}))
+    return {"ok": True}
+
+
+def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
+    argv = argv if argv is not None else sys.argv[1:]
+    result = preview_club(_flag(argv, "--club-id"), _flag(argv, "--club-name") or "")
+    print(json.dumps(result))
+    if not result["ok"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

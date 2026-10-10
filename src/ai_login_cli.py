@@ -45,39 +45,28 @@ import sys
 from . import ai_assist, env_file, global_preferences, net, paths
 
 
-def main(argv: list[str] | None = None) -> None:
-    net.use_system_trust_store()
-    _ = argv if argv is not None else sys.argv[1:]  # no flags of its own, unlike login_cli.py's --club-id
-
-    try:
-        payload = json.loads(sys.stdin.read())
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        print(json.dumps({"saved": False, "reason": "bad_input"}))
-        sys.exit(1)
-
-    provider = (payload.get("provider") or "").strip()
-    api_key = payload.get("api_key") or ""
+def save_ai_key(provider: str | None, api_key: str | None) -> dict:
+    """The whole save-then-verify flow as a dict (what `main()` prints); the web UI calls it
+    in-process (2026-10-10). `result["saved"]` decides the exit code."""
+    provider = (provider or "").strip()
+    api_key = api_key or ""
 
     if not provider:
-        print(json.dumps({"saved": False, "reason": "provider_required"}))
-        sys.exit(1)
+        return {"saved": False, "reason": "provider_required"}
     if provider not in ai_assist.PROVIDERS:
-        print(json.dumps({"saved": False, "reason": "unknown_provider"}))
-        sys.exit(1)
+        return {"saved": False, "reason": "unknown_provider"}
 
     env_var = ai_assist.PROVIDER_ENV_VARS[provider]
     has_existing_key = bool(env_file.load_env_value(env_var))
     if not api_key and not has_existing_key:
-        print(json.dumps({"saved": False, "reason": "api_key_required"}))
-        sys.exit(1)
+        return {"saved": False, "reason": "api_key_required"}
 
     paths.ensure_dirs()
     if api_key:
         try:
             env_file.set_env_values({env_var: api_key})
         except ValueError:  # a line break in the key (e.g. pasted) -- can't go in .env
-            print(json.dumps({"saved": False, "reason": "bad_input"}))
-            sys.exit(1)
+            return {"saved": False, "reason": "bad_input"}
 
     prefs = global_preferences.load_preferences()
     ai_config = dict(prefs.get("ai_assist", {}))
@@ -97,12 +86,26 @@ def main(argv: list[str] | None = None) -> None:
 
     ok, error = ai_assist.verify_api_key(provider)
     if ok:
-        print(json.dumps({"saved": True, "verified": True}))
-        return
+        return {"saved": True, "verified": True}
     if error is None:
-        print(json.dumps({"saved": True, "verified": False, "reason": "invalid_key"}))
-        return
-    print(json.dumps({"saved": True, "verified": False, "reason": "network_error", "error": error}))
+        return {"saved": True, "verified": False, "reason": "invalid_key"}
+    return {"saved": True, "verified": False, "reason": "network_error", "error": error}
+
+
+def main(argv: list[str] | None = None) -> None:
+    net.use_system_trust_store()
+    _ = argv if argv is not None else sys.argv[1:]  # no flags of its own, unlike login_cli.py's --club-id
+
+    try:
+        payload = json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        print(json.dumps({"saved": False, "reason": "bad_input"}))
+        sys.exit(1)
+
+    result = save_ai_key(payload.get("provider"), payload.get("api_key"))
+    print(json.dumps(result))
+    if not result["saved"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

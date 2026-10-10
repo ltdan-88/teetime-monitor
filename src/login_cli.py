@@ -48,6 +48,43 @@ import sys
 from . import env_file, net, paths, scraper
 
 
+def save_login(username: str, password: str, club_id: str | None = None) -> dict:
+    """The whole save-then-verify flow as a dict (what `main()` prints); the web UI calls it
+    in-process (2026-10-10). `result["saved"]` decides the exit code, see the module docstring."""
+    username = (username or "").strip()
+    password = password or ""
+
+    if not username:
+        return {"saved": False, "reason": "username_required"}
+
+    has_existing_password = bool(env_file.load_env_value("PCC_PASS"))
+    if not password and not has_existing_password:
+        return {"saved": False, "reason": "password_required"}
+
+    paths.ensure_dirs()
+    try:
+        env_file.set_env_values({"PCC_USER": username, "PCC_PASS": password})
+    except ValueError:  # a line break in a value (e.g. pasted) -- can't go in .env
+        return {"saved": False, "reason": "bad_input"}
+
+    if club_id is None:
+        return {"saved": True, "verified": None}
+
+    # A blank password here means "keep the existing one" (see module docstring) --
+    # re-read what set_env_values() above just left in place so verification tests
+    # the credentials that are actually now saved, not an empty string.
+    effective_password = password or (env_file.load_env_value("PCC_PASS") or "")
+    try:
+        client = scraper.login(club_id, username, effective_password)
+    except scraper.LoginError:
+        return {"saved": True, "verified": False, "reason": "login_failed"}
+    except Exception as exc:  # noqa: BLE001 -- mirrors CredentialsScreen._save()'s own
+        # broad catch: a network hiccup isn't the same thing as bad credentials.
+        return {"saved": True, "verified": None, "reason": "network_error", "error": str(exc)}
+    client.close()
+    return {"saved": True, "verified": True}
+
+
 def main(argv: list[str] | None = None) -> None:
     net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
@@ -63,44 +100,10 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps({"saved": False, "reason": "bad_input"}))
         sys.exit(1)
 
-    username = (payload.get("username") or "").strip()
-    password = payload.get("password") or ""
-
-    if not username:
-        print(json.dumps({"saved": False, "reason": "username_required"}))
+    result = save_login(payload.get("username"), payload.get("password"), club_id)
+    print(json.dumps(result))
+    if not result["saved"]:
         sys.exit(1)
-
-    has_existing_password = bool(env_file.load_env_value("PCC_PASS"))
-    if not password and not has_existing_password:
-        print(json.dumps({"saved": False, "reason": "password_required"}))
-        sys.exit(1)
-
-    paths.ensure_dirs()
-    try:
-        env_file.set_env_values({"PCC_USER": username, "PCC_PASS": password})
-    except ValueError:  # a line break in a value (e.g. pasted) -- can't go in .env
-        print(json.dumps({"saved": False, "reason": "bad_input"}))
-        sys.exit(1)
-
-    if club_id is None:
-        print(json.dumps({"saved": True, "verified": None}))
-        return
-
-    # A blank password here means "keep the existing one" (see module docstring) --
-    # re-read what set_env_values() above just left in place so verification tests
-    # the credentials that are actually now saved, not an empty string.
-    effective_password = password or (env_file.load_env_value("PCC_PASS") or "")
-    try:
-        client = scraper.login(club_id, username, effective_password)
-    except scraper.LoginError:
-        print(json.dumps({"saved": True, "verified": False, "reason": "login_failed"}))
-        return
-    except Exception as exc:  # noqa: BLE001 -- mirrors CredentialsScreen._save()'s own
-        # broad catch: a network hiccup isn't the same thing as bad credentials.
-        print(json.dumps({"saved": True, "verified": None, "reason": "network_error", "error": str(exc)}))
-        return
-    client.close()
-    print(json.dumps({"saved": True, "verified": True}))
 
 
 if __name__ == "__main__":

@@ -35,18 +35,20 @@ def _flag(argv: list[str], name: str) -> str | None:
     return argv[idx + 1] if idx + 1 < len(argv) else None
 
 
+def add_club(club_id: str | None, name: str = "") -> dict:
+    """Save a favorite and return what `main()` prints (the web UI calls this in-process)."""
+    if not club_id:
+        return {"ok": False, "reason": "missing_club_id"}
+    return {"ok": True, "slug": club_config.add_favorite(club_id, name)}
+
+
 def main(argv: list[str] | None = None) -> None:
     net.use_system_trust_store()
     argv = argv if argv is not None else sys.argv[1:]
-    club_id = _flag(argv, "--club-id")
-    name = _flag(argv, "--name") or ""
-
-    if not club_id:
-        print(json.dumps({"ok": False, "reason": "missing_club_id"}))
+    result = add_club(_flag(argv, "--club-id"), _flag(argv, "--name") or "")
+    print(json.dumps(result))
+    if not result["ok"]:
         sys.exit(1)
-
-    slug = club_config.add_favorite(club_id, name)
-    print(json.dumps({"ok": True, "slug": slug}))
 
 
 if __name__ == "__main__":
