@@ -161,9 +161,13 @@ def ui(tmp_path_factory):
     server.kill()
 
 
+SHEET_READY = "document.querySelector('.sheet') && document.querySelector('.sheet').contains(document.activeElement)"
+
+
 def _open_sheet(ui, key, title_contains):
     ui.key(key)
     ui.wait(f"document.querySelector('.sheet h2') && document.querySelector('.sheet h2').textContent.includes({json.dumps(title_contains)})")
+    ui.wait(SHEET_READY)  # the sheet's own key handling and focus are set up after it is drawn
 
 
 def _close_sheet(ui):
@@ -299,7 +303,7 @@ def test_the_language_switches_to_german_and_back(ui):
 
 def test_the_legend_and_escape(ui):
     ui.key("?")
-    ui.wait("document.querySelector('.sheet')")
+    ui.wait(SHEET_READY)
     ui.key("Escape")
     ui.wait("!document.querySelector('.scrim')")
 
