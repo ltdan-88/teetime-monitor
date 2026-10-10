@@ -9,7 +9,7 @@ card layout of the Mac app (light when your system is light), in English or Germ
 **Status: complete.** Everything the Mac app does is here:
 
 - **Overview:** pick a club and course; each day with weather, the recommended pick, your booking or the
-  time its booking opens, and the occupancy bar. Open a day for every tee time with players (friends starred,
+  time its booking opens, and the occupancy bar. Days start collapsed (like the Mac app); open one for every tee time with players (friends starred,
   names coloured by gender, handicaps if you like), weather per slot and sunrise/sunset. Click a time to mark
   it as your booking, click your booking to cancel it. Notices ("a player joined your flight") appear on top.
 - **Search**, **Crowd heatmap**, **Players** (friends), **Preferences** (availability, weather, pace,

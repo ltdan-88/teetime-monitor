@@ -72,8 +72,8 @@ function DayHeader({ day, open, onToggle, units }) {
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
       <span class="badge-slot"><${Badge} day=${day} /></span>
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
+      ${day.events.length > 0 && html`<span class="events">${day.events.join(' · ')}</span>`}
     </button>
-    ${day.events.length > 0 && html`<div class="events">${day.events.join(' · ')}</div>`}
     </div>
   `;
 }

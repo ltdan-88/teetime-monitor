@@ -85,13 +85,13 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}
     ${data && data.players.length === 0 && html`<div class="empty small"><h3>${t('players.empty_title')}</h3><p>${t('players.empty')}</p></div>`}
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
-    ${data && data.players.length > 0 && html`
-      <div class="player-head" aria-hidden="true">
-        <span></span><span>${t('players.column.name')}</span><span>${t('players.column.gender')}</span>
-        <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span>
-      </div>`}
     <div class="player-scroll">
       <ul class="player-list scroll">
+        ${data && data.players.length > 0 && html`
+          <li class="player-head" aria-hidden="true">
+            <span></span><span>${t('players.column.name')}</span><span>${t('players.column.gender')}</span>
+            <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span>
+          </li>`}
         ${grouped
           ? grouped.map((group, index) => html`
               <li class="letter" id=${index === grouped.findIndex((g) => g.letter === group.letter) ? 'letter-' + group.letter : null}>${group.letter}</li>
