@@ -188,7 +188,14 @@
   "settings.scale": "Scale",
   "settings.scale.default": "default",
   "players.index": "Jump to letter",
-  "players.count": "{n} of {total} players"
+  "players.count": "{n} of {total} players",
+  "action.view": "View",
+  "view.smaller": "Smaller",
+  "view.larger": "Larger",
+  "search.from": "from",
+  "search.to": "to",
+  "search.time": "When",
+  "search.group": "Who"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -379,6 +386,13 @@
   "settings.scale": "Skalierung",
   "settings.scale.default": "Standard",
   "players.index": "Zum Buchstaben springen",
-  "players.count": "{n} von {total} Spielern"
+  "players.count": "{n} von {total} Spielern",
+  "action.view": "Ansicht",
+  "view.smaller": "Kleiner",
+  "view.larger": "Größer",
+  "search.from": "von",
+  "search.to": "bis",
+  "search.time": "Wann",
+  "search.group": "Wer"
  }
 }

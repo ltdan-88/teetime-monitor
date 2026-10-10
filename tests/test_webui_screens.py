@@ -132,6 +132,28 @@ def test_saving_preferences_changes_only_what_was_sent_and_refreshes_the_picks(w
     assert not data._OVERVIEW_CACHE  # the picks depend on them
 
 
+def test_two_quick_saves_of_different_fields_both_survive(world):
+    import threading
+
+    errors = []
+
+    def save(field, value):
+        try:
+            for _ in range(15):
+                assert settings_api.save("settings", {field: value}) == {"ok": True}
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=save, args=("field-units", "imperial")),
+        threading.Thread(target=save, args=("field-show_handicaps", False)),
+    ]
+    [thread.start() for thread in threads]
+    [thread.join() for thread in threads]
+    saved = global_preferences.load_preferences()
+    assert not errors and saved["units"] == "imperial" and saved["show_handicaps"] is False
+
+
 def test_a_bad_number_is_refused_with_a_message_and_saves_nothing(world):
     before = global_preferences.load_preferences()
     result = settings_api.save("preferences", {"field-preferences-avoid_rain_mm": "lots"})

@@ -2,7 +2,7 @@
 // Preferences), ranked by the same pipeline as the Overview's picks.
 
 import {
-  html, t, useState, useEffect, useRef, Sheet, Select, TimeSelect, Status, Icon, api, post, query,
+  html, t, useState, useEffect, useRef, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
   dayLabel, temperature, windSpeed, amount, round,
 } from '/lib.js';
 import { PlayerNames } from '/overview.js';
@@ -22,14 +22,16 @@ const CLEARED = {
   player: '',
 };
 
+/** "from [hh]:[mm] to [hh]:[mm]": one time window; a blank end is "no limit" on that side. */
 function WindowFields({ label, value, onChange, idPrefix }) {
   const set = (key) => (time) => onChange({ ...value, [key]: time });
   return html`
-    <div class="crit window">
-      <span class="lab">${label}</span>
+    <div class="field-row">
+      <label for=${idPrefix + '-after'}>${label}</label>
       <span class="time-pair">
+        <span class="dim">${t('search.from')}</span>
         <${TimeSelect} id=${idPrefix + '-after'} label=${label + ' ' + t('search.after')} value=${value.after || ''} onChange=${set('after')} />
-        <span class="dim">–</span>
+        <span class="dim">${t('search.to')}</span>
         <${TimeSelect} id=${idPrefix + '-before'} label=${label + ' ' + t('search.before')} value=${value.before || ''} onChange=${set('before')} />
       </span>
     </div>`;
@@ -102,27 +104,36 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
     ${criteria && html`
       <section class="criteria">
         <p class="lab">${t('search.criteria')} <span class="lab-note">${t('search.prefill_note')}</span></p>
-        <form class="crit-grid" onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
-          <div class="crit"><label class="lab" for="s-spots">${t('settings.field.min_open_spots')}</label>
-            <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
-          <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
-          <div class="crit"><label class="lab" for="s-before">${t('settings.field.buffer_before_minutes')}</label>
-            <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
-          <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
-          <div class="crit"><label class="lab" for="s-after">${t('settings.field.buffer_after_minutes')}</label>
-            <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
-          <div class="crit"><label class="lab" for="s-player">${t('search.field.player')}</label>
-            <${Select} id="s-player" value=${criteria.player || ''}
-              options=${[{ value: '', label: t('search.field.player.any') }, ...players.map((name) => ({ value: name, label: name }))]} onChange=${set('player')} /></div>
-          <div class="crit"><span class="lab">${t('search.field.friends_only')}</span>
-            <label class="check"><input type="checkbox" checked=${criteria.friends_only} onChange=${(event) => set('friends_only')(event.target.checked)} /> ${t('search.friends_only_label')}</label></div>
-          <div class="crit-actions">
-            <button class="btn pri" type="submit" disabled=${searching}>${t(searching ? 'search.searching' : 'search.button')}</button>
+        <form onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
+          <div class="crit-cards">
+            <div class="group">
+              <h3>${t('search.time')}</h3>
+              <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
+              <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
+              <div class="field-row"><label for="s-before">${t('settings.field.buffer_before_minutes')}</label>
+                <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
+              <div class="field-row"><label for="s-after">${t('settings.field.buffer_after_minutes')}</label>
+                <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
+            </div>
+            <div class="group">
+              <h3>${t('search.group')}</h3>
+              <div class="field-row"><label for="s-spots">${t('settings.field.min_open_spots')}</label>
+                <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
+              <div class="field-row"><label for="s-player">${t('search.field.player')}</label>
+                <${Select} id="s-player" value=${criteria.player || ''}
+                  options=${[{ value: '', label: t('search.field.player.any') }, ...players.map((name) => ({ value: name, label: name }))]} onChange=${set('player')} /></div>
+              <div class="field-row"><label for="s-friends">${t('search.friends_only_label')}</label>
+                <${Switch} id="s-friends" checked=${criteria.friends_only} onChange=${set('friends_only')} /></div>
+            </div>
+          </div>
+          <div class="actions">
+            <${Status} kind="error">${error}<//>
+            <span class="grow"></span>
             <button class="btn" type="button" disabled=${searching} onClick=${() => setCriteria(CLEARED)}>${t('search.reset')}</button>
+            <button class="btn pri" type="submit" disabled=${searching}>${t(searching ? 'search.searching' : 'search.button')}</button>
           </div>
         </form>
       </section>`}
-    <${Status} kind="error">${error}<//>
     ${result && html`
       <p class="lab results-head">${t('search.results', { n: matches.length })}</p>
       ${matches.length === 0
