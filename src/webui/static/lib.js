@@ -1,8 +1,8 @@
 // Shared pieces of the web UI: strings, formatting, API calls, icons and the small controls.
 // Preact + htm are vendored (vendor/htm-preact.js); there is no build step.
 
-import { html, render, useState, useEffect, useRef, useCallback, useMemo } from '/vendor/htm-preact.js';
-export { html, render, useState, useEffect, useRef, useCallback, useMemo };
+import { html, render, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from '/vendor/htm-preact.js';
+export { html, render, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo };
 
 // ---------------------------------------------------------------- API
 
@@ -179,6 +179,7 @@ const ICONS = {
   close: html`<path d="M6 6l12 12M18 6L6 18" />`,
   check: html`<path d="M5 12.5l4.5 4.5L19 7.5" />`,
   trash: html`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />`,
+  palette: html`<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8.3-9-8.3z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" />`,
   alert: html`<path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17v.1" />`,
 };
 
@@ -197,7 +198,7 @@ export function Condition({ code, size = 24 }) {
 // ---------------------------------------------------------------- small controls
 
 export function useEscape(handler) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (event) => {
       if (event.key === 'Escape') {
         event.stopPropagation();

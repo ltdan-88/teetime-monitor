@@ -10,6 +10,7 @@ import { AddClubSheet } from '/addclub.js';
 import { SearchSheet } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { PlayersSheet } from '/players.js';
+import { ViewMenu } from '/viewmenu.js';
 
 const ADD_CLUB = '__add_club__';
 applyScale();
@@ -58,6 +59,7 @@ function Legend({ onClose }) {
       <dt><span class="kbd">e</span></dt><dd>${t('action.preferences')}</dd>
       <dt><span class="kbd">,</span></dt><dd>${t('action.settings')}</dd>
       <dt><span class="kbd">a</span></dt><dd>${t('addclub.title')}</dd>
+      <dt><span class="kbd">v</span></dt><dd>${t('action.view')}</dd>
     </dl>
   <//>`;
 }
@@ -98,6 +100,7 @@ function App() {
   const [refresh, setRefresh] = useState({ running: false, error: null });
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
+  const [viewOpen, setViewOpen] = useState(false);
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
   const [, tick] = useState(0);
@@ -257,6 +260,7 @@ function App() {
       else if (event.key === 'e') open('preferences');
       else if (event.key === ',') open('settings');
       else if (event.key === 'a') open('addclub');
+      else if (event.key === 'v') { event.preventDefault(); setViewOpen((o) => !o); }
       else if (event.key === '?') open('legend');
     };
     window.addEventListener('keydown', onKey);
@@ -335,16 +339,21 @@ function App() {
   return html`
     <div class="app">
       <header class="toolbar">
+        <div class="toolbar-picks">
         ${boot.clubs.length > 0 && view && view.kind === 'saved' && html`<${Select} id="club" aria-label=${t('club')} value=${view.slug} options=${clubOptions} onChange=${selectClub} />`}
         ${view && view.kind === 'preview' && html`<span class="picker-static" title=${view.name}>${view.name}</span>`}
         ${courseOptions.length > 0 && html`<${Select} id="course" aria-label=${t('course')} value=${(overview && overview.course) || course} options=${courseOptions} onChange=${setCourse} />`}
-        <span class="grow"></span>
+        </div>
+        <div class="toolbar-tools">
         ${tool('refresh', 'refresh', t(refresh.running ? 'refreshing' : 'action.refresh'), 'r', () => startRefresh(true), refresh.running || noClub)}
         ${tool('search', 'search', t('action.search'), 's', () => setSheet('search'), noClub || !overview || !overview.course)}
         ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noClub || !overview || !overview.course)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('preferences', 'sliders', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'gear', t('action.settings'), ',', () => setSheet('settings'), false)}
+        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
+          onChanged=${(field) => { if (field === 'field-__language__') location.reload(); else { loadBoot(); if (view) loadOverview(view, course); } }} />
+        </div>
       </header>
       <main class="main">
         ${view && view.kind === 'preview' && html`
@@ -376,7 +385,7 @@ function App() {
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => setSheet(null)} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} onClose=${() => setSheet(null)}
-        onSaved=${(language) => { if (language && language !== boot.language) location.reload(); else { loadBoot(); if (view) loadOverview(view, course); } }}
+        onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}

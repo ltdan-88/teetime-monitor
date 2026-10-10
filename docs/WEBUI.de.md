@@ -21,10 +21,11 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
   Spielerliste scrollt unter einer festen Suche mit A–Z-Index. **Einstellungen > Skalierung** macht die ganze Seite
   kleiner oder größer (nur in diesem Browser; der Browser-Zoom, Strg +/-, geht auch).
 - **Aktualisieren** lädt neue Startzeiten; beim Öffnen der Seite wird auch geladen, was fällig ist.
-- Deutsch oder Englisch (Einstellungen > Sprache), dieselben elf Farbthemen wie in Terminal- und Mac-App
-  (Einstellungen > Anzeige > Theme; ohne Auswahl folgt es dem Dunkel/Hell deines Systems), und Einzeltasten wie in
+- Ein Menü **Ansicht** in der Werkzeugleiste (Taste `v`) mit allem, was Aussehen und Sprache der Seite ändert, einen
+  Klick von der Übersicht entfernt: Sprache (Deutsch oder Englisch), dieselben elf Farbthemen wie in Terminal- und
+  Mac-App (ohne Auswahl folgt es dem Dunkel/Hell deines Systems), Skalierung, Einheiten und Handicaps. Dazu Einzeltasten wie in
   der Terminal-App: `r` aktualisieren, `s` suchen, `h` Heatmap, `p` Spieler, `e` Präferenzen, `,` Einstellungen,
-  `a` Club hinzufügen, `?` Legende, Esc schließt ein Fenster.
+  `a` Club hinzufügen, `v` Ansicht, `?` Legende, Esc schließt ein Fenster.
 
 Was bewusst anders ist als in der Mac-App: keine Menüleiste (alles steht in der Werkzeugleiste), Benachrichtigungen
 nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenster läuft nichts).

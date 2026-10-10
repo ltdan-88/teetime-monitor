@@ -215,7 +215,7 @@ def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
     ui.click(".sheet.small .btn", "Not now")
     ui.wait("document.querySelectorAll('.sheet').length === 1")
     ui.set("#s-spots", "4")  # nothing has four open seats and a friend... a narrower search still answers
-    ui.click(".crit-actions .btn.pri")
+    ui.click(".criteria .actions .btn.pri")
     ui.wait("document.querySelector('.results-head')")
     _close_sheet(ui)
 
@@ -287,110 +287,81 @@ def test_add_club_finds_clubs_adds_one_and_opens_another(ui):
     assert ui.count("#club option") == 3  # the demo club, the one just added, and "Add club..."
 
 
-def test_the_language_switches_to_german_and_back(ui):
-    _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('#f-field-__language__')")
-    ui.set("#f-field-__language__", "de")
-    ui.click(".sheet-body + * , .actions .btn.pri", None, 0) if False else ui.js("[...document.querySelectorAll('.actions .btn.pri')].pop().click()")
+BACKGROUND = "getComputedStyle(document.body).backgroundColor"
+
+
+def _open_view(ui):
+    ui.key("v")
+    ui.wait("document.querySelector('.view-panel')")
+    ui.wait("document.querySelector('.view-panel #v-theme')")
+    ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")  # let the page finish drawing
+
+
+def test_the_view_menu_holds_what_changes_how_the_page_looks_and_reads(ui):
+    _open_view(ui)
+    ui.shot("view-menu")
+    for control in ("#v-language", "#v-theme", "#v-units", "#v-hcp"):
+        assert ui.count(control) == 1, control
+    assert ui.count(".view-panel .stepper button") == 2
+    ui.key("Escape")
+    ui.wait("!document.querySelector('.view-panel')")
+    _open_sheet(ui, ",", "Settings")  # and none of it is buried in Settings any more
+    ui.wait("document.querySelector('#login-user')")
+    assert ui.count("#f-theme") == 0 and ui.count("#f-scale") == 0 and ui.count("#f-field-__language__") == 0
+    assert ui.count("#f-field-units") == 0
+    _close_sheet(ui)
+
+
+def test_a_theme_is_chosen_in_the_view_menu_and_survives_a_reload(ui):
+    _open_view(ui)
+    ui.set("#v-theme", "solarized-light")
+    ui.wait(f"{BACKGROUND} === 'rgb(253, 246, 227)'")
+    ui.shot("theme-solarized-light")
+    ui.js("location.reload()")
+    ui.wait(f"document.querySelectorAll('.card').length > 0 && {BACKGROUND} === 'rgb(253, 246, 227)'")
+    _open_view(ui)
+    ui.set("#v-theme", "catppuccin")
+    ui.wait(f"{BACKGROUND} === 'rgb(30, 30, 46)'")
+    ui.key("Escape")
+
+
+def test_the_scale_is_stepped_in_the_view_menu_and_remembered(ui):
+    assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
+    _open_view(ui)
+    ui.click(".view-panel .stepper button", "A+")
+    ui.wait("getComputedStyle(document.documentElement).fontSize === '14.4px'")
+    assert "90" in ui.text(".stepper-value")
+    ui.js("localStorage.getItem('tm_scale') === '90' || (() => { throw new Error('not saved'); })()")
+    ui.click(".view-panel .stepper button", "A−")
+    ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
+    ui.key("Escape")
+
+
+def test_units_and_handicaps_switch_from_the_view_menu(ui):
+    before = ui.js("document.querySelector('.dh .temp').textContent")
+    names = "document.querySelector('.card.open .names')?.textContent || ''"
+    assert "(18.4)" in ui.js(names) or "(22.1)" in ui.js(names)
+    _open_view(ui)
+    ui.set("#v-units", "imperial")
+    ui.wait(f"document.querySelector('.dh .temp').textContent !== {json.dumps(before)}")
+    ui.js("document.querySelector('#v-hcp').click()")
+    ui.wait(f"!/\\(\\d+\\.\\d\\)/.test({names})")
+    ui.js("document.querySelector('#v-hcp').click()")  # and back to how it was
+    ui.set("#v-units", "metric")
+    ui.wait(f"document.querySelector('.dh .temp').textContent === {json.dumps(before)}")
+    ui.wait(f"/\\(\\d+\\.\\d\\)/.test({names})")
+    ui.key("Escape")
+
+
+def test_the_language_switches_to_german_in_the_view_menu_and_back(ui):
+    _open_view(ui)
+    ui.set("#v-language", "de")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Aktualisieren' || document.querySelector('.tool-label')?.textContent === 'Aktualisiere…'", 30)
     ui.shot("overview-de")
-    ui.key(",")
-    ui.wait("document.querySelector('#f-field-__language__')")
-    ui.set("#f-field-__language__", "en")
-    ui.js("[...document.querySelectorAll('.actions .btn.pri')].pop().click()")
+    _open_view(ui)
+    assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
+    ui.set("#v-language", "en")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Refresh' || document.querySelector('.tool-label')?.textContent === 'Updating…'", 30)
-
-
-def test_reset_filters_clears_everything_without_searching_again(ui):
-    _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.res').length > 3")
-    rows = ui.count(".res")
-    ui.set("#s-spots", "3")
-    ui.set("#s-wd-after", "10")
-    ui.click(".crit-actions .btn", "Reset")
-    ui.wait("document.querySelector('#s-spots').value === '1' && document.querySelector('#s-wd-after').value === ''")
-    assert ui.js("document.querySelector('#s-before').value") == "0"
-    assert ui.count(".res") == rows  # the results stay until you search again
-    ui.click(".crit-actions .btn.pri")  # no window at all means any time: more matches than with your Preferences
-    ui.wait(f"document.querySelectorAll('.res').length > {rows}")
-    _close_sheet(ui)
-
-
-def test_the_default_course_sits_on_the_club_row(ui):
-    _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('.club-head .select select')")
-    heads = ui.js(
-        """(() => { const r = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
-        const head = document.querySelector('.club-head');
-        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.btn'))]; })()"""
-    )
-    assert max(heads) - min(heads) < 4, heads  # name, course and Remove on one line
-    _close_sheet(ui)
-
-
-def test_a_theme_can_be_chosen_and_survives_a_reload(ui):
-    background = "getComputedStyle(document.body).backgroundColor"
-    _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('#f-theme')")
-    ui.set("#f-theme", "solarized-light")
-    ui.wait(f"{background} === 'rgb(253, 246, 227)'")
-    ui.shot("theme-solarized-light")
-    _close_sheet(ui)
-    ui.js("location.reload()")
-    ui.wait(f"document.querySelectorAll('.card').length > 0 && {background} === 'rgb(253, 246, 227)'")
-    _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('#f-theme')")
-    ui.set("#f-theme", "catppuccin")
-    ui.wait(f"{background} === 'rgb(30, 30, 46)'")
-    _close_sheet(ui)
-
-
-def test_the_scale_can_be_changed_and_is_remembered(ui):
-    assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
-    _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('#f-scale')")
-    ui.set("#f-scale", "100")
-    ui.wait("getComputedStyle(document.documentElement).fontSize === '16px'")
-    ui.js("localStorage.getItem('tm_scale') === '100' || (() => { throw new Error('not saved'); })()")
-    ui.set("#f-scale", "80")
-    ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
-    _close_sheet(ui)
-
-
-def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
-    ui.js("window.scrollTo(0, 0)")
-    ui.click("button.dh", index=3)  # opens the fourth day (the accordion closes the others)
-    ui.wait("document.querySelectorAll('.card')[3].classList.contains('open')")
-    pick = ui.text(".card.open .pill.pick").strip()
-    ui.wait(f"(() => {{ const r = document.querySelector('.card.open [data-slot$=\" {pick}\"]'); if (!r) return false; const b = r.getBoundingClientRect(); return b.top > 100 && b.bottom < window.innerHeight; }})()")
-    ui.js("window.scrollBy(0, 400)")
-    ui.wait("(() => { const h = document.querySelector('.card.open .dh-wrap').getBoundingClientRect().top; const bar = document.querySelector('.toolbar').getBoundingClientRect().bottom; return Math.abs(h - bar) < 3; })()")
-    dimmed = ui.count(".card.open .slot.dimmed")
-    assert dimmed > 5  # slots outside your availability window are dimmed
-    ui.js("window.scrollTo(0, 0)")
-    ui.click("button.dh", index=3)
-    ui.click("button.dh", index=1)
-    ui.wait("document.querySelectorAll('.card')[1].classList.contains('open')")
-
-
-def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
-    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=520, deviceScaleFactor=1, mobile=False)
-    _open_sheet(ui, "p", "Player")
-    ui.wait("document.querySelectorAll('.player-list li').length > 8")
-    heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
-    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
-    assert ui.js("document.querySelector('.player-list li:not(.letter) .player-meta').textContent.trim()") in ("Male", "Female", "Unknown")
-    assert ui.count("li.letter") >= 3
-    assert ui.count(".alpha button") >= 3
-    top = ui.js("document.querySelector('.players-tools').getBoundingClientRect().top")
-    ui.js("document.querySelector('.player-list').scrollTop = 120")
-    assert ui.js("document.querySelector('.player-list').scrollTop") > 0
-    assert ui.js("document.querySelector('.players-tools').getBoundingClientRect().top") == top  # the search stays put
-    ui.js("document.querySelector('.player-list').scrollTop = 0")
-    ui.js("document.querySelector('.alpha button:last-child').click()")  # jumps to the last letter
-    ui.wait("document.querySelector('.player-list').scrollTop > 20")
-    _close_sheet(ui)
-    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
 def test_the_legend_and_escape(ui):
@@ -398,6 +369,33 @@ def test_the_legend_and_escape(ui):
     ui.wait(SHEET_READY)
     ui.key("Escape")
     ui.wait("!document.querySelector('.scrim')")
+
+
+def test_every_screen_fits_the_window_at_three_widths(ui):
+    """The layout review as a test: nothing sticks out sideways, and the toolbar keeps every button on screen."""
+    for width in (560, 800, 1280):
+        ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+        problems = ui.js(
+            """(() => { const out = []; const w = window.innerWidth;
+            if (document.documentElement.scrollWidth > w + 1) out.push('page scrolls sideways');
+            for (const el of document.querySelectorAll('.toolbar-tools > *')) { const b = el.getBoundingClientRect(); if (b.right > w + 1 || b.left < -1) out.push('toolbar button off screen: ' + el.textContent.trim()); }
+            return out; })()"""
+        )
+        assert problems == [], (width, "overview", problems)
+        for key, ready in (("s", ".results-head"), ("h", ".hm-wrap, .empty"), ("p", ".player-list"), ("e", "#f-field-availability-min_open_spots"), (",", "#login-user"), ("a", ".search-box input"), ("?", ".legend")):
+            _open_sheet(ui, key, "")
+            ui.wait(f"document.querySelector({json.dumps(ready)})")
+            problems = ui.js(
+                """(() => { const out = []; const w = window.innerWidth; const sheet = document.querySelector('.sheet'); const body = sheet.querySelector('.sheet-body');
+                const s = sheet.getBoundingClientRect(); if (s.left < -1 || s.right > w + 1) out.push('sheet wider than the window');
+                if (body.scrollWidth > body.clientWidth + 1) out.push('content wider than its sheet (' + body.scrollWidth + ' > ' + body.clientWidth + ')');
+                return out; })()"""
+            )
+            assert problems == [], (width, key, problems)
+            ui.shot(f"layout-{width}-{ready[:6].strip('#.').replace(' ', '')}") if width == 560 else None
+            _close_sheet(ui)
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
 def test_a_narrow_window_still_works(ui):

@@ -22,6 +22,9 @@ function Cell({ bucket, minSamples }) {
 }
 
 function Grid({ title, keys, labels, group, hours, minSamples }) {
+  if (!keys.some((key) => group[key] && Object.keys(group[key]).length)) {
+    return html`<div class="hm-grid"><p class="lab">${title}</p><p class="hm-none">${t('heatmap.no_data_yet')}</p></div>`;
+  }
   return html`
     <div class="hm-grid">
       <p class="lab">${title}</p>

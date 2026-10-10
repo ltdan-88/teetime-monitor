@@ -1,10 +1,7 @@
 // Preferences and Settings: forms generated from the server's field list (settings_api.py), plus the
 // Settings sheet's own sections (clubs, login, AI key).
 
-import {
-  html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon, SCALES, DEFAULT_SCALE, getScale, setScale,
-  themeNames, themeLabel, applyTheme, systemTheme,
-} from '/lib.js';
+import { html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon } from '/lib.js';
 
 // ---------------------------------------------------------------- generated form
 
@@ -18,9 +15,8 @@ function FieldControl({ field, value, onChange }) {
     placeholder=${field.kind === 'optional_float' ? t('off') : ''} onInput=${(event) => onChange(event.target.value)} />`;
 }
 
-/** The groups of fields; `values`/`setValue` are the form state ({field id: value}). `extras` maps
- *  a group key to rows of this page's own (not saved with the rest) to append to that group. */
-export function FieldGroups({ groups, values, setValue, extras = {} }) {
+/** The groups of fields; `values`/`setValue` are the form state ({field id: value}). */
+export function FieldGroups({ groups, values, setValue }) {
   return groups.map((group) => html`
     <section class="group">
       <h3>${group.label}</h3>
@@ -29,27 +25,7 @@ export function FieldGroups({ groups, values, setValue, extras = {} }) {
           <label for=${'f-' + field.id}>${field.label}</label>
           <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
         </div>`)}
-      ${extras[group.key]}
     </section>`);
-}
-
-/** The colour theme: the same eleven as the terminal and Mac apps, saved in the same setting. */
-function ThemeRow({ initial }) {
-  const [name, setName] = useState(initial || systemTheme());
-  return html`
-    <div class="field-row"><label for="f-theme">${t('settings.field.theme')}</label>
-      <${Select} id="f-theme" value=${name} options=${themeNames().map((value) => ({ value, label: themeLabel(value) }))}
-        onChange=${(value) => { setName(value); applyTheme(value); post('/api/theme', { name: value }).catch(() => {}); }} /></div>`;
-}
-
-/** How large the page is: this browser only, applied at once, not saved with the settings. */
-function ScaleRow() {
-  const [percent, setPercent] = useState(getScale());
-  return html`
-    <div class="field-row"><label for="f-scale">${t('settings.scale')}</label>
-      <${Select} id="f-scale" value=${String(percent)}
-        options=${SCALES.map((value) => ({ value: String(value), label: value + ' %' + (value === DEFAULT_SCALE ? ' · ' + t('settings.scale.default') : '') }))}
-        onChange=${(value) => { setPercent(Number(value)); setScale(Number(value)); }} /></div>`;
 }
 
 function initialValues(groups) {
@@ -234,30 +210,34 @@ export function SettingsSheet({ clubId, onClose, onSaved, onAddClub, onClubsChan
   <//>`;
 }
 
+// Language, theme, scale, units and handicaps are in the toolbar's View menu, not here.
+const VIEW_GROUP = 'settings.group.display';
+
 function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClubsChanged }) {
-  const [values, setValue] = useForm(data.groups);
+  const visible = data.groups.filter((group) => group.key !== VIEW_GROUP);
+  const [values, setValue] = useForm(visible);
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
   const verifyClub = clubId || (data.clubs[0] && data.clubs[0].id) || null;
-  const aiGroup = data.groups.find((group) => group.key === 'settings.group.ai');
+  const aiGroup = visible.find((group) => group.key === 'settings.group.ai');
   async function save() {
     setSaving(true);
     setMessage(null);
     try {
       await post('/api/settings', { values });
       setMessage({ kind: 'ok', text: t('settings.saved') });
-      onSaved(values['field-__language__']);
+      onSaved();
     } catch (error) {
       setMessage({ kind: 'error', text: (error.payload && error.payload.error) || t('error.title') });
     }
     setSaving(false);
   }
-  const otherGroups = data.groups.filter((group) => group !== aiGroup);
+  const otherGroups = visible.filter((group) => group !== aiGroup);
   return html`
     <div class="columns">
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
       <${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />
-      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} extras=${{ 'settings.group.display': html`<${ThemeRow} initial=${data.theme} /><${ScaleRow} />` }} />
+      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} />
       ${aiGroup && html`
         <section class="group">
           <h3>${aiGroup.label}</h3>

@@ -14,6 +14,7 @@ list. The colour theme is a terminal-app notion; the browser follows the system.
 """
 
 import os
+import threading
 from typing import Any
 
 from .. import ai_assist, club_config, env_file, global_preferences, i18n, pipeline, units, user_config
@@ -22,6 +23,10 @@ from ..login_cli import save_login
 from . import data
 
 THEME_PATH = ("__theme__",)
+# Saving reads the preferences file, changes a field and writes it back: two quick changes (a click on a
+# switch, then on a menu) arrive as two requests at once, and without this the later write could carry the
+# earlier value of the other field.
+_SAVE_LOCK = threading.Lock()
 
 
 def _screen():
@@ -86,6 +91,11 @@ def schema(kind: str, club_id: str | None) -> dict:
 def save(kind: str, submitted: dict[str, Any]) -> dict:
     """Apply `submitted` ({field id: value}) on top of what is saved. A field that is not sent
     keeps its value. Returns `{"ok": True}` or `{"error": text}` (a number that is not one)."""
+    with _SAVE_LOCK:
+        return _save(kind, submitted)
+
+
+def _save(kind: str, submitted: dict[str, Any]) -> dict:
     screen = _screen()
     group_order = screen.PREFERENCE_GROUP_ORDER if kind == "preferences" else screen.SETTING_GROUP_ORDER
     fields = [f for f in _fields_for(group_order) if f.kind != "display"]
