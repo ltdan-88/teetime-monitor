@@ -196,11 +196,12 @@ def build() -> Path:
     if sys.platform.startswith("linux"):
         # Bytecode at build time (the launcher runs with -B, so nothing is written later).
         # unchecked-hash: never compared with the source's mtime; -s/-p keep the build directory
-        # out of the stored file names.
+        # out of the stored file names. The whole lib/ tree, not just site-packages: the runtime ships no
+        # stdlib bytecode, and without -B the compileall run itself would write some with real paths.
         print("==> bytecode")
         run(
-            [python_dir / "bin" / "python3", "-I", "-m", "compileall", "-q", "-f", "-j", "0",
-             "--invalidation-mode", "unchecked-hash", "-s", stage, "-p", f"/{TOP}", site]
+            [python_dir / "bin" / "python3", "-I", "-B", "-m", "compileall", "-q", "-f", "-j", "0",
+             "--invalidation-mode", "unchecked-hash", "-s", stage, "-p", f"/{TOP}", python_dir / "lib"]
         )  # fmt: skip
     else:
         print("==> bytecode skipped (needs Linux; every start compiles in memory instead)")
