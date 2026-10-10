@@ -121,7 +121,6 @@ Party size, the time windows that work on weekdays vs weekends, how much clearan
 you want from the groups ahead and behind. Slots matching all of it get a ★
 automatically — you never search for the routine case. These are global, not
 per-club: your own availability doesn't change depending on which course you check.
-Group size can be changed right on the overview (the Group dropdown next to Club and Course, in both apps).
 
 A 🌙 marks any tee time whose round wouldn't finish before sunset, based on your own
 pace for 9 or 18 holes.

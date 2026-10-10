@@ -566,23 +566,3 @@ def test_the_pick_is_the_best_slot_not_the_earliest_and_carries_reason_keys(tmp_
     assert entry["score"] > 0
     assert entry["recommended"] == ["09:00", "13:00"]
     assert "ai_reasons" not in entry
-
-
-def test_a_changed_party_size_changes_the_next_run_without_a_restart(tmp_path, capsys):
-    # 2026-10-09: the overview's Group picker only writes availability.min_open_spots; the
-    # GUI re-runs picks_cli, which re-reads preferences each run.
-    global_preferences.save_preferences({"availability": {"weekend_window": {"after": None, "before": None}}})
-    db = tmp_path / "club.db"
-    save_schedule(Schedule(date="2026-09-27", course="18 Loch Tee 1", slots=[
-        Slot(time="09:10", booked=2, capacity=4),  # 2 free
-        Slot(time="11:10", booked=0, capacity=4),  # 4 free
-    ]), path=db)
-    argv = ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-27", "--days", "1"]
-
-    solo, _ = _run(capsys, argv)
-    global_preferences.save_min_open_spots(3)
-    trio, _ = _run(capsys, argv)
-
-    assert set(solo["2026-09-27"]["recommended"]) == {"09:10", "11:10"}
-    assert trio["2026-09-27"]["recommended"] == ["11:10"]
-    assert trio["2026-09-27"]["time"] == "11:10"

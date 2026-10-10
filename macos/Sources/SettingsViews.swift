@@ -62,8 +62,7 @@ struct PreferencesSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var language = AppLanguage.shared
-    @ObservedObject private var partySize = AppPartySize.shared
-    @StateObject private var prefs = Box(Preferences.withSharedPartySize())
+    @StateObject private var prefs = Box(Preferences.load())
     @StateObject private var status = Box<String?>(nil)
 
     private var myHandicapDisplay: String {
@@ -167,12 +166,6 @@ struct PreferencesSheet: View {
                 }
             }
             .formStyle(.grouped)
-            // Group size picked on the overview while this sheet is open (or any other
-            // change to the shared value) shows here too, unsaved edits kept. dropFirst:
-            // the subscription's initial emit is the singleton, possibly stale against
-            // the file this sheet just loaded.
-            .onReceive(partySize.$value.dropFirst()) { prefs.value.minOpenSpots = $0 }
-            .onAppear { partySize.refreshFromFile() }
 
             HStack {
                 if let status = status.value { Text(status).font(scaledFont(.caption)).foregroundStyle(.secondary) }
@@ -181,8 +174,6 @@ struct PreferencesSheet: View {
                 Button(t("button.save")) {
                     do {
                         try prefs.value.save()
-                        // The overview's Group picker follows (and re-fetches the picks).
-                        partySize.value = prefs.value.minOpenSpots
                         status.value = t("prefs.saved")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { dismiss() }
                     } catch {
