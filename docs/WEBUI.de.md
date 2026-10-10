@@ -9,7 +9,7 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
 **Stand: vollständig.** Alles, was die Mac-App kann, ist hier:
 
 - **Übersicht:** Club und Platz wählen; jeder Tag mit Wetter, empfohlener Auswahl, deiner Buchung oder der Zeit,
-  zu der die Buchung öffnet, und Belegungsbalken. Einen Tag öffnen zeigt jede Startzeit mit Spielern (Freunde mit
+  zu der die Buchung öffnet, und Belegungsbalken. Die Tage starten eingeklappt (wie in der Mac-App); ein geöffneter Tag zeigt jede Startzeit mit Spielern (Freunde mit
   ★, Namen nach Geschlecht gefärbt, auf Wunsch mit Handicap), Wetter je Zeit und Sonnenauf-/-untergang. Eine Zeit
   anklicken markiert sie als deine Buchung, deine Buchung anklicken storniert sie. Hinweise („ein Spieler ist
   deinem Flight beigetreten“) erscheinen oben.

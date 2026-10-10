@@ -110,7 +110,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .card { background: var(--surface); border-radius: 0.875rem; }
 .card.open .dh { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .dh {
-  display: grid; width: 100%; align-items: center; column-gap: 0.5rem; min-height: 3.875rem; padding: 0 1.25rem;
+  display: grid; width: 100%; align-items: center; column-gap: 0.5rem; padding: 0.9rem 1.25rem;
   grid-template-columns: 1.5rem 8.125rem 2.5rem 7rem 4.75rem 3.75rem 9.375rem 1fr 14.5rem;
   border-radius: 0.875rem;
 }
@@ -125,7 +125,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .dh .badge-slot { display: flex; justify-content: flex-end; padding-right: 0.75rem; min-width: 0; }
 .heat { display: flex; gap: 0.25rem; justify-content: flex-end; }
 .heat span { width: 2.125rem; height: 0.875rem; border-radius: 0.25rem; }
-.events { padding: 0 1.25rem 0.875rem 3.25rem; margin-top: -6px; color: var(--mid); font-size: 0.9375rem; }
+.dh .events { grid-column: 2 / -1; padding: 0.2rem 0 0; color: var(--mid); font-size: 0.9375rem; text-align: left; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 0.4375rem; height: 1.875rem; padding: 0 0.75rem;
@@ -336,12 +336,12 @@ dl.legend dd { margin: 0; color: var(--mid); }
 }
 @media (max-width: 860px) {
   .toolbar, .main, .footer { padding-left: 0.875rem; padding-right: 0.875rem; }
-  .dh { grid-template-columns: 1.375rem 1fr 2.25rem 6rem 1fr; padding: 0 0.75rem; row-gap: 0.375rem; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .dh { grid-template-columns: 1.375rem 1fr 2.25rem 6rem 1fr; padding: 0.5rem 0.75rem; row-gap: 0.375rem; }
   .dh .rain, .dh .wind, .dh .sun { display: none; }
   .dh .heat { grid-column: 1 / -1; justify-content: flex-start; }
   .dh .heat span { width: calc((100% - 1.25rem) / 6); }
   .dh .badge-slot { justify-content: flex-end; padding-right: 0; }
-  .events { padding-left: 2.125rem; }
+  .dh .events { grid-column: 2 / -1; }
   .slots { margin: 0 0.75rem; }
   .slot { grid-template-columns: 5rem 1fr auto; height: auto; min-height: 2.25rem; row-gap: 0.125rem; padding: 0.25rem 0; }
   .slot .free, .slot .wx, .slot .rain, .slot .wind { display: none; }
@@ -368,7 +368,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .sheet-body.fixed > .scroll, .sheet-body.fixed > .player-scroll { flex: 1 1 auto; min-height: 0; }
 .scroll { overflow: auto; }
 .player-scroll { display: flex; gap: 0.25rem; min-height: 0; }
-.player-scroll .player-list { flex: 1; min-width: 0; margin-top: 0.5rem; position: relative; }
+.player-scroll .player-list { flex: 1; min-width: 0; margin-top: 0.25rem; position: relative; padding-right: 0.875rem; scrollbar-gutter: stable; }
 .player-list li.letter {
   position: sticky; top: 0; z-index: 1; display: block; background: var(--bg); color: var(--dim);
   font-size: 0.8125rem; font-weight: 700; padding: 0.25rem 0.25rem; min-height: 0; border-top: 0;
@@ -378,8 +378,6 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .alpha button:hover { color: var(--text); background: var(--surface-hover); }
 .club-head .select select { width: auto; max-width: 16rem; min-width: 8rem; height: 2.25rem; }
 
-.player-head { display: grid; grid-template-columns: 2.375rem minmax(10rem, 1fr) 6.5rem 6.5rem 4rem; column-gap: 0.625rem; padding: 0.5rem 0.25rem 0.25rem; margin-right: 1.9rem; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); border-bottom: 1px solid var(--line); }
-.player-head .r { text-align: right; }
 .player-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hint.count { margin: 0.25rem 0 0; }
@@ -425,3 +423,12 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .res-notes { display: none; }
 }
 .hm-none { color: var(--dim); margin: 0.5rem 0 0; font-size: 0.875rem; }
+
+.player-list li.player-head {
+  position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 2.375rem minmax(10rem, 1fr) 6.5rem 6.5rem 4rem; column-gap: 0.625rem;
+  height: 2rem; min-height: 2rem; align-items: center; padding: 0 0.25rem; background: var(--bg); border-top: 0; border-bottom: 1px solid var(--line);
+  font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim);
+}
+.player-list li.player-head .r { text-align: right; }
+.player-list li.letter { top: 2rem; }
+.player-hcp { text-align: right; }

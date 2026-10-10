@@ -156,7 +156,7 @@ function App() {
       if (!now || refreshKeyOf(now) !== refreshKeyOf(forView)) return;
       setOverview(result);
       setCourse((previous) => (forCourse || previous === result.course ? previous : result.course));
-      setOpenDate((previous) => (previous && result.days.some((day) => day.date === previous) ? previous : result.days.length ? result.days[0].date : null));
+      setOpenDate((previous) => (previous && result.days.some((day) => day.date === previous) ? previous : null));
       setFailure(null);
     } catch (error) {
       handleError(error);
@@ -271,6 +271,7 @@ function App() {
 
   const selectClub = (value) => {
     if (value === ADD_CLUB) return setSheet('addclub');
+    setOpenDate(null); // a new club or course starts collapsed, like the Mac app
     setCourse(null);
     setView({ kind: 'saved', slug: value });
   };
@@ -342,7 +343,7 @@ function App() {
         <div class="toolbar-picks">
         ${boot.clubs.length > 0 && view && view.kind === 'saved' && html`<${Select} id="club" aria-label=${t('club')} value=${view.slug} options=${clubOptions} onChange=${selectClub} />`}
         ${view && view.kind === 'preview' && html`<span class="picker-static" title=${view.name}>${view.name}</span>`}
-        ${courseOptions.length > 0 && html`<${Select} id="course" aria-label=${t('course')} value=${(overview && overview.course) || course} options=${courseOptions} onChange=${setCourse} />`}
+        ${courseOptions.length > 0 && html`<${Select} id="course" aria-label=${t('course')} value=${(overview && overview.course) || course} options=${courseOptions} onChange=${(value) => { setOpenDate(null); setCourse(value); }} />`}
         </div>
         <div class="toolbar-tools">
         ${tool('refresh', 'refresh', t(refresh.running ? 'refreshing' : 'action.refresh'), 'r', () => startRefresh(true), refresh.running || noClub)}

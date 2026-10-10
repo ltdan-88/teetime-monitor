@@ -175,9 +175,11 @@ def _close_sheet(ui):
     ui.wait("!document.querySelector('.scrim')")
 
 
-def test_the_overview_shows_five_days_with_the_first_open(ui):
+def test_the_overview_shows_five_days_all_collapsed_on_launch(ui):
     assert ui.count(".card") == 5
-    assert ui.count(".card.open .slot") > 20
+    assert ui.count(".card.open") == 0  # like the Mac app: nothing open until you open a day
+    ui.click("button.dh", index=0)
+    ui.wait("document.querySelectorAll('.card.open .slot').length > 20")
     assert "Golfclub Beispiel" in ui.js("document.querySelector('#club').selectedOptions[0].textContent")
     ui.shot("overview")
 
@@ -234,7 +236,7 @@ def test_players_can_be_marked_as_friends(ui):
     ui.js("document.querySelector('.star-btn:not(.on)').click()")
     ui.wait("document.querySelectorAll('.star-btn.on').length >= 3")
     ui.set(".players-tools input[type=search]", "zzzz")
-    ui.wait("document.querySelectorAll('.player-list li').length === 0")
+    ui.wait("document.querySelectorAll('.player-list li:not(.player-head)').length === 0")
     _close_sheet(ui)
 
 
@@ -338,6 +340,9 @@ def test_the_scale_is_stepped_in_the_view_menu_and_remembered(ui):
 
 
 def test_units_and_handicaps_switch_from_the_view_menu(ui):
+    if not ui.count(".card.open"):  # (closing a looked-at club leaves every day collapsed)
+        ui.click("button.dh", index=0)
+        ui.wait("document.querySelector('.card.open .names')")
     before = ui.js("document.querySelector('.dh .temp').textContent")
     names = "document.querySelector('.card.open .names')?.textContent || ''"
     assert "(18.4)" in ui.js(names) or "(22.1)" in ui.js(names)
