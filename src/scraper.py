@@ -404,7 +404,7 @@ def _event_names(rows: list[Tag]) -> list[str]:
     plainly weren't events). `Slot.block_reason` itself still stores either status's
     label identically (see module docstring) — this is a separate, narrower read of
     the same rows for a different purpose, not a change to per-slot parsing."""
-    names = set()
+    names: dict[str, None] = {}
     for row in rows:
         if row.get("data-status") != STATUS_BLOCK_TIME:
             continue
@@ -412,8 +412,11 @@ def _event_names(rows: list[Tag]) -> list[str]:
         if reason_span:
             reason = reason_span.get_text(strip=True)
             if reason:
-                names.add(reason)
-    return sorted(names)
+                names.setdefault(reason, None)
+    # In the order the sheet shows them -- by time of day, as the rows run -- not alphabetically
+    # (2026-10-10, direct report: "wegen Frost gesperrt" (06:00-08:50) came after a 12:30
+    # tournament because digits sort before letters).
+    return list(names)
 
 
 def parse_schedule_html(
