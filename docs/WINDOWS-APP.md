@@ -41,8 +41,8 @@ Everything — settings, logins, tee-time history — is in the folder **`userda
   app on a private PC. The runtime is python.org's own signed Python, not a custom `.exe`, which
   helps with allow-lists but cannot get around a policy that blocks everything.
 - **Strange boxes instead of lines:** use Windows Terminal rather than the old console window.
-- Windows 10 or 11, 64-bit (also on ARM PCs, which emulate it). A background scraper is not part of
-  the portable version: it checks tee times while the window is open.
+- Windows 10 or 11, 64-bit (also on ARM PCs, which emulate it). The portable version has no
+  background scraper: nothing runs while the window is closed.
 
 ## What is inside (for the curious)
 

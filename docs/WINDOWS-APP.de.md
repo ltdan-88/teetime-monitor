@@ -46,8 +46,8 @@ Alles — Einstellungen, Logins, Startzeiten-Verlauf — liegt im Ordner **`user
   Python von python.org, keine eigene `.exe` — das hilft bei Freigabelisten, umgeht aber keine
   Richtlinie, die alles blockiert.
 - **Komische Kästchen statt Linien:** das Windows Terminal statt des alten Konsolenfensters benutzen.
-- Windows 10 oder 11, 64 Bit (auch auf ARM-PCs, die es emulieren). Ein Hintergrund-Scraper gehört
-  nicht zur portablen Version: Sie prüft Startzeiten, solange das Fenster offen ist.
+- Windows 10 oder 11, 64 Bit (auch auf ARM-PCs, die es emulieren). Die portable Version hat
+  keinen Hintergrund-Scraper: Bei geschlossenem Fenster läuft nichts.
 
 ## Was drin steckt (für Neugierige)
 
