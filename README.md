@@ -200,6 +200,14 @@ write into `/Applications` — that's normally a Cask's job), so `brew install`/
 `upgrade` prints the one command to make it appear in Launchpad and Spotlight like
 any other app. See [`macos/README.md`](macos/README.md) for the full build story.
 
+**Download the Mac app.** No Homebrew, no Python, no terminal? Each
+[release](https://github.com/ltdan-88/teetime-monitor/releases/latest) also has a ready-made
+**TeetimeMonitor-…-arm64.zip** with the app and everything it needs inside. It needs an Apple
+Silicon Mac (M1 or newer) and macOS 14 or newer. It is not notarized by Apple, so the first
+launch needs one extra step — the step-by-step guide is in
+[**docs/MAC-APP.md**](docs/MAC-APP.md) ([auf Deutsch](docs/MAC-APP.de.md)). On Windows and Linux
+use the terminal app above.
+
 ## Keys
 
 The terminal app and the macOS app use the same letters, so nothing has to be

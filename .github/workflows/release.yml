@@ -62,3 +62,31 @@ jobs:
           git -C /tmp/tap config user.name "github-actions[bot]"
           git -C /tmp/tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           scripts/update_tap.sh "$version" /tmp/tap
+
+  # The self-contained Mac app (2026-10-10): TeetimeMonitor.app with its own Python, for friends
+  # without Homebrew or a terminal. Built and checked on an Apple Silicon runner, then attached to
+  # the Release the job above created. Ad-hoc signed, NOT notarized (see docs/MAC-APP.md). The
+  # zip is only uploaded if macos/verify_standalone.sh passes. Runs after `release`, so a failure
+  # here never holds back the Release or the Homebrew tap update.
+  mac-app:
+    needs: release
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build the app zip
+        run: macos/build_standalone.sh
+
+      - name: Verify it in a clean environment
+        run: macos/verify_standalone.sh
+
+      - name: Attach to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" macos/dist/TeetimeMonitor-*-arm64.zip macos/dist/TeetimeMonitor-*-arm64.zip.sha256 --clobber

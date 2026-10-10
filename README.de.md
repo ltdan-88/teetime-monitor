@@ -206,6 +206,14 @@ baut sie direkt in den eigenen Cellar (ein einfaches `brew install` kann nicht n
 Launchpad und Spotlight erscheinen lässt. Die volle Entstehungsgeschichte steht in
 [`macos/README.md`](macos/README.md) (Englisch).
 
+**Die Mac-App herunterladen.** Kein Homebrew, kein Python, kein Terminal? Jedes
+[Release](https://github.com/ltdan-88/teetime-monitor/releases/latest) enthält zusätzlich eine
+fertige **TeetimeMonitor-…-arm64.zip** mit der App und allem, was sie braucht. Voraussetzung ist
+ein Mac mit Apple-Chip (M1 oder neuer) und macOS 14 oder neuer. Die App ist nicht von Apple
+notarisiert, deshalb braucht das erste Öffnen einen zusätzlichen Schritt — die Anleitung steht in
+[**docs/MAC-APP.de.md**](docs/MAC-APP.de.md) ([English](docs/MAC-APP.md)). Unter Windows und Linux
+nimm die Terminal-App.
+
 ## Tasten
 
 Terminal- und macOS-App nutzen dieselben Buchstaben, man muss also nichts umlernen. In der

@@ -13,7 +13,12 @@ APP="TeetimeMonitor.app"
 VERSION=$(grep -m1 '^version = ' ../pyproject.toml | sed -E 's/version = "(.*)"/\1/')
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-swiftc -parse-as-library -O -o "$APP/Contents/MacOS/TeetimeMonitor" Sources/*.swift
+# TEETIME_MONITOR_SWIFT_TARGET (2026-10-10, build_standalone.sh sets it to arm64-apple-macosx14.0):
+# pins the binary's minimum macOS so a zip built on a newer Mac still runs on macOS 14. Unset
+# (the Homebrew path), swiftc targets the machine it runs on, exactly as before.
+TARGET=()
+[ -n "${TEETIME_MONITOR_SWIFT_TARGET:-}" ] && TARGET=(-target "$TEETIME_MONITOR_SWIFT_TARGET")
+swiftc "${TARGET[@]+"${TARGET[@]}"}" -parse-as-library -O -o "$APP/Contents/MacOS/TeetimeMonitor" Sources/*.swift
 # The bundled club-directory snapshot (add-a-club's offline fallback, see
 # ClubDirectoryStore.swift) -- a static data file, not code, so it's copied in
 # rather than compiled. Same file the Python package ships as src/
