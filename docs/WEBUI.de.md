@@ -42,7 +42,7 @@ Alle paar Stunden fragt das Programm GitHubs öffentliche Release-Liste ab (eine
 sendet); gibt es eine neuere Version, steht unten **Version X ist verfügbar** mit Link zu den Release-Notes und dem
 Befehl für deine Installationsart (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). Auf einem
 Raspberry-Pi-Server gibt es einen Knopf **Jetzt aktualisieren** ([RASPBERRY-PI.de.md](RASPBERRY-PI.de.md)). Die
-portablen Downloads und die Mac-App aktualisierst du mit dem neuen Download. `TEETIME_MONITOR_NO_UPDATE_CHECK=1`
+portablen Downloads und die Mac-App aktualisierst du mit dem neuen Download. **Nach Updates suchen** unten sucht sofort. `TEETIME_MONITOR_NO_UPDATE_CHECK=1`
 schaltet die Abfrage aus.
 
 ## Starten

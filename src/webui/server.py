@@ -412,8 +412,8 @@ class Handler(BaseHTTPRequestHandler):
             updates.refresh_if_stale()
             return self._json(updates.status(serving=self.server.serve))
         if route == ("POST", "/api/update/check"):
-            updates.check_now()
-            return self._json(updates.status(serving=self.server.serve))
+            looked = updates.check_now() is not None  # the "Check for updates" button: look now, and say if it worked
+            return self._json({**updates.status(serving=self.server.serve), "check_ok": looked})
         if route == ("POST", "/api/update/apply"):
             return reply(updates.apply(self.server.serve, self.server.restart), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/ping"):

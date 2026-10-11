@@ -240,3 +240,20 @@ def test_a_page_asking_after_a_long_quiet_spell_makes_the_server_look_again(monk
 def test_the_stale_look_respects_the_switch_that_turns_the_check_off(monkeypatch):
     monkeypatch.setenv("TEETIME_MONITOR_NO_UPDATE_CHECK", "1")
     assert updates.refresh_if_stale() is False
+
+
+def test_the_check_button_looks_now_and_says_whether_it_worked(served, monkeypatch):
+    cookie = f"tm_auth={auth.make_session()}"
+    _release(monkeypatch, tag="v0.79.0")
+    response, body = _call(served, "POST", "/api/update/check", cookie)
+    assert response.status == 200 and body["check_ok"] is True and body["newer"] is True and body["latest"] == "0.79.0"
+
+    def down(*args, **kwargs):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(httpx, "get", down)
+    response, body = _call(served, "POST", "/api/update/check", cookie)
+    assert response.status == 200 and body["check_ok"] is False and body["newer"] is True  # the old answer stays, the failure is told
+    monkeypatch.setenv("TEETIME_MONITOR_NO_UPDATE_CHECK", "1")
+    response, body = _call(served, "POST", "/api/update/check", cookie)
+    assert body["check_ok"] is False and body["check_disabled"] is True

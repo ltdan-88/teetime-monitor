@@ -28,7 +28,7 @@ from . import data
 REPO = "ltdan-88/teetime-monitor"
 LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 CHECK_EVERY_SECONDS = 6 * 3600
-STALE_AFTER_SECONDS = 3600  # a page that asks while the last look is older than this makes the server look again
+STALE_AFTER_SECONDS = 900  # a page that asks while the last look is older than this makes the server look again
 FIRST_CHECK_AFTER_SECONDS = 60
 RESTART_EXIT_CODE = 75  # EX_TEMPFAIL: a "failure" to systemd's Restart=on-failure, so it starts the new version
 TAG = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}$")
@@ -81,7 +81,7 @@ def check_now() -> dict | None:
 
 
 def refresh_if_stale(now: float | None = None) -> bool:
-    """Called when a page asks for the status: if the last look is more than an hour old (the server may have
+    """Called when a page asks for the status: if the last look is more than 15 minutes old (the server may have
     been running for days since it last looked), look again in the background -- the page gets the newer
     answer on its next visit. True if a look was started."""
     global _last_attempt, _looking
@@ -151,6 +151,7 @@ def status(serving: bool = False) -> dict:
         "checked_at": latest["checked_at"] if latest else None,
         "command": COMMANDS.get(kind),
         "can_update": newer and kind == "pi" and serving,
+        "check_disabled": disabled(),
         "install": running,
     }
 
