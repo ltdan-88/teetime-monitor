@@ -175,7 +175,7 @@ inside this sheet's own body needs to re-render off it living, only read
 once per double-click and written once per jump.
 
 **Wording audit, done thoroughly rather than just fixing the one reported
-pair** -- see `ROADMAP.md`'s own dated entry for the full list (settings
+pair** -- see `docs/history/ROADMAP.md`'s own dated entry for the full list (settings
 section headers, the "Ihr"/"dein" formality slip in both apps' own handicap
 label, the heatmap toolbar button). The one worth detailing here since it's
 GUI-only: `heatmap.legend.open/mid/full` used to be shared, verbatim,
@@ -327,7 +327,7 @@ never a name" treatment `friend_count` already gets.
 
 ## Why no pick, your window, and jumping to it -- same as the TUI (2026-09-27)
 
-Bundle C of a TUI/GUI consistency audit (see ROADMAP.md). `picks_cli.py` now
+Bundle C of a TUI/GUI consistency audit (see docs/history/ROADMAP.md). `picks_cli.py` now
 returns each day's own window and, with no pick, why; `PicksClient.parse()`
 turns that into `DayVerdict`s plus an optional `WindowHint`. A no-pick day
 shows a 🌙/🌧 capsule in the badge's fixed column (sentence on hover),
@@ -341,7 +341,7 @@ none of it re-derived here.
 ## Numbers now match the TUI exactly; occupancy counts free seats in both (2026-09-27)
 
 Found comparing real renders of both apps from the same database (bundle A of
-a TUI/GUI consistency audit -- see ROADMAP.md): the day header showed a low of
+a TUI/GUI consistency audit -- see docs/history/ROADMAP.md): the day header showed a low of
 11° where the TUI showed 12°, wind 10 vs. 11. Same data, same aggregation --
 this app truncated with `Int(x)`, the TUI rounds. New `wholeNumber()`
 (Formatting.swift) replaces every truncating display site, and

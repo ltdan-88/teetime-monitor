@@ -1,11 +1,11 @@
 # Roadmap
 
-This project started as a single-session spec ([`docs/spec-v1.md`](docs/spec-v1.md)) for a
+This project started as a single-session spec ([`spec-v1.md`](spec-v1.md)) for a
 plain tee-sheet scraper + TUI table. Before that was built out, the scope grew to include
 weather, daylight-based playability, preference-driven recommendations, a multi-day
 overview, multi-club/multi-course support, calendar-aware crowd prediction, and
 pattern-recognition analytics. This doc reflects the actual, current phased plan — treat
-`docs/spec-v1.md` as historical background, not the build order.
+`spec-v1.md` as historical background, not the build order.
 
 **Build priority (2026-09-05, user feedback, revised same day):** the actual core value
 of this tool is answering "when should I book" quickly — the user explicitly named
@@ -110,7 +110,7 @@ referenced from the phases below rather than repeated:
 Concrete technical detail from the walkthrough above — closer to implementation notes
 than roadmap prose, kept separate so the narrative above stays readable. Update this if
 the site changes. See also
-[`docs/pccaddie-markup-notes.md`](docs/pccaddie-markup-notes.md) for illustrative HTML
+[`docs/pccaddie-markup-notes.md`](../pccaddie-markup-notes.md) for illustrative HTML
 snippets to write a parser and its tests against.
 
 **Direct URL navigation** (no form/dropdown interaction needed):
@@ -4337,7 +4337,7 @@ from the live database (backed up first to `data/0497758.db.bak-before-cleanup`)
 `pyproject.toml` still required `playwright>=1.45`, and both READMEs plus the
 Homebrew formula's caveats told every user to download a Chromium binary after
 install. Nothing had imported it for a long time: the original spec
-(`docs/spec-v1.md`) assumed a headless browser would be needed, but walking the
+(`spec-v1.md`) assumed a headless browser would be needed, but walking the
 real site 2026-09-06 established that the tee sheet is public HTML and the login
 is an ordinary form POST with no JS and no CSRF token — both plain `httpx` since
 then. The only surviving references in `src/` were docstrings *explaining that it
@@ -4346,7 +4346,7 @@ isn't needed*.
 So the install instructions were not merely stale, they were actively wrong: a
 large package plus a ~150MB browser download for something no code path ever
 launched. Removed from `pyproject.toml`, both READMEs, and the formula's caveats
-and comments. Historical references in `ROADMAP.md` and `docs/spec-v1.md` stay —
+and comments. Historical references in `ROADMAP.md` and `spec-v1.md` stay —
 they're the record of how the conclusion was reached.
 
 Verified by building a clean venv from the package with no playwright installed
@@ -5585,7 +5585,7 @@ in the TUI's #row-detail and the GUI badge's tooltip (same i18n strings, EN + DE
 
 ## Known risks
 - pc caddie's real login form and whether the tee sheet sits inside an iframe (see
-  `docs/spec-v1.md` for detail) — the original v1 risks. Both resolved: the tee sheet
+  `spec-v1.md` for detail) — the original v1 risks. Both resolved: the tee sheet
   is a separate, non-iframed page reachable directly and needs no login at all (found
   2026-09-05, see "Live site findings"); the login form itself turned out to be a
   plain HTML POST, no JS, no CSRF token, inspected live 2026-09-06 (see `scraper.py`'s

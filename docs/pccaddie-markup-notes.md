@@ -1,6 +1,6 @@
 # pc caddie markup reference (illustrative examples)
 
-Companion to [`../ROADMAP.md`](../ROADMAP.md)'s "Confirmed pc caddie markup reference" —
+Companion to [`history/ROADMAP.md`](history/ROADMAP.md)'s "Confirmed pc caddie markup reference" —
 that section has the narrative and the *why*; this file has concrete example snippets
 to write a parser and its tests against, so Phase 1 implementation doesn't need to
 re-derive them from scratch. Primary source: the real site 2026-09-05 (club id 0000001,

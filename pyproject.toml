@@ -6,7 +6,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
-    # No playwright. The original spec (docs/spec-v1.md) assumed a headless Chromium
+    # No playwright. The original spec (docs/history/spec-v1.md) assumed a headless Chromium
     # would be needed to log in and read the tee sheet; walking the real site
     # 2026-09-06 showed both are plain HTTP -- the tee sheet is public, and the login
     # is an ordinary form POST with no JS and no CSRF token (see scraper.py's module
