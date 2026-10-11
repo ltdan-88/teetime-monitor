@@ -1,7 +1,7 @@
 // Teetime Monitor web UI: the shell. Preact + htm, no build step; data from /api/* (src/webui/server.py).
 
 import {
-  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, updatedText, dayLabel, applyScale, loadThemes, applyTheme, systemTheme,
+  html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, language, updatedText, dayLabel, applyScale, loadThemes, applyTheme, systemTheme,
   Icon, Sheet, Select, Status,
 } from '/lib.js';
 import { DayCard, Banners, focusTime } from '/overview.js';
@@ -23,6 +23,18 @@ const refreshKeyOf = (view) => (view.kind === 'saved' ? view.slug : 'club:' + vi
 function refreshErrorText(error) {
   const known = t('preview.' + error);
   return known !== 'preview.' + error ? known : t('error.refresh', { error });
+}
+
+/** One standing explanation for days that all say "too dark": your window opens after the latest start
+ *  that still finishes before sunset (the terminal app's and the Mac app's hint, with a way to the setting). */
+function WindowHint({ hint, onPreferences }) {
+  const hours = String(Math.round((hint.round_minutes / 60) * 100) / 100).replace('.', language() === 'de' ? ',' : '.');
+  let text = t('hint.window_too_late', { after: hint.window_after, hours, sunset: hint.sunset, latest: hint.latest_start });
+  if (hint.alternative_courses && hint.alternative_courses.length) {
+    text += ' ' + t('overview.hint_alternative', { courses: hint.alternative_courses.join(', ') });
+  }
+  return html`<div class="banner hint-bar" role="status"><${Icon} name="info" size=${18} /><span>${text}</span>
+    <button class="btn" onClick=${onPreferences}>${t('action.preferences')}</button></div>`;
 }
 
 function Empty({ title, text, children }) {
@@ -103,6 +115,7 @@ function App() {
   const [viewOpen, setViewOpen] = useState(false);
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
+  const [jumpTick, setJumpTick] = useState(0);
   const loadSeq = useRef(0);
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
@@ -111,6 +124,7 @@ function App() {
   current.current = { view, course };
   const lastSaved = useRef(null);
   const focusOnOpen = useRef(null); // a day the user just opened: scroll to its pick once its slots are drawn
+  const jumpTarget = useRef(null); // { date, time, course }: a slot to open, scroll to and flash once its course is on screen
 
   // The day header stays pinned under the toolbar while its slots scroll: tell the CSS how tall that is.
   const ready = !!boot;
@@ -131,6 +145,19 @@ function App() {
     const row = time && document.querySelector(`[data-slot="${openDate} ${time}"]`);
     if (row) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [openDate, overview]);
+
+  useEffect(() => {
+    const target = jumpTarget.current;
+    if (!target || !overview || overview.course !== target.course) return;
+    const row = document.querySelector(`[data-slot="${target.date} ${target.time}"]`);
+    if (!row) return; // the days are still loading, or the slot is not on this course
+    jumpTarget.current = null;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.remove('flash');
+    void row.offsetWidth; // restart the animation if it is already running
+    row.classList.add('flash');
+    setTimeout(() => row.classList.remove('flash'), 2400);
+  }, [openDate, overview, jumpTick]);
 
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
@@ -302,6 +329,15 @@ function App() {
   const askBooking = (date, time, courseName, ref, cancel) =>
     setBooking({ mode: cancel ? 'cancel' : 'mark', date, time, course: courseName, ref, dateText: dayLabel(date) });
   const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you);
+  /** Open a day and bring one of its slots into view, switching to its course first when needed. */
+  const jumpTo = (date, time, courseName) => {
+    const target = courseName || (overview && overview.course);
+    focusOnOpen.current = null;
+    jumpTarget.current = { date, time, course: target };
+    setOpenDate(date);
+    setJumpTick((n) => n + 1);
+    if (overview && target !== overview.course) setCourse(target);
+  };
   const markFromSearch = (match) => askBooking(match.date, match.time, match.course, refOf(view), false);
   const bookingDone = () => {
     setBooking(null);
@@ -390,12 +426,13 @@ function App() {
           <div class="actions center"><button class="btn pri" onClick=${() => setSheet('addclub')}><${Icon} name="plus" size=${16} />${t('addclub.title')}</button>
             <button class="btn" onClick=${() => setSheet('settings')}>${t('settings.title')}</button></div><//>`}
         ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
+        ${overview && overview.hint && html`<${WindowHint} hint=${overview.hint} onPreferences=${() => setSheet('preferences')} />`}
         ${view && !overview && !failure && html`<${Empty} title=${t('empty.updating')} />`}
         ${empty && html`<${Empty}
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
-          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot}
+          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
       </main>
       <footer class="footer">
@@ -417,7 +454,8 @@ function App() {
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} />`}
-      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
+      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} days=${(overview && overview.days) || []}
+        onJump=${(date, time) => { setSheet(null); jumpTo(date, time); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
     </div>`;
 }

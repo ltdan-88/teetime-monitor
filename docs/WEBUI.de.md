@@ -13,6 +13,10 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
   ★, Namen nach Geschlecht gefärbt, auf Wunsch mit Handicap), Wetter je Zeit und Sonnenauf-/-untergang. Eine Zeit
   anklicken markiert sie als deine Buchung, deine Buchung anklicken storniert sie. Hinweise („ein Spieler ist
   deinem Flight beigetreten“) erscheinen oben.
+  Beginnt dein Zeitfenster an mehreren Tagen zu spät für eine ganze Runde, sagt das eine Zeile (mit den Zahlen
+  und einem Knopf zu den Präferenzen); an einem Tag, an dem nur eine kürzere Runde auf einem anderen Platz
+  passt, erscheint diese Zeit als Badge – ein Klick wechselt zu diesem Platz. In **Spieler** springt der
+  Flaggen-Knopf (oder ein Doppelklick) auf einen Namen zur Tee-Zeit dieses Spielers in den geladenen Tagen.
 - **Suche**, **Crowd-Heatmap**, **Spieler** (Freunde), **Präferenzen** (Verfügbarkeit, Wetter, Tempo, Prioritäten),
   **Einstellungen** (Clubs, pc-caddie-Login, Sprache, Einheiten, Scraping, KI-Ranking) und **Club hinzufügen**
   (Clubverzeichnis durchsuchen, Club hinzufügen oder nur zum Ansehen öffnen).

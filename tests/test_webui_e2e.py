@@ -479,6 +479,99 @@ def test_the_days_show_before_the_picks_are_ready(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
+def test_the_window_hint_and_the_shorter_round_badge(ui):
+    """The server sends a standing hint (your window opens too late) and, on a day ruled out by daylight, a
+    shorter round on another course. The demo data has neither, so the overview responses are rewritten here:
+    a second course "Other" exists, and the second day offers a 9-hole slot on it."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!/api\\/overview/.test(String(url))) return response;
+          const data = await response.json();
+          data.courses = [...new Set([...data.courses, 'Other'])];
+          if (/course=Other/.test(String(url))) data.course = 'Other';
+          data.hint = {window_after: '17:00', latest_start: '15:40', sunset: '19:08', round_minutes: 240, days: 3, alternative_courses: ['Other']};
+          const slot = data.days[1].slots.find((s) => !s.past && s.block_reason == null && s.time > '12:00');
+          data.days[1].pick = {alternative: {time: slot.time, course: 'Other', holes: 9}};
+          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    _open_sheet(ui, "e", "Preferences")  # saving reloads the overview, now through the rewritten fetch
+    ui.wait("document.querySelector('#f-field-availability-min_open_spots')")
+    ui.click(".actions .btn.pri")
+    ui.wait("document.querySelector('.status-line.ok')")
+    _close_sheet(ui)
+    ui.wait("document.querySelector('.hint-bar')")
+    ui.shot("hint")
+    text = ui.text(".hint-bar")
+    assert "17:00" in text and "15:40" in text and "19:08" in text and "4 h" in text and "Other" in text, text
+    ui.click(".hint-bar .btn")  # the way straight to the setting
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Preferences')")
+    _close_sheet(ui)
+    badge = ".pill.link"
+    time_text = ui.text(badge).split("·")[0].strip()
+    ui.click(badge)
+    ui.wait("document.querySelector('.toolbar select#course')?.value === 'Other' || document.querySelector('#course')?.value === 'Other'")
+    ui.wait(f"document.querySelector('.card.open [data-slot$=\" {time_text}\"].flash')")  # the slot is open, in view and flashing
+    assert ui.js("document.querySelectorAll('.card.open').length") == 1
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_weather_icons_name_the_exact_condition(ui):
+    title = ui.js("document.querySelector('.dh .cond').title")
+    assert title and title[0].isupper(), title  # "Light rain", not the category "rain / rain showers"
+
+
+def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li').length > 3")
+    ui.shot("players-jump")
+    assert ui.count(".jump-btn") > 0  # people seen on the loaded days have a way to their tee time
+    name = ui.js("document.querySelector('.jump-btn').closest('li').querySelector('.player-name').textContent")
+    ui.js("document.querySelector('.jump-btn').click()")
+    hits = ui.js(
+        """(() => { const e = document.querySelector('.jump-choice'); return e ? [...e.querySelectorAll('.btn')].length - 1 : 0; })()"""
+    )
+    if hits:  # booked more than once: asks which tee time
+        ui.click(".jump-choice .btn", index=0)
+    ui.wait("!document.querySelector('.scrim')")
+    ui.wait("document.querySelector('.card.open .slot.flash')")
+    assert name in ui.text(".card.open .slot.flash"), name
+    # A double-click on a name does the same
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li').length > 3")
+    ui.js("document.querySelector('.jump-btn').closest('li').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
+    hits = ui.count(".jump-choice")
+    if hits:
+        ui.click(".jump-choice .btn", index=0)
+    ui.wait("!document.querySelector('.scrim')")
+    ui.wait("document.querySelector('.card.open .slot.flash')")
+    # And with nobody booked on the loaded days it says so instead of jumping
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!/api\\/overview/.test(String(url))) return response;
+          const data = await response.json();
+          for (const day of data.days) for (const slot of day.slots) slot.players = [];
+          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    _open_sheet(ui, "e", "Preferences")
+    ui.wait("document.querySelector('#f-field-availability-min_open_spots')")
+    ui.click(".actions .btn.pri")
+    ui.wait("document.querySelector('.status-line.ok')")
+    _close_sheet(ui)
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li').length > 3")
+    ui.wait("document.querySelectorAll('.jump-btn').length === 0")  # the reloaded days have nobody on them
+    ui.js("document.querySelector('.player-list li:not(.letter):not(.player-head)').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
+    ui.wait("document.querySelector('.sheet .banner')")
+    _close_sheet(ui)
+    ui.js("window.__beforeReload = true; location.reload()")
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)
