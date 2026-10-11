@@ -235,7 +235,16 @@
   "players.column.tee_time": "Next tee time",
   "players.tee_time_more": "{n} more",
   "search.ranking": "ranking with AI…",
-  "view.logout": "Log out"
+  "view.logout": "Log out",
+  "update.available": "Version {version} is available",
+  "update.run": "update with",
+  "update.now": "Update now",
+  "update.title": "Update to {version}?",
+  "update.explain": "Installs the new version on this server and restarts it. This page reconnects by itself, which takes about a minute or two.",
+  "update.installing": "Installing…",
+  "update.restarting": "Restarting…",
+  "update.failed": "The update did not work: {error}",
+  "update.slow": "The server is taking long to come back. Check it with: systemctl status teetime-monitor"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -473,6 +482,15 @@
   "players.column.tee_time": "Nächste Tee-Zeit",
   "players.tee_time_more": "{n} weitere",
   "search.ranking": "KI sortiert die Treffer …",
-  "view.logout": "Abmelden"
+  "view.logout": "Abmelden",
+  "update.available": "Version {version} ist verfügbar",
+  "update.run": "aktualisieren mit",
+  "update.now": "Jetzt aktualisieren",
+  "update.title": "Auf {version} aktualisieren?",
+  "update.explain": "Installiert die neue Version auf diesem Server und startet ihn neu. Die Seite verbindet sich von selbst wieder, das dauert etwa ein bis zwei Minuten.",
+  "update.installing": "Wird installiert …",
+  "update.restarting": "Startet neu …",
+  "update.failed": "Die Aktualisierung hat nicht geklappt: {error}",
+  "update.slow": "Der Server braucht lange für den Neustart. Prüfen mit: systemctl status teetime-monitor"
  }
 }

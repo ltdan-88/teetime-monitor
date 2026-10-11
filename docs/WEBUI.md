@@ -36,6 +36,14 @@ while the page is open, and no background scraper (nothing runs while the window
 it as a server: `teetime-monitor-web --serve` (password, fetches by itself, for the whole home network) is
 described in [RASPBERRY-PI.md](RASPBERRY-PI.md).
 
+## Updates
+
+Once a day the program checks GitHub's public release list (a single request that sends nothing about you); when a
+newer version exists the footer says **Version X is available** and links to the release notes, with the command
+that updates your kind of install (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). On a
+Raspberry Pi server there is an **Update now** button ([RASPBERRY-PI.md](RASPBERRY-PI.md)). The portable downloads
+and the Mac app are updated by downloading the new release. `TEETIME_MONITOR_NO_UPDATE_CHECK=1` turns the check off.
+
 ## Start it
 
 - **Portable Windows / Linux download:** double-click `TeetimeMonitor-Web.cmd` (Windows), or run
@@ -64,7 +72,8 @@ the scraping on a server, which this project does not have.
 
 Your pc caddie login is behind it, so it is built conservatively:
 
-- It listens on **127.0.0.1 only**, on a random port, never on the network.
+- It listens on **127.0.0.1 only**, on a random port, never on the network (only `--serve`, for a Raspberry Pi
+  server, opens it to your home network, and then it asks for a password: [RASPBERRY-PI.md](RASPBERRY-PI.md)).
 - Every request needs a random **token** that only the printed link contains; the page keeps it in a
   cookie that scripts cannot read. Other programs and other websites cannot use the server.
 - It refuses requests for another host name or from another website, and the page may load nothing from

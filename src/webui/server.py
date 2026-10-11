@@ -44,7 +44,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .. import club_config, global_preferences, i18n, net, paths, scrape_once
-from . import auth, clubs_api, data, settings_api, tools_api
+from . import auth, clubs_api, data, settings_api, tools_api, updates
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 COOKIE_NAME = "tm_session"
@@ -125,6 +125,7 @@ class WebServer(ThreadingHTTPServer):
         # Local: loopback only, on a random port. Served: the network (or the one interface `host` names).
         super().__init__((host or ("0.0.0.0" if serve else "127.0.0.1"), port), Handler)  # noqa: S104 -- the point of --serve
         self.serve = serve
+        self.restart_requested = False
         self.login_throttle = auth.LoginThrottle()
         self.token = token or secrets.token_urlsafe(24)
         self.port = self.server_address[1]
@@ -147,6 +148,12 @@ class WebServer(ThreadingHTTPServer):
         """Seconds since the page was last heard from, once it has been; else None-like."""
         reference = self.last_ping if self.last_ping is not None else self.started
         return time.monotonic() - reference
+
+    def restart(self) -> None:
+        """Stop serving and let `main()` exit with the restart code: systemd starts the program again, now
+        the newer version (`updates.apply()` has just installed it)."""
+        self.restart_requested = True
+        self.shutdown()
 
     def should_exit(self) -> bool:
         if self.keep_running or self.serve:
@@ -377,6 +384,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": "bad_request"}, HTTPStatus.BAD_REQUEST)
             global_preferences.save_last_active_club(club["id"], club["slug"], course)
             return self._json({"ok": True})
+        if route == ("GET", "/api/update"):
+            return self._json(updates.status(serving=self.server.serve))
+        if route == ("POST", "/api/update/check"):
+            updates.check_now()
+            return self._json(updates.status(serving=self.server.serve))
+        if route == ("POST", "/api/update/apply"):
+            return reply(updates.apply(self.server.serve, self.server.restart), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/ping"):
             self.server.last_ping = time.monotonic()
             return self._json({"ok": True})
@@ -582,12 +596,17 @@ def main(argv: list[str] | None = None) -> None:
         if not args.no_browser:
             open_window(server.url)
         threading.Thread(target=_watch_idle, args=(server,), daemon=True, name="idle-watch").start()
+    if not updates.disabled():
+        threading.Thread(target=updates.watch, daemon=True, name="update-check").start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
         server.server_close()
+    if server.restart_requested:
+        print("Restarting into the new version.", flush=True)
+        sys.exit(updates.RESTART_EXIT_CODE)
 
 
 if __name__ == "__main__":

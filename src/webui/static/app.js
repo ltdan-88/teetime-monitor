@@ -11,6 +11,7 @@ import { SearchSheet } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
+import { UpdateNotice, UpdateSheet } from '/update.js';
 
 const ADD_CLUB = '__add_club__';
 applyScale();
@@ -116,6 +117,7 @@ function App() {
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
+  const [update, setUpdate] = useState(null); // { latest, newer, url, command, can_update ... }: a newer release exists
   const loadSeq = useRef(0);
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
@@ -174,6 +176,18 @@ function App() {
     query.addEventListener('change', follow);
     return () => query.removeEventListener('change', follow);
   }, [boot && boot.theme]);
+
+  useEffect(() => {
+    if (!boot) return undefined;
+    const look = () => api('/api/update').then(setUpdate).catch(() => {});
+    look();
+    const timer = setInterval(look, 30 * 60 * 1000);
+    window.addEventListener('focus', look); // a tab that has sat open for days looks again when you come back to it
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', look);
+    };
+  }, [!!boot]);
 
   const handleError = useCallback((error) => {
     setFailure(error && (error.status === 403 || error.name === 'TypeError') ? 'gone' : 'error');
@@ -443,9 +457,11 @@ function App() {
           ${refresh.error && overview && overview.days.length > 0 && html`<span class="warning">${refreshErrorText(refresh.error)}</span>`}
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
+        ${update && update.newer && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} />`}
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} />${t('legend')}</button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
+      ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => setSheet(null)} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} onClose=${() => setSheet(null)}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
