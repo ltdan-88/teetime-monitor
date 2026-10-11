@@ -70,6 +70,8 @@ export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, 
               onChange=${(value) => saveSetting('field-units', value, { units: value }, { units })} /></div>
           <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
             <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, { showHandicaps: value }, { showHandicaps })} /></div>
+          ${boot.serve && html`<div class="field-row"><span></span>
+            <button class="btn small" onClick=${() => post('/api/auth/logout').then(() => location.assign('/login'))}>${t('view.logout')}</button></div>`}
         </div>`}
     </span>`;
 }

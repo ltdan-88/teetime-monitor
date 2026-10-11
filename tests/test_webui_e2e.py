@@ -656,3 +656,51 @@ def test_a_narrow_window_still_works(ui):
 
 def test_nothing_went_wrong_in_the_page(ui):
     assert ui.problems == []
+
+
+# ---- the server mode (--serve): a password instead of the link --------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def served_ui(tmp_path_factory):
+    executable = _chrome()
+    if executable is None:
+        pytest.skip("no Chrome, Chromium or Edge found (set CHROME)")
+    server = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo-served")), "--serve", "--offline", "--password", "swing and a miss"],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "PYTHONUNBUFFERED": "1", "TEETIME_MONITOR_LANG": "en"},
+    )  # fmt: skip
+    port = None
+    for line in server.stdout:
+        match = re.search(r"serving on port (\d+)", line)
+        if match:
+            port = int(match.group(1))
+            break
+    assert port, "the served demo did not start"
+    page = Page(executable)
+    page.go(f"http://127.0.0.1:{port}/")
+    page.wait("document.querySelector('#password')")  # the first thing anyone gets is the login page
+    yield page, port
+    page.close()
+    server.kill()
+
+
+def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
+    page, port = served_ui
+    assert page.js("location.pathname") == "/login"
+    page.shot("login")
+    page.set("#password", "not the password")
+    page.click("#submit")
+    page.wait("!document.querySelector('#error').hidden")  # a wrong password says so, and stays on the login page
+    assert page.js("location.pathname") == "/login"
+    page.set("#password", "swing and a miss")
+    page.click("#submit")
+    page.wait("document.querySelectorAll('.card').length > 0")  # the Overview, with its data
+    page.js("window.__beforeReload = true; location.reload()")
+    page.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")  # still logged in
+    page.js("document.querySelector('[data-view-button]').click()")
+    page.wait("document.querySelector('.view-panel')")
+    page.click(".view-panel .btn", "Log out")
+    page.wait("document.querySelector('#password')")  # back at the login page
+    page.go(f"http://127.0.0.1:{port}/api/bootstrap")
+    page.wait("document.body.innerText.includes('auth')")  # and nothing is open without it: the data answers 401

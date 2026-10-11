@@ -14,6 +14,9 @@ export async function api(path, options) {
   } catch (_) {
     /* not JSON */
   }
+  if (response.status === 401 && payload && payload.error === 'auth') {
+    location.assign('/login'); // the server wants its password (or the session ended)
+  }
   if (!response.ok) {
     const error = new Error(payload && payload.error ? String(payload.error) : 'HTTP ' + response.status);
     error.status = response.status;

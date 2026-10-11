@@ -112,6 +112,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check src/ tests/ scripts/
+      - run: shellcheck deploy/raspberry-pi/install.sh
 
   # The macOS GUI's own regression suite (added 2026-09-19, alongside the tests
   # themselves) -- a plain executable, not `.testTarget`/`swift test`, since

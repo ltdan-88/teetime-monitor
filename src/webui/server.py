@@ -14,6 +14,12 @@ Security (your pc caddie login sits behind this):
   carries an Origin must come from this same origin.
 - A strict Content-Security-Policy: the page loads nothing from anywhere else.
 
+`--serve` (2026-10-11) turns it into a home-network server, for a Raspberry Pi: it listens on the
+network, keeps running, scrapes on its own schedule, and every request needs a password (auth.py)
+instead of the one-time link. Everything else above (Origin check, CSP) still applies; the Host
+header is not checked there, since the Pi is reached by name or address and a rebinding page cannot
+get the password cookie anyway.
+
 Lifecycle: the page pings `/api/ping` every few seconds; once it has been seen and then stays
 silent (the window was closed) the server exits, so a friend closing the browser window does
 not leave a program running. `--keep-running` turns that off. Ctrl+C always works.
@@ -38,10 +44,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .. import club_config, global_preferences, i18n, net, paths, scrape_once
-from . import clubs_api, data, settings_api, tools_api
+from . import auth, clubs_api, data, settings_api, tools_api
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 COOKIE_NAME = "tm_session"
+AUTH_COOKIE_NAME = "tm_auth"
+DEFAULT_SERVE_PORT = 8765
+SCRAPE_CHECK_SECONDS = 300  # how often the server looks for a club that is due (the clubs' own intervals decide)
+# Reachable without logging in: the login page and what it needs.
+PUBLIC_PAGES = {"/login": "login.html", "/login.js": "login.js", "/style.css": "style.css"}
 PING_INTERVAL_HINT_SECONDS = 5
 IDLE_EXIT_AFTER_FIRST_PING_SECONDS = 120  # background tabs throttle timers to about one a minute
 IDLE_EXIT_WITHOUT_ANY_PING_SECONDS = 600  # the window never opened, or was closed at once
@@ -108,8 +119,13 @@ class WebServer(ThreadingHTTPServer):
         self.server_name = "127.0.0.1"
         self.server_port = self.server_address[1]
 
-    def __init__(self, port: int = 0, token: str | None = None, keep_running: bool = False) -> None:
-        super().__init__(("127.0.0.1", port), Handler)
+    def __init__(
+        self, port: int = 0, token: str | None = None, keep_running: bool = False, serve: bool = False, host: str | None = None
+    ) -> None:
+        # Local: loopback only, on a random port. Served: the network (or the one interface `host` names).
+        super().__init__((host or ("0.0.0.0" if serve else "127.0.0.1"), port), Handler)  # noqa: S104 -- the point of --serve
+        self.serve = serve
+        self.login_throttle = auth.LoginThrottle()
         self.token = token or secrets.token_urlsafe(24)
         self.port = self.server_address[1]
         self.keep_running = keep_running
@@ -133,7 +149,7 @@ class WebServer(ThreadingHTTPServer):
         return time.monotonic() - reference
 
     def should_exit(self) -> bool:
-        if self.keep_running:
+        if self.keep_running or self.serve:
             return False
         limit = IDLE_EXIT_WITHOUT_ANY_PING_SECONDS if self.last_ping is None else IDLE_EXIT_AFTER_FIRST_PING_SECONDS
         return self.idle_for() > limit
@@ -143,6 +159,7 @@ class Handler(BaseHTTPRequestHandler):
     server: WebServer
     server_version = "teetime-monitor-web"
     sys_version = ""
+    timeout = 60  # a connection that goes quiet does not hold a thread for ever
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 -- BaseHTTPRequestHandler's signature
         pass  # one line per request would bury the one URL the terminal has to show
@@ -182,11 +199,30 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _host_ok(self) -> bool:
+        if self.server.serve:
+            return bool(self.headers.get("Host"))
         return self.headers.get("Host", "") in self.server.allowed_hosts()
 
     def _origin_ok(self) -> bool:
         origin = self.headers.get("Origin")
-        return origin is None or origin in self.server.allowed_origins()
+        if origin is None:
+            return True
+        if self.server.serve:  # whatever name the Pi is reached by, a page may only call the server it came from
+            return urlsplit(origin).netloc == self.headers.get("Host")
+        return origin in self.server.allowed_origins()
+
+    def _cookie(self, name: str) -> str:
+        for part in self.headers.get("Cookie", "").split(";"):
+            key, _, value = part.strip().partition("=")
+            if key == name:
+                return value
+        return ""
+
+    def _logged_in(self) -> bool:
+        return auth.valid_session(self._cookie(AUTH_COOKIE_NAME))
+
+    def _client(self) -> str:
+        return self.client_address[0]
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -217,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._text(HTTPStatus.FORBIDDEN, "Cross-site request refused.")
             url = urlsplit(self.path)
             query = parse_qs(url.query)
+            if self.server.serve:
+                return self._dispatch_served(method, url, query)
             # The one unauthenticated door: the URL with the token, once, to set the cookie.
             if method == "GET" and url.path == "/" and "t" in query:
                 if hmac.compare_digest(query["t"][0].encode(), self.server.token.encode()):
@@ -242,6 +280,45 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             return None
+
+    def _dispatch_served(self, method: str, url, query: dict[str, list[str]]) -> None:
+        """`--serve`: the login page and its own files are open; everything else needs the password cookie."""
+        if method == "POST" and url.path == "/api/auth/login":
+            return self._login()
+        if method == "GET" and url.path in PUBLIC_PAGES:
+            if url.path == "/login" and self._logged_in():
+                return self._redirect("/")
+            return self._static("/" + PUBLIC_PAGES[url.path])
+        if not self._logged_in():
+            if url.path.startswith("/api/"):
+                return self._json({"error": "auth"}, HTTPStatus.UNAUTHORIZED)
+            return self._redirect("/login")
+        if method == "POST" and url.path == "/api/auth/logout":
+            return self._send(
+                HTTPStatus.OK, b"{}", "application/json", {"Set-Cookie": f"{AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"}
+            )
+        if url.path.startswith("/api/"):
+            return self._api(method, url.path, query)
+        if method != "GET":
+            return self._text(HTTPStatus.METHOD_NOT_ALLOWED, "Not allowed.")
+        return self._static(url.path)
+
+    def _redirect(self, location: str) -> None:
+        self._send(HTTPStatus.FOUND, b"", "text/plain", {"Location": location, "Cache-Control": "no-store"})
+
+    def _login(self) -> None:
+        address = self._client()
+        wait = self.server.login_throttle.retry_after(address)
+        if wait:
+            return self._json({"error": "too_many", "retry_after": wait}, HTTPStatus.TOO_MANY_REQUESTS)
+        password = self._read_json().get("password")
+        if isinstance(password, str) and auth.check_password(password):
+            self.server.login_throttle.success(address)
+            value = auth.make_session()
+            cookie = f"{AUTH_COOKIE_NAME}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={auth.SESSION_SECONDS}"
+            return self._send(HTTPStatus.OK, b'{"ok":true}', "application/json", {"Set-Cookie": cookie, "Cache-Control": "no-store"})
+        self.server.login_throttle.miss(address)
+        return self._json({"error": "bad_password"}, HTTPStatus.UNAUTHORIZED)
 
     def _static(self, path: str) -> None:
         relative = "index.html" if path in ("", "/") else path.lstrip("/")
@@ -271,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
 
         route = (method, path)
         if route == ("GET", "/api/bootstrap"):
-            return self._json(data.bootstrap())
+            return self._json({**data.bootstrap(), "serve": self.server.serve})
         if route == ("GET", "/api/strings"):
             return self._json({"language": i18n.get_language(), "strings": i18n._STRINGS.get(i18n.get_language(), {})})
         if route == ("GET", "/api/overview"):
@@ -403,30 +480,108 @@ def _watch_idle(server: WebServer) -> None:
             return
 
 
+def _scrape_pass(server: WebServer) -> None:
+    """One look at every saved club: `scrape_due_for_club()` fetches only what its own scrape intervals say
+    is due (and takes the day's backup), so most passes do nothing. Goes through the same `Refresher` as the
+    Refresh button, so the two never scrape one club at once and the page shows the update running."""
+    for slug in club_config.list_clubs():
+        try:
+            config = club_config.load_club_config(slug)
+        except Exception:  # noqa: BLE001 -- one broken club file must not stop the others
+            traceback.print_exc()
+            continue
+
+        def work(slug=slug, config=config):
+            scrape_once.scrape_due_for_club(slug, config, force=False, source="agent")
+
+        server.refresher.start(slug, work)
+
+
+def _schedule_scrapes(server: WebServer) -> None:
+    """`--serve`: what the launchd agent / scheduled task does on a computer, in the server itself."""
+    time.sleep(10)  # let the server come up first
+    while True:
+        _scrape_pass(server)
+        time.sleep(SCRAPE_CHECK_SECONDS)
+
+
+def _addresses(port: int) -> list[str]:
+    """The ways to reach this server from another device: its name (`raspberrypi.local` with mDNS) and
+    the addresses of this machine's network interfaces."""
+    import socket  # noqa: PLC0415
+
+    found = [f"http://{socket.gethostname()}.local:{port}" if "." not in socket.gethostname() else f"http://{socket.gethostname()}:{port}"]
+    try:  # the address the machine would use to reach the local network: no packet is sent
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("10.255.255.255", 1))
+        found.append(f"http://{probe.getsockname()[0]}:{port}")
+        probe.close()
+    except OSError:
+        pass
+    return found
+
+
+def _ask_password(from_stdin: bool) -> str | None:
+    import getpass  # noqa: PLC0415
+
+    if from_stdin:
+        return sys.stdin.readline().rstrip("\r\n")
+    first = getpass.getpass(f"New password for the web UI (at least {auth.MIN_PASSWORD_LENGTH} characters): ")
+    if getpass.getpass("Once more: ") != first:
+        print("The two entries differ; nothing was changed.")
+        return None
+    return first
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="teetime-monitor-web", description="Teetime Monitor in a browser window.")
-    parser.add_argument("--port", type=int, default=0, help="port to listen on (default: a free one)")
+    parser.add_argument("--port", type=int, default=None, help=f"port to listen on (default: a free one; {DEFAULT_SERVE_PORT} with --serve)")
     parser.add_argument("--no-browser", action="store_true", help="only print the link, do not open a window")
     parser.add_argument("--keep-running", action="store_true", help="do not stop when the window is closed")
+    parser.add_argument("--serve", action="store_true", help="run as a server for the whole home network (password, runs until stopped, scrapes on its own)")
+    parser.add_argument("--host", default=None, help="with --serve: the address to listen on (default: every interface)")
+    parser.add_argument("--set-password", action="store_true", help="set (or change) the password for --serve, then exit")
+    parser.add_argument("--password-stdin", action="store_true", help="with --set-password: read the password from one line of standard input")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
     args = parser.parse_args(argv)
     if args.version:
         print(f"teetime-monitor {data.version()}")
         return
     paths.force_utf8_stdio()
+    if args.set_password:
+        paths.ensure_dirs()
+        password = _ask_password(args.password_stdin)
+        if password is None:
+            sys.exit(1)
+        try:
+            auth.set_password(password)
+        except ValueError as error:
+            print(error)
+            sys.exit(1)
+        print("The password is set. Everyone who was logged in has to log in again.")
+        return
     net.use_system_trust_store()
     if paths.needs_migration():
         paths.migrate_from()
     paths.ensure_dirs()
-    server = WebServer(port=args.port, keep_running=args.keep_running)
-    print(f"Teetime Monitor {data.version()} is running. If no window opened, open this link:\n\n  {server.url}\n", flush=True)
-    print("Close the window to stop it, or press Ctrl+C here." if not args.keep_running else "Press Ctrl+C to stop it.", flush=True)
-    if not args.no_browser:
-        open_window(server.url)
-    threading.Thread(target=_watch_idle, args=(server,), daemon=True, name="idle-watch").start()
-    # The Preferences/Settings forms are generated from the terminal app's field list, whose import
-    # (Textual) takes a few seconds on a slow disk: do it now, in the background, not on first click.
+    if args.serve and not auth.is_configured():
+        print("No password set yet. Set one first:\n\n  teetime-monitor-web --set-password\n")
+        sys.exit(2)
+    port = args.port if args.port is not None else (DEFAULT_SERVE_PORT if args.serve else 0)
+    server = WebServer(port=port, keep_running=args.keep_running, serve=args.serve, host=args.host)
     threading.Thread(target=settings_api._screen, daemon=True, name="warm-up").start()
+    if args.serve:
+        print(f"Teetime Monitor {data.version()} is serving on port {server.port}. Open it from any device on this network:\n", flush=True)
+        for address in _addresses(server.port):
+            print(f"  {address}", flush=True)
+        print("\nLog in with the password you set. Press Ctrl+C to stop it.", flush=True)
+        threading.Thread(target=_schedule_scrapes, args=(server,), daemon=True, name="scrape-schedule").start()
+    else:
+        print(f"Teetime Monitor {data.version()} is running. If no window opened, open this link:\n\n  {server.url}\n", flush=True)
+        print("Close the window to stop it, or press Ctrl+C here." if not args.keep_running else "Press Ctrl+C to stop it.", flush=True)
+        if not args.no_browser:
+            open_window(server.url)
+        threading.Thread(target=_watch_idle, args=(server,), daemon=True, name="idle-watch").start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

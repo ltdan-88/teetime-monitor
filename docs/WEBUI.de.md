@@ -33,7 +33,8 @@ Karten-Layout der Mac-App (hell, wenn dein System hell ist), auf Deutsch oder En
   `a` Club hinzufügen, `v` Ansicht, `?` Legende, Esc schließt ein Fenster.
 
 Was bewusst anders ist als in der Mac-App: keine Menüleiste (alles steht in der Werkzeugleiste), Benachrichtigungen
-nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenster läuft nichts).
+nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenster läuft nichts) – außer als Server: `teetime-monitor-web --serve`
+(Passwort, ruft selbstständig ab, für das ganze Heimnetz) steht in [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md).
 
 ## Starten
 
