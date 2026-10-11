@@ -1,7 +1,7 @@
 // The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
 
 import {
-  html, t, Icon, Condition, WeatherHeads, WeatherCells, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
+  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
 } from '/lib.js';
 
 function pickTooltip(pick) {
@@ -98,7 +98,29 @@ export function PlayerNames({ slot, showHandicaps, anonymousCount }) {
   return html`<span class="names">${parts}</span>`;
 }
 
+/** On a phone the names would wrap over two lines of every row: a chip with the count (and a star when a friend is
+ *  booked) opens them as a vertical list instead. Tablets and computers show the names inline, as always. */
+function WhoChip({ slot, open, onToggle }) {
+  const named = slot.players.length;
+  const anonymous = Math.max(0, slot.booked - named);
+  const total = named + anonymous;
+  if (!total) return null;
+  const stop = (event) => event.stopPropagation(); // a tap here must not also mark the slot as booked
+  return html`<button class="who-chip" aria-expanded=${open} aria-label=${t(open ? 'who.hide' : 'who.show', { n: total })}
+    onClick=${(event) => { stop(event); onToggle(); }} onKeyDown=${stop}>
+    ${slot.players.some((p) => p.friend) && html`<span class="fr">★</span>`}<${Icon} name="users" size=${14} />${total}</button>`;
+}
+
+function WhoList({ slot, showHandicaps }) {
+  const anonymous = Math.max(0, slot.booked - slot.players.length);
+  return html`<span class="who-list">
+    ${slot.players.map((player) => html`<div class=${'name' + (player.friend ? ' f' : '') + (player.gender === 'female' ? ' alt' : '')}>${player.friend ? '★ ' : ''}${player.name}${showHandicaps && player.hcp != null ? ` (${hcpText(player.hcp)})` : ''}</div>`)}
+    ${anonymous > 0 && html`<div class="name anon">${t('anonymous')}${anonymous > 1 ? ` ×${anonymous}` : ''}</div>`}
+  </span>`;
+}
+
 function SlotRow({ slot, day, units, showHandicaps, onPick }) {
+  const [whoOpen, setWhoOpen] = useState(false);
   const dimmed = outsideWindow(day, slot);
   const capacity = slot.capacity > 0 ? slot.capacity : 4;
   const friendSeat = slot.players.some((player) => player.friend);
@@ -132,6 +154,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
         : html`
           <span class="seats" title=${t('tip.seats', { booked: slot.booked, capacity })}>${seats}</span>
           <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>
+          <${WhoChip} slot=${slot} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
           <span class="people">
             <${PlayerNames} slot=${slot} showHandicaps=${showHandicaps} />
             ${slot.booked_by_you && html`<span class="note" style="color:var(--accent)"><${Icon} name="flag" size=${14} style="fill:currentColor" />${t('you')}</span>`}
@@ -140,6 +163,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
           </span>`}
       <span class="wx">${w && html`<${Condition} code=${w.code} size=${20} />`}</span>
       <${WeatherCells} weather=${w} units=${units} />
+      ${whoOpen && !blocked && html`<${WhoList} slot=${slot} showHandicaps=${showHandicaps} />`}
     </div>`;
 }
 

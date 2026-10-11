@@ -160,6 +160,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .note { font-size: 0.8125rem; color: var(--orange); display: inline-flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
 .note.dark { color: var(--dim); }
 .slot .wx { display: flex; color: var(--seat); }
+.who-chip, .who-list { display: none; }
 .slot .blocked-note { grid-column: 2 / 5; }
 .slot .cell, .res .cell { text-align: right; color: var(--dim); font-family: var(--mono); font-size: 0.875rem; white-space: nowrap; }
 .cell.warn { color: var(--orange); font-weight: 600; }
@@ -244,7 +245,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 /* ---- sheets ---- */
 .scrim { position: fixed; inset: 0; background: rgba(10,10,20,.58); display: flex; align-items: center; justify-content: center; padding: 1.25rem; z-index: 20; }
 .sheet {
-  width: 100%; max-height: min(92vh, 61.25rem); display: flex; flex-direction: column; background: var(--bg);
+  width: 100%; max-height: min(92vh, 61.25rem); max-height: min(92dvh, 61.25rem); display: flex; flex-direction: column; background: var(--bg);
   border: 1px solid var(--line-strong); border-radius: 1.125rem; box-shadow: 0 1.875rem 5rem rgba(0,0,0,.45); outline: none;
 }
 .sheet.small { max-width: 32.5rem; }
@@ -379,23 +380,30 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .toolbar-tools { flex: 1 1 100%; justify-content: space-between; }
   .toolbar-tools > .tool, .toolbar-tools .view-wrap { flex: 1 1 0; justify-content: center; }
   .toolbar-tools .view-wrap > .tool { width: 100%; justify-content: center; }
-  .view-panel { right: auto; left: 50%; transform: translateX(-50%); }
   .dh { grid-template-columns: 1.375rem 1fr 2.25rem 6rem 1fr; padding: 0.5rem 0.75rem; row-gap: 0.375rem; }
   .dh .rain, .dh .wind, .dh .sun { display: none; }
   .dh .heat { grid-column: 1 / -1; justify-content: flex-start; }
   .dh .heat span { width: calc((100% - 1.25rem) / 6); }
   .dh .badge-slot { justify-content: flex-end; padding-right: 0; }
   .dh .events { grid-column: 2 / -1; }
-  .slot { grid-template-columns: 4.25rem 6.25rem 1fr auto; height: auto; min-height: 2.25rem; column-gap: 0.5rem; row-gap: 0.125rem; padding: 0.25rem 0; }
+  .slot { grid-template-columns: 4.25rem 6.25rem auto 1fr auto; height: auto; min-height: 2.25rem; column-gap: 0.5rem; row-gap: 0.125rem; padding: 0.25rem 0; }
   .slots-head { display: none; }
   .slot .wx, .slot .rain, .slot .wind { display: none; }
   .slot .time { grid-row: 1; grid-column: 1; }
   .slot .seats { grid-row: 1; grid-column: 2; }
   .slot .free { grid-row: 1; grid-column: 3; font-size: 0.8125rem; }
-  .slot .temp { grid-row: 1; grid-column: 4; }
+  .who-chip { display: inline-flex; grid-row: 1; grid-column: 4; justify-self: start; align-items: center; gap: 0.25rem; height: 1.875rem; padding: 0 0.625rem;
+    border-radius: 62.4375rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; font-family: var(--mono); }
+  .who-chip[aria-expanded="true"] { background: var(--pill-blue-bg); color: var(--accent); }
+  .who-chip .fr { color: var(--yellow); }
+  .who-list { display: block; grid-row: 3; grid-column: 1 / -1; padding: 0.125rem 0 0.375rem 0.25rem; }
+  .who-list div { padding: 0.1875rem 0; }
+  .slot .names { display: none; }
+  .slot .people:not(:has(.note)) { display: none; }
+  .slot .temp { grid-row: 1; grid-column: 5; }
   .slot .people { grid-row: 2; grid-column: 1 / -1; padding-bottom: 0.25rem; }
   .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
-  .slot .blocked-note { grid-row: 1; grid-column: 3 / -1; }
+  .slot .blocked-note { grid-row: 1; grid-column: 3 / 5; }
   .slot .people:empty { display: none; }
 }
 
@@ -408,7 +416,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .slot[data-slot] { scroll-margin-top: calc(var(--toolbar-h, 4.5rem) + 6rem); }
 .slot.dimmed { opacity: .4; }
 .slot.dimmed.past { opacity: .25; }
-.sheet.tall { height: min(90vh, 58rem); }
+.sheet.tall { height: min(90vh, 58rem); height: min(90dvh, 58rem); }
 .sheet-body.fixed { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .sheet-body.fixed > * { flex: none; }
 .sheet-body.fixed > .scroll, .sheet-body.fixed > .player-scroll { flex: 1 1 auto; min-height: 0; }
@@ -458,8 +466,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .time-select .select select { width: 3.5rem; padding: 0 1.25rem 0 0.5rem; }
 @media (max-width: 900px) { .crit-cards { grid-template-columns: minmax(0, 1fr); } }
 
-/* narrow windows: pickers on one row, the tools spread over the next; results on two lines */
-}
+/* narrow windows: results on two lines */
 @media (max-width: 720px) {
   .results { display: block; }
   .res { grid-column: auto; grid-template-columns: 5.5rem 3.2rem 1fr auto; row-gap: 0.125rem; padding: 0.5rem 0.875rem; }
@@ -510,7 +517,10 @@ button, select, input { touch-action: manipulation; }
   .field-row .select select { width: 100%; max-width: none; }
   .time-select .select select { width: 3.6rem; }
   .time-pair { flex-wrap: wrap; row-gap: 0.375rem; }
-  .sheet { max-height: 94vh; }
+  .sheet { max-height: 94vh; max-height: 94dvh; }
+  /* Search: the criteria are tall on a phone, so the whole body scrolls (results included) instead of being clipped */
+  .sheet-body.fixed:has(> .criteria) { display: block; overflow-y: auto; }
+  .sheet-body.fixed:has(> .criteria) > .scroll { overflow: visible; }
   .sheet-head { padding: 0.9rem 1rem 0.5rem; }
   .sheet-body { padding: 0.5rem 1rem 1.25rem; }
   .group { padding: 0.75rem 1rem 0.5rem; }
@@ -534,3 +544,17 @@ button, select, input { touch-action: manipulation; }
 .check-update { font-size: 0.75rem; color: var(--mid); margin-right: 0.5rem; }
 .check-update.failed { color: var(--orange); }
 .update-note + .version { margin-left: 0; }
+
+/* View menu: about line (version and update check) -- on phones the footer keeps only the status and the legend */
+.view-about { display: none; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0 0.25rem; border-top: 1px solid var(--line); margin-top: 0.25rem; }
+.view-about .version { font-family: var(--mono); font-size: 0.75rem; color: var(--dim); }
+@media (max-width: 640px) {
+  .footer { flex-wrap: nowrap; gap: 0.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
+  .footer .version, .footer .check-update, .footer .legend-text { display: none; }
+  .footer .status { flex: 1 1 auto; font-size: 0.8125rem; }
+  .footer .update-note { flex: none; margin: 0; max-width: 40%; line-height: 1.25; }
+  .view-about { display: flex; }
+  /* the View panel opens under the toolbar across the screen (centred on its far-right button it ran off the edge); after
+     the base .view-panel rule, which would otherwise win */
+  .view-panel { position: fixed; left: 0.75rem; right: 0.75rem; top: calc(var(--toolbar-h, 6rem) + 0.25rem); width: auto; max-width: none; max-height: calc(100dvh - var(--toolbar-h, 6rem) - 1.25rem); overflow: auto; }
+}

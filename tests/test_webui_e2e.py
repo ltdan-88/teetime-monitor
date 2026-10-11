@@ -722,7 +722,50 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
             )
             assert shape["sameHeight"] == 1 and shape["tall"] >= 43, (width, shape)  # rows without names are all one height, a finger tall
             assert shape["free"] and not shape["overflow"], (width, shape)
+            chip = ui.js("(() => { const c = document.querySelector('.card.open .slot .who-chip'); return !!c && getComputedStyle(c).display !== 'none'; })()")
+            assert chip == (not whole_table), (width, chip)  # the names are inline on a tablet, a chip on a phone
             assert (shape["rain"] and shape["wind"] and shape["head"]) == whole_table, (width, shape)  # weather columns and headings on tablets only
+    finally:
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.scrollTo(0, 0)")
+
+
+def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
+    """Names would wrap over two lines of every row on a phone: a chip with the count opens them as a list.
+    The View menu opens across the screen (it ran off the right edge), Search scrolls as a whole, and the footer
+    is one slim row with the version and the update check inside the View menu."""
+    ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
+    ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=2, mobile=True)
+    try:
+        ui.js("window.scrollTo(0, 0)")
+        if not ui.count(".card.open"):
+            ui.click("button.dh", index=1)
+        ui.wait("document.querySelector('.card.open .slot .who-chip')")
+        assert ui.js("getComputedStyle(document.querySelector('.card.open .slot .names')).display") == "none"  # no names inline
+        before = ui.count(".who-list")
+        ui.js("document.querySelector('.card.open .slot .who-chip').click()")
+        ui.wait("document.querySelector('.card.open .who-list')")
+        assert before == 0 and not ui.count(".scrim")  # the list opened, and the tap did not start a booking
+        assert ui.js("document.querySelector('.card.open .who-list').innerText.length") > 3
+        ui.js("document.querySelector('.card.open .slot .who-chip').click()")
+        ui.wait("!document.querySelector('.card.open .who-list')")
+        # the View menu stays inside the screen, with the version and the update check
+        ui.js("document.querySelector('[data-view-button]').click()")
+        ui.wait("document.querySelector('.view-panel')")
+        box = ui.js("(() => { const r = document.querySelector('.view-panel').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
+        assert box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2] + 1, box
+        assert re.search(r"v\d", ui.text(".view-about")) and ui.js("getComputedStyle(document.querySelector('.view-about')).display") != "none"
+        ui.key("Escape")
+        # the footer: one slim row, the version and the check are not in it
+        assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
+        assert ui.js("getComputedStyle(document.querySelector('.footer .check-update')).display") == "none"
+        # Search scrolls as a whole, and its results fit the screen
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.res').length > 3")
+        scroll = ui.js("(() => { const b = document.querySelector('.sheet-body'); b.scrollTop = 400; return [b.scrollHeight > b.clientHeight, b.scrollTop > 0, getComputedStyle(b).overflowY, document.documentElement.scrollWidth <= innerWidth]; })()")
+        assert scroll == [True, True, "auto", True], scroll
+        _close_sheet(ui)
     finally:
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)

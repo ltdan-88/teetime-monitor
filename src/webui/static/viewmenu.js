@@ -1,6 +1,7 @@
 // The View menu in the toolbar: how the page looks and reads, one click from the Overview. Language, theme,
 // scale, units and handicaps live here (not in Settings); each applies at once.
 
+import { CheckButton } from '/update.js';
 import {
   html, t, useState, useLayoutEffect, useRef, Select, Switch, Icon, post, SCALES, DEFAULT_SCALE, getScale, setScale,
   themeNames, themeLabel, applyTheme, systemTheme,
@@ -8,7 +9,7 @@ import {
 
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'de', label: 'Deutsch' }];
 
-export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, onDisplay, onLanguage }) {
+export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, onDisplay, onLanguage, onUpdate }) {
   const [scale, setScaleState] = useState(getScale());
   const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const panel = useRef(null);
@@ -70,6 +71,7 @@ export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, 
               onChange=${(value) => saveSetting('field-units', value, { units: value }, { units })} /></div>
           <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
             <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, { showHandicaps: value }, { showHandicaps })} /></div>
+          <div class="view-about"><span class="version">v${boot.version}</span><${CheckButton} onResult=${onUpdate} /></div>
           ${boot.serve && html`<div class="field-row"><span></span>
             <button class="btn small" onClick=${() => post('/api/auth/logout').then(() => location.assign('/login'))}>${t('view.logout')}</button></div>`}
         </div>`}
