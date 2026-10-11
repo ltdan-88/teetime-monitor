@@ -217,7 +217,7 @@ notarisiert, deshalb braucht das erste Öffnen einen zusätzlichen Schritt — d
 jedem Ordner oder von einem USB-Stick): [**docs/WINDOWS-APP.de.md**](docs/WINDOWS-APP.de.md)
 ([English](docs/WINDOWS-APP.md)). Eine grafische Browser-Version für Windows und Linux (auch aus der Terminal-Installation startbar,
 `teetime-monitor-web`) steht in [**docs/WEBUI.de.md**](docs/WEBUI.de.md) ([English](docs/WEBUI.md)). Unter Linux gibt es einen portablen Tarball:
-[**docs/LINUX-APP.de.md**](docs/LINUX-APP.de.md) ([English](docs/LINUX-APP.md)).
+[**docs/LINUX-APP.de.md**](docs/LINUX-APP.de.md) ([English](docs/LINUX-APP.md)). Ein Raspberry Pi kann es als Webserver für alle Geräte zu Hause betreiben (passwortgeschützt, ruft selbstständig ab): [**docs/RASPBERRY-PI.de.md**](docs/RASPBERRY-PI.de.md) ([English](docs/RASPBERRY-PI.md)).
 
 ## Tasten
 

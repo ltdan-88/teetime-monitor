@@ -209,7 +209,7 @@ launch needs one extra step — the step-by-step guide is in
 On Windows there is a portable zip too (nothing to install, runs from any folder or USB stick):
 [**docs/WINDOWS-APP.md**](docs/WINDOWS-APP.md) ([auf Deutsch](docs/WINDOWS-APP.de.md)). A graphical browser version for Windows and Linux (it also works from the terminal install, `teetime-monitor-web`)
 is described in [**docs/WEBUI.md**](docs/WEBUI.md) ([auf Deutsch](docs/WEBUI.de.md)). On Linux there is a portable tarball:
-[**docs/LINUX-APP.md**](docs/LINUX-APP.md) ([auf Deutsch](docs/LINUX-APP.de.md)).
+[**docs/LINUX-APP.md**](docs/LINUX-APP.md) ([auf Deutsch](docs/LINUX-APP.de.md)). A Raspberry Pi can run it as an always-on web server for every device at home (password-protected, fetches by itself): [**docs/RASPBERRY-PI.md**](docs/RASPBERRY-PI.md) ([auf Deutsch](docs/RASPBERRY-PI.de.md)).
 
 ## Keys
 

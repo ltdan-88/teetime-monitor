@@ -234,7 +234,8 @@
   "tip.wind_slot": "Wind speed ({unit})",
   "players.column.tee_time": "Next tee time",
   "players.tee_time_more": "{n} more",
-  "search.ranking": "ranking with AI…"
+  "search.ranking": "ranking with AI…",
+  "view.logout": "Log out"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -471,6 +472,7 @@
   "tip.wind_slot": "Windgeschwindigkeit ({unit})",
   "players.column.tee_time": "Nächste Tee-Zeit",
   "players.tee_time_more": "{n} weitere",
-  "search.ranking": "KI sortiert die Treffer …"
+  "search.ranking": "KI sortiert die Treffer …",
+  "view.logout": "Abmelden"
  }
 }

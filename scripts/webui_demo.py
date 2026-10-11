@@ -113,6 +113,7 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true", help="start teetime-monitor-web on the demo data")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--offline", action="store_true", help="never touch the network: scrapes and previews do nothing")
+    parser.add_argument("--password", help="run it as `teetime-monitor-web --serve` (on the loopback address) with this password")
     args = parser.parse_args()
     seed(args.directory.resolve())
     print(f"Demo data written to {args.directory.resolve()}")
@@ -130,7 +131,13 @@ def main() -> None:
             scraper.login = rejected
             ai_assist.verify_api_key = lambda provider: (False, None)
 
-        server.main(["--keep-running", "--port", str(args.port), "--no-browser"])
+        if args.password:
+            from src.webui import auth
+
+            auth.set_password(args.password)
+            server.main(["--serve", "--host", "127.0.0.1", "--port", str(args.port)])
+        else:
+            server.main(["--keep-running", "--port", str(args.port), "--no-browser"])
 
 
 if __name__ == "__main__":

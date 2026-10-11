@@ -32,7 +32,9 @@ card layout of the Mac app (light when your system is light), in English or Germ
   `v` view menu, `?` legend, Esc closes a window.
 
 What differs from the Mac app on purpose: no menu bar (everything is in the toolbar), notifications only
-while the page is open, and no background scraper (nothing runs while the window is closed).
+while the page is open, and no background scraper (nothing runs while the window is closed) -- unless you run
+it as a server: `teetime-monitor-web --serve` (password, fetches by itself, for the whole home network) is
+described in [RASPBERRY-PI.md](RASPBERRY-PI.md).
 
 ## Start it
 

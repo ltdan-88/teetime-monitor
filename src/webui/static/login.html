@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Teetime Monitor</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main class="login">
+  <h1 id="title">Teetime Monitor</h1>
+  <p id="intro"></p>
+  <form id="form" autocomplete="on">
+    <label for="password" id="label"></label>
+    <input id="password" class="fld" type="password" name="password" autocomplete="current-password" autofocus required>
+    <p id="error" class="status-line error" role="alert" hidden></p>
+    <button id="submit" class="btn pri" type="submit"></button>
+  </form>
+</main>
+<noscript><p style="padding:2rem">Teetime Monitor needs JavaScript.</p></noscript>
+<script type="module" src="/login.js"></script>
+</body>
+</html>
