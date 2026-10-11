@@ -646,6 +646,33 @@ def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
+def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui):
+    """After the install the old process still answers (and already reports the new version): the page must
+    wait until it has gone down and a new one says "idle", then reload. Here the server answers "restarting",
+    fails twice, then answers "idle" -- the page must reload only then."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window); let polls = 0;
+        const json = (body) => new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}});
+        const info = {current: '0.78.0', latest: '9.9.9', newer: true, url: 'https://example.invalid/notes', command: null, can_update: true};
+        window.fetch = async (url, options) => {
+          if (/api\\/update\\/apply/.test(String(url))) return json({state: 'running', error: null});
+          if (/api\\/update/.test(String(url))) { polls += 1; window.__updatePolls = polls;
+            if (polls === 1) return json({...info, install: {state: 'restarting', error: null}});
+            if (polls <= 3) throw new TypeError('Failed to fetch');
+            return json({...info, install: {state: 'idle', error: null}}); }
+          return real(url, options); }; })()"""
+    )
+    ui.js("window.dispatchEvent(new Event('focus'))")  # polls = 1: "restarting" is what the sheet sees first ...
+    ui.wait("document.querySelector('.update-note .link-btn')")
+    ui.js("window.__beforeReload = true")
+    ui.click(".update-note .link-btn")
+    ui.wait("document.querySelector('.sheet .btn.pri')")
+    ui.click(".sheet .btn.pri")
+    ui.wait("document.querySelector('.sheet .status-line')?.textContent.includes('Restarting')", 30)
+    assert ui.js("window.__beforeReload") is True  # not reloaded while the old process still answered
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0", 60)  # reloaded by the "idle" answer
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)
