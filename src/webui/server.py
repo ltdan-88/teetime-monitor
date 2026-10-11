@@ -304,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(
                 HTTPStatus.OK, b"{}", "application/json", {"Set-Cookie": f"{AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"}
             )
+        if method == "POST" and url.path == "/api/auth/password":
+            return self._change_password()
         if url.path.startswith("/api/"):
             return self._api(method, url.path, query)
         if method != "GET":
@@ -312,6 +314,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def _redirect(self, location: str) -> None:
         self._send(HTTPStatus.FOUND, b"", "text/plain", {"Location": location, "Cache-Control": "no-store"})
+
+    def _change_password(self) -> None:
+        """Settings > Server password: the current password again (a left-open browser must not be able to
+        lock you out), then the new one. Everyone else is logged out (the session secret changes with the
+        password); this browser gets a fresh cookie and stays in. Wrong "current" guesses count towards
+        the same lockout as wrong logins."""
+        address = self._client()
+        wait = self.server.login_throttle.retry_after(address)
+        if wait:
+            return self._json({"error": "too_many", "retry_after": wait}, HTTPStatus.TOO_MANY_REQUESTS)
+        body = self._read_json()
+        current, new = body.get("current"), body.get("new")
+        if not (isinstance(current, str) and auth.check_password(current)):
+            self.server.login_throttle.miss(address)
+            return self._json({"error": "bad_password"}, HTTPStatus.UNAUTHORIZED)
+        self.server.login_throttle.success(address)
+        try:
+            auth.set_password(new if isinstance(new, str) else "")
+        except ValueError:
+            return self._json({"error": "too_short", "min": auth.MIN_PASSWORD_LENGTH}, HTTPStatus.BAD_REQUEST)
+        cookie = f"{AUTH_COOKIE_NAME}={auth.make_session()}; Path=/; HttpOnly; SameSite=Lax; Max-Age={auth.SESSION_SECONDS}"
+        self._send(HTTPStatus.OK, b'{"ok":true}', "application/json", {"Set-Cookie": cookie, "Cache-Control": "no-store"})
 
     def _login(self) -> None:
         address = self._client()

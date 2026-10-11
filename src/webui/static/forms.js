@@ -147,6 +147,50 @@ function ClubsSection({ clubs, onChanged, onAddClub }) {
     </section>`;
 }
 
+/** Settings > Server password (only on a `--serve` server): the current one, the new one twice. This browser
+ *  stays logged in; every other one has to log in again. */
+function ServerPasswordSection() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [message, setMessage] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function save(event) {
+    event.preventDefault();
+    if (next.length < 8) return setMessage({ kind: 'error', text: t('password.short', { n: 8 }) });
+    if (next !== again) return setMessage({ kind: 'error', text: t('password.mismatch') });
+    setBusy(true);
+    setMessage(null);
+    try {
+      await post('/api/auth/password', { current, new: next });
+      setCurrent('');
+      setNext('');
+      setAgain('');
+      setMessage({ kind: 'ok', text: t('password.changed') });
+    } catch (error) {
+      const code = error.payload && error.payload.error;
+      const wait = error.payload && error.payload.retry_after;
+      setMessage({ kind: 'error', text: code === 'bad_password' ? t('password.wrong') : code === 'too_many' ? t('login.wait', { n: wait || 30 }) : t('error.title') });
+    }
+    setBusy(false);
+  }
+  return html`
+    <section class="group">
+      <h3>${t('password.title')}</h3>
+      <form onSubmit=${save} autocomplete="off">
+        <div class="field-row"><label for="pw-current">${t('password.current')}</label>
+          <input id="pw-current" class="fld" type="password" value=${current} onInput=${(event) => setCurrent(event.target.value)} autocomplete="current-password" /></div>
+        <div class="field-row"><label for="pw-new">${t('password.new')}</label>
+          <input id="pw-new" class="fld" type="password" value=${next} onInput=${(event) => setNext(event.target.value)} autocomplete="new-password" /></div>
+        <div class="field-row"><label for="pw-again">${t('password.again')}</label>
+          <input id="pw-again" class="fld" type="password" value=${again} onInput=${(event) => setAgain(event.target.value)} autocomplete="new-password" /></div>
+        <p class="hint">${t('password.note')}</p>
+        <div class="actions"><${Status} kind=${message && message.kind}>${message && message.text}<//><span class="grow"></span>
+          <button class="btn" type="submit" disabled=${busy || !current || !next}>${t('password.change')}</button></div>
+      </form>
+    </section>`;
+}
+
 function AccountSection({ account, verifyClubId, onChanged }) {
   const [username, setUsername] = useState(account.username);
   const [password, setPassword] = useState('');
@@ -221,19 +265,19 @@ function AiSection({ ai, onChanged }) {
     </form>`;
 }
 
-export function SettingsSheet({ clubId, onClose, onSaved, onAddClub, onClubsChanged }) {
+export function SettingsSheet({ clubId, serve, onClose, onSaved, onAddClub, onClubsChanged }) {
   const { data, error, reload } = useLoad(() => api('/api/settings' + query({ club_id: clubId })), [clubId]);
   return html`<${Sheet} title=${t('settings.title')} onClose=${onClose} size="wide">
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('loading')}</p>`}
-    ${data && html`<${SettingsBody} data=${data} clubId=${clubId} reload=${reload} onClose=${onClose} onSaved=${onSaved} onAddClub=${onAddClub} onClubsChanged=${onClubsChanged} />`}
+    ${data && html`<${SettingsBody} data=${data} clubId=${clubId} serve=${serve} reload=${reload} onClose=${onClose} onSaved=${onSaved} onAddClub=${onAddClub} onClubsChanged=${onClubsChanged} />`}
   <//>`;
 }
 
 // Language, theme, scale, units and handicaps are in the toolbar's View menu, not here.
 const VIEW_GROUP = 'settings.group.display';
 
-function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClubsChanged }) {
+function SettingsBody({ data, clubId, serve, reload, onClose, onSaved, onAddClub, onClubsChanged }) {
   const visible = data.groups.filter((group) => group.key !== VIEW_GROUP);
   const [values, setValue] = useForm(visible);
   const [message, setMessage] = useState(null);
@@ -259,6 +303,7 @@ function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClu
       <${Columns} items=${[
         { weight: 7, node: html`<${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />` },
         ...groupItems(otherGroups, values, setValue),
+        ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(aiGroup ? [{ weight: aiGroup.fields.length + 6, node: html`
           <section class="group">
             <h3>${aiGroup.label}</h3>

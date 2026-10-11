@@ -37,7 +37,7 @@ dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-moni
   ist, erkennt Buchungsänderungen und legt die Tagessicherung an (die neuesten 7 bleiben).
 - Handy oder Tablet öffnen einfach die Adresse; zum Startbildschirm hinzugefügt, wirkt es wie eine App. Das
   Layout passt sich an Handys und Tablets an.
-- Das Passwort setzt `teetime-monitor-web --set-password`. Es wird nur als gesalzener Hash in
+- Das Passwort setzt `teetime-monitor-web --set-password`, später änderst du es unter **Einstellungen > Server-Passwort**. Es wird nur als gesalzener Hash in
   `~/.config/teetime-monitor/web_auth.json` gespeichert (nur für dich lesbar). Eine Anmeldung gilt im Browser 30
   Tage (**Ansicht > Abmelden** beendet sie); ein neues Passwort meldet alle Browser ab. Fünf falsche Versuche
   sperren das Gerät 30 Sekunden, jedes weitere Mal doppelt so lange.
@@ -70,7 +70,7 @@ installierter Server bekommt den Knopf nach einem weiteren Lauf des Installation
 | Läuft es? | `systemctl status teetime-monitor` |
 | Protokoll | `journalctl -u teetime-monitor -n 50` (mit `-f` live) |
 | Neustart / Stopp | `sudo systemctl restart teetime-monitor` / `sudo systemctl stop teetime-monitor` |
-| Passwort ändern | `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` |
+| Passwort ändern | in der Seite: **Einstellungen > Server-Passwort** (aktuelles Passwort, neues zweimal; dieser Browser bleibt angemeldet, jedes andere Gerät muss sich neu anmelden). Oder auf dem Pi: `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` (auch bei vergessenem Passwort) |
 | Aktualisieren | Die Seite zeigt unten „Version X ist verfügbar · Jetzt aktualisieren“; ein Klick installiert sie und startet den Server neu (ein bis zwei Minuten). Oder den Installationsbefehl noch einmal ausführen |
 | Entfernen | `sudo systemctl disable --now teetime-monitor; sudo rm /etc/systemd/system/teetime-monitor.service; rm -rf ~/.local/share/teetime-monitor-server` (Einstellungen und Daten bleiben in `~/.config` und `~/.local/share`) |
 
