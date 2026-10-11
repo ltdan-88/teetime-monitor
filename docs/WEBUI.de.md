@@ -38,7 +38,7 @@ nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenste
 
 ## Aktualisierungen
 
-Einmal am Tag fragt das Programm GitHubs öffentliche Release-Liste ab (eine einzelne Anfrage, die nichts über dich
+Alle paar Stunden fragt das Programm GitHubs öffentliche Release-Liste ab (eine einzelne Anfrage, die nichts über dich
 sendet); gibt es eine neuere Version, steht unten **Version X ist verfügbar** mit Link zu den Release-Notes und dem
 Befehl für deine Installationsart (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). Auf einem
 Raspberry-Pi-Server gibt es einen Knopf **Jetzt aktualisieren** ([RASPBERRY-PI.de.md](RASPBERRY-PI.de.md)). Die

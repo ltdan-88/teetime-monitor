@@ -38,7 +38,7 @@ described in [RASPBERRY-PI.md](RASPBERRY-PI.md).
 
 ## Updates
 
-Once a day the program checks GitHub's public release list (a single request that sends nothing about you); when a
+Every few hours the program checks GitHub's public release list (a single request that sends nothing about you); when a
 newer version exists the footer says **Version X is available** and links to the release notes, with the command
 that updates your kind of install (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). On a
 Raspberry Pi server there is an **Update now** button ([RASPBERRY-PI.md](RASPBERRY-PI.md)). The portable downloads

@@ -409,6 +409,7 @@ class Handler(BaseHTTPRequestHandler):
             global_preferences.save_last_active_club(club["id"], club["slug"], course)
             return self._json({"ok": True})
         if route == ("GET", "/api/update"):
+            updates.refresh_if_stale()
             return self._json(updates.status(serving=self.server.serve))
         if route == ("POST", "/api/update/check"):
             updates.check_now()

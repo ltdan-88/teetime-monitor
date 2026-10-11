@@ -44,12 +44,12 @@ dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-moni
 
 ## Aktualisierungen
 
-Einmal am Tag schaut der Server in GitHubs öffentliche Release-Liste (eine einfache Anfrage, nichts über dich wird
+Alle paar Stunden (und wenn eine Seite nachfragt, obwohl der letzte Blick über eine Stunde her ist) schaut der Server in GitHubs öffentliche Release-Liste (eine einfache Anfrage, nichts über dich wird
 gesendet). Gibt es eine neuere Version, zeigt jede Seite unten **Version X ist verfügbar** mit einem Link zu den
 Release-Notes. Auf dem Pi installiert **Jetzt aktualisieren** (in derselben Zeile) diese Version in die eigene
 Umgebung des Servers und startet den Dienst neu; die Seite verbindet sich von selbst wieder. Installiert wird nur
 die Version, die der Server selbst gefunden hat, von der GitHub-Seite dieses Projekts. Schlägt eine Aktualisierung
-fehl, läuft die alte Version weiter und die Seite nennt den Grund. Die tägliche Abfrage schaltest du aus mit
+fehl, läuft die alte Version weiter und die Seite nennt den Grund. Die Abfrage schaltest du aus mit
 `Environment=TEETIME_MONITOR_NO_UPDATE_CHECK=1` im Dienst (`sudo systemctl edit teetime-monitor`). Ein mit 0.78.0
 installierter Server bekommt den Knopf nach einem weiteren Lauf des Installationsbefehls.
 

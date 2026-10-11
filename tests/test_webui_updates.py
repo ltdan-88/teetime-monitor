@@ -187,6 +187,7 @@ def test_the_update_routes_need_the_password_and_say_what_they_cannot_do(served,
     assert _call(served, "GET", "/api/update")[0].status == 401
     assert _call(served, "POST", "/api/update/apply")[0].status == 401
     _release(monkeypatch)
+    monkeypatch.setattr(updates, "_last_attempt", time.time())  # just looked: a page asking does not trigger another look
     login = _call(served, "POST", "/api/auth/login")  # no password in the body: refused
     assert login[0].status == 401
     cookie = f"tm_auth={auth.make_session()}"
@@ -217,3 +218,25 @@ def test_main_exits_with_the_restart_code_after_an_update(tmp_path, monkeypatch)
     with pytest.raises(SystemExit) as stop:
         server.main(["--serve", "--host", "127.0.0.1", "--port", "0"])
     assert stop.value.code == updates.RESTART_EXIT_CODE == 75
+
+
+def test_a_page_asking_after_a_long_quiet_spell_makes_the_server_look_again(monkeypatch):
+    """The server may have been running for days since its last look: a status request older than an hour
+    triggers a new look in the background (once), and a release published meanwhile shows on the next ask."""
+    _release(monkeypatch, tag="v0.78.0")
+    updates.check_now()  # the look at start-up: nothing newer yet
+    assert updates.status()["newer"] is False
+    _release(monkeypatch, tag="v0.79.0")  # published later
+    base = time.time()
+    assert updates.refresh_if_stale(now=base) is True  # never looked "by a page" before: look now
+    deadline = time.time() + 5
+    while updates.status()["latest"] != "0.79.0" and time.time() < deadline:
+        time.sleep(0.05)
+    assert updates.status()["newer"] is True
+    assert updates.refresh_if_stale(now=base + 60) is False  # asked again a minute later: no second look
+    assert updates.refresh_if_stale(now=base + updates.STALE_AFTER_SECONDS + 1) is True  # an hour on: look again
+
+
+def test_the_stale_look_respects_the_switch_that_turns_the_check_off(monkeypatch):
+    monkeypatch.setenv("TEETIME_MONITOR_NO_UPDATE_CHECK", "1")
+    assert updates.refresh_if_stale() is False
