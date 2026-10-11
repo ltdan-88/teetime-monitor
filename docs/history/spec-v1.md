@@ -16,7 +16,7 @@ Out of scope for v1: booking/auto-booking, notifications, multi-club support, pa
 
 > **Superseded**: this was the original single-session spec. The project grew a broader
 > scope (weather, multi-day overview, analytics) before this was implemented — see
-> [`../ROADMAP.md`](../ROADMAP.md) for the actual phased plan and current storage design
+> [`ROADMAP.md`](ROADMAP.md) for the actual phased plan and current storage design
 > (SQLite from the start, not the flat JSON cache described below). Kept here verbatim as
 > the historical starting point.
 

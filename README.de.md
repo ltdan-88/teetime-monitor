@@ -426,7 +426,7 @@ src/
 └── models.py                 # Slot / Schedule / WeatherPoint / ConfirmedBooking
 ```
 
-`ROADMAP.md` enthält die vollständige Entstehungsgeschichte, inklusive der Gründe, warum
+`docs/history/ROADMAP.md` enthält die vollständige Entstehungsgeschichte, inklusive der Gründe, warum
 einiges so gebaut wurde, wie es gebaut ist.
 
 </details>

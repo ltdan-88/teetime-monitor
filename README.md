@@ -414,7 +414,7 @@ src/
 └── models.py                 # Slot / Schedule / WeatherPoint / ConfirmedBooking
 ```
 
-`ROADMAP.md` carries the full build history, including why several things were
+`docs/history/ROADMAP.md` carries the full build history, including why several things were
 built the way they were.
 
 </details>
