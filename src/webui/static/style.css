@@ -530,5 +530,7 @@ button, select, input { touch-action: manipulation; }
 .update-note a, .update-note a:visited { color: var(--accent); }
 .update-note code { font-family: var(--mono); }
 
-.footer .version { font-family: var(--mono); font-size: 0.75rem; margin-left: auto; margin-right: 0.5rem; }
+.footer .version { font-family: var(--mono); font-size: 0.75rem; margin-left: auto; margin-right: 0.25rem; }
+.check-update { font-size: 0.75rem; color: var(--mid); margin-right: 0.5rem; }
+.check-update.failed { color: var(--orange); }
 .update-note + .version { margin-left: 0; }

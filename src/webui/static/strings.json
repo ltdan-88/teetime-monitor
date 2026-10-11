@@ -255,7 +255,13 @@
   "password.mismatch": "The two new passwords differ.",
   "password.wrong": "The current password is not right.",
   "password.note": "This browser stays logged in; every other device has to log in again.",
-  "login.wait": "Too many attempts. Try again in {n} s."
+  "login.wait": "Too many attempts. Try again in {n} s.",
+  "update.check": "Check for updates",
+  "update.checking": "Checking…",
+  "update.current": "You are up to date",
+  "update.found": "A new version is available",
+  "update.check_failed": "Could not reach GitHub",
+  "update.check_off": "Update check is switched off"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -513,6 +519,12 @@
   "password.mismatch": "Die beiden neuen Passwörter sind verschieden.",
   "password.wrong": "Das aktuelle Passwort stimmt nicht.",
   "password.note": "Dieser Browser bleibt angemeldet; jedes andere Gerät muss sich neu anmelden.",
-  "login.wait": "Zu viele Versuche. Bitte in {n} s erneut versuchen."
+  "login.wait": "Zu viele Versuche. Bitte in {n} s erneut versuchen.",
+  "update.check": "Nach Updates suchen",
+  "update.checking": "Suche läuft …",
+  "update.current": "Du bist auf dem neuesten Stand",
+  "update.found": "Eine neue Version ist verfügbar",
+  "update.check_failed": "GitHub nicht erreichbar",
+  "update.check_off": "Update-Suche ist ausgeschaltet"
  }
 }

@@ -11,7 +11,7 @@ import { SearchSheet } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
-import { UpdateNotice, UpdateSheet } from '/update.js';
+import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
 
 const ADD_CLUB = '__add_club__';
 applyScale();
@@ -459,6 +459,7 @@ function App() {
         </div>
         ${update && update.newer && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} />`}
         <span class="version dim" title=${t('app.title')}>v${boot.version}</span>
+        <${CheckButton} onResult=${setUpdate} />
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} />${t('legend')}</button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}

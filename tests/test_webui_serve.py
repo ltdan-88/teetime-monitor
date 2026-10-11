@@ -239,3 +239,12 @@ def test_wrong_current_passwords_count_towards_the_lockout(served):
     response, body = _request(served, "POST", "/api/auth/password", {"current": PASSWORD, "new": "a brand new secret"}, headers)
     assert response.status == 429 and json.loads(body)["retry_after"] > 0
     assert auth.check_password(PASSWORD)
+
+
+def test_the_login_form_never_sends_the_password_in_the_address():
+    """If the page's script has not loaded when someone clicks "Log in", the browser submits the form itself:
+    with POST, so the password travels in the body and not in the address (history, logs)."""
+    from pathlib import Path
+
+    html = (Path(server.STATIC_DIR) / "login.html").read_text(encoding="utf-8")
+    assert 'method="post"' in html

@@ -13,6 +13,26 @@ export function UpdateNotice({ update, onUpdate }) {
   </span>`;
 }
 
+/** The footer's "Check for updates": looks now (the server asks GitHub) and says what it found, for a few seconds. */
+export function CheckButton({ onResult }) {
+  const [state, setState] = useState('idle'); // idle | checking | current | newer | failed | off
+  async function check() {
+    setState('checking');
+    let next = 'failed';
+    try {
+      const result = await post('/api/update/check', {});
+      onResult(result);
+      next = result.check_disabled ? 'off' : !result.check_ok ? 'failed' : result.newer ? 'newer' : 'current';
+    } catch (failure) {
+      next = 'failed';
+    }
+    setState(next);
+    setTimeout(() => setState('idle'), 6000);
+  }
+  const label = { idle: t('update.check'), checking: t('update.checking'), current: t('update.current'), newer: t('update.found'), failed: t('update.check_failed'), off: t('update.check_off') }[state];
+  return html`<button class=${'link-btn check-update' + (state === 'failed' ? ' failed' : '')} onClick=${check} disabled=${state === 'checking'} aria-live="polite">${label}</button>`;
+}
+
 /** Confirm, install, wait for the restart, reload. */
 export function UpdateSheet({ update, onClose }) {
   const [phase, setPhase] = useState('ask'); // ask | installing | restarting | failed

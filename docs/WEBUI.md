@@ -42,7 +42,7 @@ Every few hours the program checks GitHub's public release list (a single reques
 newer version exists the footer says **Version X is available** and links to the release notes, with the command
 that updates your kind of install (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). On a
 Raspberry Pi server there is an **Update now** button ([RASPBERRY-PI.md](RASPBERRY-PI.md)). The portable downloads
-and the Mac app are updated by downloading the new release. `TEETIME_MONITOR_NO_UPDATE_CHECK=1` turns the check off.
+and the Mac app are updated by downloading the new release. The footer's **Check for updates** looks right away. `TEETIME_MONITOR_NO_UPDATE_CHECK=1` turns the check off.
 
 ## Start it
 

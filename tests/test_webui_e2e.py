@@ -673,6 +673,30 @@ def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0", 60)  # reloaded by the "idle" answer
 
 
+def test_check_for_updates_says_what_it_found(ui):
+    # the demo server never calls out (the check is switched off there): the button says so
+    ui.shot("footer-check")
+    ui.click(".footer .check-update")
+    ui.wait("document.querySelector('.check-update')?.textContent.includes('switched off')")
+    ui.wait("document.querySelector('.check-update')?.textContent === 'Check for updates'", 15)  # back to normal after a few seconds
+    # answers standing in for GitHub: up to date, a failure, and a newer release
+    ui.js(
+        """(() => { const real = window.fetch.bind(window); window.__answers = [
+          {check_ok: true, newer: false, check_disabled: false}, {check_ok: false, newer: false, check_disabled: false},
+          {check_ok: true, newer: true, latest: '9.9.9', url: 'https://example.invalid/notes', command: null, can_update: false, check_disabled: false, install: {state: 'idle'}}];
+        window.fetch = async (url, options) => {
+          if (/api\\/update\\/check/.test(String(url))) return new Response(JSON.stringify({current: '0.80.1', ...window.__answers.shift()}), {status: 200, headers: {'Content-Type': 'application/json'}});
+          return real(url, options); }; })()"""
+    )
+    for expected in ("up to date", "Could not reach", "new version"):
+        ui.click(".footer .check-update")
+        ui.wait(f"document.querySelector('.check-update')?.textContent.includes({json.dumps(expected)})")
+        ui.wait("document.querySelector('.check-update')?.textContent === 'Check for updates'", 15)
+    assert "Version 9.9.9 is available" in ui.text(".update-note")  # the found release shows its notice at once
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_the_footer_shows_the_version(ui):
     text = ui.text(".footer .version")
     assert re.fullmatch(r"v\d+\.\d+\.\d+|vdev", text.strip()), text
@@ -772,7 +796,7 @@ def served_ui(tmp_path_factory):
     assert port, "the served demo did not start"
     page = Page(executable)
     page.go(f"http://127.0.0.1:{port}/")
-    page.wait("document.querySelector('#password')")  # the first thing anyone gets is the login page
+    page.wait("document.documentElement.dataset.ready")  # the first thing anyone gets is the login page, wired up
     yield page, port
     page.close()
     server.kill()
@@ -794,7 +818,7 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
     page.js("document.querySelector('[data-view-button]').click()")
     page.wait("document.querySelector('.view-panel')")
     page.click(".view-panel .btn", "Log out")
-    page.wait("document.querySelector('#password')")  # back at the login page
+    page.wait("document.documentElement.dataset.ready")  # back at the login page
     page.go(f"http://127.0.0.1:{port}/api/bootstrap")
     page.wait("document.body.innerText.includes('auth')")  # and nothing is open without it: the data answers 401
 
@@ -802,7 +826,7 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
 def test_the_server_password_is_changed_in_settings(served_ui):
     page, port = served_ui
     page.go(f"http://127.0.0.1:{port}/")
-    page.wait("document.querySelector('#password')")
+    page.wait("document.documentElement.dataset.ready")
     page.set("#password", "swing and a miss")
     page.click("#submit")
     page.wait("document.querySelectorAll('.card').length > 0")
@@ -830,7 +854,7 @@ def test_the_server_password_is_changed_in_settings(served_ui):
     page.js("document.querySelector('[data-view-button]').click()")
     page.wait("document.querySelector('.view-panel')")
     page.click(".view-panel .btn", "Log out")
-    page.wait("document.querySelector('#password')")
+    page.wait("document.documentElement.dataset.ready")
     page.set("#password", "swing and a miss")  # the old password is refused ...
     page.click("#submit")
     page.wait("!document.querySelector('#error').hidden")
