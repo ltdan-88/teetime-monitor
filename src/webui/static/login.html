@@ -12,7 +12,8 @@
 <main class="login">
   <h1 id="title">Teetime Monitor</h1>
   <p id="intro"></p>
-  <form id="form" autocomplete="on">
+  <!-- method="post": if the script has not loaded yet, a click must never put the password in the address -->
+  <form id="form" method="post" action="/login" autocomplete="on">
     <label for="password" id="label"></label>
     <input id="password" class="fld" type="password" name="password" autocomplete="current-password" autofocus required>
     <p id="error" class="status-line error" role="alert" hidden></p>

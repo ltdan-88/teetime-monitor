@@ -796,7 +796,7 @@ def served_ui(tmp_path_factory):
     assert port, "the served demo did not start"
     page = Page(executable)
     page.go(f"http://127.0.0.1:{port}/")
-    page.wait("document.querySelector('#password')")  # the first thing anyone gets is the login page
+    page.wait("document.documentElement.dataset.ready")  # the first thing anyone gets is the login page, wired up
     yield page, port
     page.close()
     server.kill()
@@ -818,7 +818,7 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
     page.js("document.querySelector('[data-view-button]').click()")
     page.wait("document.querySelector('.view-panel')")
     page.click(".view-panel .btn", "Log out")
-    page.wait("document.querySelector('#password')")  # back at the login page
+    page.wait("document.documentElement.dataset.ready")  # back at the login page
     page.go(f"http://127.0.0.1:{port}/api/bootstrap")
     page.wait("document.body.innerText.includes('auth')")  # and nothing is open without it: the data answers 401
 
@@ -826,7 +826,7 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
 def test_the_server_password_is_changed_in_settings(served_ui):
     page, port = served_ui
     page.go(f"http://127.0.0.1:{port}/")
-    page.wait("document.querySelector('#password')")
+    page.wait("document.documentElement.dataset.ready")
     page.set("#password", "swing and a miss")
     page.click("#submit")
     page.wait("document.querySelectorAll('.card').length > 0")
@@ -854,7 +854,7 @@ def test_the_server_password_is_changed_in_settings(served_ui):
     page.js("document.querySelector('[data-view-button]').click()")
     page.wait("document.querySelector('.view-panel')")
     page.click(".view-panel .btn", "Log out")
-    page.wait("document.querySelector('#password')")
+    page.wait("document.documentElement.dataset.ready")
     page.set("#password", "swing and a miss")  # the old password is refused ...
     page.click("#submit")
     page.wait("!document.querySelector('#error').hidden")

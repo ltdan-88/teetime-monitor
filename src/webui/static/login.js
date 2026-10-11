@@ -45,3 +45,5 @@ $('form').addEventListener('submit', async (event) => {
   }
   $('submit').disabled = false;
 });
+
+document.documentElement.dataset.ready = '1'; // the form is wired up (the tests wait for this)
