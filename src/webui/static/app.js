@@ -410,8 +410,8 @@ function App() {
         ${tool('search', 'search', t('action.search'), 's', () => setSheet('search'), noClub || !overview || !overview.course)}
         ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noClub || !overview || !overview.course)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
-        ${tool('preferences', 'sliders', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
-        ${tool('settings', 'gear', t('action.settings'), ',', () => setSheet('settings'), false)}
+        ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
+        ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
           onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} />
         </div>
