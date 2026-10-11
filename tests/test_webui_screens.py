@@ -291,6 +291,29 @@ def test_search_opens_with_your_availability_and_finds_slots_in_your_window(worl
     assert tools_api.run_search("nope", None, COURSE, defaults) == {"error": "unknown_club"}
 
 
+def test_search_answers_without_the_ai_first_and_says_when_the_ai_would_reorder(world, monkeypatch):
+    """AI ranking can take tens of seconds (and runs before the friends filter): the quick pass skips it,
+    `ai_pending` tells the page to ask again, and only that second request calls the provider."""
+    from src import ai_assist
+
+    global_preferences.save_preferences({"ai_assist": {"enabled": True}})
+    calls = []
+
+    def reverse(candidates, **kwargs):
+        calls.append(len(candidates))
+        return list(reversed(candidates))
+
+    monkeypatch.setattr(ai_assist, "rank_slots", reverse)
+    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
+    quick = tools_api.run_search(SLUG, None, COURSE, blank, ai=False)
+    assert calls == [] and quick["ai_pending"] is True
+    ranked = tools_api.run_search(SLUG, None, COURSE, blank)
+    assert len(calls) == 1 and ranked["ai_pending"] is False
+    assert [m["time"] for m in ranked["matches"]] != [m["time"] for m in quick["matches"]]  # the AI's order replaced it
+    global_preferences.save_preferences({"ai_assist": {"enabled": False}})
+    assert tools_api.run_search(SLUG, None, COURSE, blank, ai=False)["ai_pending"] is False  # nothing to wait for
+
+
 def test_a_blank_window_means_any_time_so_cleared_filters_find_everything(world):
     blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
     times = {m["time"] for m in tools_api.run_search(SLUG, None, COURSE, blank)["matches"]}

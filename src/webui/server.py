@@ -97,6 +97,9 @@ class Refresher:
 class WebServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    # A page load opens a dozen connections at once (the modules, the strings, the bootstrap). The default
+    # backlog of 5 dropped one of them now and then, and a page missing one module stays blank.
+    request_queue_size = 128
 
     def server_bind(self) -> None:
         # HTTPServer.server_bind() asks for this machine's fully qualified name (a DNS lookup that
@@ -344,7 +347,7 @@ class Handler(BaseHTTPRequestHandler):
             return reply(tools_api.search_defaults(**ref()))
         if route == ("POST", "/api/search"):
             criteria = body.get("criteria") if isinstance(body.get("criteria"), dict) else {}
-            return reply(tools_api.run_search(**ref(), course=arg("course") or "", criteria=criteria))
+            return reply(tools_api.run_search(**ref(), course=arg("course") or "", criteria=criteria, ai=body.get("ai") is not False))
         if route == ("GET", "/api/heatmap"):
             return reply(tools_api.heatmap(**ref(), course=arg("course")))
         if route == ("GET", "/api/players"):

@@ -58,20 +58,40 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [criteria, setCriteria] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [ranking, setRanking] = useState(false);
   const [result, setResult] = useState(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
   const first = useRef(true);
 
+  // The matches come back at once in the plain order; when AI ranking is on, a second request brings the AI's
+  // order (it can take many seconds) and replaces them, so a search never just sits there.
+  const searchSeq = useRef(0);
   async function run(next) {
+    const mine = ++searchSeq.current;
     setSearching(true);
+    setRanking(false);
     setError(null);
     try {
-      setResult(await post('/api/search', { ...ref, course, criteria: next }));
+      const quick = await post('/api/search', { ...ref, course, criteria: next, ai: false });
+      if (mine !== searchSeq.current) return;
+      setResult(quick);
+      setSearching(false);
+      if (quick.ai_pending) {
+        setRanking(true);
+        try {
+          const ranked = await post('/api/search', { ...ref, course, criteria: next });
+          if (mine === searchSeq.current) setResult(ranked);
+        } catch (failure) {
+          /* keep the plain order */
+        }
+        if (mine === searchSeq.current) setRanking(false);
+      }
     } catch (failure) {
+      if (mine !== searchSeq.current) return;
       setError(t('error.title'));
+      setSearching(false);
     }
-    setSearching(false);
   }
 
   useEffect(() => {
@@ -131,7 +151,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
         </form>
       </section>`}
     ${result && html`
-      <p class="lab results-head">${t('search.results', { n: matches.length })}</p>
+      <p class="lab results-head">${t('search.results', { n: matches.length })}${ranking ? html` <span class="ranking">· ${t('search.ranking')}</span>` : ''}</p>
       ${matches.length === 0
         ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
         : html`<div class="results scroll">

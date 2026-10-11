@@ -230,6 +230,42 @@ def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
     _close_sheet(ui)
 
 
+def test_search_rows_keep_their_dates_on_one_line(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.res').length > 3")
+    shape = ui.js(
+        """(() => { const rows = [...document.querySelectorAll('.res:not(.res-head)')];
+        return [new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height))).size,
+                rows.every((r) => getComputedStyle(r.querySelector('.res-date')).whiteSpace === 'nowrap')]; })()"""
+    )
+    assert shape == [1, True], shape  # every row is as tall as the others: no date wraps onto a second line
+    _close_sheet(ui)
+
+
+def test_search_shows_its_matches_before_the_ai_has_ranked_them(ui):
+    """With AI ranking on, the AI's answer takes seconds: the plain matches must be on screen at once, with a
+    note that the AI is still ranking. Here the quick answer claims the AI is pending and the second request
+    is held back to see the in-between state."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => {
+          if (!/api\\/search$/.test(String(url)) || !options || !options.body) return real(url, options);
+          const quick = JSON.parse(options.body).ai === false;
+          if (!quick) await new Promise((done) => setTimeout(done, 2500));
+          const data = await (await real(url, options)).json();
+          if (quick) data.ai_pending = true;
+          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.res').length > 3")  # the matches are there ...
+    ui.wait("document.querySelector('.results-head .ranking')")  # ... while the AI is still ranking
+    assert not ui.js("document.querySelector('.criteria .btn.pri').disabled")  # and you can search again
+    ui.wait("!document.querySelector('.results-head .ranking')", 30)
+    _close_sheet(ui)
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the delay again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_heatmap_shows_the_history(ui):
     _open_sheet(ui, "h", "heatmap")
     ui.wait("document.querySelectorAll('.hm-cell').length > 20")
