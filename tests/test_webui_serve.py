@@ -203,3 +203,39 @@ def test_the_raspberry_pi_installer_is_valid_shell():
     assert script.is_file()
     if shutil.which("bash"):
         assert subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True).returncode == 0
+
+
+# ---- changing the password from Settings ------------------------------------------------------------------
+
+
+def test_the_password_can_be_changed_and_only_this_browser_stays_logged_in(served):
+    mine = {"Cookie": _cookie(_login(served)[0])}
+    other = {"Cookie": _cookie(_login(served)[0])}  # a second device
+    response, body = _request(served, "POST", "/api/auth/password", {"current": PASSWORD, "new": "a brand new secret"}, mine)
+    assert response.status == 200 and json.loads(body) == {"ok": True}
+    fresh = {"Cookie": _cookie(response)}
+    assert _request(served, "GET", "/api/bootstrap", headers=fresh)[0].status == 200  # this browser stays in
+    assert _request(served, "GET", "/api/bootstrap", headers=mine)[0].status == 401  # the old cookie is void ...
+    assert _request(served, "GET", "/api/bootstrap", headers=other)[0].status == 401  # ... and so is every other device's
+    assert _login(served, PASSWORD)[0].status == 401  # the old password no longer works
+    assert _login(served, "a brand new secret")[0].status == 200
+
+
+def test_changing_the_password_needs_the_current_one_and_a_long_enough_new_one(served):
+    headers = {"Cookie": _cookie(_login(served)[0])}
+    response, body = _request(served, "POST", "/api/auth/password", {"current": "not it", "new": "a brand new secret"}, headers)
+    assert response.status == 401 and json.loads(body)["error"] == "bad_password"
+    response, body = _request(served, "POST", "/api/auth/password", {"current": PASSWORD, "new": "short"}, headers)
+    assert response.status == 400 and json.loads(body) == {"error": "too_short", "min": auth.MIN_PASSWORD_LENGTH}
+    assert auth.check_password(PASSWORD)  # nothing changed
+    assert _request(served, "GET", "/api/bootstrap", headers=headers)[0].status == 200  # still logged in
+    assert _request(served, "POST", "/api/auth/password", {"current": PASSWORD, "new": "a brand new secret"})[0].status == 401  # not logged in
+
+
+def test_wrong_current_passwords_count_towards_the_lockout(served):
+    headers = {"Cookie": _cookie(_login(served)[0])}
+    for _ in range(auth.FREE_MISSES):
+        assert _request(served, "POST", "/api/auth/password", {"current": "guess guess", "new": "a brand new secret"}, headers)[0].status == 401
+    response, body = _request(served, "POST", "/api/auth/password", {"current": PASSWORD, "new": "a brand new secret"}, headers)
+    assert response.status == 429 and json.loads(body)["retry_after"] > 0
+    assert auth.check_password(PASSWORD)

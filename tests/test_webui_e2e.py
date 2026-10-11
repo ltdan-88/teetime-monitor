@@ -765,3 +765,43 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
     page.wait("document.querySelector('#password')")  # back at the login page
     page.go(f"http://127.0.0.1:{port}/api/bootstrap")
     page.wait("document.body.innerText.includes('auth')")  # and nothing is open without it: the data answers 401
+
+
+def test_the_server_password_is_changed_in_settings(served_ui):
+    page, port = served_ui
+    page.go(f"http://127.0.0.1:{port}/")
+    page.wait("document.querySelector('#password')")
+    page.set("#password", "swing and a miss")
+    page.click("#submit")
+    page.wait("document.querySelectorAll('.card').length > 0")
+    _open_sheet(page, ",", "Settings")
+    page.wait("document.querySelector('#pw-current')")
+    page.shot("settings-served")
+
+    def change(current, new, again):
+        page.set("#pw-current", current)
+        page.set("#pw-new", new)
+        page.set("#pw-again", again)
+        page.click(".sheet button[type=submit]", "Change password")
+
+    change("swing and a miss", "short", "short")
+    page.wait("document.querySelector('.sheet .status-line.error')?.textContent.includes('at least 8')")
+    change("swing and a miss", "a brand new secret", "something else entirely")
+    page.wait("document.querySelector('.sheet .status-line.error')?.textContent.includes('differ')")
+    change("not the password", "a brand new secret", "a brand new secret")
+    page.wait("document.querySelector('.sheet .status-line.error')?.textContent.includes('not right')")
+    change("swing and a miss", "a brand new secret", "a brand new secret")
+    page.wait("document.querySelector('.sheet .status-line.ok')?.textContent.includes('Password changed')")
+    _close_sheet(page)
+    page.js("window.__beforeReload = true; location.reload()")
+    page.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")  # this browser stays logged in
+    page.js("document.querySelector('[data-view-button]').click()")
+    page.wait("document.querySelector('.view-panel')")
+    page.click(".view-panel .btn", "Log out")
+    page.wait("document.querySelector('#password')")
+    page.set("#password", "swing and a miss")  # the old password is refused ...
+    page.click("#submit")
+    page.wait("!document.querySelector('#error').hidden")
+    page.set("#password", "a brand new secret")  # ... the new one works
+    page.click("#submit")
+    page.wait("document.querySelectorAll('.card').length > 0")

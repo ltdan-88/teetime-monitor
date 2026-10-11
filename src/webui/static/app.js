@@ -463,7 +463,7 @@ function App() {
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => setSheet(null)} onSaved=${() => view && loadOverview(view, course)} />`}
-      ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} onClose=${() => setSheet(null)}
+      ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}

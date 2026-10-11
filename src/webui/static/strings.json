@@ -244,7 +244,18 @@
   "update.installing": "Installing…",
   "update.restarting": "Restarting…",
   "update.failed": "The update did not work: {error}",
-  "update.slow": "The server is taking long to come back. Check it with: systemctl status teetime-monitor"
+  "update.slow": "The server is taking long to come back. Check it with: systemctl status teetime-monitor",
+  "password.title": "Server password",
+  "password.current": "Current password",
+  "password.new": "New password",
+  "password.again": "New password again",
+  "password.change": "Change password",
+  "password.changed": "Password changed. Other devices have to log in again.",
+  "password.short": "The new password needs at least {n} characters.",
+  "password.mismatch": "The two new passwords differ.",
+  "password.wrong": "The current password is not right.",
+  "password.note": "This browser stays logged in; every other device has to log in again.",
+  "login.wait": "Too many attempts. Try again in {n} s."
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -491,6 +502,17 @@
   "update.installing": "Wird installiert …",
   "update.restarting": "Startet neu …",
   "update.failed": "Die Aktualisierung hat nicht geklappt: {error}",
-  "update.slow": "Der Server braucht lange für den Neustart. Prüfen mit: systemctl status teetime-monitor"
+  "update.slow": "Der Server braucht lange für den Neustart. Prüfen mit: systemctl status teetime-monitor",
+  "password.title": "Server-Passwort",
+  "password.current": "Aktuelles Passwort",
+  "password.new": "Neues Passwort",
+  "password.again": "Neues Passwort wiederholen",
+  "password.change": "Passwort ändern",
+  "password.changed": "Passwort geändert. Andere Geräte müssen sich neu anmelden.",
+  "password.short": "Das neue Passwort braucht mindestens {n} Zeichen.",
+  "password.mismatch": "Die beiden neuen Passwörter sind verschieden.",
+  "password.wrong": "Das aktuelle Passwort stimmt nicht.",
+  "password.note": "Dieser Browser bleibt angemeldet; jedes andere Gerät muss sich neu anmelden.",
+  "login.wait": "Zu viele Versuche. Bitte in {n} s erneut versuchen."
  }
 }

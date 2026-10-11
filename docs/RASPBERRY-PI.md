@@ -35,7 +35,7 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
   Scraping), notes booking changes, and takes the day's backup (the newest 7 are kept).
 - A phone or tablet just opens the address; add it to the home screen for an app-like icon. The layout
   adapts to phones and tablets.
-- The password is set with `teetime-monitor-web --set-password`. It is stored only as a salted hash in
+- The password is set with `teetime-monitor-web --set-password` and changed later in **Settings > Server password**. It is stored only as a salted hash in
   `~/.config/teetime-monitor/web_auth.json` (readable by you only). Logging in gives a browser a cookie for 30
   days (**View > Log out** ends it); changing the password logs every browser out. Five wrong guesses lock
   that device out for 30 seconds, doubling each time.
@@ -68,7 +68,7 @@ the install command.
 | Is it running? | `systemctl status teetime-monitor` |
 | Look at its log | `journalctl -u teetime-monitor -n 50` (add `-f` to follow) |
 | Restart / stop | `sudo systemctl restart teetime-monitor` / `sudo systemctl stop teetime-monitor` |
-| Change the password | `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` |
+| Change the password | in the page: **Settings > Server password** (current password, new one twice; this browser stays logged in, every other device has to log in again). Or on the Pi: `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` (also if you forgot it) |
 | Update | the page shows "Version X is available · Update now" in its footer; one click installs it and restarts the server (about a minute or two). Or run the install command again |
 | Remove it | `sudo systemctl disable --now teetime-monitor; sudo rm /etc/systemd/system/teetime-monitor.service; rm -rf ~/.local/share/teetime-monitor-server` (your settings and data stay in `~/.config` and `~/.local/share`) |
 
