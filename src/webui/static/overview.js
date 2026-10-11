@@ -54,7 +54,7 @@ function outsideWindow(day, slot) {
   return !!win && ((win.after && slot.time < win.after) || (win.before && slot.time > win.before));
 }
 
-function DayHeader({ day, open, onToggle, units, onAlternative }) {
+function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -76,7 +76,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative }) {
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
       <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
-      ${day.events.length > 0 && html`<span class="events">${day.events.join(' · ')}</span>`}
+      ${(day.events.length > 0 || reserveNote) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
     </button>
     </div>
   `;
@@ -167,10 +167,10 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onAlternative }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onAlternative, reserveNote }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} reserveNote=${reserveNote} />
       ${open && html`<div class="slots">
         <div class="slots-head"><${WeatherHeads} units=${units} /></div>
         ${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}

@@ -62,11 +62,11 @@ says *Updating…* meanwhile. **Refresh** fetches everything now.
 
 The page adapts to the screen, in three steps: on a **tablet** (about 640 to 1200 px, such as a portrait iPad) every
 day keeps its whole table (weather, free seats, rain and wind, with column headings), long lists of names wrap
-inside their column, and every row is finger-sized and equally tall; on a **phone** the toolbar spreads over two rows,
-the forms stack, each time slot is one slim row (time, seats, free, temperature) and the players are a chip with their
-count (★ when a friend plays) that opens the names as a vertical list; the View menu opens across the screen and holds the
-version and **Check for updates**, and Search scrolls as a whole. Turn the phone sideways and you get the tablet layout
-with the names inline. On a computer you get the full width. (Checked at 390, 640, 744, 834 and 1100 px.)
+inside their column, and every row is finger-sized and equally tall; in any window up to 860 px wide (a phone, a portrait tablet, or a narrow browser window on a computer) the players
+are a chip with their count (★ when a friend plays) that opens the names as a vertical list under the seats; on a
+**phone** the toolbar also spreads over two rows, the forms stack and each time slot is one slim row; the View menu opens
+across the screen and holds the version and **Check for updates**, and Search scrolls as a whole (also with the phone
+on its side, where windows use nearly the whole short screen). Wider windows show the names in the row. (Checked at 390, 640, 744, 834 and 1100 px.)
 
 The program itself cannot run on a phone or tablet. Run it on a Raspberry Pi (or any always-on computer) with
 `teetime-monitor-web --serve` and open its address from the device's browser: [RASPBERRY-PI.md](RASPBERRY-PI.md).

@@ -460,7 +460,7 @@ def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
 
 
 def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
-    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=520, deviceScaleFactor=1, mobile=False)
+    ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=380, deviceScaleFactor=1, mobile=False)  # short: ten players do not fit
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 8")
     heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
@@ -714,7 +714,7 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
                 ui.click("button.dh", index=1)
             ui.wait("document.querySelector('.card.open .slot')")
             shape = ui.js(
-                """(() => { const rows = [...document.querySelectorAll('.card.open .slot')].filter((r) => !r.querySelector('.names'));
+                """(() => { const rows = [...document.querySelectorAll('.card.open .slot')].filter((r) => !r.querySelector('.names, .note'));
                 const visible = (sel) => { const e = document.querySelector('.card.open .slot ' + sel); return !!e && getComputedStyle(e).display !== 'none'; };
                 return {sameHeight: new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height))).size, tall: Math.min(...rows.map((r) => r.getBoundingClientRect().height)),
                         free: visible('.free'), rain: visible('.rain'), wind: visible('.wind'), head: !!document.querySelector('.slots-head') && getComputedStyle(document.querySelector('.slots-head')).display !== 'none',
@@ -723,7 +723,7 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
             assert shape["sameHeight"] == 1 and shape["tall"] >= 43, (width, shape)  # rows without names are all one height, a finger tall
             assert shape["free"] and not shape["overflow"], (width, shape)
             chip = ui.js("(() => { const c = document.querySelector('.card.open .slot .who-chip'); return !!c && getComputedStyle(c).display !== 'none'; })()")
-            assert chip == (not whole_table), (width, chip)  # the names are inline on a tablet, a chip on a phone
+            assert chip is True, (width, chip)  # up to 860 px (phone, narrow window, portrait tablet) the names are behind a chip
             assert (shape["rain"] and shape["wind"] and shape["head"]) == whole_table, (width, shape)  # weather columns and headings on tablets only
     finally:
         ui.call("Emulation.setEmulatedMedia", features=[])
@@ -747,6 +747,8 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         ui.js("document.querySelector('.card.open .slot .who-chip').click()")
         ui.wait("document.querySelector('.card.open .who-list')")
         assert before == 0 and not ui.count(".scrim")  # the list opened, and the tap did not start a booking
+        starts = ui.js("(() => { const row = document.querySelector('.card.open .who-list').closest('.slot'); return [row.querySelector('.seats').getBoundingClientRect().left, row.querySelector('.who-list').getBoundingClientRect().left]; })()")
+        assert abs(starts[0] - starts[1]) < 1.5, starts  # the names start exactly where the seat squares start
         assert ui.js("document.querySelector('.card.open .who-list').innerText.length") > 3
         ui.js("document.querySelector('.card.open .slot .who-chip').click()")
         ui.wait("!document.querySelector('.card.open .who-list')")
@@ -770,6 +772,60 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
         ui.js("window.scrollTo(0, 0)")
+
+
+def test_a_narrow_computer_window_and_a_phone_on_its_side_use_the_chip_and_scroll(ui):
+    """The chip is not only for phones: any window up to 860 px wide gets it, with the weather columns kept in their
+    places for slots without players. On a phone on its side (844 x 390) Search must scroll as a whole."""
+    ui.call("Emulation.setDeviceMetricsOverride", width=820, height=700, deviceScaleFactor=1, mobile=False)  # a mouse, a narrow window
+    try:
+        ui.js("window.scrollTo(0, 0)")
+        if not ui.count(".card.open"):
+            ui.click("button.dh", index=1)
+        ui.wait("document.querySelector('.card.open .slot .who-chip')")
+        assert ui.js("getComputedStyle(document.querySelector('.card.open .slot .names')).display") == "none"
+        columns = ui.js(
+            """(() => { const rows = [...document.querySelectorAll('.card.open .slot')].slice(0, 14);
+            const edge = (r, sel) => Math.round(r.querySelector(sel).getBoundingClientRect().right);
+            return new Set(rows.map((r) => [edge(r, '.temp'), edge(r, '.rain'), edge(r, '.wind')].join())).size; })()"""
+        )
+        assert columns == 1, columns  # temperature, rain and wind line up in every row, with or without a chip
+        ui.call("Emulation.setDeviceMetricsOverride", width=844, height=390, deviceScaleFactor=2, mobile=True)
+        ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.res').length > 3")
+        scroll = ui.js("(() => { const b = document.querySelector('.sheet-body'); b.scrollTop = 300; return [b.scrollHeight > b.clientHeight, b.scrollTop > 0, getComputedStyle(b).overflowY]; })()")
+        assert scroll == [True, True, "auto"], scroll
+        _close_sheet(ui)
+        _open_sheet(ui, "p", "Player")  # the intro is dropped on a short screen, so the list gets the room
+        ui.wait("document.querySelectorAll('.player-list li').length > 3")
+        assert ui.js("document.querySelector('.player-list').getBoundingClientRect().height") > 150
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.scrollTo(0, 0)")
+
+
+def test_collapsed_days_are_all_the_same_height(ui):
+    """A day with an event note, one with a pick badge and one with neither used to differ in height: the note line
+    is kept for every day once any day has a note, and the badge slot always has the badge's height."""
+    def heights():
+        return ui.js("(() => [...document.querySelectorAll('.card:not(.open)')].map((c) => Math.round(c.getBoundingClientRect().height)))()")
+
+    ui.js("window.scrollTo(0, 0)")
+    while ui.count(".card.open"):
+        ui.click(".card.open button.dh")
+        ui.wait("document.querySelectorAll('.card.open').length === 0 || true")
+    ui.wait("document.querySelectorAll('.card').length === 5 && !document.querySelector('.card.open')")
+    assert ui.count(".dh .events") == 5 and ui.js("[...document.querySelectorAll('.dh .events')].filter((e) => e.textContent.trim()).length") >= 1  # some days have notes, all have the line
+    assert len(set(heights())) == 1, heights()
+    ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=2, mobile=True)
+    try:
+        ui.js("window.scrollTo(0, 0)")
+        assert len(set(heights())) == 1, heights()  # and on a phone, where the note is its own row
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
 def test_the_legend_and_escape(ui):

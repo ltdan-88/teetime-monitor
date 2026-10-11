@@ -446,7 +446,7 @@ function App() {
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
-          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
+          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)} reserveNote=${overview.days.some((entry) => entry.events.length > 0)}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
       </main>
       <footer class="footer">

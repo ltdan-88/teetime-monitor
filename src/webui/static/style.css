@@ -122,10 +122,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .dh .temp { font-family: var(--mono); font-size: 0.9375rem; display: flex; align-items: center; gap: 0.375rem; }
 .dh .small { display: flex; align-items: center; gap: 0.375rem; color: var(--dim); font-family: var(--mono); font-size: 0.8125rem; }
 .dh .sun { color: var(--dim); font-family: var(--mono); font-size: 0.75rem; }
-.dh .badge-slot { display: flex; justify-content: flex-end; padding-right: 0.75rem; min-width: 0; }
+.dh .badge-slot { display: flex; justify-content: flex-end; padding-right: 0.75rem; min-width: 0; min-height: 1.875rem; align-items: center; }
 .heat { display: flex; gap: 0.25rem; justify-content: flex-end; }
 .heat span { width: 2.125rem; height: 0.875rem; border-radius: 0.25rem; }
-.dh .events { grid-column: 2 / -1; padding: 0.2rem 0 0; color: var(--mid); font-size: 0.9375rem; text-align: left; }
+.dh .events { grid-column: 2 / -1; padding: 0.2rem 0 0; color: var(--mid); font-size: 0.9375rem; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.4em; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 0.4375rem; height: 1.875rem; padding: 0 0.75rem;
@@ -371,6 +371,28 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .toolbar-picks .select select { max-width: 13rem; }
 }
 
+/* Windows up to 860 px wide (phones, a narrow browser window on a computer, a portrait tablet): the names do not fit on
+   a row, so a chip with the count opens them as a vertical list that starts under the seats. */
+@media (max-width: 860px) {
+  /* every cell has its own place, so a slot without players (no chip) keeps its weather columns where they belong */
+  .slot .time { grid-row: 1; grid-column: 1; }
+  .slot .seats { grid-row: 1; grid-column: 2; }
+  .slot .free { grid-row: 1; grid-column: 3; }
+  .slot .wx { grid-row: 1; grid-column: 5; }
+  .slot .temp { grid-row: 1; grid-column: 6; }
+  .slot .rain { grid-row: 1; grid-column: 7; }
+  .slot .wind { grid-row: 1; grid-column: 8; }
+  .who-chip { display: inline-flex; grid-row: 1; grid-column: 4; justify-self: start; align-items: center; gap: 0.25rem; height: 1.875rem; padding: 0 0.625rem;
+    border-radius: 62.4375rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; font-family: var(--mono); }
+  .who-chip[aria-expanded="true"] { background: var(--pill-blue-bg); color: var(--accent); }
+  .who-chip .fr { color: var(--yellow); }
+  .who-list { display: block; grid-row: 3; grid-column: 2 / -1; padding: 0.125rem 0 0.375rem 0; }
+  .who-list div { padding: 0.1875rem 0; }
+  .slot .names { display: none; }
+  .slot .people:not(:has(.note)) { display: none; }
+  .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
+}
+
 /* Phones: the day header folds into rows, and a slot is two lines (time, seats, free and temperature; then the names). */
 @media (max-width: 640px) {
   .toolbar { gap: 0.5rem; }
@@ -392,16 +414,8 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .slot .time { grid-row: 1; grid-column: 1; }
   .slot .seats { grid-row: 1; grid-column: 2; }
   .slot .free { grid-row: 1; grid-column: 3; font-size: 0.8125rem; }
-  .who-chip { display: inline-flex; grid-row: 1; grid-column: 4; justify-self: start; align-items: center; gap: 0.25rem; height: 1.875rem; padding: 0 0.625rem;
-    border-radius: 62.4375rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; font-family: var(--mono); }
-  .who-chip[aria-expanded="true"] { background: var(--pill-blue-bg); color: var(--accent); }
-  .who-chip .fr { color: var(--yellow); }
-  .who-list { display: block; grid-row: 3; grid-column: 1 / -1; padding: 0.125rem 0 0.375rem 0.25rem; }
-  .who-list div { padding: 0.1875rem 0; }
-  .slot .names { display: none; }
-  .slot .people:not(:has(.note)) { display: none; }
   .slot .temp { grid-row: 1; grid-column: 5; }
-  .slot .people { grid-row: 2; grid-column: 1 / -1; padding-bottom: 0.25rem; }
+  .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
   .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
   .slot .blocked-note { grid-row: 1; grid-column: 3 / 5; }
   .slot .people:empty { display: none; }
@@ -505,6 +519,21 @@ button, select, input { touch-action: manipulation; }
 @media (pointer: coarse), (max-width: 860px) {
   .slot { min-height: 44px; height: auto; }
 }
+/* a phone on its side is only ~390 px tall: windows take nearly all of it, their heading and intro shrink, and Search scrolls
+   as a whole (its criteria alone are taller than the screen) */
+@media (max-height: 640px) {
+  .scrim { padding: 0.25rem 1rem; }
+  .sheet { max-height: 96vh; max-height: 96dvh; }
+  .sheet.tall { height: 96vh; height: 96dvh; }
+  .sheet-head { padding: 0.5rem 1rem 0.25rem; }
+  .sheet-head h2 { font-size: 1.125rem; }
+  .sheet-body { padding: 0.25rem 1rem 0.75rem; }
+  .sheet-body.fixed > .hint:first-child { display: none; }
+}
+@media (max-width: 640px), (max-height: 640px) {
+  .sheet-body.fixed:has(> .criteria) { display: block; overflow-y: auto; }
+  .sheet-body.fixed:has(> .criteria) > .scroll { overflow: visible; }
+}
 
 /* phones: a form row is the label above its control (side by side does not fit) */
 @media (max-width: 600px) {
@@ -518,9 +547,6 @@ button, select, input { touch-action: manipulation; }
   .time-select .select select { width: 3.6rem; }
   .time-pair { flex-wrap: wrap; row-gap: 0.375rem; }
   .sheet { max-height: 94vh; max-height: 94dvh; }
-  /* Search: the criteria are tall on a phone, so the whole body scrolls (results included) instead of being clipped */
-  .sheet-body.fixed:has(> .criteria) { display: block; overflow-y: auto; }
-  .sheet-body.fixed:has(> .criteria) > .scroll { overflow: visible; }
   .sheet-head { padding: 0.9rem 1rem 0.5rem; }
   .sheet-body { padding: 0.5rem 1rem 1.25rem; }
   .group { padding: 0.75rem 1rem 0.5rem; }

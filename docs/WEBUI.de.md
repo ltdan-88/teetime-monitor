@@ -65,12 +65,13 @@ währenddessen *Aktualisiere…*. **Aktualisieren** lädt alles sofort.
 
 Die Seite passt sich dem Bildschirm in drei Stufen an: auf einem **Tablet** (etwa 640 bis 1200 px, etwa ein iPad im
 Hochformat) behält jeder Tag seine ganze Tabelle (Wetter, freie Plätze, Regen und Wind, mit Spaltenüberschriften),
-lange Namenslisten umbrechen in ihrer Spalte, und jede Zeile ist fingergroß und gleich hoch; auf einem **Smartphone**
-verteilt sich die Werkzeugleiste auf zwei Zeilen, die Formulare stapeln sich, jede Startzeit ist eine schlanke Zeile
-(Zeit, Plätze, frei, Temperatur), und die Spieler sind ein Chip mit ihrer Anzahl (★, wenn ein Freund spielt), der die
-Namen als senkrechte Liste öffnet; das Ansicht-Menü öffnet sich über die ganze Breite und enthält Version und
-**Nach Updates suchen**, und die Suche scrollt als Ganzes. Dreh das Smartphone quer, und du bekommst das
-Tablet-Layout mit den Namen in der Zeile. Am Computer bekommst du die volle Breite. (Geprüft bei 390, 640,
+lange Namenslisten umbrechen in ihrer Spalte, und jede Zeile ist fingergroß und gleich hoch; in jedem Fenster bis 860 px Breite
+(Smartphone, Tablet im Hochformat oder ein schmales Browserfenster am Computer) sind die Spieler ein Chip mit ihrer
+Anzahl (★, wenn ein Freund spielt), der die Namen als senkrechte Liste unter den Plätzen öffnet; auf einem
+**Smartphone** verteilt sich die Werkzeugleiste außerdem auf zwei Zeilen, die Formulare stapeln sich, und jede
+Startzeit ist eine schlanke Zeile; das Ansicht-Menü öffnet sich über die ganze Breite und enthält Version und
+**Nach Updates suchen**, und die Suche scrollt als Ganzes (auch quer, wo die Fenster fast die ganze niedrige Höhe
+nutzen). Breitere Fenster zeigen die Namen in der Zeile. (Geprüft bei 390, 640,
 744, 834 und 1100 px.)
 
 Das Programm selbst läuft nicht auf einem Smartphone oder Tablet. Betreibe es auf einem Raspberry Pi (oder einem
