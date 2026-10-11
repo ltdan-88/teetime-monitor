@@ -212,6 +212,14 @@ def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.res').length > 3")
     ui.shot("search")
+    # the column headings sit exactly over their values (every row shares the results' columns)
+    edges = ui.js(
+        """(() => { const right = (e) => Math.round(e.getBoundingClientRect().right);
+        const head = [...document.querySelectorAll('.res-head .cell')].map(right);
+        const row = [...document.querySelectorAll('.res:not(.res-head)')[0].querySelectorAll('.cell')].map(right);
+        return [head, row]; })()"""
+    )
+    assert edges[0] == edges[1], edges
     ui.click(".res .btn", "Mark booked")
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     ui.click(".sheet.small .btn", "Not now")
