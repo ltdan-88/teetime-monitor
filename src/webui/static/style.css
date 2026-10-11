@@ -312,11 +312,12 @@ dl.legend dd { margin: 0; color: var(--mid); }
 
 /* ---- Search ---- */
 .results-head { margin: 1.125rem 0 0.5rem; }
-.results { background: var(--surface); border-radius: 0.875rem; display: grid; align-content: start; grid-template-columns: 6rem 3.75rem 5rem minmax(0, 1fr) 3.5rem 4.5rem 2.75rem max-content; }
+.results-head .ranking { text-transform: none; letter-spacing: 0; color: var(--accent); }
+.results { background: var(--surface); border-radius: 0.875rem; display: grid; align-content: start; grid-template-columns: max-content max-content max-content minmax(0, 1fr) 3.5rem 4.5rem 2.75rem max-content; column-gap: 0.75rem; }
 /* every row shares the results' columns (subgrid), so the headings and the widest button line up for all of them */
 .res { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: 0.75rem; align-items: center; min-height: 3.25rem; padding: 0 1.125rem; border-top: 1px solid var(--line); }
 .res:first-child { border-top: 0; }
-.res-date { font-weight: 600; }
+.res-date { font-weight: 600; white-space: nowrap; }
 .res-people { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .res-open { color: var(--green); font-weight: 500; }
 .res-action { display: flex; justify-content: flex-end; min-width: 9.375rem; }

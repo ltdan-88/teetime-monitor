@@ -75,7 +75,10 @@ def _weather_flags(config: dict, weather: dict | None) -> list[str]:
     return flags
 
 
-def run_search(slug: str | None, club_id: str | None, course: str, criteria: dict) -> dict:
+def run_search(slug: str | None, club_id: str | None, course: str, criteria: dict, ai: bool = True) -> dict:
+    """The ranked matches. With `ai=False` the AI step is skipped and `ai_pending` says whether a second
+    request with `ai=True` would reorder them (AI ranking is on) -- the page shows the quick answer and
+    then asks again, so a search never waits seconds for an AI provider."""
     club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
@@ -88,7 +91,7 @@ def run_search(slug: str | None, club_id: str | None, course: str, criteria: dic
         "friends_only": bool(criteria.get("friends_only")),
         "player": (criteria.get("player") or "").strip() or None,
     }
-    matches = search_cli.search_matches(str(db), course, club["slug"], clock.today(), SEARCH_DAYS, payload)
+    matches = search_cli.search_matches(str(db), course, club["slug"], clock.today(), SEARCH_DAYS, payload, use_ai=ai)
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
     schedules: dict[str, object] = {}
@@ -105,7 +108,8 @@ def run_search(slug: str | None, club_id: str | None, course: str, criteria: dic
         match["flags"] = _weather_flags(config, weather)
         match["players"] = [{"name": n, "friend": n in friends, "gender": genders.get(n)} for n in match["players"]]
         match["booked_by_you"] = booked[day] == match["time"]
-    return {"matches": matches, "days": SEARCH_DAYS, "units": config.get("units")}
+    ai_pending = (not ai) and bool((config.get("ai_assist") or {}).get("enabled")) and bool(matches)
+    return {"matches": matches, "days": SEARCH_DAYS, "units": config.get("units"), "ai_pending": ai_pending}
 
 
 def _clean_window(raw) -> dict:

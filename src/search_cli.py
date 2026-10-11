@@ -103,12 +103,18 @@ def _criteria_from_payload(payload: dict) -> SearchCriteria:
     )
 
 
-def search_matches(db_path: str, course: str, club_slug: str | None, from_date: str, days: int, payload: dict) -> list[dict]:
+def search_matches(
+    db_path: str, course: str, club_slug: str | None, from_date: str, days: int, payload: dict, use_ai: bool = True
+) -> list[dict]:
     """The ranked matches `main()` prints, as a list of dicts (the web UI calls this
-    in-process, 2026-10-10)."""
+    in-process, 2026-10-10). `use_ai=False` skips the AI ranking step -- the deterministic
+    order only, in milliseconds instead of the AI provider's seconds (the web UI shows that
+    first, then asks again with the AI)."""
     criteria = _criteria_from_payload(payload)
     club_id = Path(db_path).stem
     config = pipeline._resolved_config(club_slug)
+    if not use_ai:
+        config = {**config, "ai_assist": {**(config.get("ai_assist") or {}), "enabled": False}}
 
     start = date.fromisoformat(from_date)
     schedules = []

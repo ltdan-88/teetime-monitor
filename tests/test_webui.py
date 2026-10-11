@@ -321,3 +321,8 @@ def test_the_server_stops_itself_once_the_window_has_gone_quiet(running, monkeyp
 def test_it_only_ever_binds_to_the_loopback_address(running):
     assert running.server_address[0] == "127.0.0.1"
     assert clock.today()  # (keeps the clock import honest: the suite freezes it for every test)
+
+
+def test_the_server_can_queue_a_whole_page_load_of_connections():
+    """A page opens a dozen connections at once; the default listen backlog (5) dropped some of them."""
+    assert server.WebServer.request_queue_size >= 64
