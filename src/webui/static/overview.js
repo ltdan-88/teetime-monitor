@@ -10,7 +10,7 @@ function pickTooltip(pick) {
   return parts.length ? t('tip.pick_reasons', { reasons: parts.join(' · ') }) : t('tip.pick');
 }
 
-export function Badge({ day }) {
+export function Badge({ day, onAlternative }) {
   const pick = day.pick;
   if (day.booked_time) {
     return html`<span class="pill booked" title=${t('tip.booked')}><${Icon} name="flag" size=${16} style="fill:currentColor" />${day.booked_time}</span>`;
@@ -24,7 +24,11 @@ export function Badge({ day }) {
   }
   if (pick && pick.alternative) {
     const alt = pick.alternative;
-    return html`<span class="pill quiet" title=${t('tip.alt', { time: alt.time, course: alt.course, holes: alt.holes })}><${Icon} name="star" size=${15} />${alt.time} · ${alt.holes}H</span>`;
+    const tip = t('tip.alt', { time: alt.time, course: alt.course, holes: alt.holes });
+    if (!onAlternative) return html`<span class="pill quiet" title=${tip}><${Icon} name="star" size=${15} />${alt.time} · ${alt.holes}H</span>`;
+    // Inside the header button, so a click must not also toggle the day.
+    const go = (event) => { event.stopPropagation(); onAlternative(day, alt); };
+    return html`<span class="pill quiet link" title=${tip + ' ' + t('tip.pick_alternative_click')} onClick=${go}><${Icon} name="star" size=${15} />${alt.time} · ${alt.holes}H</span>`;
   }
   if (pick && pick.unplayable && pick.unplayable.length) {
     const reasons = [...pick.unplayable].sort();
@@ -50,7 +54,7 @@ function outsideWindow(day, slot) {
   return !!win && ((win.after && slot.time < win.after) || (win.before && slot.time > win.before));
 }
 
-function DayHeader({ day, open, onToggle, units }) {
+function DayHeader({ day, open, onToggle, units, onAlternative }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -70,7 +74,7 @@ function DayHeader({ day, open, onToggle, units }) {
         ${w && w.wind_peak != null && html`<${Icon} name="wind" size=${15} />${windSpeed(w.wind_peak, units)}`}
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
-      <span class="badge-slot"><${Badge} day=${day} /></span>
+      <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
       ${day.events.length > 0 && html`<span class="events">${day.events.join(' · ')}</span>`}
     </button>
@@ -141,10 +145,10 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onAlternative }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} />
       ${open && html`<div class="slots">${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}
     </section>`;
 }

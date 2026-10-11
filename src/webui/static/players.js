@@ -1,7 +1,7 @@
 // Player directory: every name your scrapes have seen (only a logged-in scrape shows names), with
 // search, sorting, and the one thing you edit: who is a friend (friends get a ★ and a ranking boost).
 
-import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText } from '/lib.js';
+import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
 const SORTS = ['name', 'friend', 'gender', 'handicap', 'member'];
 const familyName = (name) => name.trim().split(/\s+/).pop().toLowerCase();
@@ -31,13 +31,33 @@ function byLetter(players) {
   return groups;
 }
 
-export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
+/** Every (date, time) a player is booked into across the loaded days, in order. */
+function slotsOf(name, days) {
+  const hits = [];
+  for (const day of days) for (const slot of day.slots) if (slot.players.some((p) => p.name === name)) hits.push({ date: day.date, time: slot.time });
+  return hits;
+}
+
+export function PlayersSheet({ club, showHandicaps, days, onJump, onClose, onChanged }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data, error, reload } = useLoad(() => api('/api/players' + query(ref)), [club.id]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('name');
   const [friendsOnly, setFriendsOnly] = useState(false);
   const [local, setLocal] = useState({});
+  const [choice, setChoice] = useState(null); // { name, hits }: a player with several tee times, asking which one
+  const [none, setNone] = useState(false);
+  const booked = useMemo(() => {
+    const names = {};
+    for (const day of days) for (const slot of day.slots) for (const p of slot.players) names[p.name] = true;
+    return names;
+  }, [days]);
+  const focus = (player) => {
+    const hits = slotsOf(player.name, days);
+    setNone(hits.length === 0);
+    setChoice(hits.length > 1 ? { name: player.name, hits } : null);
+    if (hits.length === 1) onJump(hits[0].date, hits[0].time);
+  };
   const rows = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLowerCase();
@@ -64,7 +84,7 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
     if (list && target) list.scrollTo({ top: target.offsetTop, behavior: 'smooth' });
   };
   const row = (player) => html`
-        <li>
+        <li onDblClick=${() => focus(player)}>
           <button class=${'star-btn' + (player.friend ? ' on' : '')} onClick=${() => toggle(player)} aria-pressed=${player.friend}
             title=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend')} aria-label=${t(player.friend ? 'players.unmark_friend' : 'players.mark_friend') + ': ' + player.name}>
             <${Icon} name="star" size=${18} style=${player.friend ? 'fill:currentColor' : ''} /></button>
@@ -72,6 +92,7 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
           <span class="dim player-meta">${player.gender ? t('players.gender.' + player.gender) : ''}</span>
           <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
+          ${booked[player.name] && html`<button class="jump-btn" onClick=${() => focus(player)} title=${t('players.focus_title')} aria-label=${t('players.focus_title') + ': ' + player.name}><${Icon} name="flag" size=${16} /></button>`}
         </li>`;
   return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="directory" fixed>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
@@ -85,12 +106,16 @@ export function PlayersSheet({ club, showHandicaps, onClose, onChanged }) {
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}
     ${data && data.players.length === 0 && html`<div class="empty small"><h3>${t('players.empty_title')}</h3><p>${t('players.empty')}</p></div>`}
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
+    ${none && html`<div class="banner" role="status"><${Icon} name="info" size=${18} /><span>${t('players.focus_none')}</span></div>`}
+    ${choice && html`<div class="banner jump-choice" role="group" aria-label=${t('players.focus_title')}><span>${t('players.focus_title')}: ${choice.name}</span>
+      ${choice.hits.map((hit) => html`<button class="btn" onClick=${() => onJump(hit.date, hit.time)}>${dayLabel(hit.date)} ${hit.time}</button>`)}
+      <button class="btn" onClick=${() => setChoice(null)}>${t('cancel')}</button></div>`}
     <div class="player-scroll">
       <ul class="player-list scroll">
         ${data && data.players.length > 0 && html`
           <li class="player-head" aria-hidden="true">
             <span></span><span>${t('players.column.name')}</span><span>${t('players.column.gender')}</span>
-            <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span>
+            <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span><span></span>
           </li>`}
         ${grouped
           ? grouped.map((group, index) => html`

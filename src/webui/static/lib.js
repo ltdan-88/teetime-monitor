@@ -192,7 +192,8 @@ export function Icon({ name, size = 20, ...rest }) {
 export function Condition({ code, size = 24 }) {
   const kind = conditionKind(code);
   if (!kind) return null;
-  return html`<span class="cond" title=${t('cond.' + kind)}><${Icon} name=${kind} size=${size} /></span>`;
+  const named = t('wmo.' + code);
+  return html`<span class="cond" title=${named !== 'wmo.' + code ? named : t('cond.' + kind)}><${Icon} name=${kind} size=${size} /></span>`;
 }
 
 // ---------------------------------------------------------------- small controls
