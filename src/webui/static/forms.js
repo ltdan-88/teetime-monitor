@@ -15,9 +15,29 @@ function FieldControl({ field, value, onChange }) {
     placeholder=${field.kind === 'optional_float' ? t('off') : ''} onInput=${(event) => onChange(event.target.value)} />`;
 }
 
-/** The groups of fields; `values`/`setValue` are the form state ({field id: value}). */
-export function FieldGroups({ groups, values, setValue }) {
-  return groups.map((group) => html`
+/** Cards in two balanced columns: each goes to the shorter one (by `weight`, roughly its rows), so a short card
+ *  never leaves a hole beside a tall one. On a narrow screen the columns stack. */
+function Columns({ items }) {
+  // Tallest first, each to the shorter column; then back in the original order within a column.
+  const side = new Map();
+  let a = 0;
+  let b = 0;
+  for (const item of [...items].sort((x, y) => y.weight - x.weight)) {
+    if (a <= b) {
+      side.set(item, 0);
+      a += item.weight;
+    } else {
+      side.set(item, 1);
+      b += item.weight;
+    }
+  }
+  const column = (n) => items.filter((item) => side.get(item) === n).map((item) => item.node);
+  return html`<div class="columns"><div class="col">${column(0)}</div><div class="col">${column(1)}</div></div>`;
+}
+
+/** The groups of fields as cards with a weight; `values`/`setValue` are the form state ({field id: value}). */
+function groupItems(groups, values, setValue) {
+  return groups.map((group) => ({ weight: group.fields.length + 1, node: html`
     <section class="group">
       <h3>${group.label}</h3>
       ${group.fields.map((field) => html`
@@ -25,7 +45,7 @@ export function FieldGroups({ groups, values, setValue }) {
           <label for=${'f-' + field.id}>${field.label}</label>
           <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
         </div>`)}
-    </section>`);
+    </section>` }));
 }
 
 function initialValues(groups) {
@@ -69,7 +89,7 @@ function PreferencesForm({ groups, onClose, onSaved }) {
   }
   return html`
     <p class="intro">${t('preferences.intro')}</p>
-    <div class="columns"><${FieldGroups} groups=${groups} values=${values} setValue=${setValue} /></div>
+    <${Columns} items=${groupItems(groups, values, setValue)} />
     <div class="actions">
       <${Status} kind=${message && message.kind}>${message && message.text}<//>
       <span class="grow"></span>
@@ -234,18 +254,20 @@ function SettingsBody({ data, clubId, reload, onClose, onSaved, onAddClub, onClu
   }
   const otherGroups = visible.filter((group) => group !== aiGroup);
   return html`
-    <div class="columns">
+    <div class="stack">
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
-      <${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />
-      <${FieldGroups} groups=${otherGroups} values=${values} setValue=${setValue} />
-      ${aiGroup && html`
-        <section class="group">
-          <h3>${aiGroup.label}</h3>
-          ${aiGroup.fields.map((field) => html`
-            <div class="field-row"><label for=${'f-' + field.id}>${field.label}</label>
-              <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} /></div>`)}
-          <${AiSection} ai=${data.ai} onChanged=${reload} />
-        </section>`}
+      <${Columns} items=${[
+        { weight: 7, node: html`<${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />` },
+        ...groupItems(otherGroups, values, setValue),
+        ...(aiGroup ? [{ weight: aiGroup.fields.length + 6, node: html`
+          <section class="group">
+            <h3>${aiGroup.label}</h3>
+            ${aiGroup.fields.map((field) => html`
+              <div class="field-row"><label for=${'f-' + field.id}>${field.label}</label>
+                <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} /></div>`)}
+            <${AiSection} ai=${data.ai} onChanged=${reload} />
+          </section>` }] : []),
+      ]} />
     </div>
     <div class="actions">
       <${Status} kind=${message && message.kind}>${message && message.text}<//>

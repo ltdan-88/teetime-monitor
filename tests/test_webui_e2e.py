@@ -420,10 +420,10 @@ def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 8")
     heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
-    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
+    assert heads == ["Name", "Gender", "Status", "HCP", "Next tee time"], heads  # every column of the directory is shown
     assert ui.js("document.querySelector('.player-list li:not(.letter) .player-meta').textContent.trim()") in ("Male", "Female", "Unknown")
     heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
-    assert heads == ["Name", "Gender", "Status", "HCP"], heads  # every column of the directory is shown
+    assert heads == ["Name", "Gender", "Status", "HCP", "Next tee time"], heads  # every column of the directory is shown
     edges = ui.js(
         """(() => { const list = document.querySelector('.player-list').getBoundingClientRect();
         const head = document.querySelector('.player-head .r').getBoundingClientRect();
@@ -527,9 +527,10 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 3")
     ui.shot("players-jump")
-    assert ui.count(".jump-btn") > 0  # people seen on the loaded days have a way to their tee time
-    name = ui.js("document.querySelector('.jump-btn').closest('li').querySelector('.player-name').textContent")
-    ui.js("document.querySelector('.jump-btn').click()")
+    assert ui.count(".tee-btn") > 0  # people seen on the loaded days show their next tee time, as a button
+    assert "next tee time" in ui.text(".player-head").lower()
+    name = ui.js("document.querySelector('.tee-btn').closest('li').querySelector('.player-name').textContent")
+    ui.js("document.querySelector('.tee-btn').click()")
     hits = ui.js(
         """(() => { const e = document.querySelector('.jump-choice'); return e ? [...e.querySelectorAll('.btn')].length - 1 : 0; })()"""
     )
@@ -542,29 +543,24 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     ui.js("window.scrollTo(0, 0)")
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 3")
-    ui.js("document.querySelector('.jump-btn').closest('li').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
+    ui.js("document.querySelector('.tee-btn').closest('li').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
     hits = ui.count(".jump-choice")
     if hits:
         ui.click(".jump-choice .btn", index=0)
     ui.wait("!document.querySelector('.scrim')")
     ui.wait("document.querySelector('.card.open .slot.flash')")
-    # And with nobody booked on the loaded days it says so instead of jumping
+    # And a player with no tee time on the loaded days gets a notice instead of a jump
     ui.js(
         """(() => { const real = window.fetch.bind(window);
         window.fetch = async (url, options) => { const response = await real(url, options);
-          if (!/api\\/overview/.test(String(url))) return response;
+          if (!/api\\/players/.test(String(url)) || (options && options.method)) return response;
           const data = await response.json();
-          for (const day of data.days) for (const slot of day.slots) slot.players = [];
+          for (const player of data.players) player.upcoming = [];
           return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
     )
-    _open_sheet(ui, "e", "Preferences")
-    ui.wait("document.querySelector('#f-field-availability-min_open_spots')")
-    ui.click(".actions .btn.pri")
-    ui.wait("document.querySelector('.status-line.ok')")
-    _close_sheet(ui)
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 3")
-    ui.wait("document.querySelectorAll('.jump-btn').length === 0")  # the reloaded days have nobody on them
+    assert ui.count(".tee-btn") == 0
     ui.js("document.querySelector('.player-list li:not(.letter):not(.player-head)').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
     ui.wait("document.querySelector('.sheet .banner')")
     _close_sheet(ui)

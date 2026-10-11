@@ -31,14 +31,7 @@ function byLetter(players) {
   return groups;
 }
 
-/** Every (date, time) a player is booked into across the loaded days, in order. */
-function slotsOf(name, days) {
-  const hits = [];
-  for (const day of days) for (const slot of day.slots) if (slot.players.some((p) => p.name === name)) hits.push({ date: day.date, time: slot.time });
-  return hits;
-}
-
-export function PlayersSheet({ club, showHandicaps, days, onJump, onClose, onChanged }) {
+export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data, error, reload } = useLoad(() => api('/api/players' + query(ref)), [club.id]);
   const [search, setSearch] = useState('');
@@ -47,16 +40,12 @@ export function PlayersSheet({ club, showHandicaps, days, onJump, onClose, onCha
   const [local, setLocal] = useState({});
   const [choice, setChoice] = useState(null); // { name, hits }: a player with several tee times, asking which one
   const [none, setNone] = useState(false);
-  const booked = useMemo(() => {
-    const names = {};
-    for (const day of days) for (const slot of day.slots) for (const p of slot.players) names[p.name] = true;
-    return names;
-  }, [days]);
+  const courses = data ? new Set(data.players.flatMap((p) => (p.upcoming || []).map((hit) => hit.course))).size : 1;
   const focus = (player) => {
-    const hits = slotsOf(player.name, days);
+    const hits = player.upcoming || [];
     setNone(hits.length === 0);
     setChoice(hits.length > 1 ? { name: player.name, hits } : null);
-    if (hits.length === 1) onJump(hits[0].date, hits[0].time);
+    if (hits.length === 1) onJump(hits[0]);
   };
   const rows = useMemo(() => {
     if (!data) return [];
@@ -92,7 +81,10 @@ export function PlayersSheet({ club, showHandicaps, days, onJump, onClose, onCha
           <span class="dim player-meta">${player.gender ? t('players.gender.' + player.gender) : ''}</span>
           <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
-          ${booked[player.name] && html`<button class="jump-btn" onClick=${() => focus(player)} title=${t('players.focus_title')} aria-label=${t('players.focus_title') + ': ' + player.name}><${Icon} name="flag" size=${16} /></button>`}
+          ${player.upcoming && player.upcoming.length > 0
+            ? html`<button class="tee-btn" onClick=${() => focus(player)} title=${t('players.focus_title') + ': ' + player.name}>
+                ${dayLabel(player.upcoming[0].date).split(' ').slice(0, 2).join(' ')} ${player.upcoming[0].time}${player.upcoming.length > 1 && html`<span class="more" title=${t('players.tee_time_more', { n: player.upcoming.length - 1 })}>+${player.upcoming.length - 1}</span>`}</button>`
+            : html`<span></span>`}
         </li>`;
   return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="directory" fixed>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
@@ -108,14 +100,14 @@ export function PlayersSheet({ club, showHandicaps, days, onJump, onClose, onCha
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
     ${none && html`<div class="banner" role="status"><${Icon} name="info" size=${18} /><span>${t('players.focus_none')}</span></div>`}
     ${choice && html`<div class="banner jump-choice" role="group" aria-label=${t('players.focus_title')}><span>${t('players.focus_title')}: ${choice.name}</span>
-      ${choice.hits.map((hit) => html`<button class="btn" onClick=${() => onJump(hit.date, hit.time)}>${dayLabel(hit.date)} ${hit.time}</button>`)}
+      ${choice.hits.map((hit) => html`<button class="btn" onClick=${() => onJump(hit)}>${dayLabel(hit.date)} ${hit.time}${courses > 1 ? ' · ' + hit.course : ''}</button>`)}
       <button class="btn" onClick=${() => setChoice(null)}>${t('cancel')}</button></div>`}
     <div class="player-scroll">
       <ul class="player-list scroll">
         ${data && data.players.length > 0 && html`
           <li class="player-head" aria-hidden="true">
             <span></span><span>${t('players.column.name')}</span><span>${t('players.column.gender')}</span>
-            <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span><span></span>
+            <span>${t('players.column.member_status')}</span><span class="r">${showHandicaps ? t('players.column.handicap') : ''}</span><span>${t('players.column.tee_time')}</span>
           </li>`}
         ${grouped
           ? grouped.map((group, index) => html`

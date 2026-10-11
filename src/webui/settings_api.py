@@ -27,6 +27,12 @@ THEME_PATH = ("__theme__",)
 # switch, then on a menu) arrive as two requests at once, and without this the later write could carry the
 # earlier value of the other field.
 _SAVE_LOCK = threading.Lock()
+# One-line labels for a half-width card; the terminal and Mac apps keep the long wording.
+_WEB_LABELS = {
+    "settings.field.min_open_spots": "webui.min_spots",
+    "settings.field.buffer_before_minutes": "webui.buffer_before",
+    "settings.field.buffer_after_minutes": "webui.buffer_after",
+}
 DISPLAY_ONLY = {"field-units", "field-show_handicaps", "field-__language__"}
 
 
@@ -71,7 +77,7 @@ def schema(kind: str, club_id: str | None) -> dict:
         for field in (f for f in fields if f.group_key == group_key):
             entry: dict[str, Any] = {
                 "id": screen._field_id(field),
-                "label": i18n.t(field.label_key),
+                "label": i18n.t(_WEB_LABELS.get(field.label_key, field.label_key)),
                 "kind": field.kind,
             }
             if field.kind == "display":

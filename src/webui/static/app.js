@@ -454,8 +454,7 @@ function App() {
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} />`}
-      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} days=${(overview && overview.days) || []}
-        onJump=${(date, time) => { setSheet(null); jumpTo(date, time); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
+      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
     </div>`;
 }

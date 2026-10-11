@@ -3,7 +3,7 @@
 
 import {
   html, t, useState, useEffect, useRef, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
-  dayLabel, temperature, windSpeed, amount, round,
+  dayLabel, WeatherHeads, WeatherCells,
 } from '/lib.js';
 import { PlayerNames } from '/overview.js';
 
@@ -38,7 +38,6 @@ function WindowFields({ label, value, onChange, idPrefix }) {
 }
 
 function ResultRow({ match, units, showHandicaps, onMark }) {
-  const w = match.weather;
   const open = Math.max(0, match.capacity - match.booked);
   return html`
     <div class="res">
@@ -46,10 +45,7 @@ function ResultRow({ match, units, showHandicaps, onMark }) {
       <span class="num res-time">${match.time}</span>
       <span class="res-open">${t('search.open_spots', { n: open })}</span>
       <span class="res-people"><${PlayerNames} slot=${{ players: match.players, booked: match.booked }} showHandicaps=${showHandicaps} /></span>
-      <span class="res-notes">
-        ${match.flags.map((flag) => html`<span class="chip warn" title=${t('search.flag_tip.' + flag)}>${t('search.flag.' + flag)}</span>`)}
-        ${w && html`<span class="num dim wx-sum" title=${t('tip.rain')}>${w.temp != null ? temperature(w.temp, units) + '°' : ''}${w.rain != null ? ' ' + round(w.rain) + '%' + (w.rain_mm ? '/' + amount(w.rain_mm, units) : '') : ''}${w.wind != null ? ' ' + windSpeed(w.wind, units) : ''}</span>`}
-      </span>
+      <${WeatherCells} weather=${match.weather} units=${units} flags=${match.flags} />
       <span class="res-action">
         ${match.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
@@ -110,14 +106,14 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
               <h3>${t('search.time')}</h3>
               <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
               <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
-              <div class="field-row"><label for="s-before">${t('settings.field.buffer_before_minutes')}</label>
+              <div class="field-row"><label for="s-before">${t('webui.buffer_before')}</label>
                 <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
-              <div class="field-row"><label for="s-after">${t('settings.field.buffer_after_minutes')}</label>
+              <div class="field-row"><label for="s-after">${t('webui.buffer_after')}</label>
                 <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
             </div>
             <div class="group">
               <h3>${t('search.group')}</h3>
-              <div class="field-row"><label for="s-spots">${t('settings.field.min_open_spots')}</label>
+              <div class="field-row"><label for="s-spots">${t('webui.min_spots')}</label>
                 <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
               <div class="field-row"><label for="s-player">${t('search.field.player')}</label>
                 <${Select} id="s-player" value=${criteria.player || ''}
@@ -138,6 +134,8 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
       <p class="lab results-head">${t('search.results', { n: matches.length })}</p>
       ${matches.length === 0
         ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
-        : html`<div class="results scroll">${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
+        : html`<div class="results scroll">
+          <div class="res res-head"><${WeatherHeads} units=${units} /><span class="res-action"></span></div>
+          ${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
   <//>`;
 }
