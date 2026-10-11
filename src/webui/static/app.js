@@ -427,7 +427,7 @@ function App() {
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
-          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} />
+          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${setUpdate} />
         </div>
       </header>
       <main class="main">
@@ -460,7 +460,7 @@ function App() {
         ${update && update.newer && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} />`}
         <span class="version dim" title=${t('app.title')}>v${boot.version}</span>
         <${CheckButton} onResult=${setUpdate} />
-        <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} />${t('legend')}</button>
+        <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} /><span class="legend-text">${t('legend')}</span></button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}

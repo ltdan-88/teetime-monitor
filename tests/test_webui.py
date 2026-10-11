@@ -326,3 +326,18 @@ def test_it_only_ever_binds_to_the_loopback_address(running):
 def test_the_server_can_queue_a_whole_page_load_of_connections():
     """A page opens a dozen connections at once; the default listen backlog (5) dropped some of them."""
     assert server.WebServer.request_queue_size >= 64
+
+
+def test_the_stylesheet_has_balanced_braces_and_no_stray_ones():
+    """A stray `}` swallowed the rules after it (the phone layout of the Search results) without any error:
+    every rule must open before it closes, and everything must be closed at the end."""
+    import re
+
+    css = (server.STATIC_DIR / "style.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)  # comments may hold braces
+    depth = 0
+    for number, line in enumerate(css.split("\n"), start=1):
+        for char in line:
+            depth += (char == "{") - (char == "}")
+            assert depth >= 0, f"a closing brace with nothing open, at line {number} (comments removed)"
+    assert depth == 0, f"{depth} rule(s) never closed"

@@ -261,7 +261,9 @@
   "update.current": "You are up to date",
   "update.found": "A new version is available",
   "update.check_failed": "Could not reach GitHub",
-  "update.check_off": "Update check is switched off"
+  "update.check_off": "Update check is switched off",
+  "who.show": "Show the {n} players",
+  "who.hide": "Hide the players"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -525,6 +527,8 @@
   "update.current": "Du bist auf dem neuesten Stand",
   "update.found": "Eine neue Version ist verfügbar",
   "update.check_failed": "GitHub nicht erreichbar",
-  "update.check_off": "Update-Suche ist ausgeschaltet"
+  "update.check_off": "Update-Suche ist ausgeschaltet",
+  "who.show": "Die {n} Spieler zeigen",
+  "who.hide": "Spieler ausblenden"
  }
 }
