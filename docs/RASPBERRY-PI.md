@@ -42,12 +42,12 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
 
 ## Updates
 
-Once a day the server looks at GitHub's public release list (one plain request, nothing about you is sent)
+Every few hours (and when a page asks while the last look is over an hour old) the server looks at GitHub's public release list (one plain request, nothing about you is sent)
 and, when a newer version exists, every page shows **Version X is available** in the footer, with a link to the
 release notes. On the Pi, **Update now** (in the same footer line) installs that release into the server's own
 environment and restarts the service; the page reconnects by itself. It only ever installs the release the
 server found itself, from this project's GitHub page. If an update fails, the old version keeps running and the
-page says why. To switch the daily look off, add `Environment=TEETIME_MONITOR_NO_UPDATE_CHECK=1` to the service
+page says why. To switch the look off, add `Environment=TEETIME_MONITOR_NO_UPDATE_CHECK=1` to the service
 (`sudo systemctl edit teetime-monitor`). A server installed with 0.78.0 gets the button after one more run of
 the install command.
 

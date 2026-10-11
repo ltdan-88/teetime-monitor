@@ -1,6 +1,6 @@
 """Is there a newer release? And, on a Raspberry Pi server, installing it (2026-10-11).
 
-- **The notice (every install).** Once a day the server asks GitHub for the newest release (one plain
+- **The notice (every install).** Every few hours the server asks GitHub for the newest release (one plain
   GET of the public releases page, nothing about you is sent) and remembers the answer; the page shows
   "Version X is available" with a link to the release notes, and, where it can tell how the program was
   installed, the command that updates it (`brew upgrade teetime-monitor`, `scoop update ...`).
@@ -27,7 +27,8 @@ from . import data
 
 REPO = "ltdan-88/teetime-monitor"
 LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
-CHECK_EVERY_SECONDS = 24 * 3600
+CHECK_EVERY_SECONDS = 6 * 3600
+STALE_AFTER_SECONDS = 3600  # a page that asks while the last look is older than this makes the server look again
 FIRST_CHECK_AFTER_SECONDS = 60
 RESTART_EXIT_CODE = 75  # EX_TEMPFAIL: a "failure" to systemd's Restart=on-failure, so it starts the new version
 TAG = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}$")
@@ -35,6 +36,8 @@ SERVER_DIR_NAME = "teetime-monitor-server"  # install.sh puts the environment in
 
 _lock = threading.Lock()
 _latest: dict | None = None  # {tag, url, checked_at}
+_last_attempt = 0.0  # when the last look started, whether or not it worked
+_looking = False
 _install = {"state": "idle", "error": None}  # idle | running | restarting | failed
 
 
@@ -77,10 +80,38 @@ def check_now() -> dict | None:
         return dict(_latest)
 
 
+def refresh_if_stale(now: float | None = None) -> bool:
+    """Called when a page asks for the status: if the last look is more than an hour old (the server may have
+    been running for days since it last looked), look again in the background -- the page gets the newer
+    answer on its next visit. True if a look was started."""
+    global _last_attempt, _looking
+    moment = time.time() if now is None else now
+    if disabled():
+        return False
+    with _lock:
+        if _looking or moment - _last_attempt < STALE_AFTER_SECONDS:
+            return False
+        _looking, _last_attempt = True, moment
+
+    def look():
+        global _looking
+        try:
+            check_now()
+        finally:
+            with _lock:
+                _looking = False
+
+    threading.Thread(target=look, daemon=True, name="update-check-now").start()
+    return True
+
+
 def watch(server=None) -> None:
-    """Background thread: the first look a minute after start-up, then daily."""
+    """Background thread: the first look a minute after start-up, then every few hours."""
+    global _last_attempt
     time.sleep(FIRST_CHECK_AFTER_SECONDS)
     while True:
+        with _lock:
+            _last_attempt = time.time()
         check_now()
         time.sleep(CHECK_EVERY_SECONDS)
 
@@ -162,7 +193,9 @@ def _run_install(tag: str, on_installed) -> None:
 
 
 def reset_for_tests() -> None:
-    global _latest
+    global _latest, _last_attempt, _looking
     with _lock:
         _latest = None
+        _last_attempt = 0.0
+        _looking = False
         _install.update(state="idle", error=None)
