@@ -115,6 +115,7 @@ def main() -> None:
     parser.add_argument("--offline", action="store_true", help="never touch the network: scrapes and previews do nothing")
     parser.add_argument("--password", help="run it as `teetime-monitor-web --serve` (on the loopback address) with this password")
     args = parser.parse_args()
+    os.environ["TEETIME_MONITOR_NO_UPDATE_CHECK"] = "1"  # a demo never calls out
     seed(args.directory.resolve())
     print(f"Demo data written to {args.directory.resolve()}")
     if args.serve:

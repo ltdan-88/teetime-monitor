@@ -40,6 +40,17 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
   days (**View > Log out** ends it); changing the password logs every browser out. Five wrong guesses lock
   that device out for 30 seconds, doubling each time.
 
+## Updates
+
+Once a day the server looks at GitHub's public release list (one plain request, nothing about you is sent)
+and, when a newer version exists, every page shows **Version X is available** in the footer, with a link to the
+release notes. On the Pi, **Update now** (in the same footer line) installs that release into the server's own
+environment and restarts the service; the page reconnects by itself. It only ever installs the release the
+server found itself, from this project's GitHub page. If an update fails, the old version keeps running and the
+page says why. To switch the daily look off, add `Environment=TEETIME_MONITOR_NO_UPDATE_CHECK=1` to the service
+(`sudo systemctl edit teetime-monitor`). A server installed with 0.78.0 gets the button after one more run of
+the install command.
+
 ## Security: read this
 
 - It is **plain HTTP on your home network**. Everyone on your Wi-Fi can reach the login page, and someone who
@@ -58,7 +69,7 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
 | Look at its log | `journalctl -u teetime-monitor -n 50` (add `-f` to follow) |
 | Restart / stop | `sudo systemctl restart teetime-monitor` / `sudo systemctl stop teetime-monitor` |
 | Change the password | `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` |
-| Update | run the install command again |
+| Update | the page shows "Version X is available · Update now" in its footer; one click installs it and restarts the server (about a minute or two). Or run the install command again |
 | Remove it | `sudo systemctl disable --now teetime-monitor; sudo rm /etc/systemd/system/teetime-monitor.service; rm -rf ~/.local/share/teetime-monitor-server` (your settings and data stay in `~/.config` and `~/.local/share`) |
 
 **Back up** `~/.config/teetime-monitor` (settings, your logins) and `~/.local/share/teetime-monitor` (history);

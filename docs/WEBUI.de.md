@@ -36,6 +36,15 @@ Was bewusst anders ist als in der Mac-App: keine Menüleiste (alles steht in der
 nur bei geöffneter Seite und kein Hintergrund-Scraper (bei geschlossenem Fenster läuft nichts) – außer als Server: `teetime-monitor-web --serve`
 (Passwort, ruft selbstständig ab, für das ganze Heimnetz) steht in [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md).
 
+## Aktualisierungen
+
+Einmal am Tag fragt das Programm GitHubs öffentliche Release-Liste ab (eine einzelne Anfrage, die nichts über dich
+sendet); gibt es eine neuere Version, steht unten **Version X ist verfügbar** mit Link zu den Release-Notes und dem
+Befehl für deine Installationsart (`brew upgrade teetime-monitor`, `scoop update teetime-monitor`). Auf einem
+Raspberry-Pi-Server gibt es einen Knopf **Jetzt aktualisieren** ([RASPBERRY-PI.de.md](RASPBERRY-PI.de.md)). Die
+portablen Downloads und die Mac-App aktualisierst du mit dem neuen Download. `TEETIME_MONITOR_NO_UPDATE_CHECK=1`
+schaltet die Abfrage aus.
+
 ## Starten
 
 - **Portabler Windows-/Linux-Download:** `TeetimeMonitor-Web.cmd` doppelklicken (Windows) bzw.
@@ -67,7 +76,9 @@ auf einem Server, den dieses Projekt nicht hat.
 
 Dein pc-caddie-Login steckt dahinter, deshalb ist es vorsichtig gebaut:
 
-- Es lauscht **nur auf 127.0.0.1**, auf einem zufälligen Port, nie im Netzwerk.
+- Es lauscht **nur auf 127.0.0.1**, auf einem zufälligen Port, nie im Netzwerk (nur `--serve` für einen
+  Raspberry-Pi-Server öffnet es für dein Heimnetz, und dann verlangt es ein Passwort:
+  [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md)).
 - Jede Anfrage braucht ein zufälliges **Token**, das nur der ausgegebene Link enthält; die Seite hält es in
   einem Cookie, das Skripte nicht lesen können. Andere Programme und andere Webseiten können den Server nicht
   benutzen.

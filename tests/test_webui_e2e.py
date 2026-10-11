@@ -612,6 +612,40 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
+def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui):
+    """Rewritten answers stand in for GitHub and for a Pi: a newer release exists and this server may update
+    itself; the install then fails, which must be shown and leave the page usable."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window); window.__polls = 0;
+        const json = (body) => new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}});
+        const info = {current: '0.78.0', latest: '9.9.9', newer: true, url: 'https://example.invalid/notes', command: null, can_update: true, install: {state: 'idle', error: null}};
+        window.fetch = async (url, options) => {
+          if (/api\\/update\\/apply/.test(String(url))) return json({state: 'running', error: null});
+          if (/api\\/update/.test(String(url))) { window.__polls += options && options.method ? 0 : 1;
+            return json({...info, install: window.__polls > 1 ? {state: 'failed', error: 'no matching distribution'} : info.install}); }
+          return real(url, options); }; })()"""
+    )
+    ui.js("window.dispatchEvent(new Event('focus'))")  # the page looks again when you come back to the tab
+    ui.wait("document.querySelector('.update-note')")
+    ui.shot("update-notice")
+    assert "Version 9.9.9 is available" in ui.text(".update-note")
+    assert ui.js("document.querySelector('.update-note a').href") == "https://example.invalid/notes"
+    ui.click(".update-note .link-btn")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('9.9.9')")
+    ui.shot("update-sheet")
+    ui.click(".sheet .btn", "Cancel")
+    ui.wait("!document.querySelector('.scrim')")
+    ui.click(".update-note .link-btn")
+    ui.wait("document.querySelector('.sheet .btn.pri')")
+    ui.click(".sheet .btn.pri")  # install: the first poll says "idle", the next one "failed"
+    ui.wait("document.querySelector('.sheet .status-line.error')?.textContent.includes('no matching distribution')", 30)
+    ui.click(".sheet .btn", "Cancel")
+    ui.wait("!document.querySelector('.scrim')")
+    assert ui.count(".card") > 0  # the page is still usable
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)
