@@ -42,11 +42,13 @@ export function UpdateSheet({ update, onClose }) {
         if (state.state === 'restarting') break;
       }
       setPhase('restarting');
+      // The old process still answers (and already reports the new version, pip having replaced its files)
+      // until it stops: only a process that has just started says "idle", so wait for that.
       for (let tries = 0; alive.current && tries < 120; tries += 1) {
         await sleep(3000);
         try {
-          const boot = await api('/api/bootstrap');
-          if (boot.version !== update.current) {
+          const fresh = await api('/api/update');
+          if (fresh.install.state === 'idle') {
             location.reload();
             return;
           }
