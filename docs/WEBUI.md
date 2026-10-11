@@ -14,8 +14,9 @@ card layout of the Mac app (light when your system is light), in English or Germ
   it as your booking, click your booking to cancel it. Notices ("a player joined your flight") appear on top.
   When your window opens too late for a full round on several days, one line says so (with the numbers and a
   button to Preferences); a day where only a shorter round on another course still fits shows that slot as a
-  badge, and clicking it switches to that course. In **Players**, the flag button (or a double-click) on a
-  name jumps to that player's tee time on the loaded days.
+  badge, and clicking it switches to that course. In **Players**, the "Next tee time" button on a name (or a
+  double-click) jumps to that player's tee time, switching course if needed. The slot columns have headings
+  (°C, rain, wind) and tooltips, and the settings cards balance their columns.
 - **Search**, **Crowd heatmap**, **Players** (friends), **Preferences** (availability, weather, pace,
   priorities), **Settings** (clubs, pc caddie login, language, units, scraping, AI ranking) and **Add club**
   (search the club directory, add a club, or open one just to look at it).

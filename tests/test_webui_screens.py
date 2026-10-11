@@ -328,6 +328,27 @@ def test_the_player_directory_lists_and_marks_friends(world):
     assert tools_api.players("nope", None) == {"error": "unknown_club"}
 
 
+def test_the_player_directory_says_where_each_player_is_booked_on_every_course(world, monkeypatch):
+    """What "jump to their tee time" needs: upcoming bookings across all the club's courses, in date order,
+    leaving out today's slots that have already started."""
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "12:00")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    other = _schedule(tomorrow)
+    other.course = "9 Loch"
+    other.slots = [Slot(time="08:00", booked=1, capacity=4, players=["Max Mustermann"])]
+    storage.save_schedule(other, path=world, authenticated=True)
+    data._OVERVIEW_CACHE.clear()
+    by_name = {p["name"]: p["upcoming"] for p in tools_api.players(SLUG, None)["players"]}
+    assert [(h["date"], h["time"], h["course"]) for h in by_name["Max Mustermann"]] == [
+        (tomorrow, "07:10", COURSE),  # today's 07:10 has started; tomorrow's has not
+        (tomorrow, "08:00", "9 Loch"),
+        ((date.today() + timedelta(days=2)).isoformat(), "07:10", COURSE),
+    ]
+    assert by_name["Erika Musterfrau"][0] == {"date": tomorrow, "time": "10:10", "course": COURSE}
+
+
 def test_the_heatmap_groups_history_by_weekday_and_special_day(world, monkeypatch):
     monkeypatch.setattr(tools_api.pipeline, "_holidays_for_club", lambda config, fetch=True: [])
     # scrape history needs finished days: add a few past ones

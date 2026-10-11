@@ -5,6 +5,8 @@ pipeline), `pipeline._cached_crowd_heatmap()` with the club's holidays and vacat
 `known_players` table. Nothing here ranks, aggregates or classifies on its own.
 """
 
+from datetime import datetime, timedelta
+
 from .. import analytics, calendar_context, clock, pipeline, recommend, search_cli, storage
 from . import data
 
@@ -117,13 +119,38 @@ def _clean_window(raw) -> dict:
 # ---- players -----------------------------------------------------------------------------
 
 
+def _upcoming_by_player(club: dict, db, config: dict) -> dict[str, list[dict]]:
+    """Where each known player is booked from now on, on every course of the club, as
+    `{name: [{date, time, course}, ...]}` in date order -- what "jump to their tee time" needs."""
+    today = clock.today()
+    now = clock.now_hhmm()
+    start = datetime.fromisoformat(today).date()
+    found: dict[str, list[dict]] = {}
+    for course in data.courses_for(club["id"]):
+        for offset in range(data._overview_window(config)):
+            date = (start + timedelta(days=offset)).isoformat()
+            schedule = storage.load_latest_schedule(course, date, path=db)
+            if schedule is None:
+                continue
+            for slot in schedule.slots:
+                if date == today and slot.time < now:
+                    continue
+                for name in slot.players:
+                    found.setdefault(name, []).append({"date": date, "time": slot.time, "course": course})
+    for hits in found.values():
+        hits.sort(key=lambda hit: (hit["date"], hit["time"], hit["course"]))
+    return found
+
+
 def players(slug: str | None, club_id: str | None) -> dict:
-    club, db, _ = _club(slug, club_id)
+    club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
+    upcoming = _upcoming_by_player(club, db, config)
     return {
         "players": [
             {
+                "upcoming": upcoming.get(p.name, []),
                 "name": p.name,
                 "gender": p.gender,
                 "member_status": p.member_status,

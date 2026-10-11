@@ -189,6 +189,33 @@ export function Icon({ name, size = 20, ...rest }) {
   return html`<svg width=${side} height=${side} viewBox="0 0 24 24" aria-hidden="true" ...${rest}>${ICONS[name]}</svg>`;
 }
 
+const UNIT_LABELS = {
+  metric: { temp: '°C', rain: '%/mm', wind: 'km/h' },
+  imperial: { temp: '°F', rain: '%/in', wind: 'mph' },
+};
+
+/** The column headings for a slot's temperature, rain and wind cells (they have no label of their own). */
+export function WeatherHeads({ units }) {
+  const u = UNIT_LABELS[units] || UNIT_LABELS.metric;
+  return html`
+    <span class="cell head" title=${t('tip.temp_slot', { unit: u.temp })}>${u.temp}</span>
+    <span class="cell head" title=${t('tip.rain_slot')}>${u.rain}</span>
+    <span class="cell head" title=${t('tip.wind_slot', { unit: u.wind })}>${u.wind}</span>`;
+}
+
+/** A slot's temperature, rain and wind as three cells, each with its tooltip; `flags` ('rain', 'wind', 'temp')
+ *  marks the ones outside your limits. */
+export function WeatherCells({ weather, units, flags = [] }) {
+  const u = UNIT_LABELS[units] || UNIT_LABELS.metric;
+  const w = weather;
+  const flagged = (flag) => (flags.includes(flag) ? ' warn' : '');
+  const tip = (text, flag) => (flags.includes(flag) ? text + ' — ' + t('search.flag_tip.' + flag) : text);
+  return html`
+    <span class=${'cell temp' + flagged('temp')} title=${tip(t('tip.temp_slot', { unit: u.temp }), 'temp')}>${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
+    <span class=${'cell rain' + flagged('rain')} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' + (w.rain_mm ? '/' + amount(w.rain_mm, units) : '') : ''}</span>
+    <span class=${'cell wind' + flagged('wind')} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`;
+}
+
 export function Condition({ code, size = 24 }) {
   const kind = conditionKind(code);
   if (!kind) return null;

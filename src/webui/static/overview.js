@@ -1,7 +1,7 @@
 // The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
 
 import {
-  html, t, Icon, Condition, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
+  html, t, Icon, Condition, WeatherHeads, WeatherCells, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
 } from '/lib.js';
 
 function pickTooltip(pick) {
@@ -139,9 +139,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
             ${slot.sunset && html`<span class="note"><${Icon} name="sunset" size=${16} />${t('sunset', { time: day.sunset })}</span>`}
           </span>`}
       <span class="wx">${w && html`<${Condition} code=${w.code} size=${20} />`}</span>
-      <span class="cell temp">${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
-      <span class="cell rain">${w && w.rain != null ? round(w.rain) + '%' + (w.rain_mm ? '/' + amount(w.rain_mm, units) : '') : ''}</span>
-      <span class="cell wind">${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>
+      <${WeatherCells} weather=${w} units=${units} />
     </div>`;
 }
 
@@ -149,7 +147,9 @@ export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onA
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
       <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} />
-      ${open && html`<div class="slots">${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}
+      ${open && html`<div class="slots">
+        <div class="slots-head"><${WeatherHeads} units=${units} /></div>
+        ${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}
     </section>`;
 }
 
