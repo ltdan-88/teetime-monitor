@@ -63,14 +63,16 @@ währenddessen *Aktualisiere…*. **Aktualisieren** lädt alles sofort.
 
 ## Smartphone und Tablet
 
-Die Seite selbst passt sich an: bis zur Breite eines Smartphones stapeln sich die Formulare, die Werkzeugleiste
-verteilt sich auf zwei Zeilen, und jedes Bedienelement ist fingergroß (geprüft bei 390 px und in Tablet-Größen).
-Was **nicht** geht, ist sie dort auszuführen: das Programm (Scraping, dein pc-caddie-Login, die Daten) ist ein
-Python-Programm auf deinem Computer und lauscht nur auf diesem Computer (`127.0.0.1`); ein Smartphone oder Tablet
-kann es also nicht öffnen, und installieren lässt sich darauf nichts. Der Zugriff vom Smartphone im Heimnetz
-bräuchte eine Option „im Netzwerk lauschen“, was eine Sicherheitsentscheidung ist (Link und Token liefen
-unverschlüsselt durch dein WLAN) und deshalb bewusst noch fehlt. Eine echte Smartphone-App bräuchte das Scraping
-auf einem Server, den dieses Projekt nicht hat.
+Die Seite passt sich dem Bildschirm in drei Stufen an: auf einem **Tablet** (etwa 640 bis 1200 px, etwa ein iPad im
+Hochformat) behält jeder Tag seine ganze Tabelle (Wetter, freie Plätze, Regen und Wind, mit Spaltenüberschriften),
+lange Namenslisten umbrechen in ihrer Spalte, und jede Zeile ist fingergroß und gleich hoch; auf einem **Smartphone**
+verteilt sich die Werkzeugleiste auf zwei Zeilen, die Formulare stapeln sich, und jede Startzeit belegt zwei Zeilen
+(Zeit, Plätze, frei und Temperatur, dann die Namen); am Computer bekommst du die volle Breite. (Geprüft bei 390, 640,
+744, 834 und 1100 px.)
+
+Das Programm selbst läuft nicht auf einem Smartphone oder Tablet. Betreibe es auf einem Raspberry Pi (oder einem
+anderen dauerhaft laufenden Computer) mit `teetime-monitor-web --serve` und öffne dessen Adresse im Browser des
+Geräts: [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md).
 
 ## Ist das sicher?
 

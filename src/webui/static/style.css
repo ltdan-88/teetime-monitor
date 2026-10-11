@@ -353,21 +353,49 @@ dl.legend dd { margin: 0; color: var(--mid); }
 }
 @media (max-width: 860px) {
   .toolbar, .main, .footer { padding-left: 0.875rem; padding-right: 0.875rem; }
+  .slots { margin: 0 0.75rem; }
+}
+
+/* Tablets (portrait iPads are 744-834 px wide) keep the whole table: the day header with weather, and every slot on
+   one row with all its columns; a long list of names wraps inside its own column instead of being cut off. */
+@media (min-width: 641px) and (max-width: 1200px) {
+  .slot, .slots-head { grid-template-columns: 4.25rem 6.25rem 3.5rem minmax(0, 1fr) 1.9rem 2.6rem 5rem 2.4rem; column-gap: 0.4rem; }
+  .slot { height: auto; min-height: 2.5rem; padding: 0.25rem 0; }
+  .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
+  .people { gap: 0.25rem 0.75rem; }
+}
+@media (min-width: 641px) and (max-width: 860px) {
+  .dh { padding: 0.8rem 0.9rem; column-gap: 0.4rem; grid-template-columns: 1.4rem 7rem 2.4rem 6.25rem 4rem 3.25rem 1fr 11.5rem; }
+  .heat span { width: 1.6rem; }
+  .toolbar-picks .select select { max-width: 13rem; }
+}
+
+/* Phones: the day header folds into rows, and a slot is two lines (time, seats, free and temperature; then the names). */
+@media (max-width: 640px) {
+  .toolbar { gap: 0.5rem; }
+  .toolbar-picks { flex: 1 1 100%; }
+  .toolbar-picks .select { flex: 1 1 0; }
+  .toolbar-picks .select select { max-width: none; }
+  .toolbar-tools { flex: 1 1 100%; justify-content: space-between; }
+  .toolbar-tools > .tool, .toolbar-tools .view-wrap { flex: 1 1 0; justify-content: center; }
+  .toolbar-tools .view-wrap > .tool { width: 100%; justify-content: center; }
+  .view-panel { right: auto; left: 50%; transform: translateX(-50%); }
   .dh { grid-template-columns: 1.375rem 1fr 2.25rem 6rem 1fr; padding: 0.5rem 0.75rem; row-gap: 0.375rem; }
   .dh .rain, .dh .wind, .dh .sun { display: none; }
   .dh .heat { grid-column: 1 / -1; justify-content: flex-start; }
   .dh .heat span { width: calc((100% - 1.25rem) / 6); }
   .dh .badge-slot { justify-content: flex-end; padding-right: 0; }
   .dh .events { grid-column: 2 / -1; }
-  .slots { margin: 0 0.75rem; }
-  .slot { grid-template-columns: 5rem 1fr auto; height: auto; min-height: 2.25rem; row-gap: 0.125rem; padding: 0.25rem 0; }
+  .slot { grid-template-columns: 4.25rem 6.25rem 1fr auto; height: auto; min-height: 2.25rem; column-gap: 0.5rem; row-gap: 0.125rem; padding: 0.25rem 0; }
   .slots-head { display: none; }
-  .slot .free, .slot .wx, .slot .rain, .slot .wind { display: none; }
-  .slot .seats { grid-row: 1; grid-column: 2; }
+  .slot .wx, .slot .rain, .slot .wind { display: none; }
   .slot .time { grid-row: 1; grid-column: 1; }
-  .slot .temp { grid-row: 1; grid-column: 3; }
+  .slot .seats { grid-row: 1; grid-column: 2; }
+  .slot .free { grid-row: 1; grid-column: 3; font-size: 0.8125rem; }
+  .slot .temp { grid-row: 1; grid-column: 4; }
   .slot .people { grid-row: 2; grid-column: 1 / -1; padding-bottom: 0.25rem; }
-  .slot .blocked-note { grid-row: 1; grid-column: 2; }
+  .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
+  .slot .blocked-note { grid-row: 1; grid-column: 3 / -1; }
   .slot .people:empty { display: none; }
 }
 
@@ -431,15 +459,6 @@ dl.legend dd { margin: 0; color: var(--mid); }
 @media (max-width: 900px) { .crit-cards { grid-template-columns: minmax(0, 1fr); } }
 
 /* narrow windows: pickers on one row, the tools spread over the next; results on two lines */
-@media (max-width: 860px) {
-  .toolbar { gap: 0.5rem; }
-  .toolbar-picks { flex: 1 1 100%; }
-  .toolbar-picks .select { flex: 1 1 0; }
-  .toolbar-picks .select select { max-width: none; }
-  .toolbar-tools { flex: 1 1 100%; justify-content: space-between; }
-  .toolbar-tools > .tool, .toolbar-tools .view-wrap { flex: 1 1 0; justify-content: center; }
-  .toolbar-tools .view-wrap > .tool { width: 100%; justify-content: center; }
-  .view-panel { right: auto; left: 50%; transform: translateX(-50%); }
 }
 @media (max-width: 720px) {
   .results { display: block; }
@@ -467,7 +486,6 @@ button, select, input { touch-action: manipulation; }
   .tool, .btn, .select select, .fld, .icon-btn, .star-btn, .link-btn { min-height: 44px; }
   .tool, .icon-btn, .star-btn { min-width: 44px; }
   .btn.small { min-height: 40px; }
-  .slot { min-height: 44px; height: auto; }
   .player-list li:not(.letter):not(.player-head) { min-height: 48px; }
   .alpha button { min-height: 28px; font-size: 0.8rem; }
   .switch { width: 3.4rem; height: 2rem; border-radius: 1rem; }
@@ -475,6 +493,10 @@ button, select, input { touch-action: manipulation; }
   .switch:checked::after { left: 1.6rem; }
   .club-results li { min-height: 56px; }
   .res { min-height: 56px; }
+}
+
+@media (pointer: coarse), (max-width: 860px) {
+  .slot { min-height: 44px; height: auto; }
 }
 
 /* phones: a form row is the label above its control (side by side does not fit) */
@@ -507,3 +529,6 @@ button, select, input { touch-action: manipulation; }
 .update-note { font-size: 0.8125rem; margin-left: auto; margin-right: 1rem; color: var(--mid); }
 .update-note a, .update-note a:visited { color: var(--accent); }
 .update-note code { font-family: var(--mono); }
+
+.footer .version { font-family: var(--mono); font-size: 0.75rem; margin-left: auto; margin-right: 0.5rem; }
+.update-note + .version { margin-left: 0; }

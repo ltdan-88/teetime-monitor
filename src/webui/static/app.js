@@ -458,6 +458,7 @@ function App() {
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
         ${update && update.newer && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} />`}
+        <span class="version dim" title=${t('app.title')}>v${boot.version}</span>
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} />${t('legend')}</button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}

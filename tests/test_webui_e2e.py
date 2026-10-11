@@ -673,6 +673,38 @@ def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0", 60)  # reloaded by the "idle" answer
 
 
+def test_the_footer_shows_the_version(ui):
+    text = ui.text(".footer .version")
+    assert re.fullmatch(r"v\d+\.\d+\.\d+|vdev", text.strip()), text
+
+
+def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
+    """A portrait iPad is 744-834 px wide: it must not get the phone layout (names on a second line, no free
+    count, no weather columns) and every row must be as tall as the next; a phone keeps the compact one."""
+    ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
+    try:
+        for width, whole_table in ((744, True), (834, True), (390, False)):
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=1100, deviceScaleFactor=2, mobile=True)
+            ui.js("window.scrollTo(0, 0)")
+            if not ui.count(".card.open"):
+                ui.click("button.dh", index=1)
+            ui.wait("document.querySelector('.card.open .slot')")
+            shape = ui.js(
+                """(() => { const rows = [...document.querySelectorAll('.card.open .slot')].filter((r) => !r.querySelector('.names'));
+                const visible = (sel) => { const e = document.querySelector('.card.open .slot ' + sel); return !!e && getComputedStyle(e).display !== 'none'; };
+                return {sameHeight: new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height))).size, tall: Math.min(...rows.map((r) => r.getBoundingClientRect().height)),
+                        free: visible('.free'), rain: visible('.rain'), wind: visible('.wind'), head: !!document.querySelector('.slots-head') && getComputedStyle(document.querySelector('.slots-head')).display !== 'none',
+                        overflow: document.documentElement.scrollWidth > innerWidth}; })()"""
+            )
+            assert shape["sameHeight"] == 1 and shape["tall"] >= 43, (width, shape)  # rows without names are all one height, a finger tall
+            assert shape["free"] and not shape["overflow"], (width, shape)
+            assert (shape["rain"] and shape["wind"] and shape["head"]) == whole_table, (width, shape)  # weather columns and headings on tablets only
+    finally:
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.scrollTo(0, 0)")
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)
