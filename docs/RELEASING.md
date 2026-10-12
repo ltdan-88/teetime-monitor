@@ -56,3 +56,9 @@ The **linux-app** job of the release workflow does both, runs the launcher once 
 (glibc 2.28, the oldest system the wheels support) and attaches the tarball and its `.sha256` to the
 Release. The **linux-portable** workflow does the same on demand and on pull requests touching
 `linux/`. Not covered: other distributions, and the interactive terminal.
+
+## The Homebrew formula
+
+The formula lives in the tap repository (`ltdan-88/homebrew-teetime-monitor`); `scripts/update_tap.sh` (run by the
+release workflow) only bumps its `url` and `sha256`. `deploy/homebrew/teetime-monitor.rb` is a copy of the current
+formula, for reference and for changing it deliberately: edit it here, then copy it into the tap and commit there.
