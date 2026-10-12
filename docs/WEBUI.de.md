@@ -69,7 +69,8 @@ lange Namenslisten umbrechen in ihrer Spalte, und jede Zeile ist fingergroß und
 (Smartphone, Tablet im Hochformat oder ein schmales Browserfenster am Computer) sind die Spieler ein Chip mit ihrer
 Anzahl (★, wenn ein Freund spielt), der die Namen als senkrechte Liste unter den Plätzen öffnet; auf einem
 **Smartphone** verteilt sich die Werkzeugleiste außerdem auf zwei Zeilen, die Formulare stapeln sich, und jede
-Startzeit ist eine schlanke Zeile; das Ansicht-Menü öffnet sich über die ganze Breite und enthält Version und
+Startzeit ist eine schlanke Zeile (Zeit, Plätze, frei, der Spieler-Chip und rechts Wetter, Temperatur, Regen und Wind; in den
+Suchergebnissen der Chip und ein kleiner Flaggen-Knopf zum Als-gebucht-Markieren); das Ansicht-Menü öffnet sich über die ganze Breite und enthält Version und
 **Nach Updates suchen**, und die Suche scrollt als Ganzes (auch quer, wo die Fenster fast die ganze niedrige Höhe
 nutzen). Breitere Fenster zeigen die Namen in der Zeile. (Geprüft bei 390, 640,
 744, 834 und 1100 px.)

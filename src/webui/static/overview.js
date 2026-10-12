@@ -100,7 +100,7 @@ export function PlayerNames({ slot, showHandicaps, anonymousCount }) {
 
 /** On a phone the names would wrap over two lines of every row: a chip with the count (and a star when a friend is
  *  booked) opens them as a vertical list instead. Tablets and computers show the names inline, as always. */
-function WhoChip({ slot, open, onToggle }) {
+export function WhoChip({ slot, open, onToggle }) {
   const named = slot.players.length;
   const anonymous = Math.max(0, slot.booked - named);
   const total = named + anonymous;
@@ -111,7 +111,7 @@ function WhoChip({ slot, open, onToggle }) {
     ${slot.players.some((p) => p.friend) && html`<span class="fr">★</span>`}<${Icon} name="users" size=${14} />${total}</button>`;
 }
 
-function WhoList({ slot, showHandicaps }) {
+export function WhoList({ slot, showHandicaps }) {
   const anonymous = Math.max(0, slot.booked - slot.players.length);
   return html`<span class="who-list">
     ${slot.players.map((player) => html`<div class=${'name' + (player.friend ? ' f' : '') + (player.gender === 'female' ? ' alt' : '')}>${player.friend ? '★ ' : ''}${player.name}${showHandicaps && player.hcp != null ? ` (${hcpText(player.hcp)})` : ''}</div>`)}

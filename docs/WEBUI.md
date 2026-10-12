@@ -64,7 +64,7 @@ The page adapts to the screen, in three steps: on a **tablet** (about 640 to 120
 day keeps its whole table (weather, free seats, rain and wind, with column headings), long lists of names wrap
 inside their column, and every row is finger-sized and equally tall; in any window up to 860 px wide (a phone, a portrait tablet, or a narrow browser window on a computer) the players
 are a chip with their count (★ when a friend plays) that opens the names as a vertical list under the seats; on a
-**phone** the toolbar also spreads over two rows, the forms stack and each time slot is one slim row; the View menu opens
+**phone** the toolbar also spreads over two rows, the forms stack and each time slot is one slim row (time, seats, free, the player chip, and weather, temperature, rain and wind on the right; in Search results the chip, and a small flag button to mark a time as booked); the View menu opens
 across the screen and holds the version and **Check for updates**, and Search scrolls as a whole (also with the phone
 on its side, where windows use nearly the whole short screen). Wider windows show the names in the row. (Checked at 390, 640, 744, 834 and 1100 px.)
 
