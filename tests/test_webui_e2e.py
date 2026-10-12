@@ -951,13 +951,14 @@ def test_a_blocked_slot_says_why_on_every_screen_size(ui):
         ui.click("button.dh", index=1)
     ui.wait("document.querySelector('.card.open .slot.blocked')")
     def shown():
-        return ui.js("""(() => { const note = document.querySelector('.card.open .slot.blocked .blocked-note'); const r = note.getBoundingClientRect();
-                         return [getComputedStyle(note).display !== 'none', r.width > 40, note.textContent.trim().length > 3, r.right <= innerWidth + 1]; })()""")
-    assert shown() == [True, True, True, True], shown()
+        return ui.js("""(() => { const row = document.querySelector('.card.open .slot.blocked'); const note = row.querySelector('.blocked-note'); const r = note.getBoundingClientRect();
+                         const free = [...document.querySelectorAll('.card.open .slot:not(.blocked) .seats')][0].getBoundingClientRect().left;  // where the seat squares start
+                         return [getComputedStyle(note).display !== 'none', r.width > 40, note.textContent.trim().length > 3, r.right <= innerWidth + 1, Math.abs(r.left - free) < 2]; })()""")
+    assert shown() == [True, True, True, True, True], shown()  # and the text starts where the squares would, using their room
     for width in (744, 393):
         ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=2, mobile=True)
         try:
-            assert shown() == [True, True, True, True], (width, shown())
+            assert shown() == [True, True, True, True, True], (width, shown())
         finally:
             ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 

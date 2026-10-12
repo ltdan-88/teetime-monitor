@@ -394,7 +394,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .slot .people:not(.blocked-note):not(:has(.note)) { display: none; }
   .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
   /* a blocked slot (a tournament, frost ...) says why, on the first row beside the time */
-  .slot .blocked-note { grid-row: 1; grid-column: 3 / 5; padding-bottom: 0; }
+  .slot .blocked-note { grid-row: 1; grid-column: 2 / 5; padding-bottom: 0; }
 }
 
 /* Search results in the same windows: the chip replaces the names (they would be cut off); text never wraps */
@@ -437,8 +437,8 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .slot .cell .mm, .res .cell .mm { display: none; }
   .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
   .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
-  .slot .blocked-note { grid-row: 1; grid-column: 3 / 6; }
-  .blocked-text { font-size: 0.75rem; }
+  .slot .blocked-note { grid-row: 1; grid-column: 2 / 6; }
+  .blocked-text { font-size: 0.75rem; padding-left: 0.3rem; }
   .slot .people:empty { display: none; }
 }
 
