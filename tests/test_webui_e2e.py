@@ -666,6 +666,43 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
+def test_the_jump_choice_lines_its_buttons_up_at_every_width(ui):
+    """A player with several tee times is asked which one: the question sits on its own line and the buttons are one
+    width and line up (on a phone they once wrapped into three different widths beside the question)."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!/api\\/players/.test(String(url)) || (options && options.method)) return response;
+          const data = await response.json();
+          data.players[0].upcoming = [{date: data.players[0].upcoming?.[0]?.date || '2030-01-02', time: '10:40', course: '9 Loch Tee 1'},
+            {date: '2030-01-02', time: '14:40', course: '18 Loch Tee 1'}, {date: '2030-01-03', time: '11:10', course: '18 Loch Tee 1'}];
+          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    try:
+        for width in (1280, 390):
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=width < 500)
+            ui.js("window.scrollTo(0, 0)")
+            _open_sheet(ui, "p", "Player")
+            ui.wait("document.querySelectorAll('.player-list li').length > 3")
+            ui.js("document.querySelector('.player-list li:not(.letter):not(.player-head)').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
+            ui.wait("document.querySelector('.jump-choice')")
+            shape = ui.js(
+                """(() => { const box = document.querySelector('.jump-choice'); const label = box.querySelector('span').getBoundingClientRect();
+                const buttons = [...box.querySelectorAll('.btn')].map((b) => b.getBoundingClientRect());
+                return {labelWidth: Math.round(label.width), boxWidth: Math.round(box.getBoundingClientRect().width - 32),
+                        widths: [...new Set(buttons.map((b) => Math.round(b.width)))], below: buttons.every((b) => b.top >= label.bottom - 1),
+                        inside: buttons.every((b) => b.right <= box.getBoundingClientRect().right + 1), count: buttons.length}; })()"""
+            )
+            assert shape["count"] == 4 and shape["labelWidth"] >= shape["boxWidth"] - 2, (width, shape)  # the question has the whole line
+            assert len(shape["widths"]) == 1 and shape["below"] and shape["inside"], (width, shape)  # equal buttons, under it
+            ui.shot(f"jump-choice-{width}")
+            _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.__beforeReload = true; location.reload()")
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui, hurry):
     """Rewritten answers stand in for GitHub and for a Pi: a newer release exists and this server may update
     itself; the install then fails, which must be shown and leave the page usable."""
