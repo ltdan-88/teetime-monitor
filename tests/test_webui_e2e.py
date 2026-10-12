@@ -7,6 +7,7 @@ of the JSON cannot see. `TEETIME_E2E_SHOTS=dir` also saves a screenshot of every
 """
 
 import base64
+import contextlib
 import json
 import os
 import re
@@ -175,6 +176,30 @@ def _close_sheet(ui):
     ui.wait("!document.querySelector('.scrim')")
 
 
+# The page waits whole seconds in a few places (a message that fades back after six seconds, a poll every three,
+# a retry after 600 ms ...). Those tests run the page's long timers ten times faster instead of sitting through them.
+HURRY = "(() => { if (window.__hurried) return; window.__hurried = true; const real = window.setTimeout.bind(window); window.setTimeout = (fn, ms, ...rest) => real(fn, ms >= 500 ? ms / 10 : ms, ...rest); })()"
+
+
+@contextlib.contextmanager
+def hurried(ui):
+    identifier = ui.call("Page.addScriptToEvaluateOnNewDocument", source=HURRY)["identifier"]  # also after a reload
+    ui.js(HURRY)
+    try:
+        yield
+    finally:
+        ui.call("Page.removeScriptToEvaluateOnNewDocument", identifier=identifier)
+
+
+@pytest.fixture
+def hurry(ui):
+    with hurried(ui):
+        yield
+    if ui.js("window.__hurried === true"):  # the page the test left behind still runs hurried: start the next test on a normal one
+        ui.js("location.reload()")
+        ui.wait("window.__hurried === undefined && document.querySelectorAll('.card').length > 0")
+
+
 def test_the_overview_shows_five_days_all_collapsed_on_launch(ui):
     assert ui.count(".card") == 5
     assert ui.count(".card.open") == 0  # like the Mac app: nothing open until you open a day
@@ -228,6 +253,35 @@ def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
     ui.click(".criteria .actions .btn.pri")
     ui.wait("document.querySelector('.results-head')")
     _close_sheet(ui)
+
+
+def test_search_weather_stays_under_its_headings_in_every_window_width(ui):
+    """A hit nobody has booked yet has no players, so no chip: its temperature, rain and wind must still sit under
+    their headings (they once slid one column to the left and the button landed on top of the wind)."""
+    try:
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelector('#s-spots') && document.querySelectorAll('.res').length > 3")  # the form and the first answer are in
+        ui.set("#s-spots", "4")  # four open seats: only slots with nobody booked
+        ui.click(".criteria .actions .btn.pri")
+        ui.wait("(() => { const rows = [...document.querySelectorAll('.res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => !r.querySelector('.who-chip')); })()")  # the new answer is in
+        for width in (1280, 1000, 860, 744):
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=False)
+            ui.wait(f"innerWidth === {width}")
+            edges = ui.js(
+                """(() => { const right = (e) => Math.round(e.getBoundingClientRect().right);
+                const rows = [...document.querySelectorAll('.res:not(.res-head)')];
+                const button = (r) => r.querySelector('.res-action .btn').getBoundingClientRect();
+                return {head: [...document.querySelectorAll('.res-head .cell')].map(right),
+                        rows: rows.map((r) => [...r.querySelectorAll('.cell')].map(right)),
+                        chips: rows.filter((r) => r.querySelector('.who-chip')).length,
+                        overlap: rows.some((r) => [...r.querySelectorAll('.cell')].some((c) => c.getBoundingClientRect().right > button(r).left + 1))}; })()"""
+            )
+            assert edges["chips"] == 0, edges  # the case under test: no players
+            assert all(row == edges["head"] for row in edges["rows"]), (width, edges)
+            assert not edges["overlap"], (width, edges)  # the button never sits on the weather
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        _close_sheet(ui)
 
 
 def test_search_rows_keep_their_dates_on_one_line(ui):
@@ -612,7 +666,7 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
-def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui):
+def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui, hurry):
     """Rewritten answers stand in for GitHub and for a Pi: a newer release exists and this server may update
     itself; the install then fails, which must be shown and leave the page usable."""
     ui.js(
@@ -646,7 +700,7 @@ def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
-def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui):
+def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui, hurry):
     """After the install the old process still answers (and already reports the new version): the page must
     wait until it has gone down and a new one says "idle", then reload. Here the server answers "restarting",
     fails twice, then answers "idle" -- the page must reload only then."""
@@ -673,7 +727,7 @@ def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0", 60)  # reloaded by the "idle" answer
 
 
-def test_check_for_updates_says_what_it_found(ui):
+def test_check_for_updates_says_what_it_found(ui, hurry):
     # the demo server never calls out (the check is switched off there): the button says so
     ui.shot("footer-check")
     ui.click(".footer .check-update")
@@ -828,7 +882,7 @@ def test_collapsed_days_are_all_the_same_height(ui):
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
-def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_retry_button(ui):
+def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_retry_button(ui, hurry):
     """On Wi-Fi (or while a server restarts) the first requests can fail outright: the page tries again a few times
     before giving up, and when it does give up it says so and offers a button, in plain words even without its texts."""
     def blocked(count):
