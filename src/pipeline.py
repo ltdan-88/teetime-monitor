@@ -38,6 +38,16 @@ from .models import DateRange, Schedule
 from .scrape_once import _db_path
 from .search import search as search_slots
 
+# Today's row leaves the overview once daylight is over: at sunset, but never later than 21:00 (a summer evening
+# with the sun still up at 21:30 is not worth a row either). Without a known sunset, 21:00. Both front ends use it.
+TODAY_HIDDEN_AFTER_HHMM = "21:00"
+
+
+def today_is_over(sunset: str | None, now_hhmm: str | None = None) -> bool:
+    """True once it is past today's sunset ("HH:MM", or None when unknown) or past 21:00, whichever is first."""
+    limit = min(sunset, TODAY_HIDDEN_AFTER_HHMM) if sunset else TODAY_HIDDEN_AFTER_HHMM
+    return (now_hhmm or clock.now_hhmm()) > limit
+
 
 def _load_club_config_safely(slug: str) -> dict:
     """`club_config.load_club_config(slug)`, or {} when the file is missing,

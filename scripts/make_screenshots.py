@@ -41,7 +41,7 @@ def web_shots(lang: str, out: Path) -> None:
     executable = _chrome()
     assert executable, "no Chrome, Chromium or Edge found (set CHROME)"
     server = subprocess.Popen(
-        [sys.executable, str(REPO / "scripts" / "webui_demo.py"), tempfile.mkdtemp(), "--serve", "--offline"],
+        [sys.executable, str(REPO / "scripts" / "webui_demo.py"), tempfile.mkdtemp(), "--serve", "--offline", "--at", "09:30"],
         cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "PYTHONUNBUFFERED": "1", "TEETIME_MONITOR_LANG": lang},
     )  # fmt: skip
     url = next(m.group(0) for m in (re.search(r"http://127\.0\.0\.1:\d+/\?t=[\w-]+", line) for line in server.stdout) if m)
@@ -129,6 +129,9 @@ def tui_shots(lang: str, out: Path) -> None:
     tui._version = lambda: tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     tui._FIRST_SCRAPE_DELAY_SECONDS = 0.01
     i18n.set_language(lang)
+    from src import clock
+
+    clock.now_hhmm = lambda: "09:30"  # like the browser demo: today's card is still there, whatever the time of day
 
     executable = _chrome()
     assert executable, "no Chrome, Chromium or Edge found (set CHROME)"

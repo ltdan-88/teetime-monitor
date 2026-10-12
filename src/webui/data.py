@@ -331,6 +331,11 @@ def _build_days(db: Path, course: str, today: str, window: int, picks: dict) -> 
     return days
 
 
+def _without_today_when_over(days: list[dict], today: str) -> list[dict]:
+    """Today's card goes once daylight is over (at sunset, 21:00 at the latest: the terminal app's rule too)."""
+    return [day for day in days if not (day["date"] == today and pipeline.today_is_over(day.get("sunset")))]
+
+
 def overview(
     slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None, picks: bool = True
 ) -> dict:
@@ -385,7 +390,7 @@ def overview(
 
     hit = cached()
     if hit is None and not picks:
-        response["days"] = _build_days(db, course, today, window, {})
+        response["days"] = _without_today_when_over(_build_days(db, course, today, window, {}), today)
         response["hint"] = None
         response["picks_pending"] = True
         return response
@@ -397,7 +402,7 @@ def overview(
                 ranked = picks_cli.compute_picks(str(db), course, slug, today, window)
                 hit = {"days": _build_days(db, course, today, window, ranked), "hint": ranked.get("_hint")}
                 _OVERVIEW_CACHE[key] = (mtime, today, hit)
-    response["days"] = hit["days"]
+    response["days"] = _without_today_when_over(hit["days"], today)  # the cache outlives the clock: filter on every answer
     response["hint"] = hit["hint"]
     return response
 
