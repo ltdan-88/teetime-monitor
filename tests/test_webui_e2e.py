@@ -828,6 +828,37 @@ def test_collapsed_days_are_all_the_same_height(ui):
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
+def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_retry_button(ui):
+    """On Wi-Fi (or while a server restarts) the first requests can fail outright: the page tries again a few times
+    before giving up, and when it does give up it says so and offers a button, in plain words even without its texts."""
+    def blocked(count):
+        return ui.call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            source="""(() => { const real = window.fetch.bind(window); let n = 0;
+            window.fetch = (url, options) => (/api\\/bootstrap/.test(String(url)) && n++ < COUNT) ? Promise.reject(new TypeError('Failed to fetch')) : real(url, options); })()""".replace("COUNT", str(count)),
+        )["identifier"]
+
+    script = None
+    try:
+        script = blocked(2)  # the first two attempts fail ...
+        ui.js("location.reload()")
+        ui.wait("document.querySelectorAll('.card').length > 0", 30)  # ... the third gets through
+        ui.call("Page.removeScriptToEvaluateOnNewDocument", identifier=script)
+        script = blocked(1000)  # a server that is not there at all
+        ui.js("location.reload()")
+        ui.wait("document.querySelector('.empty .btn.pri')", 40)
+        assert "Cannot reach" in ui.text(".empty h2") and "error." not in ui.text(".empty")  # words, not message keys
+        ui.call("Page.removeScriptToEvaluateOnNewDocument", identifier=script)
+        script = None
+        ui.click(".empty .btn.pri")  # the button reloads, and now it works
+        ui.wait("document.querySelectorAll('.card').length > 0", 30)
+    finally:
+        if script:
+            ui.call("Page.removeScriptToEvaluateOnNewDocument", identifier=script)
+        ui.js("location.reload()")
+        ui.wait("document.querySelectorAll('.card').length > 0", 30)
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)

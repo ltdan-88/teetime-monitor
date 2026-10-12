@@ -14,6 +14,25 @@ import { ViewMenu } from '/viewmenu.js';
 import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
 
 const ADD_CLUB = '__add_club__';
+
+/** A request that failed to even reach the server (a dropped connection on Wi-Fi, a server that is just restarting) is tried
+ *  again a few times before the page gives up. */
+async function withRetry(work, tries = 4) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      if (attempt >= tries || !(error instanceof TypeError)) throw error;
+      await new Promise((done) => setTimeout(done, 600 * attempt));
+    }
+  }
+}
+
+/** The texts of the "cannot reach it" screen also work when the page's own strings never arrived. */
+function say(key, fallback) {
+  const text = t(key);
+  return text === key ? fallback : text;
+}
 applyScale();
 
 const refOf = (view) => (view.kind === 'saved' ? { slug: view.slug } : { club_id: view.id, name: view.name });
@@ -233,9 +252,9 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const result = await api('/api/bootstrap');
-        await loadStrings(result.language);
-        await loadThemes();
+        const result = await withRetry(() => api('/api/bootstrap'));
+        await withRetry(() => loadStrings(result.language));
+        await withRetry(() => loadThemes());
         applyTheme(result.theme || systemTheme());
         setBoot(result);
         setDisplay({ units: result.units, showHandicaps: result.show_handicaps });
@@ -394,7 +413,11 @@ function App() {
 
   // ---- render
 
-  if (failure === 'gone') return html`<${Empty} title=${t('error.gone.title')} text=${t('error.gone.text')} />`;
+  if (failure === 'gone') {
+    return html`<${Empty} title=${say('error.gone.title', 'Cannot reach Teetime Monitor')}
+      text=${say('error.gone.text', 'The program was stopped, or the connection dropped. Start it again if needed, or try once more.')}>
+      <div class="actions center"><button class="btn pri" onClick=${() => location.reload()}>${say('error.retry', 'Try again')}</button></div><//>`;
+  }
   if (failure === 'error' && !overview && !boot) return html`<${Empty} title=${t('error.title')} text=${t('error.text')} />`;
   if (!boot) return null;
 

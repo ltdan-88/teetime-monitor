@@ -84,8 +84,8 @@
   "preview.missing_club_id": "No club ID given.",
   "error.title": "Something went wrong",
   "error.text": "The app answered with an error. Reload the page; if it keeps happening, run teetime-monitor-web --help in the terminal.",
-  "error.gone.title": "The app was closed",
-  "error.gone.text": "Start Teetime Monitor again to continue.",
+  "error.gone.title": "Cannot reach Teetime Monitor",
+  "error.gone.text": "The program was stopped, or the connection dropped. Start it again if needed, or try once more.",
   "error.refresh": "Refresh failed: {error}",
   "preferences.intro": "What makes a tee time good for you. Search starts from these, and the Overview’s picks use them.",
   "settings.clubs": "Clubs",
@@ -263,7 +263,8 @@
   "update.check_failed": "Could not reach GitHub",
   "update.check_off": "Update check is switched off",
   "who.show": "Show the {n} players",
-  "who.hide": "Hide the players"
+  "who.hide": "Hide the players",
+  "error.retry": "Try again"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -350,8 +351,8 @@
   "preview.missing_club_id": "Keine Club-ID angegeben.",
   "error.title": "Etwas ist schiefgelaufen",
   "error.text": "Die App hat mit einem Fehler geantwortet. Lade die Seite neu; falls es bleibt, starte teetime-monitor-web --help im Terminal.",
-  "error.gone.title": "Die App wurde beendet",
-  "error.gone.text": "Starte Teetime Monitor erneut, um weiterzumachen.",
+  "error.gone.title": "Teetime Monitor ist nicht erreichbar",
+  "error.gone.text": "Das Programm wurde beendet, oder die Verbindung ist abgebrochen. Starte es bei Bedarf neu oder versuche es noch einmal.",
   "error.refresh": "Aktualisieren fehlgeschlagen: {error}",
   "preferences.intro": "Was eine Startzeit für dich gut macht. Die Suche startet damit, und die Empfehlungen der Übersicht nutzen es.",
   "settings.clubs": "Clubs",
@@ -529,6 +530,7 @@
   "update.check_failed": "GitHub nicht erreichbar",
   "update.check_off": "Update-Suche ist ausgeschaltet",
   "who.show": "Die {n} Spieler zeigen",
-  "who.hide": "Spieler ausblenden"
+  "who.hide": "Spieler ausblenden",
+  "error.retry": "Erneut versuchen"
  }
 }
