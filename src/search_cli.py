@@ -124,6 +124,7 @@ def search_matches(
         if schedule is not None:
             schedules.append(schedule)
 
+    schedules = pipeline.still_ahead(schedules)  # no tee times that have already started, and no today once daylight is over
     crowd_estimates = pipeline._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
     friend_names = storage.load_friend_names(path=Path(db_path))
     known_handicaps = storage.load_known_handicaps(path=Path(db_path))

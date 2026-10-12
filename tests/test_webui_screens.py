@@ -321,6 +321,24 @@ def test_a_blank_window_means_any_time_so_cleared_filters_find_everything(world)
     assert tools_api._clean_window(None) == {"after": None, "before": None}
 
 
+def test_search_skips_tee_times_that_have_started_and_today_once_daylight_is_over(world, monkeypatch):
+    """Search looks ahead: this morning's tee times are gone at 12:00, and after sunset (19:00) all of today is."""
+    from src import clock
+
+    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
+    today, tomorrow = date.today().isoformat(), (date.today() + timedelta(days=1)).isoformat()
+
+    def found():
+        return {(m["date"], m["time"]) for m in tools_api.run_search(SLUG, None, COURSE, blank)["matches"]}
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "12:00")
+    assert (today, "15:00") in found() and (today, "10:10") not in found() and (tomorrow, "07:10") in found()
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "15:00")
+    assert (today, "15:00") in found()  # a tee time at exactly this minute still counts
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "19:05")  # past the fixture's sunset (19:00)
+    assert not [d for d, _ in found() if d == today] and (tomorrow, "10:00") in found()
+
+
 def test_search_flags_the_weather_limits_you_set(world):
     global_preferences.save_preferences(
         {
