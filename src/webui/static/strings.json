@@ -264,7 +264,21 @@
   "update.check_off": "Update check is switched off",
   "who.show": "Show the {n} players",
   "who.hide": "Hide the players",
-  "error.retry": "Try again"
+  "error.retry": "Try again",
+  "overview.switch_course": "Switch to {course}",
+  "heatmap.tap_hint": "Tap a square for its numbers.",
+  "legend.touch": "On a touch screen, touch and hold an icon, a number or a heading to see what it means.",
+  "legend.tool.refresh": "Refresh: fetch new tee sheets now",
+  "legend.tool.search": "Search: find the best open times",
+  "legend.tool.heatmap": "Heatmap: how full the course usually is",
+  "legend.tool.players": "Players: everyone seen on the sheets, friends",
+  "legend.tool.preferences": "Preferences: when you can play, weather limits",
+  "legend.tool.settings": "Settings: clubs, logins, scraping, AI",
+  "legend.tool.view": "View: language, theme, size, units",
+  "legend.alternative": "a shorter round on another course still fits (tap to switch)",
+  "legend.chip": "players booked in a slot: tap to list them",
+  "legend.warn": "orange value in Search: outside your rain, wind or temperature limit",
+  "legend.slot_tap": "Tap (or click) a time to mark it as your booking; tap your booking to cancel it."
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -531,6 +545,20 @@
   "update.check_off": "Update-Suche ist ausgeschaltet",
   "who.show": "Die {n} Spieler zeigen",
   "who.hide": "Spieler ausblenden",
-  "error.retry": "Erneut versuchen"
+  "error.retry": "Erneut versuchen",
+  "overview.switch_course": "Zu {course} wechseln",
+  "heatmap.tap_hint": "Ein Quadrat antippen für seine Zahlen.",
+  "legend.touch": "Auf einem Touchscreen: ein Symbol, eine Zahl oder eine Überschrift berühren und halten, dann steht dort, was es bedeutet.",
+  "legend.tool.refresh": "Aktualisieren: neue Tee-Sheets jetzt abrufen",
+  "legend.tool.search": "Suche: die besten freien Zeiten finden",
+  "legend.tool.heatmap": "Heatmap: wie voll der Platz meist ist",
+  "legend.tool.players": "Spieler: alle, die auf den Sheets zu sehen waren, Freunde",
+  "legend.tool.preferences": "Präferenzen: wann du spielen kannst, Wettergrenzen",
+  "legend.tool.settings": "Einstellungen: Clubs, Logins, Abruf, KI",
+  "legend.tool.view": "Ansicht: Sprache, Design, Größe, Einheiten",
+  "legend.alternative": "eine kürzere Runde auf einem anderen Platz passt noch (antippen zum Wechseln)",
+  "legend.chip": "Spieler in einer Startzeit: antippen für die Liste",
+  "legend.warn": "orange Wert in der Suche: außerhalb deiner Regen-, Wind- oder Temperaturgrenze",
+  "legend.slot_tap": "Eine Zeit antippen (oder anklicken), um sie als deine Buchung zu markieren; deine Buchung antippen, um sie zu stornieren."
  }
 }
