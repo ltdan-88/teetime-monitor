@@ -13,15 +13,16 @@ function weekdayLabel(name) {
   return weekdayShort(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`) || SUNDAY;
 }
 
-function Cell({ bucket, minSamples }) {
+function Cell({ bucket, minSamples, onPick, what }) {
   if (!bucket) return html`<span class="hm-cell none" aria-label=${t('heatmap.legend.no_data')}>—</span>`;
   const pct = round(bucket.average * 100);
   const thin = bucket.samples < minSamples;
-  return html`<span class=${'hm-cell' + (thin ? ' thin' : '')} style=${{ background: occupancyColor(bucket.average) }}
-    title=${t('heatmap.cell_tip', { pct, n: bucket.samples })} role="img" aria-label=${t('heatmap.cell_tip', { pct, n: bucket.samples })}></span>`;
+  const text = t('heatmap.cell_tip', { pct, n: bucket.samples });
+  return html`<span class=${'hm-cell' + (thin ? ' thin' : '')} style=${{ background: occupancyColor(bucket.average) }} onClick=${() => onPick(what + ' — ' + text)}
+    title=${text} role="img" aria-label=${text}></span>`;
 }
 
-function Grid({ title, keys, labels, group, hours, minSamples }) {
+function Grid({ title, keys, labels, group, hours, minSamples, onPick }) {
   if (!keys.some((key) => group[key] && Object.keys(group[key]).length)) {
     return html`<div class="hm-grid"><p class="lab">${title}</p><p class="hm-none">${t('heatmap.no_data_yet')}</p></div>`;
   }
@@ -34,7 +35,7 @@ function Grid({ title, keys, labels, group, hours, minSamples }) {
       ${hours.map((hour) => html`
         <div class="hm-row" style=${{ gridTemplateColumns: `2.75rem repeat(${keys.length}, minmax(2.1rem, 1fr))` }}>
           <span class="num hour">${hour}</span>
-          ${keys.map((key) => html`<${Cell} bucket=${group[key] && group[key][hour]} minSamples=${minSamples} />`)}
+          ${keys.map((key, index) => html`<${Cell} bucket=${group[key] && group[key][hour]} minSamples=${minSamples} onPick=${onPick} what=${labels[index] + ' ' + hour} />`)}
         </div>`)}
     </div>`;
 }
@@ -43,6 +44,7 @@ export function HeatmapSheet({ club, course, onClose }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [chosen, setChosen] = useState(course);
   const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: chosen })), [club.id, chosen]);
+  const [picked, setPicked] = useState(null); // the numbers of the cell last tapped (no hover on a touch screen)
   const swatch = (color, text, style) => html`<span><span class="sw" style=${{ background: color, ...style }}></span>${text}</span>`;
   return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide">
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
@@ -55,10 +57,11 @@ export function HeatmapSheet({ club, course, onClose }) {
       <p class="hint">${t('heatmap.intro', { n: data.history_days })}</p>
       <div class="hm-wrap">
         <${Grid} title=${t('heatmap.by_weekday')} keys=${WEEKDAY_ORDER} labels=${WEEKDAY_ORDER.map(weekdayLabel)}
-          group=${data.by_weekday} hours=${data.hours} minSamples=${data.min_samples} />
+          group=${data.by_weekday} hours=${data.hours} minSamples=${data.min_samples} onPick=${setPicked} />
         <${Grid} title=${t('heatmap.special_days')} keys=${data.special_day_types} labels=${data.special_day_types.map((key) => t('heatmap.' + key))}
-          group=${data.special_days} hours=${data.hours} minSamples=${data.min_samples} />
+          group=${data.special_days} hours=${data.hours} minSamples=${data.min_samples} onPick=${setPicked} />
       </div>
+      <p class="hm-picked" role="status">${picked || t('heatmap.tap_hint')}</p>
       <div class="hm-legend">
         ${swatch('var(--green)', t('heatmap.legend.open'))}
         ${swatch('var(--orange)', t('heatmap.legend.mid'))}

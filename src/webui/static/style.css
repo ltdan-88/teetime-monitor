@@ -138,7 +138,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .pill.link:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--pill-grey-bg)); }
 
 /* ---- slots ---- */
-.slots { border-top: 1px solid var(--line); margin: 0 1.25rem; padding: 0.375rem 0 0.625rem; }
+.slots { margin: 0 1.25rem; padding: 0.375rem 0 0.625rem; }
+.dh-wrap .slots-head { margin: 0 1.25rem; padding-top: 0.25rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .slot {
   display: grid; align-items: center; column-gap: 0.5rem; height: 2.25rem; padding: 0 0;
   grid-template-columns: 5rem 6.25rem 4.75rem 1fr 2.25rem 3.5rem 4.5rem 2.75rem;
@@ -165,7 +166,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .slot .cell, .res .cell { text-align: right; color: var(--dim); font-family: var(--mono); font-size: 0.875rem; white-space: nowrap; }
 .cell.warn { color: var(--orange); font-weight: 600; }
 .cell.head { font-family: var(--font); font-size: 0.75rem; letter-spacing: 0.03rem; color: var(--dim); }
-.slots-head { display: grid; column-gap: 0.5rem; grid-template-columns: 5rem 6.25rem 4.75rem 1fr 2.25rem 3.5rem 4.5rem 2.75rem; height: 1.5rem; align-items: center; }
+.slots-head { display: grid; column-gap: 0.5rem; grid-template-columns: 5rem 6.25rem 4.75rem 1fr 2.25rem 3.5rem 4.5rem 2.75rem; height: 1.75rem; align-items: center; }
 .slots-head .cell { text-align: right; }
 .slots-head .cell:first-child { grid-column: 6; }
 
@@ -261,7 +262,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .empty.small { margin: 1.5rem auto; }
 .empty.small h3 { margin: 0 0 0.375rem; color: var(--text); font-size: 1.0625rem; }
 
-dl.legend { display: grid; grid-template-columns: 9.375rem 1fr; gap: 0.625rem 1rem; margin: 0 0 1.125rem; align-items: center; }
+dl.legend { display: grid; grid-template-columns: max-content 1fr; gap: 0.625rem 1rem; margin: 0 0 1.125rem; align-items: center; }
 dl.legend dt { display: flex; gap: 0.5rem; align-items: center; }
 dl.legend dd { margin: 0; color: var(--mid); }
 .swatch { width: 1.75rem; height: 0.875rem; border-radius: 0.25rem; display: inline-block; }
@@ -354,7 +355,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 }
 @media (max-width: 860px) {
   .toolbar, .main, .footer { padding-left: 0.875rem; padding-right: 0.875rem; }
-  .slots { margin: 0 0.75rem; }
+  .slots, .dh-wrap .slots-head { margin: 0 0.75rem; }
 }
 
 /* Tablets (portrait iPads are 744-834 px wide) keep the whole table: the day header with weather, and every slot on
@@ -418,7 +419,9 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .dh .events { grid-column: 2 / -1; }
   /* time, seats, free, chip, then (on the right) weather icon, temperature, rain and wind: it all fits on one slim row */
   .slot { grid-template-columns: 3.9rem 4.9rem auto auto minmax(0, 1fr) 1.4rem 2.1rem 2.4rem 1.7rem; height: auto; min-height: 2.25rem; column-gap: 0.3rem; row-gap: 0.125rem; padding: 0.25rem 0; }
-  .slots-head { display: none; }
+  .slots-head { grid-template-columns: 3.9rem 4.9rem auto auto minmax(0, 1fr) 1.4rem 2.1rem 2.4rem 1.7rem; column-gap: 0.3rem; height: 1.5rem; }
+  .slots-head .cell { font-size: 0.6875rem; }
+  .slots-head .cell:first-child { grid-column: 7; }
   .slot .time { grid-row: 1; grid-column: 1; font-size: 0.9375rem; gap: 0.125rem; }
   .slot .seats { grid-row: 1; grid-column: 2; gap: 0.25rem; }
   .slot .seat { width: 1rem; height: 1rem; }
@@ -441,7 +444,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
   background: var(--surface); border-radius: 0.875rem 0.875rem 0 0;
 }
 .card.open .dh { border-radius: 0.875rem 0.875rem 0 0; }
-.slot[data-slot] { scroll-margin-top: calc(var(--toolbar-h, 4.5rem) + 6rem); }
+.slot[data-slot] { scroll-margin-top: calc(var(--toolbar-h, 4.5rem) + var(--dh-h, 6rem) + 0.5rem); }
 .slot.dimmed { opacity: .4; }
 .slot.dimmed.past { opacity: .25; }
 .sheet.tall { height: min(90vh, 58rem); height: min(90dvh, 58rem); }
@@ -592,7 +595,7 @@ button, select, input { touch-action: manipulation; }
 .view-about .version { font-family: var(--mono); font-size: 0.75rem; color: var(--dim); }
 @media (max-width: 640px) {
   .footer { flex-wrap: nowrap; gap: 0.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
-  .footer .version, .footer .check-update, .footer .legend-text { display: none; }
+  .footer .version, .footer .check-update { display: none; }
   .footer .status { flex: 1 1 auto; font-size: 0.8125rem; }
   .footer .update-note { flex: none; margin: 0; max-width: 40%; line-height: 1.25; }
   .view-about { display: flex; }
@@ -600,3 +603,24 @@ button, select, input { touch-action: manipulation; }
      the base .view-panel rule, which would otherwise win */
   .view-panel { position: fixed; left: 0.75rem; right: 0.75rem; top: calc(var(--toolbar-h, 6rem) + 0.25rem); width: auto; max-width: none; max-height: calc(100dvh - var(--toolbar-h, 6rem) - 1.25rem); overflow: auto; }
 }
+
+/* ---- app name ---- */
+.brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.9375rem; color: var(--text); white-space: nowrap; }
+.brand svg { color: var(--accent); }
+.brand.in-bar { flex: none; margin-right: 0.5rem; }
+.brand.top { display: none; padding: 0.5rem 0.875rem 0; }
+@media (max-width: 860px) {
+  .brand.in-bar { display: none; }
+  .brand.top { display: flex; }
+}
+
+/* ---- touch: tooltips by touch and hold, written-out explanations ---- */
+.touch-tip { position: fixed; z-index: 60; max-width: min(20rem, calc(100vw - 1rem)); padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--text); color: var(--bg);
+  font-size: 0.8125rem; line-height: 1.35; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,.4); pointer-events: none; }
+@media (pointer: coarse) { [title] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
+.day-why { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 0.25rem 0.5rem; margin: 0.375rem 0 0.125rem; padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; line-height: 1.4; }
+.day-why svg { margin-top: 0.125rem; color: var(--accent); }
+.tool-ico, .chipdemo { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--mid); }
+.chipdemo { padding: 0 0.5rem; height: 1.5rem; border-radius: 62.4375rem; background: var(--pill-grey-bg); font-family: var(--mono); font-size: 0.8125rem; }
+.hm-picked { min-height: 1.4em; margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--mid); }
+.hm-cell { cursor: pointer; }

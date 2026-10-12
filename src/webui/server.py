@@ -52,7 +52,7 @@ AUTH_COOKIE_NAME = "tm_auth"
 DEFAULT_SERVE_PORT = 8765
 SCRAPE_CHECK_SECONDS = 300  # how often the server looks for a club that is due (the clubs' own intervals decide)
 # Reachable without logging in: the login page and what it needs.
-PUBLIC_PAGES = {"/login": "login.html", "/login.js": "login.js", "/style.css": "style.css"}
+PUBLIC_PAGES = {"/login": "login.html", "/login.js": "login.js", "/style.css": "style.css", "/favicon.svg": "favicon.svg"}
 PING_INTERVAL_HINT_SECONDS = 5
 IDLE_EXIT_AFTER_FIRST_PING_SECONDS = 120  # background tabs throttle timers to about one a minute
 IDLE_EXIT_WITHOUT_ANY_PING_SECONDS = 600  # the window never opened, or was closed at once

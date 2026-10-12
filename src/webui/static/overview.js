@@ -54,6 +54,24 @@ function outsideWindow(day, slot) {
   return !!win && ((win.after && slot.time < win.after) || (win.before && slot.time > win.before));
 }
 
+/** What the badge says, as a sentence on the page itself (the badge's tooltip is not available on a touch screen). */
+function dayNote(day) {
+  const pick = day.pick;
+  if (day.booked_time || !pick) return null;
+  if (pick.locked) return { icon: 'lock', text: t('tip.locked', { when: opensText(pick.locked) }) };
+  if (pick.time) return { icon: 'star', text: pickTooltip(pick) };
+  if (pick.alternative) {
+    const alt = pick.alternative;
+    return { icon: 'star', text: t('tip.alt', { time: alt.time, course: alt.course, holes: alt.holes }), alt };
+  }
+  if (pick.unplayable && pick.unplayable.length) {
+    const reasons = [...pick.unplayable].sort();
+    const dark = reasons.length === 1 && reasons[0] === 'daylight';
+    return { icon: dark ? 'moon' : 'rain', text: t(dark ? 'tip.no_pick_daylight' : reasons.length === 1 && reasons[0] === 'weather' ? 'tip.no_pick_weather' : 'tip.no_pick_both') };
+  }
+  return null;
+}
+
 function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
   const w = day.weather;
   const label = dayLabel(day.date);
@@ -78,6 +96,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
       ${(day.events.length > 0 || reserveNote) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
     </button>
+    ${open && html`<div class="slots-head"><${WeatherHeads} units=${units} /></div>`}
     </div>
   `;
 }
@@ -172,7 +191,11 @@ export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onA
     <section class=${'card' + (open ? ' open' : '')}>
       <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} reserveNote=${reserveNote} />
       ${open && html`<div class="slots">
-        <div class="slots-head"><${WeatherHeads} units=${units} /></div>
+        ${(() => {
+          const note = dayNote(day);
+          return note && html`<p class="day-why"><${Icon} name=${note.icon} size=${16} />${note.text}
+            ${note.alt && onAlternative && html` <button class="link-btn" onClick=${() => onAlternative(day, note.alt)}>${t('overview.switch_course', { course: note.alt.course })}</button>`}</p>`;
+        })()}
         ${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}
     </section>`;
 }

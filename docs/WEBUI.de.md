@@ -75,6 +75,13 @@ Suchergebnissen der Chip und ein kleiner Flaggen-Knopf zum Als-gebucht-Markieren
 nutzen). Breitere Fenster zeigen die Namen in der Zeile. (Geprüft bei 390, 640,
 744, 834 und 1100 px.)
 
+Ein Touchscreen hat kein Hover, ein Tooltip erscheint also nie. Stattdessen: ein Symbol, eine Zahl oder eine
+Überschrift berühren und halten, dann erscheint die Erklärung als Blase; was das Badge eines Tages bedeutet (warum es
+die Empfehlung ist oder warum es keine gibt), steht ausgeschrieben über den Zeiten des Tages, mit einem Knopf zum
+Wechsel auf eine kürzere Runde auf einem anderen Platz; ein angetipptes Heatmap-Quadrat zeigt seine Zahlen; und die
+Legende (unten, ⓘ) benennt jedes Symbol der Werkzeugleiste und jedes Badge. Die Überschriften °C / Regen / Wind bleiben
+unter dem Tageskopf angeheftet, während die Zeiten scrollen, und der Name der App steht immer oben.
+
 Das Programm selbst läuft nicht auf einem Smartphone oder Tablet. Betreibe es auf einem Raspberry Pi (oder einem
 anderen dauerhaft laufenden Computer) mit `teetime-monitor-web --serve` und öffne dessen Adresse im Browser des
 Geräts: [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md).

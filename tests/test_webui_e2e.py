@@ -707,7 +707,7 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
     count, no weather columns) and every row must be as tall as the next; a phone keeps the compact one."""
     ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
     try:
-        for width, whole_table in ((744, True), (834, True), (390, False)):
+        for width in (744, 834, 390):
             ui.call("Emulation.setDeviceMetricsOverride", width=width, height=1100, deviceScaleFactor=2, mobile=True)
             ui.js("window.scrollTo(0, 0)")
             if not ui.count(".card.open"):
@@ -724,7 +724,7 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
             assert shape["free"] and not shape["overflow"], (width, shape)
             chip = ui.js("(() => { const c = document.querySelector('.card.open .slot .who-chip'); return !!c && getComputedStyle(c).display !== 'none'; })()")
             assert chip is True, (width, chip)  # up to 860 px (phone, narrow window, portrait tablet) the names are behind a chip
-            assert (shape["rain"] and shape["wind"] and shape["head"]) == whole_table, (width, shape)  # weather columns and headings on tablets only
+            assert shape["rain"] and shape["wind"] and shape["head"], (width, shape)  # weather columns and their headings on every screen size
     finally:
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
@@ -857,6 +857,91 @@ def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_r
             ui.call("Page.removeScriptToEvaluateOnNewDocument", identifier=script)
         ui.js("location.reload()")
         ui.wait("document.querySelectorAll('.card').length > 0", 30)
+
+
+def test_the_app_name_is_always_in_view(ui):
+    assert "Teetime Monitor" in ui.text(".brand.in-bar") and ui.js("getComputedStyle(document.querySelector('.brand.top')).display") == "none"
+    ui.call("Emulation.setDeviceMetricsOverride", width=393, height=800, deviceScaleFactor=2, mobile=True)
+    try:
+        assert "Teetime Monitor" in ui.text(".brand.top") and ui.js("getComputedStyle(document.querySelector('.brand.in-bar')).display") == "none"
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_the_weather_headings_stay_pinned_under_the_day_header(ui):
+    """The °C / rain / wind headings sit in the pinned header block, so they stay in view while the slots scroll,
+    on a computer and on a phone."""
+    def pinned():
+        return ui.js(
+            """(() => { const head = document.querySelector('.card.open .slots-head').getBoundingClientRect(); const wrap = document.querySelector('.card.open .dh-wrap').getBoundingClientRect();
+            const bar = document.querySelector('.toolbar').getBoundingClientRect(); return [head.top >= bar.bottom - 1, Math.abs(head.bottom - wrap.bottom) < 2, head.height > 10, head.bottom < innerHeight]; })()"""
+        )
+
+    ui.js("window.scrollTo(0, 0)")
+    if not ui.count(".card.open"):
+        ui.click("button.dh", index=1)
+    ui.wait("document.querySelector('.card.open .slots-head')")
+    ui.js("window.scrollBy(0, 500)")
+    assert pinned() == [True, True, True, True], pinned()
+    ui.call("Emulation.setDeviceMetricsOverride", width=393, height=800, deviceScaleFactor=2, mobile=True)
+    try:
+        assert ui.js("getComputedStyle(document.querySelector('.card.open .slots-head')).display") != "none"  # phones have them too
+        ui.js("window.scrollTo(0, 0); window.scrollBy(0, 500)")
+        assert pinned() == [True, True, True, True], pinned()
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.scrollTo(0, 0)")
+
+
+def test_touch_and_hold_shows_a_tooltip_and_does_not_tap_what_is_held(ui):
+    """A touch screen has no hover: holding anything with a title shows it as a bubble, and the release does not
+    count as a tap (a slot row would open the booking dialog)."""
+    ui.call("Emulation.setDeviceMetricsOverride", width=393, height=800, deviceScaleFactor=2, mobile=True)
+    ui.call("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
+    try:
+        ui.js("window.scrollTo(0, 0)")
+        if not ui.count(".card.open"):
+            ui.click("button.dh", index=1)
+        ui.wait("document.querySelector('.card.open .slot.clickable .temp')")
+        ui.js("document.querySelector('.card.open .slot.clickable .temp').scrollIntoView({block: 'center'})")
+        point = ui.js("(() => { const r = document.querySelector('.card.open .slot.clickable .temp').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()")
+        expected = ui.js("document.querySelector('.card.open .slot.clickable .temp').title")
+        ui.call("Input.dispatchTouchEvent", type="touchStart", touchPoints=[{"x": point[0], "y": point[1]}])
+        time.sleep(0.9)
+        assert ui.text(".touch-tip") == expected and expected, (ui.text(".touch-tip"), expected)
+        ui.call("Input.dispatchTouchEvent", type="touchEnd", touchPoints=[])
+        time.sleep(0.4)
+        assert ui.count(".scrim") == 0  # the held slot was not tapped
+        ui.call("Input.dispatchTouchEvent", type="touchStart", touchPoints=[{"x": point[0], "y": point[1]}])  # a short tap still works
+        time.sleep(0.1)
+        ui.call("Input.dispatchTouchEvent", type="touchEnd", touchPoints=[])
+        ui.wait("document.querySelector('.scrim')")
+        ui.click(".sheet.small .btn", "Not now")
+        ui.wait("!document.querySelector('.scrim')")
+    finally:
+        ui.call("Emulation.setTouchEmulationEnabled", enabled=False)
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.scrollTo(0, 0)")
+
+
+def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(ui):
+    ui.js("window.scrollTo(0, 0)")
+    while ui.count(".card.open"):
+        ui.click(".card.open button.dh")
+        ui.wait("document.querySelectorAll('.card.open').length === 0")
+    ui.js("document.querySelector('.card:has(.pill.pick) button.dh').click()")  # a day that has a recommended pick
+    ui.wait("document.querySelector('.card.open .slots')")
+    assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
+    ui.key("?")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
+    assert ui.count(".legend .tool-ico") == 7  # every toolbar icon is named
+    assert "touch and hold" in ui.text(".sheet").lower()
+    _close_sheet(ui)
+    _open_sheet(ui, "h", "heatmap")  # a tapped square shows its numbers (no hover on a touch screen)
+    ui.wait("document.querySelectorAll('.hm-cell:not(.none)').length > 3")
+    ui.js("document.querySelector('.hm-cell:not(.none)').click()")
+    ui.wait("/%/.test(document.querySelector('.hm-picked')?.textContent || '')")
+    _close_sheet(ui)
 
 
 def test_the_legend_and_escape(ui):

@@ -68,6 +68,12 @@ are a chip with their count (★ when a friend plays) that opens the names as a 
 across the screen and holds the version and **Check for updates**, and Search scrolls as a whole (also with the phone
 on its side, where windows use nearly the whole short screen). Wider windows show the names in the row. (Checked at 390, 640, 744, 834 and 1100 px.)
 
+A touch screen has no hover, so a tooltip never shows. Instead: touch and hold any icon, number or heading and its
+explanation appears as a bubble; what a day's badge means (why it is the pick, or why there is none) is written out
+above the day's times, with a button to switch to a shorter round on another course; a tapped heatmap square shows its
+numbers; and the Legend (footer, ⓘ) names every toolbar icon and badge. The °C / rain / wind headings stay pinned under
+the day header while the times scroll, and the app's name is always at the top.
+
 The program itself cannot run on a phone or tablet. Run it on a Raspberry Pi (or any always-on computer) with
 `teetime-monitor-web --serve` and open its address from the device's browser: [RASPBERRY-PI.md](RASPBERRY-PI.md).
 

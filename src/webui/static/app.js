@@ -12,6 +12,7 @@ import { HeatmapSheet } from '/heatmap.js';
 import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
 import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
+import { installTouchTips } from '/tips.js';
 
 const ADD_CLUB = '__add_club__';
 
@@ -34,6 +35,7 @@ function say(key, fallback) {
   return text === key ? fallback : text;
 }
 applyScale();
+installTouchTips();
 
 const refOf = (view) => (view.kind === 'saved' ? { slug: view.slug } : { club_id: view.id, name: view.name });
 const refreshKeyOf = (view) => (view.kind === 'saved' ? view.slug : 'club:' + view.id);
@@ -57,13 +59,29 @@ function WindowHint({ hint, onPreferences }) {
     <button class="btn" onClick=${onPreferences}>${t('action.preferences')}</button></div>`;
 }
 
+/** The app's name, always in view (the browser tab has it too): beside the toolbar on wide windows, a slim line above it on narrow ones. */
+function Brand({ className }) {
+  return html`<div class=${className}><${Icon} name="flag" size=${18} style="fill:currentColor" /><span>${t('app.title')}</span></div>`;
+}
+
 function Empty({ title, text, children }) {
   return html`<div class="empty"><h2>${title}</h2>${text && html`<p>${text}</p>`}${children}</div>`;
 }
 
 function Legend({ onClose }) {
   const swatch = (color) => html`<span class="swatch" style=${{ background: color }}></span>`;
+  const toolIcon = (name) => html`<span class="tool-ico"><${Icon} name=${name} size=${18} /></span>`;
   return html`<${Sheet} title=${t('legend.title')} onClose=${onClose} size="small">
+    <p class="hint">${t('legend.touch')}</p>
+    <dl class="legend">
+      <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
+      <dt>${toolIcon('search')}</dt><dd>${t('legend.tool.search')}</dd>
+      <dt>${toolIcon('grid')}</dt><dd>${t('legend.tool.heatmap')}</dd>
+      <dt>${toolIcon('users')}</dt><dd>${t('legend.tool.players')}</dd>
+      <dt>${toolIcon('gear')}</dt><dd>${t('legend.tool.preferences')}</dd>
+      <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
+      <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
+    </dl>
     <dl class="legend">
       <dt>${swatch('var(--green)')}</dt><dd>${t('legend.occ.open')}</dd>
       <dt>${swatch('var(--orange)')}</dt><dd>${t('legend.occ.mid')}</dd>
@@ -76,7 +94,11 @@ function Legend({ onClose }) {
       <dt><span class="pill quiet"><${Icon} name="lock" size=${14} />Wed 21:00</span></dt><dd>${t('legend.locked')}</dd>
       <dt><${Icon} name="star" size=${16} style="color:var(--accent);fill:var(--accent)" /></dt><dd>${t('legend.recommended')}</dd>
       <dt><${Icon} name="moon" size=${16} class="dim" /></dt><dd>${t('legend.too_late')}</dd>
+      <dt><span class="pill quiet"><${Icon} name="star" size=${14} />12:10 · 9H</span></dt><dd>${t('legend.alternative')}</dd>
+      <dt><span class="chipdemo"><${Icon} name="users" size=${14} />3</span></dt><dd>${t('legend.chip')}</dd>
+      <dt><span class="cell warn">13°</span></dt><dd>${t('legend.warn')}</dd>
     </dl>
+    <p class="hint">${t('legend.slot_tap')}</p>
     <dl class="legend">
       <dt><span class="name">Max</span></dt><dd>${t('legend.male')}</dd>
       <dt><span class="name alt">Erika</span></dt><dd>${t('legend.female')}</dd>
@@ -158,6 +180,15 @@ function App() {
     observer.observe(bar);
     return () => observer.disconnect();
   }, [ready]);
+  useEffect(() => {
+    const wrap = document.querySelector('.card.open .dh-wrap');
+    if (!wrap) return undefined;
+    const apply = () => document.documentElement.style.setProperty('--dh-h', wrap.offsetHeight + 'px');
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, [openDate, overview]);
   useEffect(() => {
     if (!openDate || focusOnOpen.current !== openDate || !overview) return;
     focusOnOpen.current = null;
@@ -436,7 +467,9 @@ function App() {
 
   return html`
     <div class="app">
+      <${Brand} className="brand top" />
       <header class="toolbar">
+        <${Brand} className="brand in-bar" />
         <div class="toolbar-picks">
         ${boot.clubs.length > 0 && view && view.kind === 'saved' && html`<${Select} id="club" aria-label=${t('club')} value=${view.slug} options=${clubOptions} onChange=${selectClub} />`}
         ${view && view.kind === 'preview' && html`<span class="picker-static" title=${view.name}>${view.name}</span>`}
