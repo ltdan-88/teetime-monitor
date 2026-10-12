@@ -3,8 +3,8 @@
 *[English version](RASPBERRY-PI.md)*
 
 Ein Raspberry Pi, der immer läuft, kann Teetime Monitor für den ganzen Haushalt betreiben: Er holt die
-Tee-Sheets selbstständig ab (wie der Hintergrund-Agent auf dem Mac), und jedes Handy, Tablet und jeder Computer
-im Heimnetz öffnet dieselbe [Web-Oberfläche](WEBUI.de.md) im Browser, hinter einem Passwort. Auf diesen Geräten
+Tee-Sheets selbstständig ab, und jedes Handy, Tablet und jeder Computer
+im Heimnetz öffnet dieselbe Browser-Version (siehe [README](../README.de.md)), hinter einem Passwort. Auf diesen Geräten
 läuft nichts.
 
 **Voraussetzungen:** ein Raspberry Pi 3, 4, 5 oder Zero 2 W mit **64-Bit**-Raspberry-Pi-OS „Bookworm“ (12) oder

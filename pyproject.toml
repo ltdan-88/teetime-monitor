@@ -1,6 +1,6 @@
 [project]
 name = "teetime-monitor"
-version = "0.81.3"
+version = "0.82.0"
 description = "Local TUI for monitoring a pc caddie club tee sheet, with weather overlay and tee-time analytics."
 readme = "README.md"
 license = "MIT"
@@ -52,7 +52,7 @@ teetime-monitor = "src.tui:main"
 # whatever state it's in mid-edit. A console script is resolved from the installed
 # package instead, so the two can't be confused.
 teetime-monitor-scrape = "src.scrape_once:main"
-# The local web UI for Windows/Linux (2026-10-10) -- see src/webui/server.py and docs/WEBUI.md.
+# The local web UI for Windows/Linux (2026-10-10) -- see src/webui/server.py and docs/DEVELOPING.md.
 teetime-monitor-web = "src.webui.server:main"
 
 [build-system]

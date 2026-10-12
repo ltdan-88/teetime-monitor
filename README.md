@@ -2,458 +2,142 @@
 
 <p align="center">
   <strong>Booking a tee time takes a minute. Finding the right one takes all week.</strong><br>
-  Your golf club's tee sheet in a terminal — kept current by itself, with the weather,
-  the daylight and your own rules already applied, so the slot worth taking is marked
-  before you go looking.
+  Your golf club's tee sheet, kept current by itself — with the weather, the daylight and your own
+  rules already applied, so the time worth taking is marked before you go looking.
 </p>
 
 <p align="center">
   <a href="https://github.com/ltdan-88/teetime-monitor/releases"><img alt="Version" src="https://img.shields.io/github/v/tag/ltdan-88/teetime-monitor?label=version&color=89b4fa"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-a6e3a1"></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-cba6f7">
-  <img alt="Languages" src="https://img.shields.io/badge/UI-English%20%7C%20Deutsch-f9e2af">
+  <img alt="Platform" src="https://img.shields.io/badge/runs%20on-Mac%20%7C%20Windows%20%7C%20Linux%20%7C%20Raspberry%20Pi-cba6f7">
+  <img alt="Languages" src="https://img.shields.io/badge/English%20%7C%20Deutsch-f9e2af">
 </p>
 
 <p align="center">🇬🇧 <strong>English</strong> · <a href="README.de.md">🇩🇪 Deutsch</a></p>
 
-<p align="center"><img src="assets/en/overview.png" alt="The multi-day overview: one row per bookable day, with weather, occupancy, events and a Pick column"></p>
+<p align="center"><img src="assets/en/web-overview.png" alt="The week at a glance: one card per bookable day with weather, the recommended time and how busy it is"></p>
 
-## What this is
+## What it does
 
-Golf clubs across German-speaking Europe publish their tee sheets — who's booked
-onto which slot, which slots are still open — through a booking platform called
-**pc caddie**. The sheet is public: no login needed to read it.
+Golf clubs all over German-speaking Europe publish their tee sheets through a booking platform called
+**pc caddie**: who plays when, which times are still free. The sheet is public. Teetime Monitor reads it for
+you and adds what the club's page doesn't tell you:
 
-`teetime-monitor` reads that sheet and puts it in your terminal. It re-reads it on
-its own in the background, layers on the things the club's own page doesn't show —
-the forecast for each slot, whether a round would still finish before dark, how
-busy that weekday usually gets — and marks the slots that match the rules you set
-once.
+- ⛳ **A recommended time for every day** — the one with dry weather, little wind, room around your group and
+  daylight to spare. Or the reason why there is none ("too dark to finish", "rain all day").
+- 🌦 **The forecast for each tee time**, not just for the day.
+- 🌙 **A warning when a round wouldn't finish before sunset.**
+- 👥 **Who is playing** — friends you mark get a star.
+- 🔔 **A heads-up when your booking changes**: someone joins your flight, the forecast turns.
+- 📈 **A crowd heatmap** that learns over the weeks which hours really fill up.
 
-**It never books anything.** Booking still happens on pc caddie's own site. This is
-the part *before* that: deciding which slot you actually want, and noticing when
-something about it changes.
+**It never books anything.** You still book on pc caddie's own site. This is the part before that: working out
+which time you actually want.
 
-## How you'd actually use it
+## Two ways to use it — same data, same advice
 
-1. **Open it.** You land on the next few bookable days, one row each.
-2. **Read the Pick column.** Each day already says what it thinks: a ★ recommended
-   time, your confirmed booking, or why nothing there qualifies ("too dark to
-   finish", "no dry picks"). The ★ is the day's best slot, not just the earliest
-   one: it scores every playable slot on the weather over the whole round (rain,
-   wind and temperature, each against your own limits, if you set them), room around
-   your group, a quiet hour and daylight to spare (free, offline, no AI).
-   Highlighting the day (TUI) or hovering the badge (GUI) says why, e.g.
-   "Picked for: dry · room around you · daylight to spare".
-   When your course is too dark to finish but a shorter one at the club still fits,
-   the cell suggests that instead — e.g. "★ 16:10 · 9H" (the TUI names the course
-   under the table when you highlight the day; in the GUI, hover it for the course
-   or click it to switch to that course). A course whose name doesn't say its length
-   (a "Kurzplatz") is only considered once you give it a hole count — Settings → Course
-   lengths in the terminal app, Settings → Clubs in the macOS app (the club file's
-   `course_holes`).
-   A day that isn't open for booking yet shows 🔒 and when it opens — e.g.
-   "🔒 Wed 21:00" for a club that releases tee times 3 days ahead at 21:00 (club time;
-   a club that names no hour just shows the day). The background scraper looks at
-   such a day again right after it opens.
-3. **Press enter on a day** to open its actual tee times in place, and enter again
-   on one to mark it as yours once you've booked it on pc caddie.
-4. **Forget about it.** It keeps scraping in the background. If someone joins your
-   flight, the slot next to yours fills in, or the forecast for your round turns,
-   there's a banner waiting the next time you open it.
-
-## Quick start
-
-```bash
-brew install ltdan-88/teetime-monitor/teetime-monitor
-teetime-monitor
-```
-
-Until you've set up a login, it opens on the pc caddie login screen — **escape**
-skips it. Then search for your club by name, type its id, or paste its pc caddie
-booking link, and you're on its tee sheet. No account needed — the tee sheet is
-public.
-
-<details>
-<summary><strong>The optional extras, and what each unlocks</strong></summary>
-
-Everything above works with none of these. Each one is additive:
-
-| Add | Unlocks |
+| 🖥 **In your browser** (`teetime-monitor-web`) | ⌨️ **In the terminal** (`teetime-monitor`) |
 |---|---|
-| A pc caddie login (`l` in the club browser) | Refreshing the live club directory (a bundled snapshot is searchable by name without a login), reading your own confirmed bookings and handicap automatically, real player names (if your club shares them), a browsable player directory, and preferring slots with friends or a similar/better handicap |
-| An AI provider API key ([Anthropic](https://www.anthropic.com/), OpenAI, Gemini, or Grok) | AI-ranked recommendations (off by default; a paid API call per recommendation) |
+| Buttons, cards, colours — the easy one. Works on a phone or tablet too (see the Raspberry Pi below). | For people who live in a terminal: fast, keyboard only. |
 
-**Requirements:** macOS or Linux, and [Homebrew](https://brew.sh/). Windows 10/11 works
-for the terminal app too (experimental) — see [Windows](#windows-experimental).
+<p align="center">
+  <img src="assets/en/web-day.png" width="62%" alt="A day opened: every tee time with its seats, players and weather">
+  <img src="assets/en/web-phone-day.png" width="21%" alt="The same day on a phone">
+</p>
 
-</details>
+## Get started
 
-On macOS, that same install also builds a native SwiftUI companion app — see
-[**A macOS companion app**](#a-macos-companion-app-macos-only) below.
+Pick the line that fits you. Everything is free, and there is nothing to sign up for.
 
-## What you get
+| You have | Do this |
+|---|---|
+| 🍎 **A Mac** | Install [Homebrew](https://brew.sh), then in the Terminal app: `brew install ltdan-88/teetime-monitor/teetime-monitor`. Start with `teetime-monitor-web` (browser) or `teetime-monitor` (terminal). |
+| 🪟 **Windows** | Download **TeetimeMonitor-…-windows-x64.zip** from the [latest release](https://github.com/ltdan-88/teetime-monitor/releases/latest), right-click it → *Properties* → tick *Unblock*, then *Extract All*. Open the folder and double-click **TeetimeMonitor-Web.cmd**. (Windows may say "protected your PC": *More info → Run anyway* — the app has no paid signature.) Nothing is installed; everything stays in that folder. |
+| 🐧 **Linux** | Download **TeetimeMonitor-…-linux-x86_64.tar.gz** from the [latest release](https://github.com/ltdan-88/teetime-monitor/releases/latest), unpack it and run `./TeetimeMonitor-Web.sh`. Or use Homebrew, as on the Mac. |
+| 🍓 **A Raspberry Pi** (or any always-on computer) | Runs it all day for the whole family — every phone, tablet and computer at home opens it in the browser, behind a password: [**Raspberry Pi guide**](docs/RASPBERRY-PI.md). |
 
-### One row per day, already interpreted
+A window opens with your week. **Closing the window ends the program**, unless you run it on a Raspberry Pi.
 
-Weather split into real columns (condition, temperature, precipitation, wind — via
-[Open-Meteo](https://open-meteo.com/), no API key), a six-block strip showing how
-full 08:00–20:00 is, that day's events and closures, and the **Pick**: the verdict
-for that day.
+### Your first five minutes
 
-Press **enter** to open a day in place rather than navigating away from the week.
-Only one day stays open at a time — opening another closes the first, and switching
-club or course closes them all.
+1. **Find your club.** Open the club menu at the top, choose **＋ Add club…** and search by name — or paste your
+   club's pc caddie booking link. No login is needed to read the tee sheet.
+2. **Look at the week.** Each card is a day. The ★ is the recommended time; a flag is a time you booked.
+3. **Click a day** to open every tee time, with the players and the weather for each one.
+4. **Tell it your rules** once under **Preferences** — which hours suit you on weekdays and weekends, how many
+   players, how much wind or rain you accept. From then on the ★ follows your rules.
+5. **Booked something on pc caddie?** Click that time in the app and confirm. Now it keeps watch for you.
 
-With a pc caddie login the names get meaning: players are coloured by gender
-(blue / magenta), a friend you marked in the player directory gets a bold name and a
-gold ★, and a seat with no public name reads *anonymous* instead of silently
-vanishing. Each name carries the player's handicap in brackets, e.g. *Max Mustermann
-(18.4)* (hover a row in the macOS app for handicap and member status; switch it off under
-Settings → Display). In a narrow terminal the brackets move out of the table cells — so more
-names stay visible — and the highlighted row's detail line shows them instead. **?** shows the legend for all of it.
+Optional, and it unlocks more: a **pc caddie login** (Settings) shows real player names, your own bookings and
+the player directory. An **AI key** (Settings) lets an AI rank the times — off by default, and it costs a little
+per use.
 
-<p align="center"><img src="assets/en/expanded.png" alt="A day opened in place, showing each individual tee time with its own occupancy"></p>
+## A tour
 
-### Rules you set once
+<table>
+<tr>
+<td width="50%"><b>Search</b> — for the exceptions: "just this once, three of us, after 15:00". Pre-filled from your rules, so you change one thing.<br><br><img src="assets/en/web-search.png" alt="Search results with weather for every time"></td>
+<td width="50%"><b>Crowd heatmap</b> — which hours fill up on which weekday, learned from your own history. It needs a few weeks of data first.<br><br><img src="assets/en/web-heatmap.png" alt="The crowd heatmap: hours against weekdays"></td>
+</tr>
+<tr>
+<td width="50%"><b>Players</b> — star your friends; their names turn up bold with a ★, and a preference can favour their flights. Jump straight to a friend's next tee time.<br><br><img src="assets/en/web-players.png" alt="The player directory with friends starred"></td>
+<td width="50%"><b>On your phone</b> — the page adapts to phone and tablet screens. Touch and hold anything for an explanation. "Add to Home Screen" gives it an app icon.<br><br><img src="assets/en/web-phone.png" width="55%" alt="The overview on a phone"></td>
+</tr>
+</table>
 
-Party size, the time windows that work on weekdays vs weekends, how much clearance
-you want from the groups ahead and behind. Slots matching all of it get a ★
-automatically — you never search for the routine case. These are global, not
-per-club: your own availability doesn't change depending on which course you check.
+The ★ is not just the earliest time. Every playable time is scored on the weather over the whole round (against
+*your* limits), room around your group, a quiet hour and daylight to spare — free, on your own computer, no AI.
+Hover the badge to see why, e.g. "dry · room around you · daylight to spare". If your course is too dark to finish
+but a shorter one at the club still fits, it suggests that one instead. A day that isn't open for booking yet
+shows 🔒 and when it opens.
 
-A 🌙 marks any tee time whose round wouldn't finish before sunset, based on your own
-pace for 9 or 18 holes.
+### Prefer the terminal?
 
-With a pc caddie login, two more preferences use real data your club shares: prefer
-slots where a marked friend is already booked, or where the field's handicap is
-similar to (or better than) your own — auto-scraped, never typed in.
+<p align="center"><img src="assets/en/tui-overview.png" alt="The same week in the terminal"></p>
 
-<p align="center"><img src="assets/en/settings.png" alt="The preferences screen, with availability, weather, and priority preferences grouped into sections"></p>
+Same week, same ★, same rules. Every screen has a one-letter key, shown in the bar at the bottom:
 
-### Search, for the exceptions
-
-When the usual rules don't apply — "just this once, three of us, after 15:00" —
-search across the days already loaded, pre-filled from your defaults so you change
-one field instead of typing everything.
-
-<p align="center"><img src="assets/en/search.png" alt="The search screen with results, pre-filled from saved availability"></p>
-
-### It keeps watching what you booked
-
-Once a slot is marked as yours, teetime-monitor keeps checking it: players joining
-your flight, the neighbouring slot filling up and eating your buffer, the forecast
-for that specific round getting worse. Each one becomes a banner the next time you
-open the app. **x** dismisses them.
-
-### A crowd heatmap, once there's history
-
-Every scrape is kept, so patterns build up over weeks: which hours on which weekday
-actually fill. Tournament, public-holiday and vacation days are compared separately,
-so a vacation-week Monday is judged against other vacation days rather than against
-normal Mondays.
-
-The grid shows hour-of-day against weekday — full colour once an hour has enough
-samples to trust, dimmed while it's still thin, blank where nothing's been scraped.
-A separate readiness screen (`s` from here) says how far along each weekday is.
-
-<p align="center"><img src="assets/en/heatmap.png" alt="The crowd heatmap: the colored hour-by-weekday grid, by weekday and by special day type"></p>
-
-### One menu, two languages, eleven themes
-
-**t** opens **Actions** — add club, search, heatmap, players, preferences, settings.
-Each of those also has its own key (see [Keys](#keys)). Language and theme live in
-**Settings → Display**. The whole interface runs in English or German (including this menu and every
-banner), and ships eleven colour themes: the same ten as
-[`brew-launcher`](https://github.com/ltdan-88/brew-launcher), plus Catppuccin
-Latte for anyone who wants a light theme that isn't Solarized.
-
-<p align="center"><img src="assets/en/actions.png" alt="The Actions menu: add club, search, heatmap, players, preferences, settings"></p>
-
-## A macOS companion app (macOS only)
-
-`brew install`/`brew upgrade` on macOS also builds a native SwiftUI window over
-the exact same data — same club/course, same scrape history, same
-`~/.config/teetime-monitor` state, updated by the same background scraper. It's a
-second way to look at the same thing, not a second thing to keep in sync by hand.
-
-<p align="center"><img src="assets/en/gui-overview.png" alt="The macOS companion app: the same day list, weather, occupancy and events, native"></p>
-
-<p align="center"><img src="assets/en/gui-expanded.png" alt="A day expanded in the macOS app, showing each individual tee time"></p>
-
-It shows the same things the same way — friends in gold, names coloured by gender,
-anonymous seats, the **?** legend, and the ★ (recommended) and 🌙 (too late to finish before dark) markers on an expanded day's tee times, which match the terminal app — and opens on each club's default course (set per
-club in Settings → Clubs; the terminal app honours the same `default_course`). It
-covers everything above: the day list with weather and a heat strip, ad hoc
-search, a crowd heatmap, preferences and pc caddie login, managing which clubs are
-saved (browse and open a club before ever favoriting it, add by name or id, remove
-— all from the same place), scrape interval and AI ranking, and — same as the
-terminal — English/German and a choice of interface scale (Small/Medium/Large in
-Settings). It never scrapes or books anything itself; the real work (logging in,
-searching, scraping) stays in this same Python codebase, reached the same way the
-terminal app reaches it.
-
-It doesn't replace the terminal app above — it's a genuinely native second window
-over the same state, developed alongside the terminal app rather than instead of
-it. Homebrew builds it straight into its own Cellar (a plain `brew install` can't
-write into `/Applications` — that's normally a Cask's job), so `brew install`/
-`upgrade` prints the one command to make it appear in Launchpad and Spotlight like
-any other app. See [`macos/README.md`](macos/README.md) for the full build story.
-
-**Download the Mac app.** No Homebrew, no Python, no terminal? Each
-[release](https://github.com/ltdan-88/teetime-monitor/releases/latest) also has a ready-made
-**TeetimeMonitor-…-arm64.zip** with the app and everything it needs inside. It needs an Apple
-Silicon Mac (M1 or newer) and macOS 14 or newer. It is not notarized by Apple, so the first
-launch needs one extra step — the step-by-step guide is in
-[**docs/MAC-APP.md**](docs/MAC-APP.md) ([auf Deutsch](docs/MAC-APP.de.md)).
-On Windows there is a portable zip too (nothing to install, runs from any folder or USB stick):
-[**docs/WINDOWS-APP.md**](docs/WINDOWS-APP.md) ([auf Deutsch](docs/WINDOWS-APP.de.md)). A graphical browser version for Windows and Linux (it also works from the terminal install, `teetime-monitor-web`)
-is described in [**docs/WEBUI.md**](docs/WEBUI.md) ([auf Deutsch](docs/WEBUI.de.md)). On Linux there is a portable tarball:
-[**docs/LINUX-APP.md**](docs/LINUX-APP.md) ([auf Deutsch](docs/LINUX-APP.de.md)). A Raspberry Pi can run it as an always-on web server for every device at home (password-protected, fetches by itself): [**docs/RASPBERRY-PI.md**](docs/RASPBERRY-PI.md) ([auf Deutsch](docs/RASPBERRY-PI.de.md)).
-
-## Keys
-
-The terminal app and the macOS app use the same letters, so nothing has to be
-relearned between them. In the macOS app the shortcuts are in the **Actions** menu;
-⌘H is macOS's own Hide, so the heatmap is ⇧⌘H there.
-
-| Action | Terminal | macOS app |
+| | Browser | Terminal |
 |---|---|---|
-| Open a day in place · mark a tee time as booked or cancelled | **enter** | click |
-| Refresh — re-scrape the loaded window now | **r** | ⌘R |
-| Search | **/** | ⌘F |
-| Heatmap | **h** | ⇧⌘H |
-| Players (player directory) | **p** | ⌘P |
-| Preferences | **,** | ⌘, |
-| Settings | **s** | ⇧⌘, |
-| Add Club | **a** | ⌘N |
-| Legend | **?** | ⌘/ |
-| Dismiss booking-change banners | **x** | per banner |
-| Actions menu | **t** / **ctrl+p** | menu bar |
-| Back | **escape** | **escape** |
-| Quit | **q** | ⌘Q |
+| Open a day · mark a time as booked | click | **enter** |
+| Refresh now | **r** | **r** |
+| Search | **s** | **/** |
+| Heatmap | **h** | **h** |
+| Players | **p** | **p** |
+| Preferences · Settings | **e** · **,** | **,** · **s** |
+| Add a club | **a** | **a** |
+| Legend (what every symbol means) | **?** | **?** |
+| Close a window · quit | **esc** | **esc** · **q** |
 
-In the club browser (terminal): **f** favourite · **r** refresh the directory ·
-**l** set up your login.
-
-`teetime-monitor --version` prints the version; it's also in the header while running.
-
-## Configuration
-
-Nothing here is required — the quick start above works with zero setup.
+The terminal app also has an **Actions** menu (**t**) and eleven colour themes; the browser has them under
+**View**, together with English/German, units and text size.
 
 <details>
-<summary><strong>Files, scheduled scraping, running from source</strong></summary>
-
-State lives in two fixed locations, so it works from any directory — and so a GUI
-front end can find it too (an app launched from Finder has no useful working
-directory). Both are overridable with `TEETIME_MONITOR_CONFIG_DIR` /
-`TEETIME_MONITOR_DATA_DIR`.
-
-```
-~/.config/teetime-monitor/
-    clubs/<club-name>.yaml  # per-club: club_id, location, overview_days, default_course, course_holes (optional), timezone (optional)
-    .env                    # PCC_USER / PCC_PASS / an AI provider key (Settings → AI provider)
-    preferences.yaml        # availability, weather, AI, pace, interval
-    config                  # THEME=, LANG=
-
-~/.local/share/teetime-monitor/
-    <club_id>.db            # scrape history, confirmed bookings (SQLite)
-    club-directory.json     # cached platform club list
-    backups/<club_id>-YYYY-MM-DD.db  # daily copy by the background agent, newest 7 kept
-```
-
-If scraping goes wrong for a while — pc caddie rejecting your login, or the tee sheet
-failing to load several passes in a row — both apps say so next to "Updated … ago"
-(the GUI's status dot turns amber/red too). Nothing extra is shown while all is well.
-
-Upgrading from before v0.31.0? The first launch copies `./clubs`, `./data` and
-`./.env` across automatically and tells you what it moved. It copies rather than
-moves, so the old directory stays as a backup until you delete it.
-
-Preferences and settings are edited in the app, not by hand: availability, weather,
-pace and priorities are under
-**Actions → Preferences** (`,`); login, display, scraping and AI under **Actions →
-Settings** (`s`). `f` on a club writes its YAML for you, named after the club (e.g.
-`golfclub-musterhausen-e-v.yaml`) and matched to it by the `club_id:` inside;
-`clubs/club.example.yaml` is the annotated reference (weather coordinates, holiday
-country code, vacation ranges).
-
-### Keeping history complete
-
-The app scrapes while it's open, but pc caddie deletes past tee sheets — a day
-nobody opens the app is a permanent hole in the heatmap. To also scrape unattended
-(macOS, every 15 minutes, self-throttling per club):
-
-```bash
-cat > ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>com.teetimemonitor.scrape</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/teetime-monitor-scrape</string>
-    </array>
-    <key>StartInterval</key><integer>900</integer>
-    <key>RunAtLoad</key><true/>
-    <key>StandardOutPath</key><string>~/Library/Logs/teetime-monitor.log</string>
-    <key>StandardErrorPath</key><string>~/Library/Logs/teetime-monitor.log</string>
-</dict>
-</plist>
-EOF
-launchctl load ~/Library/LaunchAgents/com.teetimemonitor.scrape.plist
-```
-
-No `WorkingDirectory` needed: since v0.31.0 the scraper reads and writes the same
-fixed locations the app does — `~/.config/teetime-monitor/` (clubs, login) and
-`~/.local/share/teetime-monitor/` (scrape history) — so it works from anywhere.
-
-Empty log means no errors. Remove with `launchctl unload …` plus deleting the plist.
-
-### Windows (experimental)
-
-The terminal app runs on Windows without admin rights — everything installs into your
-user profile. The test suite runs on a Windows machine in a nightly CI job (and on
-demand), not on every change; the app itself has had less real-world use there than on
-macOS. (The macOS companion app is macOS-only.)
-
-```powershell
-scoop install git uv                   # per-user, no admin; uv needs git for the install below
-scoop bucket add extras
-scoop install windows-terminal         # recommended: the old console window renders it poorly
-uv tool install git+https://github.com/ltdan-88/teetime-monitor
-teetime-monitor                        # in Windows Terminal
-```
-
-Upgrade with `uv tool upgrade teetime-monitor`. No Scoop? `winget install astral-sh.uv
---scope user` or the [uv installer](https://docs.astral.sh/uv/) work the same way — plus
-`winget install --id Git.Git -e --scope user`, since `uv tool install git+…` needs git.
-
-State lives in `%APPDATA%\teetime-monitor` (clubs, login, preferences) and
-`%LOCALAPPDATA%\teetime-monitor` (scrape history); `TEETIME_MONITOR_CONFIG_DIR` /
-`TEETIME_MONITOR_DATA_DIR` override both. The login is stored in a plain `.env` file
-there — on a shared or managed PC, keep that in mind.
-
-To also scrape unattended, a per-user scheduled task needs no admin rights (it runs
-while you're logged in, also on battery). `conhost --headless` keeps it from opening a
-console window every 15 minutes, and its output goes to a log file:
-
-```powershell
-$exe = Join-Path (uv tool dir --bin) "teetime-monitor-scrape.exe"
-$log = Join-Path $env:LOCALAPPDATA "teetime-monitor\scrape.log"
-New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-$action   = New-ScheduledTaskAction -Execute "conhost.exe" `
-              -Argument "--headless cmd.exe /s /c `"`"$exe`" >> `"$log`" 2>&1`""
-$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
-              -RepetitionInterval (New-TimeSpan -Minutes 15)
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
-              -DontStopIfGoingOnBatteries -StartWhenAvailable
-Register-ScheduledTask -TaskName "teetime-monitor-scrape" -Action $action `
-    -Trigger $trigger -Settings $settings
-# remove again: Unregister-ScheduledTask -TaskName "teetime-monitor-scrape" -Confirm:$false
-```
-
-Empty `scrape.log` means no errors.
-
-The app trusts your operating system's certificate store (Windows Certificate Store,
-macOS Keychain), so a company that inspects HTTPS traffic with its own root certificate
-usually needs nothing extra. Only if you still get a certificate error, point the app at
-a CA bundle with a per-user environment variable (no admin) — it takes precedence over
-the system store, and new terminals and the scheduled task see it too:
-
-```powershell
-[Environment]::SetEnvironmentVariable("SSL_CERT_FILE", "C:\path\to\ca-bundle.pem", "User")
-```
-
-Open a new terminal afterwards; sign out and back in once so the scheduled task picks it
-up as well. `teetime-monitor --doctor` shows which certificate source is in use.
-
-### From source
-
-```bash
-pip install -e .
-python -m src.tui
-```
-
+<summary>More terminal screenshots</summary>
+<p align="center"><img src="assets/en/tui-day.png" width="90%" alt="A day opened in the terminal"></p>
+<p align="center"><img src="assets/en/tui-search.png" width="90%" alt="Search in the terminal"></p>
+<p align="center"><img src="assets/en/tui-heatmap.png" width="90%" alt="The heatmap in the terminal"></p>
 </details>
 
-## Project structure
+## Good to know
 
-<details>
-<summary><strong>Module layout</strong></summary>
+- **It keeps itself fresh while it is open.** To keep collecting tee sheets when it isn't — which the heatmap
+  needs, because pc caddie deletes past days — let a Raspberry Pi do it, or set up a small scheduled job:
+  [docs/ADVANCED.md](docs/ADVANCED.md).
+- **Updates:** the page tells you when a new version exists ("Version X is available") and how to get it. On
+  a Mac: `brew upgrade teetime-monitor`; on Windows and Linux: download the new zip and copy your old `userdata`
+  folder into it; on a Raspberry Pi: one click on **Update now**.
+- **Your data stays with you.** Your pc caddie login is only ever sent to pc caddie. The browser version listens
+  on your own computer only (the Raspberry Pi version needs a password). Details for the careful:
+  [docs/ADVANCED.md](docs/ADVANCED.md#privacy-and-safety).
+- **Something wrong?** `teetime-monitor --doctor` prints a one-page health report you can paste into a bug
+  report. Common cases:
+  - *"No tee sheet found"* — some clubs don't publish one through pc caddie. Check the club id against its own booking link.
+  - *A booking I made isn't showing* — bookings sync on each fetch; press **Refresh**.
+  - *The heatmap says "no data yet"* — normal at the start; it needs a few weeks of history.
+  - *No player names* — that needs the pc caddie login (Settings), and only works if your club shares names.
 
-```
-src/
-├── tui.py                    # the app -- club browser, overview, search, heatmap
-├── pipeline.py / clock.py    # headless recommendation logic (what the CLIs import); the time seam
-├── scraper.py                # fetch, login, tee-sheet parsing
-├── scrape_once.py            # scheduled scrape + "My Reservations" sync
-├── storage.py                # SQLite persistence
-├── net.py                    # trust the OS certificate store (corporate HTTPS inspection)
-├── doctor.py                 # `--doctor` environment report
-├── search.py / recommend.py  # hard filters, then weather/daylight + AI ranking
-├── quality.py                # the free, explainable slot score behind the ★ Pick
-├── ai_assist.py              # the three AI calls (classify, rank, summarize), multi-provider
-├── weather.py                # Open-Meteo client
-├── booking_watch.py          # did a confirmed booking's situation change?
-├── playability.py            # does this round finish before sunset?
-├── analytics.py              # crowd heatmap + readiness
-├── calendar_context.py       # holidays + vacations -> day type
-├── settings_screen.py        # preferences screen (in-app or standalone)
-├── credentials_screen.py     # login screen (in-app or standalone)
-├── ai_credentials_screen.py  # AI provider setup (in-app or standalone)
-├── known_players_screen.py   # player directory -- mark friends, see handicaps
-├── club_config.py            # favourites
-├── club_directory.py         # cached club directory + id parsing
-├── geocode.py                # weather-location lookup for a new club
-├── global_preferences.py     # the shared preferences file
-├── theme.py / i18n.py        # themes; English/German UI text
-├── units.py                  # metric/imperial
-└── models.py                 # Slot / Schedule / WeatherPoint / ConfirmedBooking
-```
+## More
 
-`docs/history/ROADMAP.md` carries the full build history, including why several things were
-built the way they were.
-
-</details>
-
-## Troubleshooting
-
-**Not sure what's wrong?** `teetime-monitor --doctor` prints a one-page environment report —
-version, folders, certificate source, connectivity to pc caddie, each club's database and
-last scrape, login/AI-key status (set / not set, never the values), the background scraper —
-ready to paste into a bug report. `--doctor --offline` skips the one network check;
-`--doctor --login-check` also logs in with your stored login and compares what a logged-in and an
-anonymous tee sheet show (never printing credentials) — for "login works but no player names".
-
-**"No tee sheet found" for a club I know exists.** Some clubs don't publish one
-through pc caddie at all — that's reported cleanly rather than as an error. Check
-the club id against its own booking link.
-
-**The weather looks wrong.** Coordinates come from a name search against
-OpenStreetMap, cached after the first lookup — close, but not always the clubhouse
-itself. Set `location:` in the club's file under `~/.config/teetime-monitor/clubs/`
-(named after the club) by hand to fix it exactly.
-
-**A booking I made isn't showing.** Confirmed bookings sync from pc caddie's "My
-Reservations" on each scheduled scrape, not live — **r** forces it immediately. A
-cancellation on the real site is picked up the same way.
-
-**AI ranking isn't doing anything.** It's off by default (Settings → AI ranking) and
-needs a provider API key set up first (Settings → AI provider — Anthropic, OpenAI,
-Gemini, or Grok).
-
-**The heatmap is all "no data yet".** Expected on a new install — it needs a few
-weeks of scrapes. The readiness tables show how far along it is.
-
-## Credentials
-
-`.env` is gitignored, and credentials only ever go to pc caddie's own login form.
-One login covers every club under the same account. Per-club files under `clubs/`
-are gitignored too, apart from the tracked example.
-
-## License
-
-[MIT](LICENSE)
+[Raspberry Pi guide](docs/RASPBERRY-PI.md) · [Settings, files, scheduled fetching, other install methods](docs/ADVANCED.md)
+· [For developers](docs/DEVELOPING.md) · [MIT license](LICENSE)

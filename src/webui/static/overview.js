@@ -94,7 +94,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
       <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
       <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
-      ${(day.events.length > 0 || reserveNote) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
+      ${(day.events.length > 0 || (reserveNote && !open)) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
     </button>
     ${open && html`<div class="slots-head"><${WeatherHeads} units=${units} /></div>`}
     </div>

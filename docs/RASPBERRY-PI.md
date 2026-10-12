@@ -3,8 +3,8 @@
 *[Deutsche Version](RASPBERRY-PI.de.md)*
 
 A Raspberry Pi that is always on can run Teetime Monitor for the whole household: it fetches the tee sheets
-on its own (like the Mac's background agent), and every phone, tablet and computer on your home network opens
-the same [web UI](WEBUI.md) in its browser, behind a password. Nothing runs on those devices.
+on its own, and every phone, tablet and computer on your home network opens
+the same browser version (see the [README](../README.md)), behind a password. Nothing runs on those devices.
 
 **What you need:** a Raspberry Pi 3, 4, 5 or Zero 2 W with **64-bit** Raspberry Pi OS "Bookworm" (12) or
 newer (Python 3.11+), on your network, and the Pi's time zone set to the club's (`sudo raspi-config` >

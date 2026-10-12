@@ -145,7 +145,7 @@ Screens only (2026-10-05): the headless recommendation logic this module used to
 -- `_resolved_config()`, `_availability_pipeline()`, `_shorter_round_alternative()`,
 crowd estimates, holiday/heatmap caches, the daylight check -- lives in `pipeline.py`
 and is imported back here under its old private names; time is read through `clock.py`
-(`clock.today()` etc.). See docs/ARCHITECTURE.md.
+(`clock.today()` etc.). See docs/DEVELOPING.md.
 """
 
 import asyncio

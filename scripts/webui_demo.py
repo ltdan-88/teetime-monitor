@@ -121,6 +121,11 @@ def main() -> None:
     args = parser.parse_args()
     os.environ["TEETIME_MONITOR_NO_UPDATE_CHECK"] = "1"  # a demo never calls out
     seed(args.directory.resolve())
+    import tomllib
+
+    from src.webui import data
+
+    data.version = lambda: tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]  # not a stale installed copy's
     print(f"Demo data written to {args.directory.resolve()}")
     if args.serve:
         from src import ai_assist, scrape_once, scraper
