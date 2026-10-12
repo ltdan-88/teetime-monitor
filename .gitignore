@@ -18,18 +18,6 @@ data/
 # config, so this isn't a source of truth anything reads.
 uv.lock
 
-# Built .app bundle -- rebuild with macos/build.sh
-macos/TeetimeMonitor.app/
-# SPM build output for the macOS GUI's own test suite (swift run TeetimeMonitorCoreTests)
-macos/.build/
-# Actual/diff PNGs a failed `swift run VisualRegressionRunner` writes for inspection --
-# References/*.png (the golden images) are the only PNGs under Tests/ that ARE tracked.
-macos/Tests/VisualRegressionRunner/Failures/*.png
-
-# Standalone Mac app (macos/build_standalone.sh, 2026-10-10): its work directory and the zips.
-macos/build-standalone/
-macos/dist/
-
 windows/build-portable/
 windows/cache/
 windows/dist/
