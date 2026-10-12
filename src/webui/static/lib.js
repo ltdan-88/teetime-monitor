@@ -215,7 +215,7 @@ export function WeatherCells({ weather, units, flags = [] }) {
   const tip = (text, flag) => (flags.includes(flag) ? text + ' — ' + t('search.flag_tip.' + flag) : text);
   return html`
     <span class=${'cell temp' + flagged('temp')} title=${tip(t('tip.temp_slot', { unit: u.temp }), 'temp')}>${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
-    <span class=${'cell rain' + flagged('rain')} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' + (w.rain_mm ? '/' + amount(w.rain_mm, units) : '') : ''}</span>
+    <span class=${'cell rain' + flagged('rain')} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' : ''}${w && w.rain != null && w.rain_mm ? html`<span class="mm">/${amount(w.rain_mm, units)}</span>` : ''}</span>
     <span class=${'cell wind' + flagged('wind')} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`;
 }
 

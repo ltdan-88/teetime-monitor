@@ -5,7 +5,7 @@ import {
   html, t, useState, useEffect, useRef, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
   dayLabel, WeatherHeads, WeatherCells,
 } from '/lib.js';
-import { PlayerNames } from '/overview.js';
+import { PlayerNames, WhoChip, WhoList } from '/overview.js';
 
 const BUFFERS = [0, 5, 10, 15, 20, 30, 45, 60].map((n) => ({ value: String(n), label: n ? `${n} min` : '0' }));
 const SPOTS = [1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }));
@@ -39,18 +39,21 @@ function WindowFields({ label, value, onChange, idPrefix }) {
 
 function ResultRow({ match, units, showHandicaps, onMark }) {
   const open = Math.max(0, match.capacity - match.booked);
+  const [whoOpen, setWhoOpen] = useState(false); // narrow windows: the players are a chip that opens a list
   return html`
     <div class="res">
       <span class="res-date">${dayLabel(match.date)}</span>
       <span class="num res-time">${match.time}</span>
       <span class="res-open">${t('search.open_spots', { n: open })}</span>
+      <${WhoChip} slot=${match} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
       <span class="res-people"><${PlayerNames} slot=${{ players: match.players, booked: match.booked }} showHandicaps=${showHandicaps} /></span>
       <${WeatherCells} weather=${match.weather} units=${units} flags=${match.flags} />
       <span class="res-action">
         ${match.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
-          : html`<button class="btn small" onClick=${() => onMark(match)}>${t('search.mark_booked')}</button>`}
+          : html`<button class="btn small mark" onClick=${() => onMark(match)} title=${t('search.mark_booked')} aria-label=${t('search.mark_booked')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.mark_booked')}</span></button>`}
       </span>
+      ${whoOpen && html`<${WhoList} slot=${match} showHandicaps=${showHandicaps} />`}
     </div>`;
 }
 
