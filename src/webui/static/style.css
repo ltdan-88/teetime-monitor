@@ -401,6 +401,14 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .res-date, .res-time, .res-open, .res .cell { white-space: nowrap; }
 @media (max-width: 860px) {
   .res .res-people { display: none; }
+  /* every cell has its own place (like the slots above), so a hit without players (no chip) keeps its weather under the headings */
+  .res .res-date { grid-column: 1; grid-row: 1; }
+  .res .res-time { grid-column: 2; grid-row: 1; }
+  .res .res-open { grid-column: 3; grid-row: 1; }
+  .res .temp { grid-column: 5; grid-row: 1; }
+  .res .rain { grid-column: 6; grid-row: 1; }
+  .res .wind { grid-column: 7; grid-row: 1; }
+  .res .res-action { grid-column: 8; grid-row: 1; }
   .res .who-chip { grid-column: 4; grid-row: 1; }
   .res .who-list { grid-row: 2; grid-column: 1 / -1; padding: 0.125rem 0 0.5rem 0; }
 }
@@ -505,10 +513,10 @@ dl.legend dd { margin: 0; color: var(--mid); }
 @media (max-width: 720px) {
   .results { display: block; }
   .res { grid-column: auto; grid-template-columns: auto auto auto minmax(0, 1fr) auto; column-gap: 0.625rem; row-gap: 0.125rem; padding: 0.5rem 0.75rem; }
-  .res-date { grid-column: 1; }
-  .res-time { grid-column: 2; }
-  .res-open { grid-column: 3; }
-  .res-action { grid-column: 5; grid-row: 1; min-width: 0; }
+  .res .res-date { grid-column: 1; }
+  .res .res-time { grid-column: 2; }
+  .res .res-open { grid-column: 3; }
+  .res .res-action { grid-column: 5; grid-row: 1; min-width: 0; }
   .res .cell, .res-head { display: none; }
   .res .btn.mark { padding: 0; width: 2.25rem; height: 2.25rem; justify-content: center; }
   .res .mark-text { display: none; }
