@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from src import clock, club_config, global_preferences, scrape_once, storage
+from src import clock, club_config, global_preferences, pipeline, scrape_once, storage
 from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.webui import data, server
 
@@ -128,6 +128,33 @@ def test_overview_lists_days_slots_markers_and_the_booking(seeded):
     assert today["events"] == ["Clubturnier"]
     assert len(today["heat"]) == 6
     assert result["freshness"]["interval_minutes"] == scrape_once.DEFAULT_SCRAPE_INTERVAL_MINUTES
+
+
+@pytest.mark.parametrize(
+    "now, sunset, over",
+    [
+        ("18:00", "19:08", False),  # daylight left
+        ("19:08", "19:08", False),  # exactly at sunset still shows (like 21:00 itself)
+        ("19:09", "19:08", True),  # daylight is over
+        ("17:00", "16:30", True),  # a winter evening: gone at sunset, long before 21:00
+        ("21:00", "21:40", False),  # a summer evening: the 21:00 limit still applies ...
+        ("21:01", "21:40", True),  # ... even though the sun is still up
+        ("20:59", None, False),  # no sunset known: 21:00
+        ("21:01", None, True),
+    ],
+)
+def test_today_is_over_at_sunset_but_never_after_21_00(now, sunset, over):
+    assert pipeline.today_is_over(sunset, now) is over
+
+
+def test_overview_drops_todays_card_once_daylight_is_over_but_keeps_the_other_days(seeded, monkeypatch):
+    dates = lambda: [d["date"] for d in data.overview("golfclub-beispiel", None)["days"]]  # noqa: E731
+    assert dates() == [clock.today(), (date.fromisoformat(clock.today()) + timedelta(days=1)).isoformat()]
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "19:30")  # past the seeded sunset (19:08)
+    assert dates() == [(date.fromisoformat(clock.today()) + timedelta(days=1)).isoformat()]
+    # the answer without picks (the page's first, fast request) follows the same rule
+    quick = data.overview("golfclub-beispiel", None, picks=False)["days"]
+    assert [d["date"] for d in quick] == dates()
 
 
 def test_overview_unknown_club_and_unknown_course(seeded):

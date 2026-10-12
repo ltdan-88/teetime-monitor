@@ -191,6 +191,7 @@ from . import (
     storage,
     weather_icons,
 )
+from . import pipeline as pipeline_module
 from . import theme as theme_module
 from . import units as units_module
 from .credentials_screen import CredentialsScreen
@@ -208,6 +209,7 @@ from .pipeline import (
     _shorter_round_alternative,
     _too_late_for_daylight,
     _vacation_ranges_for_club,
+    today_is_over,
 )
 from .safe_header import SafeHeader
 from .scrape_once import _db_path
@@ -242,7 +244,7 @@ AUTO_REFRESH_INTERVAL_SECONDS = 15 * 60
 # predictable than a value that shifts with the season and needs a real cached
 # schedule with sun_times to even exist yet. See OverviewScreen.load_overview()'s
 # own comment for where this is used.
-TODAY_HIDDEN_AFTER_HHMM = "21:00"
+TODAY_HIDDEN_AFTER_HHMM = pipeline_module.TODAY_HIDDEN_AFTER_HHMM  # 21:00; since 2026-10-12 today also goes at sunset when that is earlier (pipeline.today_is_over)
 
 def _version() -> str:
     """The installed package's own version, read from package metadata rather than
@@ -3163,13 +3165,13 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         for one_date in dates:
             if one_date not in open_dates:
                 continue
-            if one_date == clock.today() and clock.now_hhmm() > TODAY_HIDDEN_AFTER_HHMM:
-                continue
             key = (one_date, self.course)
             if key in cache:
                 continue
             schedule = storage.load_latest_schedule(self.course, one_date, path=self.db_path)
             if schedule is None or not schedule.slots:
+                continue
+            if one_date == clock.today() and today_is_over(schedule.sun_times.sunset if schedule.sun_times else None):
                 continue
             pending.append(warm(schedule))
         await asyncio.gather(*pending)
@@ -3319,7 +3321,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             # fixed cutoff), and no longer needs a cached schedule/sun_times to
             # exist at all -- a plain clock comparison, simpler and predictable
             # year-round.
-            if one_date == clock.today() and clock.now_hhmm() > TODAY_HIDDEN_AFTER_HHMM:
+            if one_date == clock.today() and today_is_over(
+                schedule.sun_times.sunset if schedule is not None and schedule.sun_times else None
+            ):
                 continue
             self._row_dates.append(one_date)
             self._row_index.append((one_date, None))

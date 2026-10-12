@@ -144,7 +144,7 @@ def ui(tmp_path_factory):
     if executable is None:
         pytest.skip("no Chrome, Chromium or Edge found (set CHROME)")
     server = subprocess.Popen(
-        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo")), "--serve", "--offline"],
+        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo")), "--serve", "--offline", "--at", "09:30"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "PYTHONUNBUFFERED": "1", "TEETIME_MONITOR_LANG": "en"},
     )  # fmt: skip
     url = None
@@ -1084,7 +1084,7 @@ def served_ui(tmp_path_factory):
     if executable is None:
         pytest.skip("no Chrome, Chromium or Edge found (set CHROME)")
     server = subprocess.Popen(
-        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo-served")), "--serve", "--offline", "--password", "swing and a miss"],
+        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo-served")), "--serve", "--offline", "--at", "09:30", "--password", "swing and a miss"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "PYTHONUNBUFFERED": "1", "TEETIME_MONITOR_LANG": "en"},
     )  # fmt: skip
     port = None

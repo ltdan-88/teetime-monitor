@@ -116,11 +116,16 @@ def main() -> None:
     parser.add_argument("directory", type=Path)
     parser.add_argument("--serve", action="store_true", help="start teetime-monitor-web on the demo data")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--at", metavar="HH:MM", help="pretend it is this time of day (the demo's slots are all by day: late in the evening today's card would be gone)")
     parser.add_argument("--offline", action="store_true", help="never touch the network: scrapes and previews do nothing")
     parser.add_argument("--password", help="run it as `teetime-monitor-web --serve` (on the loopback address) with this password")
     args = parser.parse_args()
     os.environ["TEETIME_MONITOR_NO_UPDATE_CHECK"] = "1"  # a demo never calls out
     seed(args.directory.resolve())
+    if args.at:
+        from src import clock
+
+        clock.now_hhmm = lambda: args.at
     import tomllib
 
     from src.webui import data

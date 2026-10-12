@@ -2900,6 +2900,28 @@ def test_overview_screen_drops_todays_row_once_past_the_cutoff(tmp_path, monkeyp
     _run(scenario())
 
 
+def test_overview_screen_drops_todays_row_at_sunset_when_that_is_before_21_00(tmp_path, monkeypatch):
+    # 2026-10-12: "after daylight is over you can hide the day" -- a winter evening at 17:30, sunset at 16:45.
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "17:30")
+    storage.init_db(scrape_once._db_path("0000001"))
+    storage.save_schedule(
+        Schedule(
+            date=clock.today(), course="18 Loch Tee 1", slots=[Slot(time="15:00", booked=0, capacity=4)], sun_times=SunTimes("07:50", "16:45")
+        ),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert clock.today() not in app.screen._row_dates
+
+    _run(scenario())
+
+
 def test_overview_screen_keeps_todays_row_exactly_at_the_cutoff(tmp_path, monkeypatch):
     # TODAY_HIDDEN_AFTER_HHMM itself is still shown -- only strictly *after* it hides.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
