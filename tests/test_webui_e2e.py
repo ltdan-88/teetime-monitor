@@ -260,6 +260,7 @@ def test_search_weather_stays_under_its_headings_in_every_window_width(ui):
     their headings (they once slid one column to the left and the button landed on top of the wind)."""
     try:
         _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelector('#s-spots') && document.querySelectorAll('.res').length > 3")  # the form and the first answer are in
         ui.set("#s-spots", "4")  # four open seats: only slots with nobody booked
         ui.click(".criteria .actions .btn.pri")
         ui.wait("(() => { const rows = [...document.querySelectorAll('.res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => !r.querySelector('.who-chip')); })()")  # the new answer is in
