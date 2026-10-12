@@ -169,7 +169,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
         <span style=${slot.booked_by_you ? { fontWeight: 700 } : null}>${slot.time}</span>
       </span>
       ${blocked
-        ? html`<span class="people blocked-note"><span class="dim" style="font-style:italic;font-size:0.8125rem">${slot.block_reason || t('not_bookable')}</span></span>`
+        ? html`<span class="people blocked-note"><span class="dim blocked-text" title=${slot.block_reason || t('not_bookable')}>${slot.block_reason || t('not_bookable')}</span></span>`
         : html`
           <span class="seats" title=${t('tip.seats', { booked: slot.booked, capacity })}>${seats}</span>
           <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>

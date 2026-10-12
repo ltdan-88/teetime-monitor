@@ -5,6 +5,9 @@ import AppKit
 
 let size: CGFloat = 1024
 let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon.png"
+// --full-bleed: the same artwork edge to edge, square, with no margin and no shadow -- what iOS wants for a home-screen icon
+// (it rounds the corners itself and fills any transparency with black). Used by make_web_icons.sh.
+let fullBleed = CommandLine.arguments.contains("--full-bleed")
 
 let rep = NSBitmapImageRep(
     bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size), bitsPerSample: 8,
@@ -21,14 +24,22 @@ func color(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
 
 // macOS icon grid: the tile is 824pt inside the 1024 canvas, corner radius ~185.
 let tile = NSRect(x: 100, y: 100, width: 824, height: 824)
-let tilePath = NSBezierPath(roundedRect: tile, xRadius: 185, yRadius: 185)
+let tilePath = NSBezierPath(roundedRect: tile, xRadius: fullBleed ? 0 : 185, yRadius: fullBleed ? 0 : 185)
+if fullBleed {
+    // Draw the tile's coordinates (100...924) stretched over the whole canvas.
+    let k = size / tile.width
+    ctx.scaleBy(x: k, y: k)
+    ctx.translateBy(x: -tile.minX, y: -tile.minY)
+}
 
 // Soft drop shadow under the tile.
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 28, color: NSColor.black.withAlphaComponent(0.35).cgColor)
-color(0x0F2A38).setFill()
-tilePath.fill()
-ctx.restoreGState()
+if !fullBleed {
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -14), blur: 28, color: NSColor.black.withAlphaComponent(0.35).cgColor)
+    color(0x0F2A38).setFill()
+    tilePath.fill()
+    ctx.restoreGState()
+}
 
 // Everything else is clipped to the tile.
 ctx.saveGState()

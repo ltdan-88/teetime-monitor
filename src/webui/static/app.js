@@ -61,7 +61,7 @@ function WindowHint({ hint, onPreferences }) {
 
 /** The app's name, always in view (the browser tab has it too): beside the toolbar on wide windows, a slim line above it on narrow ones. */
 function Brand({ className }) {
-  return html`<div class=${className}><${Icon} name="flag" size=${18} style="fill:currentColor" /><span>${t('app.title')}</span></div>`;
+  return html`<div class=${className}><img class="brand-icon" src="/icons/icon-64.png" alt="" width="22" height="22" /><span>${t('app.title')}</span></div>`;
 }
 
 function Empty({ title, text, children }) {

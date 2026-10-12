@@ -248,3 +248,18 @@ def test_the_login_form_never_sends_the_password_in_the_address():
 
     html = (Path(server.STATIC_DIR) / "login.html").read_text(encoding="utf-8")
     assert 'method="post"' in html
+
+
+def test_the_login_page_and_the_icons_are_public_so_a_phone_can_add_it_to_the_home_screen(served):
+    def fetch(path):
+        connection = http.client.HTTPConnection("127.0.0.1", served.port, timeout=10)
+        connection.request("GET", path)
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        return response.status, response.getheader("Content-Type")
+
+    for path, kind in (("/manifest.webmanifest", "manifest"), ("/icons/apple-touch-icon.png", "png"), ("/icons/icon-192.png", "png"), ("/icons/icon-32.png", "png"), ("/icons/icon-512.png", "png")):
+        status, content_type = fetch(path)
+        assert status == 200 and kind in content_type, path
+    assert fetch("/api/bootstrap")[0] == 401  # nothing else opened up

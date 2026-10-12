@@ -163,6 +163,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .slot .wx { display: flex; color: var(--seat); }
 .who-chip, .who-list { display: none; }
 .slot .blocked-note { grid-column: 2 / 5; }
+.blocked-text { font-style: italic; font-size: 0.8125rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot .cell, .res .cell { text-align: right; color: var(--dim); font-family: var(--mono); font-size: 0.875rem; white-space: nowrap; }
 .cell.warn { color: var(--orange); font-weight: 600; }
 .cell.head { font-family: var(--font); font-size: 0.75rem; letter-spacing: 0.03rem; color: var(--dim); }
@@ -390,8 +391,10 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .who-list { display: block; grid-row: 3; grid-column: 2 / -1; padding: 0.125rem 0 0.375rem 0; }
   .who-list div { padding: 0.1875rem 0; }
   .slot .names { display: none; }
-  .slot .people:not(:has(.note)) { display: none; }
+  .slot .people:not(.blocked-note):not(:has(.note)) { display: none; }
   .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
+  /* a blocked slot (a tournament, frost ...) says why, on the first row beside the time */
+  .slot .blocked-note { grid-row: 1; grid-column: 3 / 5; padding-bottom: 0; }
 }
 
 /* Search results in the same windows: the chip replaces the names (they would be cut off); text never wraps */
@@ -435,6 +438,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .slot .people { grid-row: 2; grid-column: 2 / -1; padding-bottom: 0.25rem; }
   .people, .people .names { white-space: normal; overflow: visible; text-overflow: clip; flex-wrap: wrap; row-gap: 0.125rem; }
   .slot .blocked-note { grid-row: 1; grid-column: 3 / 6; }
+  .blocked-text { font-size: 0.75rem; }
   .slot .people:empty { display: none; }
 }
 
@@ -606,7 +610,7 @@ button, select, input { touch-action: manipulation; }
 
 /* ---- app name ---- */
 .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.9375rem; color: var(--text); white-space: nowrap; }
-.brand svg { color: var(--accent); }
+.brand-icon { border-radius: 0.3rem; flex: none; }
 .brand.in-bar { flex: none; margin-right: 0.5rem; }
 .brand.top { display: none; padding: 0.5rem 0.875rem 0; }
 @media (max-width: 860px) {

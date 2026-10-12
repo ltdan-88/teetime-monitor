@@ -74,6 +74,10 @@ above the day's times, with a button to switch to a shorter round on another cou
 numbers; and the Legend (footer, ⓘ) names every toolbar icon and badge. The °C / rain / wind headings stay pinned under
 the day header while the times scroll, and the app's name is always at the top.
 
+**As an app icon:** in Safari on an iPhone or iPad open the page, tap Share, then *Add to Home Screen*: it gets the same
+icon as the Mac app, its own name and opens without the browser's bars (on Android: menu, *Install app* or *Add to Home
+screen*). The icons are made from the Mac icon's artwork by `macos/icon/make_web_icons.sh`.
+
 The program itself cannot run on a phone or tablet. Run it on a Raspberry Pi (or any always-on computer) with
 `teetime-monitor-web --serve` and open its address from the device's browser: [RASPBERRY-PI.md](RASPBERRY-PI.md).
 

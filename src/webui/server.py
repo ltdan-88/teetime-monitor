@@ -52,7 +52,11 @@ AUTH_COOKIE_NAME = "tm_auth"
 DEFAULT_SERVE_PORT = 8765
 SCRAPE_CHECK_SECONDS = 300  # how often the server looks for a club that is due (the clubs' own intervals decide)
 # Reachable without logging in: the login page and what it needs.
-PUBLIC_PAGES = {"/login": "login.html", "/login.js": "login.js", "/style.css": "style.css", "/favicon.svg": "favicon.svg"}
+PUBLIC_PAGES = {
+    "/login": "login.html", "/login.js": "login.js", "/style.css": "style.css", "/manifest.webmanifest": "manifest.webmanifest",
+    "/icons/icon-32.png": "icons/icon-32.png", "/icons/apple-touch-icon.png": "icons/apple-touch-icon.png",
+    "/icons/icon-192.png": "icons/icon-192.png", "/icons/icon-512.png": "icons/icon-512.png", "/icons/icon-64.png": "icons/icon-64.png",
+}  # the icons and the manifest are not secret, and a phone fetches them without the login cookie
 PING_INTERVAL_HINT_SECONDS = 5
 IDLE_EXIT_AFTER_FIRST_PING_SECONDS = 120  # background tabs throttle timers to about one a minute
 IDLE_EXIT_WITHOUT_ANY_PING_SECONDS = 600  # the window never opened, or was closed at once
@@ -62,6 +66,7 @@ CSP = (
     "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/javascript", ".mjs")
 
