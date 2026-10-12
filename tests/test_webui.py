@@ -355,6 +355,14 @@ def test_the_server_can_queue_a_whole_page_load_of_connections():
     assert server.WebServer.request_queue_size >= 64
 
 
+def test_the_page_stops_iphone_safari_from_enlarging_text_in_landscape():
+    """Without this iOS Safari inflates some text blocks (hints, headings) when the phone is turned sideways."""
+    import re
+
+    css = (server.STATIC_DIR / "style.css").read_text(encoding="utf-8")
+    assert re.search(r"html\s*\{[^}]*-webkit-text-size-adjust:\s*100%", css)
+
+
 def test_the_stylesheet_has_balanced_braces_and_no_stray_ones():
     """A stray `}` swallowed the rules after it (the phone layout of the Search results) without any error:
     every rule must open before it closes, and everything must be closed at the end."""
