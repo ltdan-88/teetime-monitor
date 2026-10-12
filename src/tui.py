@@ -4327,10 +4327,11 @@ class SearchScreen(Screen[None]):
 
         def find_matches() -> list[SlotMatch]:
             db_path = _db_path(self.club_id)
-            crowd_estimates = _crowd_estimates(self.schedules, self.config, self.club_id)
+            schedules = pipeline_module.still_ahead(self.schedules)  # nothing that has already started, no today after daylight
+            crowd_estimates = _crowd_estimates(schedules, self.config, self.club_id)
             friend_names = storage.load_friend_names(path=db_path)
             matches = recommend.ranked_matches(
-                self.schedules,
+                schedules,
                 criteria,
                 self.config,
                 crowd_estimates,

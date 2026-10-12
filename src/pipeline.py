@@ -17,6 +17,7 @@ was a move, not a redesign. Rich markup and everything widget-shaped (`_day_pick
 
 import sqlite3
 import time
+from dataclasses import replace
 from datetime import date as date_cls
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +48,19 @@ def today_is_over(sunset: str | None, now_hhmm: str | None = None) -> bool:
     """True once it is past today's sunset ("HH:MM", or None when unknown) or past 21:00, whichever is first."""
     limit = min(sunset, TODAY_HIDDEN_AFTER_HHMM) if sunset else TODAY_HIDDEN_AFTER_HHMM
     return (now_hhmm or clock.now_hhmm()) > limit
+
+
+def still_ahead(schedules: list[Schedule]) -> list[Schedule]:
+    """The schedules as far as they can still be played: today's is dropped once daylight is over (`today_is_over`),
+    otherwise it loses the tee times that have already started. Other days are untouched. What Search looks at."""
+    today, now = clock.today(), clock.now_hhmm()
+    result = []
+    for schedule in schedules:
+        if schedule.date != today:
+            result.append(schedule)
+        elif not today_is_over(schedule.sun_times.sunset if schedule.sun_times else None, now):
+            result.append(replace(schedule, slots=[slot for slot in schedule.slots if slot.time >= now]))
+    return result
 
 
 def _load_club_config_safely(slug: str) -> dict:
