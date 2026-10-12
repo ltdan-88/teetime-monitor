@@ -59,6 +59,8 @@
 }
 
 * { box-sizing: border-box; }
+/* iOS Safari enlarges some blocks of text (hints, headings) on its own when the phone is turned sideways; the page sizes its text itself */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html { font-size: 12.8px; }  /* 80%: the whole page is sized in rem, so Settings > Scale just changes this */
 html, body { margin: 0; height: 100%; }
 body {
