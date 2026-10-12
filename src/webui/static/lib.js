@@ -206,6 +206,34 @@ export function WeatherHeads({ units }) {
     <span class="cell head" title=${t('tip.wind_slot', { unit: u.wind })}>${u.wind}</span>`;
 }
 
+// ---- weather in color: the numbers tell the same story at a glance. Temperature runs blue (cold) - teal - sand - orange - red (hot);
+// rain turns bluer the wetter it gets, wind turns amber and then red as it picks up. Computed from the raw metric values.
+const TEMP_STOPS = [[0, 'cold'], [9, 'cool'], [17, 'mild'], [25, 'warm'], [32, 'hot']];
+const mixStyle = (from, to, percent) => ({ color: `color-mix(in oklab, var(${to}) ${Math.round(percent)}%, var(${from}))` });
+
+/** Inline style that colors a temperature (°C). */
+export function tempTone(celsius) {
+  if (celsius == null) return null;
+  const c = Math.max(TEMP_STOPS[0][0], Math.min(TEMP_STOPS[TEMP_STOPS.length - 1][0], celsius));
+  const i = Math.max(0, TEMP_STOPS.findIndex(([at]) => at > c) - 1);
+  const [from, to] = [TEMP_STOPS[i], TEMP_STOPS[Math.min(i + 1, TEMP_STOPS.length - 1)]];
+  const span = to[0] - from[0] || 1;
+  return mixStyle(`--tc-${from[1]}`, `--tc-${to[1]}`, ((c - from[0]) / span) * 100);
+}
+
+/** Inline style for a rain probability (%): grey up to 10 %, then bluer; null for none (the cell keeps its usual color). */
+export function rainTone(percent) {
+  if (percent == null || percent <= 10) return null;
+  return mixStyle('--dim', '--blue', Math.min(1, (percent - 10) / 60) * 100);
+}
+
+/** Inline style for wind (km/h): calm stays grey, 12-30 turns amber, 30-45 turns red. */
+export function windTone(kph) {
+  if (kph == null || kph <= 12) return null;
+  if (kph <= 30) return mixStyle('--dim', '--orange', ((kph - 12) / 18) * 100);
+  return mixStyle('--orange', '--red', Math.min(1, (kph - 30) / 15) * 100);
+}
+
 /** A slot's temperature, rain and wind as three cells, each with its tooltip; `flags` ('rain', 'wind', 'temp')
  *  marks the ones outside your limits. */
 export function WeatherCells({ weather, units, flags = [] }) {
@@ -214,16 +242,16 @@ export function WeatherCells({ weather, units, flags = [] }) {
   const flagged = (flag) => (flags.includes(flag) ? ' warn' : '');
   const tip = (text, flag) => (flags.includes(flag) ? text + ' — ' + t('search.flag_tip.' + flag) : text);
   return html`
-    <span class=${'cell temp' + flagged('temp')} title=${tip(t('tip.temp_slot', { unit: u.temp }), 'temp')}>${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
-    <span class=${'cell rain' + flagged('rain')} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' : ''}${w && w.rain != null && w.rain_mm ? html`<span class="mm">/${amount(w.rain_mm, units)}</span>` : ''}</span>
-    <span class=${'cell wind' + flagged('wind')} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`;
+    <span class=${'cell temp' + flagged('temp')} style=${flags.includes('temp') || !w ? null : tempTone(w.temp)} title=${tip(t('tip.temp_slot', { unit: u.temp }), 'temp')}>${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
+    <span class=${'cell rain' + flagged('rain')} style=${flags.includes('rain') || !w ? null : rainTone(w.rain)} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' : ''}${w && w.rain != null && w.rain_mm ? html`<span class="mm">/${amount(w.rain_mm, units)}</span>` : ''}</span>
+    <span class=${'cell wind' + flagged('wind')} style=${flags.includes('wind') || !w ? null : windTone(w.wind)} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`;
 }
 
 export function Condition({ code, size = 24 }) {
   const kind = conditionKind(code);
   if (!kind) return null;
   const named = t('wmo.' + code);
-  return html`<span class="cond" title=${named !== 'wmo.' + code ? named : t('cond.' + kind)}><${Icon} name=${kind} size=${size} /></span>`;
+  return html`<span class=${'cond k-' + kind} title=${named !== 'wmo.' + code ? named : t('cond.' + kind)}><${Icon} name=${kind} size=${size} /></span>`;
 }
 
 // ---------------------------------------------------------------- small controls

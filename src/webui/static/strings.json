@@ -278,6 +278,9 @@
   "legend.alternative": "a shorter round on another course still fits (tap to switch)",
   "legend.chip": "players booked in a slot: tap to list them",
   "legend.warn": "orange value in Search: outside your rain, wind or temperature limit",
+  "legend.temp_colors": "temperature: blue is cold, then teal, sand, orange and red for hot",
+  "legend.rain_colors": "rain chance: the bluer, the wetter",
+  "legend.wind_colors": "wind: calm stays grey, amber when it picks up, red when it is strong",
   "legend.slot_tap": "Tap (or click) a time to mark it as your booking; tap your booking to cancel it."
  },
  "de": {
@@ -559,6 +562,9 @@
   "legend.alternative": "eine kürzere Runde auf einem anderen Platz passt noch (antippen zum Wechseln)",
   "legend.chip": "Spieler in einer Startzeit: antippen für die Liste",
   "legend.warn": "orange Wert in der Suche: außerhalb deiner Regen-, Wind- oder Temperaturgrenze",
+  "legend.temp_colors": "Temperatur: blau ist kalt, dann türkis, sandfarben, orange und rot für heiß",
+  "legend.rain_colors": "Regenwahrscheinlichkeit: je blauer, desto nasser",
+  "legend.wind_colors": "Wind: bei Windstille grau, bernsteinfarben wenn er auffrischt, rot wenn er stark ist",
   "legend.slot_tap": "Eine Zeit antippen (oder anklicken), um sie als deine Buchung zu markieren; deine Buchung antippen, um sie zu stornieren."
  }
 }
