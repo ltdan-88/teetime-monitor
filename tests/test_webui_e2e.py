@@ -696,6 +696,26 @@ def test_form_fields_have_air_between_them_and_the_last_row_clears_the_window_ed
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
+def test_weather_numbers_and_icons_are_colored(ui):
+    """Temperature, rain and wind carry a color that follows their value (cold blue ... hot red, wetter = bluer,
+    windier = amber/red), and weather icons have their own; a calm dry value stays grey."""
+    ui.js("window.scrollTo(0, 0)")
+    colored = ui.js(
+        """(() => { const style = (sel) => [...document.querySelectorAll(sel)].map((e) => e.getAttribute('style') || '');
+        return {temps: style('.dh .temp span[style]').length, rain: style('.dh .rain[style]').length, wind: style('.dh .wind[style]').length,
+                icons: [...document.querySelectorAll('.dh .cond')].map((e) => e.className + '|' + getComputedStyle(e).color)}; })()"""
+    )
+    assert colored["temps"] >= 4 and colored["rain"] >= 1 and colored["wind"] >= 1, colored
+    kinds = {entry.split("|")[0] for entry in colored["icons"]}
+    colors = {entry.split("|")[1] for entry in colored["icons"]}
+    assert len(kinds) >= 3 and len(colors) >= 3, colored["icons"]  # sunny, rainy and cloudy days do not look alike
+    ui.click("button.dh", index=2)
+    ui.wait("document.querySelector('.card.open .slot .temp')")
+    cells = ui.js("[...document.querySelectorAll('.card.open .slot .temp')].map((e) => e.getAttribute('style') || '').filter(Boolean).length")
+    assert cells > 5
+    ui.click("button.dh", index=2)
+
+
 def test_the_jump_choice_lines_its_buttons_up_at_every_width(ui):
     """A player with several tee times is asked which one: the question sits on its own line and the buttons are one
     width and line up (on a phone they once wrapped into three different widths beside the question)."""

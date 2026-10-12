@@ -3,6 +3,7 @@
 import {
   html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, language, updatedText, dayLabel, applyScale, loadThemes, applyTheme, systemTheme,
   Icon, Sheet, Select, Status,
+  tempTone, rainTone, windTone,
 } from '/lib.js';
 import { DayCard, Banners, focusTime } from '/overview.js';
 import { PreferencesSheet, SettingsSheet } from '/forms.js';
@@ -97,6 +98,11 @@ function Legend({ onClose }) {
       <dt><span class="pill quiet"><${Icon} name="star" size=${14} />12:10 · 9H</span></dt><dd>${t('legend.alternative')}</dd>
       <dt><span class="chipdemo"><${Icon} name="users" size=${14} />3</span></dt><dd>${t('legend.chip')}</dd>
       <dt><span class="cell warn">13°</span></dt><dd>${t('legend.warn')}</dd>
+    </dl>
+    <dl class="legend">
+      <dt><span class="tones"><span style=${tempTone(3)}>3°</span> <span style=${tempTone(13)}>13°</span> <span style=${tempTone(21)}>21°</span> <span style=${tempTone(30)}>30°</span></span></dt><dd>${t('legend.temp_colors')}</dd>
+      <dt><span class="tones"><span style=${rainTone(20)}>20%</span> <span style=${rainTone(80)}>80%</span></span></dt><dd>${t('legend.rain_colors')}</dd>
+      <dt><span class="tones"><span style=${windTone(20)}>20</span> <span style=${windTone(40)}>40</span></span></dt><dd>${t('legend.wind_colors')}</dd>
     </dl>
     <p class="hint">${t('legend.slot_tap')}</p>
     <dl class="legend">

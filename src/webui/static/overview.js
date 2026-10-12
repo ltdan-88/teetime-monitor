@@ -1,7 +1,7 @@
 // The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
 
 import {
-  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
+  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
 } from '/lib.js';
 
 function pickTooltip(pick) {
@@ -83,12 +83,12 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       <span class="day">${label}</span>
       <span>${w && html`<${Condition} code=${w.code} />`}</span>
       <span class="temp" title=${t('tip.temp')}>
-        ${w && w.temp_high != null && html`<${Icon} name="thermo" size=${16} class="dim" />${temperature(w.temp_high, units)}°/${temperature(w.temp_low, units)}°`}
+        ${w && w.temp_high != null && html`<${Icon} name="thermo" size=${16} class="dim" /><span style=${tempTone(w.temp_high)}>${temperature(w.temp_high, units)}°</span>/<span style=${tempTone(w.temp_low)}>${temperature(w.temp_low, units)}°</span>`}
       </span>
-      <span class="small rain" title=${rainTip}>
+      <span class="small rain" style=${w ? rainTone(w.rain_avg) : null} title=${rainTip}>
         ${w && html`<${Icon} name="drop" size=${15} />${round(w.rain_avg)}%`}
       </span>
-      <span class="small wind" title=${t('tip.wind')}>
+      <span class="small wind" style=${w ? windTone(w.wind_peak) : null} title=${t('tip.wind')}>
         ${w && w.wind_peak != null && html`<${Icon} name="wind" size=${15} />${windSpeed(w.wind_peak, units)}`}
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
