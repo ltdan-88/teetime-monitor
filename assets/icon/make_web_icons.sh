@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regenerates the web UI's icons (src/webui/static/icons/*.png) from the same artwork as the macOS icon, edge to edge
+# Regenerates the web UI's icons (src/webui/static/icons/*.png) from the Teetime Monitor icon artwork (make_icon.swift), edge to edge
 # (iOS rounds the corners itself). Needs only the Command Line Tools. Commit the resulting PNGs.
 set -euo pipefail
 cd "$(dirname "$0")"

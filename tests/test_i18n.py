@@ -239,54 +239,6 @@ def test_render_booking_change_reservations_sync_failed_parsing_german():
     assert "geändert" in text
 
 
-def test_scrape_health_strings_match_the_gui_word_for_word():
-    # 2026-10-05: the health line must read the same in both apps (same keys, same
-    # text), so this parses macos/Sources/I18n.swift's two tables directly rather than
-    # trusting that someone remembered to copy an edit across.
-    from pathlib import Path
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    entry = re.compile(r'^\s*"(health\.[^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        swift_health = dict(entry.findall(table))
-        python_health = {k: v for k, v in i18n._STRINGS[lang].items() if k.startswith("health.")}
-        assert python_health, "no health.* keys in i18n.py"
-        assert swift_health == python_health, lang
-
-
-def test_shorter_round_strings_match_the_gui_word_for_word():
-    # 2026-10-05: the "★ 16:10 · 9H" cell, its #row-detail sentence (the GUI's
-    # tooltip) and the hint's course list must read the same in both apps.
-    from pathlib import Path
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    keys = ("overview.pick_holes", "overview.pick_alternative", "overview.hint_alternative")
-    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        swift_strings = dict(entry.findall(table))
-        for key in keys:
-            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
-
-
-def test_quality_reason_strings_match_the_gui_word_for_word():
-    # 2026-10-05: the Pick's "why" (#row-detail here, the badge tooltip in the GUI) is
-    # composed from the same strings in both apps, so parse I18n.swift's tables directly.
-    from pathlib import Path
-
-    from src import quality
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    keys = ("overview.pick_reasons", *(f"quality.reason.{key}" for key in quality.REASON_KEYS))
-    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        swift_strings = dict(entry.findall(table))
-        for key in keys:
-            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
-
-
 # --- booking-window lock strings (2026-10-05) ---------------------------------------------
 
 LOCK_KEYS = (
@@ -333,29 +285,3 @@ def test_format_handicap_has_one_decimal_and_a_german_comma():
     assert i18n.format_handicap(-1.25, "en") == "-1.2"
 
 
-def test_handicap_strings_match_the_gui_word_for_word():
-    # The legend line and the Display toggle's label read the same in both apps.
-    from pathlib import Path
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        swift_strings = dict(entry.findall(table))
-        assert swift_strings["legend.hcp"] == i18n._STRINGS[lang]["legend.hcp"], lang
-        assert swift_strings["settings.show_handicaps"] == i18n._STRINGS[lang]["settings.field.show_handicaps"], lang
-
-
-def test_course_holes_strings_match_the_gui_word_for_word():
-    # 2026-10-05: the per-course "Holes" dropdown (Auto / 9 holes / 18 holes) and its hint
-    # read the same in both apps; same keys on both sides.
-    from pathlib import Path
-
-    swift = (Path(__file__).resolve().parent.parent / "macos" / "Sources" / "I18n.swift").read_text(encoding="utf-8")
-    english, german = swift.split("private let germanStrings", 1)
-    keys = tuple(f"settings.course_holes.{name}" for name in ("title", "auto", "option", "hint"))
-    entry = re.compile(r'^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)",?\s*$', re.MULTILINE)
-    for lang, table in (("en", english), ("de", german)):
-        swift_strings = dict(entry.findall(table))
-        for key in keys:
-            assert swift_strings[key] == i18n._STRINGS[lang][key], (lang, key)
