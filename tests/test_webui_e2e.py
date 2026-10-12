@@ -666,6 +666,36 @@ def test_a_booked_player_can_be_jumped_to_from_the_directory(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
+def test_form_fields_have_air_between_them_and_the_last_row_clears_the_window_edge(ui):
+    """Fields in a form are at least 10 px apart (they once sat 2 px apart on a touch screen, where controls are taller),
+    and the last control of a scrolling window clears its bottom edge once scrolled all the way down."""
+    try:
+        for width, height, touch in ((1280, 800, False), (1000, 617, False), (1180, 820, True), (390, 800, True)):
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=1, mobile=touch)
+            ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}] if touch else [])
+            for key in (",", "e", "s"):
+                ui.js("window.scrollTo(0, 0)")
+                _open_sheet(ui, key, "")
+                ui.wait("document.querySelector('.sheet .field-row')")
+                shape = ui.js(
+                    """(() => { const sheet = [...document.querySelectorAll('.sheet')].pop();
+                    const fields = [...sheet.querySelectorAll('.field-row > :last-child')].filter((e) => e.getBoundingClientRect().height > 4).map((e) => e.getBoundingClientRect());
+                    let tightest = 99;
+                    for (const a of fields) for (const b of fields) { const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                      const gap = b.top - a.bottom; if (overlap > 20 && gap > -1) tightest = Math.min(tightest, gap); }
+                    const body = [...sheet.querySelectorAll('.sheet-body')].pop(); body.scrollTop = body.scrollHeight;
+                    const bottom = Math.max(...[...body.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().height > 2).map((e) => e.getBoundingClientRect().bottom));
+                    return {fields: fields.length, tightest, clearance: Math.round(body.getBoundingClientRect().bottom - bottom)}; })()"""
+                )
+                assert shape["fields"] >= 2 and shape["tightest"] >= 10, (key, width, height, touch, shape)
+                if key != "s":  # (Search scrolls its results inside the window instead)
+                    assert shape["clearance"] >= 8, (key, width, height, touch, shape)
+                _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
 def test_the_jump_choice_lines_its_buttons_up_at_every_width(ui):
     """A player with several tee times is asked which one: the question sits on its own line and the buttons are one
     width and line up (on a phone they once wrapped into three different widths beside the question)."""
