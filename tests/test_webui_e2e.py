@@ -944,6 +944,36 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     _close_sheet(ui)
 
 
+def test_a_blocked_slot_says_why_on_every_screen_size(ui):
+    """A tournament or frost block used to be a blank spot in the phone layout (its note was hidden along with the names)."""
+    ui.js("window.scrollTo(0, 0)")
+    if not ui.count(".card.open"):
+        ui.click("button.dh", index=1)
+    ui.wait("document.querySelector('.card.open .slot.blocked')")
+    def shown():
+        return ui.js("""(() => { const note = document.querySelector('.card.open .slot.blocked .blocked-note'); const r = note.getBoundingClientRect();
+                         return [getComputedStyle(note).display !== 'none', r.width > 40, note.textContent.trim().length > 3, r.right <= innerWidth + 1]; })()""")
+    assert shown() == [True, True, True, True], shown()
+    for width in (744, 393):
+        ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=2, mobile=True)
+        try:
+            assert shown() == [True, True, True, True], (width, shown())
+        finally:
+            ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_the_page_can_be_added_to_a_home_screen_with_the_app_icon(ui):
+    head = ui.js("""(() => ({ touch: document.querySelector('link[rel=apple-touch-icon]')?.getAttribute('href'), manifest: document.querySelector('link[rel=manifest]')?.getAttribute('href'),
+                              standalone: document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content }))()""")
+    assert head == {"touch": "/icons/apple-touch-icon.png", "manifest": "/manifest.webmanifest", "standalone": "yes"}, head
+    sizes = ui.js("""(async () => { const out = {}; for (const path of ['/icons/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png']) {
+        const image = new Image(); image.src = path; await image.decode(); out[path] = [image.naturalWidth, image.naturalHeight]; } return out; })()""")
+    assert sizes == {"/icons/apple-touch-icon.png": [180, 180], "/icons/icon-192.png": [192, 192], "/icons/icon-512.png": [512, 512]}, sizes
+    manifest = ui.js("fetch('/manifest.webmanifest', {credentials: 'same-origin'}).then((r) => r.json())")
+    assert manifest["name"] == "Teetime Monitor" and manifest["display"] == "standalone" and len(manifest["icons"]) == 2
+    assert ui.js("document.querySelector('.brand.in-bar img').naturalWidth") > 0  # the name in the toolbar carries the same icon
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)

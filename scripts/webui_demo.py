@@ -79,7 +79,11 @@ def seed(directory: Path) -> None:
             busy = 0.55 if 9 <= minute // 60 <= 12 else 0.25
             booked = sum(1 for _ in range(4) if rng.random() < busy)
             names = rng.sample(men + women, k=min(booked, rng.choice([0, 1, 1, 2, 3]))) if booked else []
-            slots.append(Slot(time=time, booked=booked, capacity=4, players=names))
+            event_names = [[], ["Vierer-Clubmeisterschaften AB"], [], ["AK 65 Herren"], []][max(offset, 0)] if offset >= 0 else []
+            if event_names and 12 * 60 + 10 <= minute <= 12 * 60 + 50:  # a tournament block at midday: bookable slots become "blocked"
+                slots.append(Slot(time=time, booked=0, capacity=4, players=[], block_reason=event_names[0]))
+            else:
+                slots.append(Slot(time=time, booked=booked, capacity=4, players=names))
             minute += 10
         weather = [
             WeatherPoint(

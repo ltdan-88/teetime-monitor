@@ -82,6 +82,11 @@ Wechsel auf eine kürzere Runde auf einem anderen Platz; ein angetipptes Heatmap
 Legende (unten, ⓘ) benennt jedes Symbol der Werkzeugleiste und jedes Badge. Die Überschriften °C / Regen / Wind bleiben
 unter dem Tageskopf angeheftet, während die Zeiten scrollen, und der Name der App steht immer oben.
 
+**Als App-Symbol:** In Safari auf dem iPhone oder iPad die Seite öffnen, auf Teilen tippen, dann *Zum Home-Bildschirm*: Sie
+bekommt dasselbe Symbol wie die Mac-App, einen eigenen Namen und öffnet sich ohne die Leisten des Browsers (Android: Menü,
+*App installieren* oder *Zum Startbildschirm hinzufügen*). Die Symbole entstehen aus der Grafik des Mac-Symbols mit
+`macos/icon/make_web_icons.sh`.
+
 Das Programm selbst läuft nicht auf einem Smartphone oder Tablet. Betreibe es auf einem Raspberry Pi (oder einem
 anderen dauerhaft laufenden Computer) mit `teetime-monitor-web --serve` und öffne dessen Adresse im Browser des
 Geräts: [RASPBERRY-PI.de.md](RASPBERRY-PI.de.md).
