@@ -767,23 +767,30 @@ def test_a_newer_version_is_announced_and_a_pi_server_can_install_it(ui, hurry):
           return real(url, options); }; })()"""
     )
     ui.js("window.dispatchEvent(new Event('focus'))")  # the page looks again when you come back to the tab
-    ui.wait("document.querySelector('.update-note')")
+    ui.wait("document.querySelector('.update-banner')")
     ui.shot("update-notice")
-    assert "Version 9.9.9 is available" in ui.text(".update-note")
-    assert ui.js("document.querySelector('.update-note a').href") == "https://example.invalid/notes"
-    ui.click(".update-note .link-btn")
+    assert "Version 9.9.9 is available" in ui.text(".update-banner")
+    assert ui.js("document.querySelector('.update-banner a').href") == "https://example.invalid/notes"
+    ui.click(".update-banner .btn.pri")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('9.9.9')")
     ui.shot("update-sheet")
     ui.click(".sheet .btn", "Cancel")
     ui.wait("!document.querySelector('.scrim')")
-    ui.click(".update-note .link-btn")
+    ui.click(".update-banner .btn.pri")
     ui.wait("document.querySelector('.sheet .btn.pri')")
     ui.click(".sheet .btn.pri")  # install: the first poll says "idle", the next one "failed"
     ui.wait("document.querySelector('.sheet .status-line.error')?.textContent.includes('no matching distribution')", 30)
     ui.click(".sheet .btn", "Cancel")
     ui.wait("!document.querySelector('.scrim')")
     assert ui.count(".card") > 0  # the page is still usable
-    ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+    # the banner sits above the days (not in the footer) and can be dismissed for that version
+    assert ui.js("document.querySelector('.update-banner').getBoundingClientRect().bottom <= document.querySelector('.card').getBoundingClientRect().top")
+    ui.click(".update-banner .icon-btn")
+    ui.wait("!document.querySelector('.update-banner')")
+    ui.js("window.dispatchEvent(new Event('focus'))")
+    ui.js("new Promise((done) => setTimeout(done, 500))")
+    assert ui.count(".update-banner") == 0  # still gone after the page looked again
+    ui.js("localStorage.removeItem('tm_update_dismissed'); window.__beforeReload = true; location.reload()")  # drop the rewriting again
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
@@ -804,9 +811,9 @@ def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui, hurry):
           return real(url, options); }; })()"""
     )
     ui.js("window.dispatchEvent(new Event('focus'))")  # polls = 1: "restarting" is what the sheet sees first ...
-    ui.wait("document.querySelector('.update-note .link-btn')")
+    ui.wait("document.querySelector('.update-banner .btn.pri')")
     ui.js("window.__beforeReload = true")
-    ui.click(".update-note .link-btn")
+    ui.click(".update-banner .btn.pri")
     ui.wait("document.querySelector('.sheet .btn.pri')")
     ui.click(".sheet .btn.pri")
     ui.wait("document.querySelector('.sheet .status-line')?.textContent.includes('Restarting')", 30)
@@ -833,7 +840,7 @@ def test_check_for_updates_says_what_it_found(ui, hurry):
         ui.click(".footer .check-update")
         ui.wait(f"document.querySelector('.check-update')?.textContent.includes({json.dumps(expected)})")
         ui.wait("document.querySelector('.check-update')?.textContent === 'Check for updates'", 15)
-    assert "Version 9.9.9 is available" in ui.text(".update-note")  # the found release shows its notice at once
+    assert "Version 9.9.9 is available" in ui.text(".update-banner")  # the found release shows its notice at once
     ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
@@ -902,7 +909,7 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         ui.key("Escape")
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
-        assert ui.js("getComputedStyle(document.querySelector('.footer .check-update')).display") == "none"
+        assert ui.js("getComputedStyle(document.querySelector('.footer .about')).display") == "none"
         # Search scrolls as a whole, and its results fit the screen
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelectorAll('.res').length > 3")

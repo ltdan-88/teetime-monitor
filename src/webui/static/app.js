@@ -165,6 +165,10 @@ function App() {
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
   const [update, setUpdate] = useState(null); // { latest, newer, url, command, can_update ... }: a newer release exists
+  const [dismissedUpdate, setDismissedUpdate] = useState(() => { try { return localStorage.getItem('tm_update_dismissed'); } catch (failure) { return null; } });
+  const dismissUpdate = () => { try { localStorage.setItem('tm_update_dismissed', update.latest); } catch (failure) { /* just not remembered */ } setDismissedUpdate(update.latest); };
+  // "Check for updates" always shows what it found, even a version dismissed before
+  const checked = (result) => { if (result && result.newer) { try { localStorage.removeItem('tm_update_dismissed'); } catch (failure) { /* fine */ } setDismissedUpdate(null); } setUpdate(result); };
   const loadSeq = useRef(0);
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
@@ -489,7 +493,7 @@ function App() {
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
-          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${setUpdate} />
+          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${checked} />
         </div>
       </header>
       <main class="main">
@@ -501,6 +505,7 @@ function App() {
         ${noClub && html`<${Empty} title=${t('empty.no_clubs.title')} text=${t('empty.no_clubs.text')}>
           <div class="actions center"><button class="btn pri" onClick=${() => setSheet('addclub')}><${Icon} name="plus" size=${16} />${t('addclub.title')}</button>
             <button class="btn" onClick=${() => setSheet('settings')}>${t('settings.title')}</button></div><//>`}
+        ${update && update.newer && dismissedUpdate !== update.latest && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} onDismiss=${dismissUpdate} />`}
         ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
         ${overview && overview.hint && html`<${WindowHint} hint=${overview.hint} onPreferences=${() => setSheet('preferences')} />`}
         ${view && !overview && !failure && html`<${Empty} title=${t('empty.updating')} />`}
@@ -519,9 +524,7 @@ function App() {
           ${refresh.error && overview && overview.days.length > 0 && html`<span class="warning">${refreshErrorText(refresh.error)}</span>`}
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
-        ${update && update.newer && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} />`}
-        <span class="version dim" title=${t('app.title')}>v${boot.version}</span>
-        <${CheckButton} onResult=${setUpdate} />
+        <span class="about"><span class="version dim" title=${t('app.title')}>v${boot.version}</span><${CheckButton} onResult=${checked} /></span>
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} /><span class="legend-text">${t('legend')}</span></button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
