@@ -612,24 +612,24 @@ button, select, input { touch-action: manipulation; }
 .login .status-line { margin: 0.75rem 0 0; }
 .login .btn { margin-top: 1rem; width: 100%; justify-content: center; }
 
-/* ---- newer-version notice (footer) ---- */
-.update-note { font-size: 0.8125rem; margin-left: auto; margin-right: 1rem; color: var(--mid); }
-.update-note a, .update-note a:visited { color: var(--accent); }
-.update-note code { font-family: var(--mono); }
-
-.footer .version { font-family: var(--mono); font-size: 0.75rem; margin-left: auto; margin-right: 0.25rem; }
-.check-update { font-size: 0.75rem; color: var(--mid); margin-right: 0.5rem; }
+/* ---- newer-version notice (a banner above the days) and the footer's version + check ---- */
+.update-banner { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+.update-banner .update-text { font-size: 0.875rem; }
+.update-banner a, .update-banner a:visited { color: var(--accent); }
+.update-banner code { font-family: var(--mono); }
+.update-banner .btn { flex: none; }
+.footer .about { display: inline-flex; align-items: center; gap: 0.625rem; margin-left: auto; }
+.footer .version { font-family: var(--mono); font-size: 0.75rem; }
+.check-update { font-size: 0.75rem; color: var(--mid); }
 .check-update.failed { color: var(--orange); }
-.update-note + .version { margin-left: 0; }
 
 /* View menu: about line (version and update check) -- on phones the footer keeps only the status and the legend */
 .view-about { display: none; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0 0.25rem; border-top: 1px solid var(--line); margin-top: 0.25rem; }
 .view-about .version { font-family: var(--mono); font-size: 0.75rem; color: var(--dim); }
 @media (max-width: 640px) {
   .footer { flex-wrap: nowrap; gap: 0.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
-  .footer .version, .footer .check-update { display: none; }
+  .footer .about { display: none; }
   .footer .status { flex: 1 1 auto; font-size: 0.8125rem; }
-  .footer .update-note { flex: none; margin: 0; max-width: 40%; line-height: 1.25; }
   .view-about { display: flex; }
   /* the View panel opens under the toolbar across the screen (centred on its far-right button it ran off the edge); after
      the base .view-panel rule, which would otherwise win */

@@ -3368,7 +3368,7 @@ def test_search_screen_runs_search_and_shows_results():
             # No "°"/"km/h" suffix on Temperature/Wind any more (2026-09-13,
             # direct follow-up: "since the units are now in the headers, we
             # don't need the units in the rows, right?").
-            assert row[5] == "16"
+            assert Text.from_markup(row[5]).plain == "16"  # (colored: see the weather tone tests)
             assert row[6] == "10%"
             assert row[7] == "8"
             assert "18 Loch Tee 1" in app.screen.title
@@ -7084,3 +7084,48 @@ def test_legend_has_the_handicap_line_in_both_languages():
         assert "(18,4) = Handicap des Spielers" in tui._legend_pairs(tui.OVERVIEW_LEGEND)
     finally:
         i18n.set_language("en")
+
+
+# --- Weather numbers in color, aligned with the browser version (2026-10-13) --------------------------------------
+
+
+def test_temperature_runs_from_cold_blue_to_hot_red_and_rain_and_wind_wake_up_gradually():
+    tui.set_tone_set(True)
+    assert tui._temperature_tone(-10) == tui._TONES["dark"]["cold"] and tui._temperature_tone(40) == tui._TONES["dark"]["hot"]
+    assert tui._temperature_tone(9) == tui._TONES["dark"]["cool"] and tui._temperature_tone(25) == tui._TONES["dark"]["warm"]
+    assert tui._temperature_tone(13) not in tui._TONES["dark"].values()  # between stops: a mix
+    assert tui._rain_tone(5) is None and tui._rain_tone(10) is None  # nothing to flag
+    assert tui._rain_tone(30) != tui._rain_tone(80)  # wetter is bluer
+    assert tui._rain_tone(70) == tui._TONES["dark"]["blue"]
+    assert tui._wind_tone(12) is None and tui._wind_tone(20) != tui._wind_tone(28)
+    assert tui._wind_tone(30) == tui._TONES["dark"]["amber"] and tui._wind_tone(45) == tui._TONES["dark"]["red"]
+
+
+def test_light_themes_get_their_own_darker_colors():
+    try:
+        tui.set_tone_set(False)
+        assert tui._temperature_tone(3) == tui._mix(tui._TONES["light"]["cold"], tui._TONES["light"]["cool"], 3 / 9)
+        assert tui._wind_tone(60) == tui._TONES["light"]["red"]
+    finally:
+        tui.set_tone_set(True)
+
+
+def test_weather_cells_are_plain_unless_colors_are_asked_for():
+    points = [WeatherPoint(time="14:00", temperature_c=24, precipitation_probability=70, precipitation_mm=1.8, wind_speed_kph=35, weather_code=61)]
+    assert tui._slot_temperature_cell(points, "14:00") == "24"
+    assert tui._slot_precipitation_cell(points, "14:00") == "🌧 70%/1.8mm"
+    assert tui._slot_wind_cell(points, "14:00") == "💨 35"
+    tone = Text.from_markup
+    assert tone(tui._slot_temperature_cell(points, "14:00", toned=True)).plain == "24"
+    assert tone(tui._slot_precipitation_cell(points, "14:00", toned=True)).plain == "🌧 70%/1.8mm"
+    assert tone(tui._slot_wind_cell(points, "14:00", toned=True)).plain == "💨 35"
+    assert tui._slot_temperature_cell(points, "14:00", toned=True).startswith("[#")
+    calm = [WeatherPoint(time="14:00", temperature_c=15, precipitation_probability=0, wind_speed_kph=8, weather_code=0)]
+    assert tui._slot_wind_cell(calm, "14:00", toned=True) == "8" and tui._slot_precipitation_cell(calm, "14:00", toned=True) == "0%"  # calm and dry: no color
+
+
+def test_the_day_row_colors_its_high_and_low_separately():
+    day = [WeatherPoint(time=f"{h:02d}:00", temperature_c=5 + h, precipitation_probability=20, wind_speed_kph=10, weather_code=1) for h in range(8, 20)]
+    cell = tui._temperature_cell(day, toned=True)
+    assert Text.from_markup(cell).plain == tui._temperature_cell(day) == "24/13"
+    assert cell.count("[#") == 2 and cell.split("/")[0] != cell.split("/")[1]

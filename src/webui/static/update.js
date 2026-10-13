@@ -1,16 +1,20 @@
 // Newer-version notice (every install) and, on a Raspberry Pi server, the update itself (src/webui/updates.py).
 
-import { html, t, useState, useEffect, useRef, Sheet, Status, post, api } from '/lib.js';
+import { html, t, useState, useEffect, useRef, Icon, Sheet, Status, post, api } from '/lib.js';
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-/** The footer line: "Version X is available · Release notes", the command that updates this install, or the button. */
-export function UpdateNotice({ update, onUpdate }) {
-  return html`<span class="update-note">
-    <a href=${update.url} target="_blank" rel="noopener noreferrer">${t('update.available', { version: update.latest })}</a>
-    ${update.command && html`<span class="dim"> · ${t('update.run')} <code>${update.command}</code></span>`}
-    ${update.can_update && html` <button class="link-btn" onClick=${onUpdate}>${t('update.now')}</button>`}
-  </span>`;
+/** The banner above the days: "Version X is available", the way to update this install (the command, or a button on a Pi
+ *  server) and the release notes; dismissed until a still newer version comes. */
+export function UpdateNotice({ update, onUpdate, onDismiss }) {
+  return html`<div class="banner update-banner" role="status">
+    <${Icon} name="arrowup" size=${18} />
+    <span class="update-text"><strong>${t('update.available', { version: update.latest })}</strong>
+      ${update.command && html`<span class="dim"> · ${t('update.run')} <code>${update.command}</code></span>`}
+      <span class="dim"> · </span><a href=${update.url} target="_blank" rel="noopener noreferrer">${t('update.notes')}</a></span>
+    ${update.can_update && html`<button class="btn pri small" onClick=${onUpdate}>${t('update.now')}</button>`}
+    <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button>
+  </div>`;
 }
 
 /** The footer's "Check for updates": looks now (the server asks GitHub) and says what it found, for a few seconds. */

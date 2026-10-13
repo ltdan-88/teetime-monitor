@@ -336,6 +336,64 @@ _SLOT_RAIN_ICON_THRESHOLD_PERCENT = 50
 _SLOT_WIND_ICON_THRESHOLD_KPH = 30
 
 
+# Weather numbers in color, the same story as the browser version's (webui/static/lib.js tempTone/rainTone/windTone):
+# temperature runs blue (cold) - teal - sand - orange - red (hot), rain turns bluer the wetter, wind turns amber and then red.
+# Truecolor hex values, one set for dark themes and one for light ones (the app switches them in watch_theme()).
+_TONES = {
+    "dark": {"cold": "#5aa9ff", "cool": "#5fd0d8", "mild": "#e6d078", "warm": "#ffa21f", "hot": "#ff6a4d", "grey": "#8a8fa8", "blue": "#4da3ff", "amber": "#ff9f0a", "red": "#ff453a"},
+    "light": {"cold": "#0a64d0", "cool": "#0b8a96", "mild": "#8a7200", "warm": "#c46a00", "hot": "#d6362c", "grey": "#7c7f93", "blue": "#0a64d0", "amber": "#c46a00", "red": "#d6362c"},
+}
+_tone_set = "dark"
+_TEMPERATURE_STOPS = [(0, "cold"), (9, "cool"), (17, "mild"), (25, "warm"), (32, "hot")]
+
+
+def set_tone_set(dark: bool) -> None:
+    """Which colors the weather numbers use: those for dark terminals' themes or for light ones."""
+    global _tone_set
+    _tone_set = "dark" if dark else "light"
+
+
+def _mix(a: str, b: str, share: float) -> str:
+    """`share` (0..1) of color `b` mixed into color `a`, both "#rrggbb"."""
+    share = max(0.0, min(1.0, share))
+    pair = [(int(a[i : i + 2], 16), int(b[i : i + 2], 16)) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * share):02x}" for x, y in pair)
+
+
+def _temperature_tone(celsius: float | None) -> str | None:
+    if celsius is None:
+        return None
+    colors = _TONES[_tone_set]
+    value = max(_TEMPERATURE_STOPS[0][0], min(_TEMPERATURE_STOPS[-1][0], celsius))
+    index = max(0, max(i for i, (at, _) in enumerate(_TEMPERATURE_STOPS) if at <= value))
+    index = min(index, len(_TEMPERATURE_STOPS) - 2)
+    (low_at, low_name), (high_at, high_name) = _TEMPERATURE_STOPS[index], _TEMPERATURE_STOPS[index + 1]
+    return _mix(colors[low_name], colors[high_name], (value - low_at) / (high_at - low_at))
+
+
+def _rain_tone(percent: float | None) -> str | None:
+    """Grey up to 10 %, then bluer; None for no color (the cell keeps the table's own)."""
+    if percent is None or percent <= 10:
+        return None
+    colors = _TONES[_tone_set]
+    return _mix(colors["grey"], colors["blue"], (percent - 10) / 60)
+
+
+def _wind_tone(kph: float | None) -> str | None:
+    """Calm stays uncolored; 12-30 km/h turns amber, 30-45 turns red."""
+    if kph is None or kph <= 12:
+        return None
+    colors = _TONES[_tone_set]
+    if kph <= 30:
+        return _mix(colors["grey"], colors["amber"], (kph - 12) / 18)
+    return _mix(colors["amber"], colors["red"], (kph - 30) / 15)
+
+
+def _toned(text: str, color: str | None, toned: bool) -> str:
+    """`text` as Rich markup in `color`, when the caller wants colors (`toned`) and there is a color to give."""
+    return f"[{color}]{text}[/]" if toned and color and text else text
+
+
 def _column_header(label_key: str, unit_kind: str, units: str) -> str:
     """A table column header with its unit spelled out (2026-09-13, direct
     feedback: "can we integrate units into header" — shipped first as fixed
@@ -369,7 +427,7 @@ def _weather_point_for_time(weather_points: list[WeatherPoint], time: str) -> We
     return max(covering, key=lambda point: point.time) if covering else None
 
 
-def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
+def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """One row's own Temperature column — that hour's forecast temperature, or
     blank with no forecast to show. Split out of the old combined
     `_slot_weather_cell()` 2026-09-09, direct feedback: "can you please split
@@ -388,7 +446,8 @@ def _slot_temperature_cell(weather_points: list[WeatherPoint], time: str, units:
     point = _weather_point_for_time(weather_points, time)
     if point is None or point.temperature_c is None:
         return ""
-    return f"{units_module.display_temperature(point.temperature_c, units):.0f}"
+    text = f"{units_module.display_temperature(point.temperature_c, units):.0f}"
+    return _toned(text, _temperature_tone(point.temperature_c), toned)
 
 
 def _precipitation_amount_text(mm: float, units: str) -> str:
@@ -402,7 +461,7 @@ def _precipitation_amount_text(mm: float, units: str) -> str:
     return f"{amount:.{decimals}f}{units_module.precipitation_amount_label(units)}"
 
 
-def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
+def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """One row's own Precipitation column — the real rain probability (and amount,
     once measurable), always shown now that it has its own dedicated column, not
     just once a threshold fires (that threshold — `_SLOT_RAIN_ICON_THRESHOLD_PERCENT`
@@ -423,10 +482,10 @@ def _slot_precipitation_cell(weather_points: list[WeatherPoint], time: str, unit
     probability = point.precipitation_probability or 0
     mm = f"/{_precipitation_amount_text(point.precipitation_mm, units)}" if point.precipitation_mm else ""
     icon = "🌧 " if probability >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
-    return f"{icon}{probability:.0f}%{mm}"
+    return icon + _toned(f"{probability:.0f}%{mm}", _rain_tone(probability), toned)
 
 
-def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS) -> str:
+def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """One row's own Wind column — same "real number always, icon only above the
     threshold" treatment as `_slot_precipitation_cell()`. Blank with no forecast to
     show. The 💨 icon's own threshold (`_SLOT_WIND_ICON_THRESHOLD_KPH`) is always
@@ -441,7 +500,7 @@ def _slot_wind_cell(weather_points: list[WeatherPoint], time: str, units: str = 
         return ""
     icon = "💨 " if point.wind_speed_kph >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
     speed = units_module.display_wind_speed(point.wind_speed_kph, units)
-    return f"{icon}{speed:.0f}"
+    return icon + _toned(f"{speed:.0f}", _wind_tone(point.wind_speed_kph), toned)
 
 
 def _slot_condition_cell(weather_points: list[WeatherPoint], time: str) -> str:
@@ -1166,7 +1225,7 @@ def _is_rain_all_day(weather: list) -> bool:
     return all((w.precipitation_probability or 0) >= _RAIN_ALL_DAY_THRESHOLD_PERCENT for w in daytime)
 
 
-def _temperature_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
+def _temperature_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """The overview's own Temperature column for one day — daytime (08:00-20:00)
     high/low, e.g. "24/14", or blank with no forecast to show (a schedule that
     was never weather-attached — e.g. `location` not configured yet). Split out of
@@ -1183,10 +1242,10 @@ def _temperature_cell(weather: list[WeatherPoint], units: str = units_module.DEF
         return ""
     high = units_module.display_temperature(max(temps), units)
     low = units_module.display_temperature(min(temps), units)
-    return f"{high:.0f}/{low:.0f}"
+    return f"{_toned(f'{high:.0f}', _temperature_tone(max(temps)), toned)}/{_toned(f'{low:.0f}', _temperature_tone(min(temps)), toned)}"
 
 
-def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
+def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """The overview's own Precipitation column for one day — "rain all day" when
     every daytime point crosses `_RAIN_ALL_DAY_THRESHOLD_PERCENT` (still worth its
     own phrase rather than an average, the same reasoning `_is_rain_all_day()`
@@ -1205,16 +1264,16 @@ def _precipitation_cell(weather: list[WeatherPoint], units: str = units_module.D
     daytime = [w for w in weather if "08:00" <= w.time < "20:00"]
     if not daytime:
         return ""
-    if _is_rain_all_day(weather):
-        return f"🌧 {i18n.t('overview.rain_all_day')}"
     avg_chance = sum((w.precipitation_probability or 0) for w in daytime) / len(daytime)
+    if _is_rain_all_day(weather):
+        return f"🌧 {_toned(i18n.t('overview.rain_all_day'), _rain_tone(avg_chance), toned)}"
     total_mm = sum((w.precipitation_mm or 0) for w in daytime)
     mm_part = f"/{_precipitation_amount_text(total_mm, units)}" if total_mm else ""
     icon = "🌧 " if avg_chance >= _SLOT_RAIN_ICON_THRESHOLD_PERCENT else ""
-    return f"{icon}{avg_chance:.0f}%{mm_part}"
+    return icon + _toned(f"{avg_chance:.0f}%{mm_part}", _rain_tone(avg_chance), toned)
 
 
-def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS) -> str:
+def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UNITS, toned: bool = False) -> str:
     """The overview's own Wind column for one day — the day's peak daytime wind
     speed (max, not average — the same "worst case across the window" reasoning
     `weather.conditions_during_round()` already applies to a single round), shown
@@ -1231,7 +1290,7 @@ def _wind_cell(weather: list[WeatherPoint], units: str = units_module.DEFAULT_UN
     peak = max(winds)
     icon = "💨 " if peak >= _SLOT_WIND_ICON_THRESHOLD_KPH else ""
     speed = units_module.display_wind_speed(peak, units)
-    return f"{icon}{speed:.0f}"
+    return icon + _toned(f"{speed:.0f}", _wind_tone(peak), toned)
 
 
 def _condition_cell(weather: list[WeatherPoint]) -> str:
@@ -1502,9 +1561,9 @@ def _compute_slot_rows(
         if confirmed is not None and slot.time == confirmed.time:
             extra_events.append(f"📌 {i18n.t('overview.booked')}")
         condition_cell = _dim_if(_slot_condition_cell(schedule.weather, slot.time), faded)
-        temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units), faded)
-        precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units), faded)
-        wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units), faded)
+        temperature_cell = _dim_if(_slot_temperature_cell(schedule.weather, slot.time, units, toned=True), faded)
+        precipitation_cell = _dim_if(_slot_precipitation_cell(schedule.weather, slot.time, units, toned=True), faded)
+        wind_cell = _dim_if(_slot_wind_cell(schedule.weather, slot.time, units, toned=True), faded)
         if slot.block_reason is not None:
             event_text = ", ".join([_slot_event_cell(slot), *extra_events])
             rows.append(
@@ -3337,9 +3396,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                 caret = "▼" if one_date in self._expanded_dates else "▶"
                 day_cell = f"{caret} {day_cell}"
                 condition_cell = _condition_cell(schedule.weather) or "[dim]—[/]"
-                temperature_cell = _temperature_cell(schedule.weather, units) or "[dim]—[/]"
-                precipitation_cell = _precipitation_cell(schedule.weather, units) or "[dim]—[/]"
-                wind_cell = _wind_cell(schedule.weather, units) or "[dim]—[/]"
+                temperature_cell = _temperature_cell(schedule.weather, units, toned=True) or "[dim]—[/]"
+                precipitation_cell = _precipitation_cell(schedule.weather, units, toned=True) or "[dim]—[/]"
+                wind_cell = _wind_cell(schedule.weather, units, toned=True) or "[dim]—[/]"
                 event_cell = _event_cell(schedule) or "[dim]—[/]"
                 heat_cell = _heat_strip_markup(schedule)
             else:
@@ -4372,9 +4431,9 @@ class SearchScreen(Screen[None]):
                 _slot_condition_cell(weather, match.slot.time),
                 occupancy,
                 markup_escape(players),  # scraped names / AI text, not markup
-                _slot_temperature_cell(weather, match.slot.time, units),
-                _slot_precipitation_cell(weather, match.slot.time, units),
-                _slot_wind_cell(weather, match.slot.time, units),
+                _slot_temperature_cell(weather, match.slot.time, units, toned=True),
+                _slot_precipitation_cell(weather, match.slot.time, units, toned=True),
+                _slot_wind_cell(weather, match.slot.time, units, toned=True),
                 markup_escape(", ".join(match.reasons)),
             ))
         # Declared from these same rows' own real content -- see this method's
@@ -4881,6 +4940,7 @@ class TeetimeApp(App[None]):
         including the initial one from `apply_theme()` above; harmless to
         re-persist the same value on startup."""
         theme_module.save_theme(theme_module.to_logical_name(theme_name))
+        set_tone_set(bool(getattr(self.current_theme, "dark", True)))  # weather colors for a dark or a light theme
 
     def get_system_commands(self, screen: Screen):
         """Textual's own command palette, extended with this app's screen-
