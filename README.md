@@ -106,6 +106,7 @@ Same week, same ★, same rules. Every screen has a one-letter key, shown in the
 | Search | **s** | **/** |
 | Heatmap | **h** | **h** |
 | Players | **p** | **p** |
+| My reservations (see and cancel your bookings) | **b** | **b** |
 | Preferences · Settings | **e** · **,** | **,** · **s** |
 | Add a club | **a** | **a** |
 | Legend (what every symbol means) | **?** | **?** |

@@ -20,7 +20,7 @@ from src import (
     theme,
     user_config,
 )
-from src.models import PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
+from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.webui import clubs_api, data, server, settings_api, tools_api
 
 CLUB_ID = "0000001"
@@ -115,6 +115,39 @@ def test_booking_and_cancelling_on_pc_caddie_shows_in_the_overview(world, monkey
     assert data.cancel(SLUG, None, COURSE, today, "10:00") == {"ok": True}
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None
     assert [c[0] for c in calls] == ["book", "cancel"] and calls[0][2:] == (COURSE, today, "10:00")
+
+
+def test_reservations_lists_upcoming_bookings_earliest_first_without_cancelled_or_past_ones(world, monkeypatch):
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "12:00")
+    today = date.today()
+    d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
+    for item in (
+        ConfirmedBooking(date=d(2), course=COURSE, time="09:10", source="my_reservations", confirmed_at="t1"),
+        ConfirmedBooking(date=d(0), course=COURSE, time="14:00", source="my_reservations", confirmed_at="t1"),  # later today
+        ConfirmedBooking(date=d(0), course=COURSE, time="10:00", source="my_reservations", confirmed_at="t1"),  # a time already gone today: not listed (the day has one booking: this one wins)
+        ConfirmedBooking(date=d(1), course=COURSE, time="08:00", source="my_reservations", confirmed_at="t1"),
+        ConfirmedBooking(date=d(1), course=COURSE, time=None, source="my_reservations", confirmed_at="t2"),  # cancelled since
+        ConfirmedBooking(date=d(-3), course=COURSE, time="09:00", source="my_reservations", confirmed_at="t1"),  # played already
+    ):
+        storage.save_confirmed_booking(item, path=world)
+    found = data.reservations()
+    assert [(r["date"], r["time"]) for r in found["reservations"]] == [(d(2), "09:10")]
+    assert found["reservations"][0]["club"] == "Golfclub Beispiel" and found["reservations"][0]["course"] == COURSE and found["reservations"][0]["slug"] == SLUG
+    assert found["refreshed"] is False and found["refresh_problems"] == []
+
+
+def test_reservations_refresh_reads_pc_caddie_first_and_names_the_clubs_it_could_not_check(world, monkeypatch):
+    seen = []
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, slug, db, courses=None: seen.append(slug) or "login")
+    found = data.reservations(refresh=True)
+    assert seen == [SLUG] and found["refreshed"] is True
+    assert found["refresh_problems"] == [{"club": "Golfclub Beispiel", "reason": "login"}]
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: None)  # skipped: no login saved
+    assert data.reservations(refresh=True)["refresh_problems"] == [{"club": "Golfclub Beispiel", "reason": "no_login"}]
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
+    assert data.reservations(refresh=True)["refresh_problems"] == []
 
 
 def test_the_read_back_after_a_booking_makes_no_further_request_to_the_site(world, monkeypatch):
@@ -514,6 +547,7 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     assert _call(running, "GET", f"/api/overview?slug={SLUG}")[1]["days"][0]["booked_time"] == "10:00"
     assert _call(running, "POST", "/api/booking/cancel", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
     assert len(calls) == 2
+    assert _call(running, "GET", "/api/reservations")[1]["reservations"] == []  # nothing is booked any more
     fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "gone"))
     status, refused = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:10"})
     assert status == 409 and refused == {"error": "taken", "message": "gone"}  # the page can tell it from a crash

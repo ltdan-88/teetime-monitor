@@ -106,6 +106,7 @@ Dieselbe Woche, derselbe ★, dieselben Vorgaben. Jeder Bildschirm hat eine Tast
 | Suchen | **s** | **/** |
 | Heatmap | **h** | **h** |
 | Spieler | **p** | **p** |
+| Meine Reservierungen (Buchungen ansehen und stornieren) | **b** | **b** |
 | Präferenzen · Einstellungen | **e** · **,** | **,** · **s** |
 | Club hinzufügen | **a** | **a** |
 | Legende (was jedes Symbol heißt) | **?** | **?** |

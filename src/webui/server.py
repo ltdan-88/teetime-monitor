@@ -426,6 +426,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
 
         # bookings and notices
+        if route == ("GET", "/api/reservations"):
+            return self._json(data.reservations(refresh=arg("refresh") == "1"))
         if route == ("POST", "/api/booking"):
             return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/cancel"):

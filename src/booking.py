@@ -355,3 +355,26 @@ def _safely_read_back(club: dict, db_path: Path) -> None:
         _read_back(club, db_path)
     except Exception:  # noqa: BLE001 -- the booking itself is done; the next scrape reads it back anyway
         pass
+
+
+def upcoming_reservations(clubs: list[dict], refresh: bool = False) -> dict:
+    """Your upcoming bookings at `clubs` ({"slug", "id", "name"} each), earliest first: what the databases know (the
+    newest word per course and day), without cancelled bookings and without times already gone today. With
+    `refresh`, My Reservations is read from pc caddie first (bookings made on its own site appear, cancelled ones go);
+    `refresh_problems` then names the clubs where that did not work (no login saved, no connection)."""
+    today, now = clock.today(), clock.now_hhmm()
+    found, problems = [], []
+    for club in clubs:
+        db = scrape_once._db_path(club["id"])
+        if refresh:
+            courses = storage.upcoming_courses(today, path=db) if db.exists() else []
+            status = scrape_once._sync_my_reservations(club["id"], club["slug"], db, courses or None)
+            if status != "ok":
+                problems.append({"club": club["name"], "reason": status or "no_login"})
+        if not db.exists():
+            continue
+        for item in storage.load_all_confirmed_bookings(db):
+            if item.time and (item.date > today or (item.date == today and item.time >= now)):
+                found.append({"slug": club["slug"], "club_id": club["id"], "club": club["name"], "course": item.course, "date": item.date, "time": item.time})
+    found.sort(key=lambda r: (r["date"], r["time"], r["club"]))
+    return {"reservations": found, "refreshed": refresh, "refresh_problems": problems}
