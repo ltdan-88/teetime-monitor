@@ -390,7 +390,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/api/overview"):
             if not (arg("slug") or arg("club_id")):
                 return self._json({"error": "missing_club"}, HTTPStatus.BAD_REQUEST)
-            return reply(data.overview(arg("slug"), arg("course"), arg("club_id"), arg("name"), picks=arg("picks") != "0"))
+            return reply(data.overview(arg("slug"), arg("course"), arg("club_id"), arg("name"), picks=arg("picks") != "0", history=arg("history") == "1"))
         if route == ("GET", "/api/refresh/status"):
             return self._json(self.server.refresher.status(arg("key") or ""))
         if route == ("POST", "/api/refresh"):

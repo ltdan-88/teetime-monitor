@@ -192,8 +192,9 @@ function App() {
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
   const [, tick] = useState(0);
-  const current = useRef({ view: null, course: null });
-  current.current = { view, course };
+  const [showPast, setShowPast] = useState(false); // the past days instead of the coming ones
+  const current = useRef({ view: null, course: null, showPast: false });
+  current.current = { view, course, showPast };
   const lastSaved = useRef(null);
   const focusOnOpen = useRef(null); // a day the user just opened: scroll to its pick once its slots are drawn
   const jumpTarget = useRef(null); // { date, time, course }: a slot to open, scroll to and flash once its course is on screen
@@ -284,7 +285,7 @@ function App() {
     try {
       // The days come straight from the database; the picks (which can take seconds, with AI ranking on)
       // follow in a second request, so switching a course or a club never waits for them.
-      const quick = await api('/api/overview' + query({ ...refOf(forView), course: forCourse, picks: 0 }));
+      const quick = await api('/api/overview' + query({ ...refOf(forView), course: forCourse, picks: 0, history: current.current.showPast ? 1 : null }));
       if (stale()) return;
       apply(quick);
       if (!quick.picks_pending) {
@@ -352,6 +353,11 @@ function App() {
     loadOverview(view, course);
     startRefresh(false, view);
   }, [viewKey]);
+  useEffect(() => {
+    if (!view) return;
+    setOpenDate(null);
+    loadOverview(view, course);
+  }, [showPast]);
   useEffect(() => {
     if (!view || !course) return;
     loadOverview(view, course);
@@ -489,7 +495,7 @@ function App() {
   const courseOptions = ((overview && overview.courses) || []).map((name) => ({ value: name, label: name }));
   const freshness = overview && overview.freshness;
   const noClub = !view;
-  const empty = overview && overview.days.length === 0;
+  const empty = overview && overview.days.length === 0 && !showPast;
   const clubForSheets = club || (view && view.kind === 'preview' ? { slug: null, id: view.id, name: view.name } : null);
   const tool = (name, icon, label, key, onClick, disabled) => html`
     <button class="tool" onClick=${onClick} disabled=${disabled} title=${label + ' (' + key + ')'} aria-keyshortcuts=${key}>
@@ -513,7 +519,7 @@ function App() {
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
-        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
+        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
           onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${checked} />
         </div>
       </header>
@@ -528,6 +534,10 @@ function App() {
             <button class="btn" onClick=${() => setSheet('settings')}>${t('settings.title')}</button></div><//>`}
         ${update && update.newer && dismissedUpdate !== update.latest && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} onDismiss=${dismissUpdate} />`}
         ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
+        ${showPast && html`
+          <div class="preview-bar" role="status"><${Icon} name="info" size=${18} /><span>${t('history.note')}</span><span class="grow"></span>
+            <button class="btn pri" onClick=${() => setShowPast(false)}>${t('history.back')}</button></div>`}
+        ${showPast && overview && overview.days.length === 0 && html`<${Empty} title=${t('history.empty.title')} text=${t('history.empty.text')} />`}
         ${overview && overview.hint && html`<${WindowHint} hint=${overview.hint} onPreferences=${() => setSheet('preferences')} />`}
         ${view && !overview && !failure && html`<${Empty} title=${t('empty.updating')} />`}
         ${empty && html`<${Empty}

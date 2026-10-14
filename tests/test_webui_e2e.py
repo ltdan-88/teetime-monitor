@@ -1178,6 +1178,24 @@ def test_the_page_can_be_added_to_a_home_screen_with_the_app_icon(ui):
     assert ui.js("document.querySelector('.brand.in-bar img').naturalWidth") > 0  # the name in the toolbar carries the same icon
 
 
+def test_the_history_switch_shows_the_past_days_and_goes_back(ui):
+    ui.key("v")
+    ui.wait("document.querySelector('.view-panel')")
+    ui.click("#v-history")
+    ui.wait("document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 10")
+    assert "Past days" in ui.text(".preview-bar")
+    first, second = ui.js("[...document.querySelectorAll('.card .day')].slice(0, 2).map(e => e.textContent)")
+    assert first != second
+    assert ui.js("document.querySelector('.card .day').textContent") != ui.js("document.querySelector('.card:last-of-type .day').textContent")
+    ui.js("document.querySelector('.card button.dh').click()")  # a past day opens like any other
+    ui.wait("document.querySelector('.card.open .slot .names, .card.open .slot')")
+    assert ui.count(".card.open .slot.clickable") == 0 and ui.count(".card.open .slot.past") == 0  # nothing to book, nothing dimmed as passed
+    ui.js("document.querySelector('.card button.dh').click()")
+    ui.click(".preview-bar .btn")  # back to the coming days
+    ui.wait("!document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 0 && document.querySelectorAll('.card').length < 10")
+    ui.key("Escape")
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)

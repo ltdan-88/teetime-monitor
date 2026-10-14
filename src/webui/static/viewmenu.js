@@ -9,7 +9,7 @@ import {
 
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'de', label: 'Deutsch' }];
 
-export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, onDisplay, onLanguage, onUpdate }) {
+export function ViewMenu({ boot, units, showHandicaps, history, onHistory, open, onToggle, onClose, onDisplay, onLanguage, onUpdate }) {
   const [scale, setScaleState] = useState(getScale());
   const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const panel = useRef(null);
@@ -71,6 +71,8 @@ export function ViewMenu({ boot, units, showHandicaps, open, onToggle, onClose, 
               onChange=${(value) => saveSetting('field-units', value, { units: value }, { units })} /></div>
           <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
             <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, { showHandicaps: value }, { showHandicaps })} /></div>
+          <div class="field-row"><label for="v-history">${t('history.toggle')}</label>
+            <${Switch} id="v-history" checked=${history} onChange=${onHistory} /></div>
           <div class="view-about"><span class="version">v${boot.version}</span><${CheckButton} onResult=${onUpdate} /></div>
           ${boot.serve && html`<div class="field-row"><span></span>
             <button class="btn small" onClick=${() => post('/api/auth/logout').then(() => location.assign('/login'))}>${t('view.logout')}</button></div>`}
