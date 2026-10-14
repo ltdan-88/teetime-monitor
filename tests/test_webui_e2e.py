@@ -98,8 +98,11 @@ class Page:
     def wait(self, expression, timeout=20):
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if self.js(f"Boolean({expression})"):
-                return
+            try:
+                if self.js(f"Boolean({expression})"):
+                    return
+            except RuntimeError:
+                pass  # the page is still navigating (no document yet): look again
             time.sleep(0.15)
         raise AssertionError(f"timed out waiting for: {expression}\npage text: {self.text()[:600]}")
 
