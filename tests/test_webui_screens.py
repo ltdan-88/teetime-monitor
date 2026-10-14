@@ -117,6 +117,20 @@ def test_booking_and_cancelling_on_pc_caddie_shows_in_the_overview(world, monkey
     assert [c[0] for c in calls] == ["book", "cancel"] and calls[0][2:] == (COURSE, today, "10:00")
 
 
+def test_the_read_back_after_a_booking_makes_no_further_request_to_the_site(world, monkeypatch):
+    """The courses for the read-back come from the database: a second look at the site made the page wait."""
+    fake_pccaddie(monkeypatch)
+    seen = []
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, slug, db, courses=None: seen.append((club_id, slug, courses)) or "ok")
+
+    def forbidden(club_id):
+        raise AssertionError("the read-back must not ask the site for its courses")
+
+    monkeypatch.setattr(booking.scraper, "fetch_course_aliases", forbidden)
+    assert data.book(SLUG, None, COURSE, date.today().isoformat(), "10:00") == {"ok": True}
+    assert seen == [(CLUB_ID, SLUG, [COURSE])]
+
+
 def test_a_booking_pc_caddie_refuses_changes_nothing_and_says_why(world, monkeypatch):
     calls = fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "no free seat"))
     today = date.today().isoformat()

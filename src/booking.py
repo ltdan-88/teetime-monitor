@@ -26,7 +26,7 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from . import club_config, pipeline, recommend, scrape_once, scraper, storage
+from . import clock, club_config, pipeline, recommend, scrape_once, scraper, storage
 from .models import ConfirmedBooking
 
 SITE = "https://www.pccaddie.net"
@@ -306,7 +306,8 @@ def _session_for(club: dict, date: str, time: str) -> tuple[httpx.Client, None] 
 def _read_back(club: dict, db_path: Path) -> None:
     """Read My Reservations into the database again: what pc caddie shows is the one truth about what is booked."""
     if club.get("slug"):
-        scrape_once._sync_my_reservations(club["id"], club["slug"], db_path, list(scraper.fetch_course_aliases(club["id"])) or None)
+        courses = storage.upcoming_courses(clock.today(), path=db_path)  # from the database: no further request to the site
+        scrape_once._sync_my_reservations(club["id"], club["slug"], db_path, courses or None)
 
 
 def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str) -> dict:
