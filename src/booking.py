@@ -27,7 +27,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from . import clock, club_config, pipeline, recommend, scrape_once, scraper, storage
-from .models import ConfirmedBooking
+from .models import ConfirmedBooking, ReservationsSync
 
 SITE = "https://www.pccaddie.net"
 _TIMEOUT = 20
@@ -49,6 +49,7 @@ class BookingResult:
     course: str
     date: str
     time: str
+    sync: ReservationsSync | None = None  # the My Reservations page read to verify it: recorded without a second login
 
 
 def user_agent() -> str:
@@ -171,7 +172,7 @@ def find_booking_link(sheet_html: str, time: str) -> str:
 
 def book_slot(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
     """Book `time` on `date` on `course` for yourself alone and confirm it. Raises BookingError."""
-    aliases = scraper.fetch_course_aliases(club_id)
+    aliases = scraper.fetch_course_aliases(club_id, client)  # on the session's own connection
     alias = aliases.get(course)
     if alias is None:
         raise BookingError("unknown_course", course)
@@ -195,29 +196,41 @@ def book_slot(client: httpx.Client, club_id: str, course: str, date: str, time: 
     if finish.status_code >= 400:
         raise BookingError("rejected", _message(finish.text) or f"pc caddie answered {finish.status_code}")
 
-    if not reservation_exists(client, club_id, course, date, time):
+    html, parsed = reservations(client, club_id, list(aliases))
+    if not _listed(parsed, course, date, time):
         raise BookingError("unconfirmed", _message(finish.text) or "the booking is not in My Reservations")
-    return BookingResult(club_id, course, date, time)
+    return BookingResult(club_id, course, date, time, _sync_of(html, parsed))
 
 
 # ---- My Reservations ---------------------------------------------------------------------------------------
 
 
-def reservations(client: httpx.Client, club_id: str) -> tuple[str, list]:
-    """(the page's html, the parsed bookings) of My Reservations."""
+def reservations(client: httpx.Client, club_id: str, courses: list[str] | None = None) -> tuple[str, list]:
+    """(the page's html, the parsed bookings) of My Reservations. `courses` is the club's course list (the parser's
+    guard against a misread course name); fetched here when the caller does not have it yet."""
     response = _get(client, scraper.club_url(club_id, scraper.MY_RESERVATIONS_CATEGORY))
     if response.status_code >= 400:
         raise BookingError("network", f"My Reservations answered {response.status_code}")
     try:
-        parsed = scraper._parse_my_reservations_html(response.text, list(scraper.fetch_course_aliases(club_id)))
+        if courses is None:
+            courses = list(scraper.fetch_course_aliases(club_id, client))
+        parsed = scraper._parse_my_reservations_html(response.text, courses)
     except NotImplementedError as error:
         raise BookingError("changed", "My Reservations looks different than expected") from error
     return response.text, parsed
 
 
+def _listed(parsed: list, course: str, date: str, time: str) -> bool:
+    return any(b.course == course and b.date == date and b.time == time for b in parsed)
+
+
+def _sync_of(html: str, parsed: list) -> ReservationsSync:
+    return ReservationsSync(bookings=parsed, my_handicap=scraper._parse_my_handicap_html(html))
+
+
 def reservation_exists(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> bool:
     _, parsed = reservations(client, club_id)
-    return any(b.course == course and b.date == date and b.time == time for b in parsed)
+    return _listed(parsed, course, date, time)
 
 
 # ---- cancelling -------------------------------------------------------------------------------------------
@@ -254,8 +267,9 @@ _BACK_WORDS = re.compile(r"back|zur[üu]ck|overview|[üu]bersicht", re.I)
 def cancel_booking(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
     """Cancel your booking of `time` on `date` on `course`. Raises BookingError('not_found') when My Reservations
     does not show it (cancelled already, or never made)."""
-    html, parsed = reservations(client, club_id)
-    if not any(b.course == course and b.date == date and b.time == time for b in parsed):
+    courses = list(scraper.fetch_course_aliases(club_id, client))  # once for both reads of My Reservations
+    html, parsed = reservations(client, club_id, courses)
+    if not _listed(parsed, course, date, time):
         raise BookingError("not_found", f"no booking at {time} on {date}")
     list_url = scraper.club_url(club_id, scraper.MY_RESERVATIONS_CATEGORY)
     page = _get(client, urljoin(SITE, _cancel_link(html, course, date, time)), referer=list_url)
@@ -278,9 +292,10 @@ def cancel_booking(client: httpx.Client, club_id: str, course: str, date: str, t
     done = _post(client, action, _form_data(form, pressed), referer=str(page.url))
     if done.status_code >= 400:
         raise BookingError("rejected", _message(done.text) or f"pc caddie answered {done.status_code}")
-    if reservation_exists(client, club_id, course, date, time):
+    html, parsed = reservations(client, club_id, courses)
+    if _listed(parsed, course, date, time):
         raise BookingError("unconfirmed", _message(done.text) or "the booking is still in My Reservations")
-    return BookingResult(club_id, course, date, time)
+    return BookingResult(club_id, course, date, time, _sync_of(html, parsed))
 
 
 # ---- what both front ends call -----------------------------------------------------------------------
@@ -317,7 +332,7 @@ def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str) 
     if failure is not None:
         return failure
     try:
-        book_slot(client, club["id"], course, date, time)
+        result = book_slot(client, club["id"], course, date, time)
     except BookingError as error:
         return {"error": error.reason, "message": error.message}
     finally:
@@ -327,7 +342,7 @@ def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str) 
         ConfirmedBooking(date=date, course=course, time=time, holes=recommend.holes_for_course(course, config), source="my_reservations", confirmed_at=datetime.now(UTC).isoformat()),
         path=db_path,
     )
-    _safely_read_back(club, db_path)
+    _record_read(club, db_path, result)
     return {"ok": True}
 
 
@@ -337,7 +352,7 @@ def cancel_for_club(club: dict, db_path: Path, course: str, date: str, time: str
     if failure is not None:
         return failure
     try:
-        cancel_booking(client, club["id"], course, date, time)
+        result = cancel_booking(client, club["id"], course, date, time)
     except BookingError as error:
         return {"error": error.reason, "message": error.message}
     finally:
@@ -346,13 +361,17 @@ def cancel_for_club(club: dict, db_path: Path, course: str, date: str, time: str
         ConfirmedBooking(date=date, course=course, time=None, holes=None, source="my_reservations", confirmed_at=datetime.now(UTC).isoformat()),
         path=db_path,
     )
-    _safely_read_back(club, db_path)
+    _record_read(club, db_path, result)
     return {"ok": True}
 
 
-def _safely_read_back(club: dict, db_path: Path) -> None:
+def _record_read(club: dict, db_path: Path, result: BookingResult | None) -> None:
+    """Record the My Reservations page the booking or cancellation was just verified with; without one, read it again."""
     try:
-        _read_back(club, db_path)
+        if result is not None and result.sync is not None:
+            scrape_once._apply_reservations_sync(result.sync, db_path)
+        else:
+            _read_back(club, db_path)
     except Exception:  # noqa: BLE001 -- the booking itself is done; the next scrape reads it back anyway
         pass
 

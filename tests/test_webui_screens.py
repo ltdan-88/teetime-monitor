@@ -156,12 +156,28 @@ def test_the_read_back_after_a_booking_makes_no_further_request_to_the_site(worl
     seen = []
     monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, slug, db, courses=None: seen.append((club_id, slug, courses)) or "ok")
 
-    def forbidden(club_id):
+    def forbidden(club_id, client=None):
         raise AssertionError("the read-back must not ask the site for its courses")
 
     monkeypatch.setattr(booking.scraper, "fetch_course_aliases", forbidden)
     assert data.book(SLUG, None, COURSE, date.today().isoformat(), "10:00") == {"ok": True}
     assert seen == [(CLUB_ID, SLUG, [COURSE])]
+
+
+def test_the_page_that_verified_a_booking_is_recorded_without_another_login(world, monkeypatch):
+    from src.models import ReservationsSync
+
+    fake_pccaddie(monkeypatch)
+    today = date.today().isoformat()
+    verified = ReservationsSync(bookings=[ConfirmedBooking(date=today, course=COURSE, time="10:00", source="my_reservations", confirmed_at="t")], my_handicap=18.4)
+    monkeypatch.setattr(booking, "book_slot", lambda client, club_id, course, day, time: booking.BookingResult(club_id, course, day, time, verified))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("the verified page is recorded as it is; no second login")
+
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", forbidden)
+    assert data.book(SLUG, None, COURSE, today, "10:00") == {"ok": True}
+    assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] == "10:00" and storage.load_my_handicap(path=world) == 18.4
 
 
 def test_a_booking_pc_caddie_refuses_changes_nothing_and_says_why(world, monkeypatch):

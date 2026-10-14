@@ -739,7 +739,7 @@ def fetch_available_dates(club_id: str) -> list[str]:
     return _parse_available_dates_html(response.text)
 
 
-def fetch_course_aliases(club_id: str) -> dict[str, str]:
+def fetch_course_aliases(club_id: str, client: httpx.Client | None = None) -> dict[str, str]:
     """This club's own real course options, fetched fresh — not assumed from
     `COURSE_ALIASES` (Musterhausen-only) or any other club's. No login needed, same
     as `scrape_schedule()` itself: the course selector is part of the same
@@ -766,7 +766,8 @@ def fetch_course_aliases(club_id: str) -> dict[str, str]:
     "normal-length page that's just missing the table" the next time this fires,
     without having to reproduce it by hand again."""
     url = club_url(club_id, TEE_SHEET_CATEGORY)
-    response = httpx.get(url, timeout=15, follow_redirects=True)
+    # `client` (2026-10-14): a caller that already holds a connection (booking) reuses it, no new TLS handshake
+    response = client.get(url) if client is not None else httpx.get(url, timeout=15, follow_redirects=True)
     response.raise_for_status()
     if BeautifulSoup(response.text, "html.parser").select_one("table.pcco-tt-timetable") is None:
         raise NoTeeSheetError(
