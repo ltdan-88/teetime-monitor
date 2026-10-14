@@ -51,7 +51,7 @@ function ResultRow({ match, units, showHandicaps, onMark }) {
       <span class="res-action">
         ${match.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
-          : html`<button class="btn small mark" onClick=${() => onMark(match)} title=${t('search.mark_booked')} aria-label=${t('search.mark_booked')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.mark_booked')}</span></button>`}
+          : html`<button class="btn small mark" onClick=${() => onMark(match)} title=${t('search.book')} aria-label=${t('search.book')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.book')}</span></button>`}
       </span>
       ${whoOpen && html`<${WhoList} slot=${match} showHandicaps=${showHandicaps} />`}
     </div>`;

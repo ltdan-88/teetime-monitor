@@ -218,11 +218,11 @@ def test_a_day_opens_and_closes_like_an_accordion(ui):
     ui.wait("document.querySelectorAll('.card')[1].classList.contains('open')")
 
 
-def test_marking_and_cancelling_a_booking(ui):
+def test_booking_and_cancelling_a_time(ui):
     before = ui.count(".pill.booked")
     ui.click(".card.open .slot.clickable")
     ui.wait("document.querySelector('.sheet h2')")
-    assert "as your booking" in ui.text(".sheet h2")
+    assert "on pc caddie" in ui.text(".sheet h2") and "Book now" in ui.text(".sheet .btn.pri")
     ui.shot("booking-dialog")
     ui.click(".sheet .btn.pri")
     ui.wait(f"document.querySelectorAll('.pill.booked').length === {before + 1}")
@@ -233,7 +233,28 @@ def test_marking_and_cancelling_a_booking(ui):
     ui.wait(f"document.querySelectorAll('.pill.booked').length === {before}")
 
 
-def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
+def test_a_booking_pc_caddie_refuses_says_why_and_the_dialog_stays_open(ui):
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => /api\\/booking/.test(String(url)) && options && options.method === 'POST'
+          ? new Response(JSON.stringify({error: 'taken', message: 'no free seat'}), {status: 409, headers: {'Content-Type': 'application/json'}})
+          : real(url, options); })()"""
+    )
+    try:
+        ui.click(".card.open .slot.clickable")
+        ui.wait("document.querySelector('.sheet .btn.pri')")
+        ui.click(".sheet .btn.pri")
+        ui.wait("document.querySelector('.sheet .status-line.error')")
+        assert "no longer free" in ui.text(".sheet .status-line.error")  # in words, not a message key
+        assert ui.count(".sheet") == 1 and ui.js("!document.querySelector('.sheet .btn.pri').disabled")  # still there, can be tried again
+        ui.click(".sheet .btn", "Not now")
+        ui.wait("!document.querySelector('.scrim')")
+    finally:
+        ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_search_lists_matches_and_offers_to_book_one(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.res').length > 3")
     ui.shot("search")
@@ -245,7 +266,7 @@ def test_search_lists_matches_and_offers_to_mark_one_booked(ui):
         return [head, row]; })()"""
     )
     assert edges[0] == edges[1], edges
-    ui.click(".res .btn", "Mark booked")
+    ui.click(".res .btn", "Book")
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     ui.click(".sheet.small .btn", "Not now")
     ui.wait("document.querySelectorAll('.sheet').length === 1")

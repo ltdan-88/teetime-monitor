@@ -8,7 +8,18 @@ from datetime import date, timedelta
 
 import pytest
 
-from src import club_config, club_directory, env_file, global_preferences, i18n, scrape_once, storage, theme, user_config
+from src import (
+    booking,
+    club_config,
+    club_directory,
+    env_file,
+    global_preferences,
+    i18n,
+    scrape_once,
+    storage,
+    theme,
+    user_config,
+)
 from src.models import PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.webui import clubs_api, data, server, settings_api, tools_api
 
@@ -69,16 +80,74 @@ def world(tmp_path, monkeypatch):
 # ---- bookings, notices, unsaved clubs --------------------------------------------------------
 
 
-def test_marking_and_cancelling_a_booking_shows_in_the_overview(world):
+class _FakeSession:
+    def close(self):
+        pass
+
+
+def fake_pccaddie(monkeypatch, *, fail: booking.BookingError | None = None, login: bool = True) -> list:
+    """pc caddie itself is replaced: every booking or cancellation that would reach it is recorded in the list."""
+    calls: list = []
+
+    def attempt(kind):
+        def run(client, club_id, course, date, time):
+            calls.append((kind, club_id, course, date, time))
+            if fail is not None:
+                raise fail
+
+        return run
+
+    monkeypatch.setattr(booking, "open_session", lambda club_id, user, password: _FakeSession())
+    monkeypatch.setattr(booking, "book_slot", attempt("book"))
+    monkeypatch.setattr(booking, "cancel_booking", attempt("cancel"))
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret") if login else ("", ""))
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
+    return calls
+
+
+def test_booking_and_cancelling_on_pc_caddie_shows_in_the_overview(world, monkeypatch):
+    calls = fake_pccaddie(monkeypatch)
     today = date.today().isoformat()
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None
-    assert data.confirm_booking(SLUG, None, COURSE, today, "10:00") == {"ok": True}
+    assert data.book(SLUG, None, COURSE, today, "10:00") == {"ok": True}
     day = data.overview(SLUG, COURSE)["days"][0]
     assert day["booked_time"] == "10:00" and any(s["booked_by_you"] for s in day["slots"])
-    assert data.cancel_booking(SLUG, None, COURSE, today) == {"ok": True}
+    assert data.cancel(SLUG, None, COURSE, today, "10:00") == {"ok": True}
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None
-    assert data.confirm_booking(SLUG, None, COURSE, today, "ten") == {"error": "bad_time"}
-    assert data.confirm_booking("nope", None, COURSE, today, "10:00") == {"error": "unknown_club"}
+    assert [c[0] for c in calls] == ["book", "cancel"] and calls[0][2:] == (COURSE, today, "10:00")
+
+
+def test_the_read_back_after_a_booking_makes_no_further_request_to_the_site(world, monkeypatch):
+    """The courses for the read-back come from the database: a second look at the site made the page wait."""
+    fake_pccaddie(monkeypatch)
+    seen = []
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, slug, db, courses=None: seen.append((club_id, slug, courses)) or "ok")
+
+    def forbidden(club_id):
+        raise AssertionError("the read-back must not ask the site for its courses")
+
+    monkeypatch.setattr(booking.scraper, "fetch_course_aliases", forbidden)
+    assert data.book(SLUG, None, COURSE, date.today().isoformat(), "10:00") == {"ok": True}
+    assert seen == [(CLUB_ID, SLUG, [COURSE])]
+
+
+def test_a_booking_pc_caddie_refuses_changes_nothing_and_says_why(world, monkeypatch):
+    calls = fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "no free seat"))
+    today = date.today().isoformat()
+    assert data.book(SLUG, None, COURSE, today, "10:00") == {"error": "taken", "message": "no free seat"}
+    assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None and len(calls) == 1
+
+
+def test_booking_needs_a_valid_time_a_known_club_and_a_pc_caddie_login(world, monkeypatch):
+    calls = fake_pccaddie(monkeypatch, login=False)
+    today = date.today().isoformat()
+    assert data.book(SLUG, None, COURSE, today, "10:00") == {"error": "no_login"}
+    fake_pccaddie(monkeypatch)
+    assert data.book(SLUG, None, COURSE, today, "ten") == {"error": "bad_time"}
+    assert data.book(SLUG, None, COURSE, "tomorrow", "10:00") == {"error": "bad_time"}
+    assert data.book("nope", None, COURSE, today, "10:00") == {"error": "unknown_club"}
+    assert data.cancel("nope", None, COURSE, today, "10:00") == {"error": "unknown_club"}
+    assert calls == []
 
 
 def test_a_booking_change_is_a_localized_banner_until_acknowledged(world):
@@ -440,9 +509,14 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     assert _call(running, "GET", "/api/settings")[1]["clubs"][0]["slug"] == SLUG
     assert _call(running, "POST", "/api/preferences", {"values": {"field-availability-min_open_spots": "2"}})[1] == {"ok": True}
     assert _call(running, "POST", "/api/preferences", {"values": {"field-preferences-avoid_rain_mm": "x"}})[0] == 400
+    calls = fake_pccaddie(monkeypatch)
     assert _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
     assert _call(running, "GET", f"/api/overview?slug={SLUG}")[1]["days"][0]["booked_time"] == "10:00"
-    assert _call(running, "POST", "/api/booking/cancel", {"slug": SLUG, "course": COURSE, "date": today})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/booking/cancel", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
+    assert len(calls) == 2
+    fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "gone"))
+    status, refused = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:10"})
+    assert status == 409 and refused == {"error": "taken", "message": "gone"}  # the page can tell it from a crash
     assert _call(running, "GET", f"/api/search/defaults?slug={SLUG}")[1]["min_open_spots"] == 2
     status, found = _call(running, "POST", "/api/search", {"slug": SLUG, "course": COURSE, "criteria": {"min_open_spots": 1, "weekday_window": {"after": "09:00"}, "weekend_window": {"after": "09:00"}}})
     assert status == 200 and found["matches"]

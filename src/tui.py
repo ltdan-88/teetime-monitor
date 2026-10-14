@@ -191,6 +191,7 @@ from . import (
     storage,
     weather_icons,
 )
+from . import booking as booking_module
 from . import pipeline as pipeline_module
 from . import theme as theme_module
 from . import units as units_module
@@ -998,171 +999,72 @@ def _normalized_tee_time(text: str) -> str | None:
     return parsed.strftime("%H:%M")
 
 
-class ConfirmBookingScreen(Screen[bool]):
-    """Manual confirm-your-tee-time form — the fallback for the same-day-booking timing
-    gap (ROADMAP.md Phase 1), not the primary source (scrape_my_reservations() is,
-    once the login form exists).
+class BookingScreen(Screen[bool]):
+    """Book a tee time on pc caddie for yourself, or cancel your booking there (2026-10-14).
 
-    `default_time`/`default_holes` (added 2026-09-07, direct feedback: "I already
-    selected a specific time, and the TUI should know on which course I'm currently
-    focused" — why was this ever re-typed by hand?) pre-fill both fields as real
-    values, not just placeholder hints: `OverviewScreen._confirm_or_cancel_slot()` reads the
-    currently highlighted row's own time off the table, and holes come from the
-    course itself (`recommend.holes_for_course()` — the club's `course_holes` override,
-    else the same name derivation scraper.py's own reservation parsing uses, since a
-    course category like "18 Loch Tee 1" only ever means one hole count). Both stay editable — pre-filled,
-    not forced — for the rare case either guess is wrong.
-
-    Found genuinely missed, dedicated bug hunt (2026-09-10): every other screen in
-    this app was carefully audited for `escape` back / `q` quit consistency and a
-    translated footer — this one never was. Had no `BINDINGS` at all (`escape` did
-    nothing, `q` either typed into a focused `Input` or did nothing) and yielded a
-    plain `Footer()` instead of `TranslatedFooter`, silently English-only regardless
-    of the app's own language setting. `escape` now dismisses the same as clicking
-    Cancel (`dismiss(False)`, no save)."""
+    Replaces the old "confirm your tee time" form, which only wrote down a booking you had made on the
+    site yourself. Here pressing the green button really books (or cancels) through `booking.py`, with
+    your own login; nothing happens until then. The work runs in a thread (it takes a few seconds: a
+    login and several pages), the screen says so, and shows pc caddie's answer in words when it refuses.
+    Dismisses with True once it is done."""
 
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
 
-    def __init__(
-        self,
-        club_id: str,
-        course: str,
-        date: str,
-        default_time: str | None = None,
-        default_holes: int | None = None,
-    ) -> None:
-        super().__init__()
-        self.club_id = club_id
-        self.course = course
-        self.date = date
-        self.default_time = default_time
-        self.default_holes = default_holes
-
-    def compose(self) -> ComposeResult:
-        yield SafeHeader()
-        with Vertical(id="confirm-form"):
-            yield Label(i18n.t("confirm.title", date=self.date))
-            yield Label(i18n.t("confirm.time_label"))
-            yield Input(value=self.default_time or "", placeholder="14:00", id="time")
-            yield Label(i18n.t("confirm.holes_label"))
-            yield Input(
-                value=str(self.default_holes) if self.default_holes else "",
-                placeholder="18",
-                id="holes",
-            )
-            yield Static("", id="confirm-status")
-            with Horizontal():
-                yield Button(i18n.t("button.save"), id="save", variant="success")
-                yield Button(i18n.t("button.cancel"), id="cancel")
-        yield TranslatedFooter(self._FOOTER_BINDINGS)
-
-    def action_cancel(self) -> None:
-        self.dismiss(False)
-
-    def action_quit(self) -> None:
-        self.app.exit()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cancel":
-            self.dismiss(False)
-            return
-
-        time_text = self.query_one("#time", Input).value.strip()
-        holes_text = self.query_one("#holes", Input).value.strip()
-        if not time_text:
-            self.query_one("#confirm-status", Static).update(i18n.t("confirm.enter_time"))
-            return
-        tee_time = _normalized_tee_time(time_text)
-        if tee_time is None:
-            self.query_one("#confirm-status", Static).update(i18n.t("confirm.invalid_time"))
-            return
-        try:
-            holes = int(holes_text) if holes_text else None
-        except ValueError:
-            self.query_one("#confirm-status", Static).update(i18n.t("confirm.holes_number"))
-            return
-        if holes is not None and holes <= 0:
-            self.query_one("#confirm-status", Static).update(i18n.t("confirm.holes_number"))
-            return
-
-        booking = ConfirmedBooking(
-            date=self.date,
-            course=self.course,
-            time=tee_time,
-            holes=holes,
-            source="manual",
-            confirmed_at=datetime.now(UTC).isoformat(),
-        )
-        storage.save_confirmed_booking(booking, path=_db_path(self.club_id))
-        self.dismiss(True)
-
-
-class CancelBookingScreen(Screen[bool]):
-    """A small yes/no confirmation for cancelling your confirmed tee time
-    (2026-09-13, direct question: "why can you confirm tee time within the TUI,
-    but cannot cancel or modify?"). `OverviewScreen._confirm_or_cancel_slot()` opens this
-    instead of a fresh `ConfirmBookingScreen` when `c` is pressed on the row
-    that's already your confirmed booking — re-confirming the exact same
-    date/course/time again wouldn't do anything useful, but offering to cancel
-    it does.
-
-    Same "we only track what already happened, we never book or cancel
-    anything ourselves" boundary `ConfirmBookingScreen`'s own docstring already
-    draws — this never touches pc caddie, only teetime-monitor's own local
-    record. Writes a `time=None` row (`source="manual"`, mirroring the existing
-    "manual" `c`-confirm) — the same "confirmed not playing that day" sentinel
-    `_reconcile_cancelled_reservations()` introduced for the automatic case one
-    version ago; already fully handled everywhere a confirmed booking gets read
-    back (see that function's own docstring).
-
-    Deliberately does NOT reuse `button.cancel`'s own text for either button —
-    "Cancel" already means "back out, don't do this" everywhere else in this
-    app, which here would sit right next to a screen whose entire subject is
-    itself "cancel the booking." Using that same word for "keep the booking"
-    risks exactly the wrong click on a genuinely consequential action, so both
-    buttons spell out what they actually do instead."""
-
-    BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
-    _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
-
-    def __init__(self, club_id: str, course: str, date: str, time: str) -> None:
+    def __init__(self, club_id: str, course: str, date: str, time: str, cancelling: bool = False, club_name: str = "") -> None:
         super().__init__()
         self.club_id = club_id
         self.course = course
         self.date = date
         self.time = time
+        self.cancelling = cancelling
+        self.club_name = club_name
+        self._busy = False
 
     def compose(self) -> ComposeResult:
+        key = "cancel_booking" if self.cancelling else "book"
         yield SafeHeader()
         with Vertical(id="confirm-form"):
-            yield Label(i18n.t("cancel_booking.title", date=self.date, time=self.time))
+            yield Label(i18n.t(f"{key}.title", date=self.date, time=self.time, course=self.course))
+            yield Static(i18n.t(f"{key}.explain"))
             yield Static("", id="confirm-status")
             with Horizontal():
-                yield Button(i18n.t("cancel_booking.confirm"), id="confirm-cancel", variant="error")
-                yield Button(i18n.t("cancel_booking.keep"), id="keep")
+                yield Button(i18n.t(f"{key}.confirm"), id="go", variant="error" if self.cancelling else "success")
+                yield Button(i18n.t(f"{key}.keep"), id="keep")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
     def action_cancel(self) -> None:
-        self.dismiss(False)
+        if not self._busy:
+            self.dismiss(False)
 
     def action_quit(self) -> None:
         self.app.exit()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "keep":
-            self.dismiss(False)
+            self.action_cancel()
+        elif event.button.id == "go" and not self._busy:
+            self._busy = True
+            self.query_one("#go", Button).disabled = True
+            self.query_one("#keep", Button).disabled = True
+            self.query_one("#confirm-status", Static).update(i18n.t("cancel_booking.working" if self.cancelling else "book.working"))
+            self.run_worker(self._run(), exclusive=True)
+
+    async def _run(self) -> None:
+        club = {"id": self.club_id, "slug": club_config.slug_for_club_id(self.club_id), "name": self.club_name}
+        act = booking_module.cancel_for_club if self.cancelling else booking_module.book_for_club
+        result = await asyncio.to_thread(act, club, _db_path(self.club_id), self.course, self.date, self.time)
+        if result.get("ok"):
+            self.dismiss(True)
             return
-        booking = ConfirmedBooking(
-            date=self.date,
-            course=self.course,
-            time=None,
-            holes=None,
-            source="manual",
-            confirmed_at=datetime.now(UTC).isoformat(),
-        )
-        storage.save_confirmed_booking(booking, path=_db_path(self.club_id))
-        self.dismiss(True)
+        reason = result.get("error", "other")
+        message = i18n.t(f"booking.error.{reason}", message=result.get("message", ""))
+        if message == f"booking.error.{reason}":
+            message = i18n.t("booking.error.other", message=result.get("message", ""))
+        self.query_one("#confirm-status", Static).update(f"[red]{markup_escape(message)}[/]")
+        self.query_one("#go", Button).disabled = False
+        self.query_one("#keep", Button).disabled = False
+        self._busy = False
 
 
 # --- OverviewScreen (ROADMAP.md Phase 4) -- the multi-day home screen, added
@@ -4010,18 +3912,16 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
                     self._rerender_preserving_cursor(row)
 
             self.app.push_screen(
-                CancelBookingScreen(self.club_id, self.course, date, existing.time), on_cancel_result
+                BookingScreen(self.club_id, self.course, date, existing.time, cancelling=True, club_name=self.club_name),
+                on_cancel_result,
             )
             return
 
-        def on_result(confirmed: bool | None) -> None:
-            if confirmed:
+        def on_result(booked: bool | None) -> None:
+            if booked:
                 self._rerender_preserving_cursor(row)
 
-        default_holes = recommend.holes_for_course(self.course, self._config())
-        self.app.push_screen(
-            ConfirmBookingScreen(self.club_id, self.course, date, slot_time, default_holes), on_result
-        )
+        self.app.push_screen(BookingScreen(self.club_id, self.course, date, slot_time, club_name=self.club_name), on_result)
 
     def action_search(self, via_palette: bool = True) -> None:
         # Callback (not push_screen_wait()) since this itself isn't a worker
@@ -4450,15 +4350,11 @@ class SearchScreen(Screen[None]):
             return  # no results yet, or the "no matches" placeholder state
         match = self._row_matches[table.cursor_row]
 
-        def on_result(confirmed: bool | None) -> None:
-            if confirmed:
-                self.query_one("#search-status", Static).update(i18n.t("confirm.confirmed"))
+        def on_result(booked: bool | None) -> None:
+            if booked:
+                self.query_one("#search-status", Static).update(i18n.t("book.done"))
 
-        default_holes = recommend.holes_for_course(match.course, self.config)
-        self.app.push_screen(
-            ConfirmBookingScreen(self.club_id, match.course, match.date, match.slot.time, default_holes),
-            on_result,
-        )
+        self.app.push_screen(BookingScreen(self.club_id, match.course, match.date, match.slot.time), on_result)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel":
