@@ -631,6 +631,16 @@ def test_compute_slot_rows_star_and_moon_are_mutually_exclusive():
     assert "★" not in rows[1].time_cell
 
 
+async def _until(pilot, condition, tries=80):
+    """Let the app run until `condition()` holds (a worker thread and the message after it take a moment on a slow
+    machine; a bare pause() once was not enough on a busy CI runner)."""
+    for _ in range(tries):
+        if condition():
+            return
+        await pilot.pause(0.05)
+    assert condition()
+
+
 def fake_pccaddie(monkeypatch, fail=None, login=True):
     """pc caddie itself is replaced; what would have reached it is recorded in the returned list."""
     from src import booking
@@ -674,8 +684,7 @@ def test_booking_screen_asks_first_and_books_nothing_until_the_button_is_pressed
             assert calls == [] and app.result == "not dismissed yet"
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert app.result is True
+            await _until(pilot, lambda: app.result is True)
 
     _run(scenario())
     assert calls == [("book", "0000001", "18 Loch Tee 1", "2026-09-06", "09:00")]
@@ -695,8 +704,7 @@ def test_booking_screen_shows_pc_caddies_refusal_in_words_and_can_be_tried_again
             await pilot.pause()
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert "no longer free" in str(app.screen.query_one("#confirm-status", Static).content)
+            await _until(pilot, lambda: "no longer free" in str(app.screen.query_one("#confirm-status", Static).content))
             assert app.result == "not dismissed yet"  # it stays, so the person can read it
             assert not app.screen.query_one("#go", Button).disabled and not app.screen.query_one("#keep", Button).disabled
 
@@ -714,8 +722,7 @@ def test_booking_screen_without_a_login_says_so(tmp_path, monkeypatch):
             await pilot.pause()
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert "login" in str(app.screen.query_one("#confirm-status", Static).content)
+            await _until(pilot, lambda: "login" in str(app.screen.query_one("#confirm-status", Static).content))
 
     _run(scenario())
     assert calls == []
@@ -760,8 +767,7 @@ def test_cancelling_screen_cancels_on_pc_caddie_and_records_no_booking(tmp_path,
             await pilot.pause()
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert app.result is True
+            await _until(pilot, lambda: app.result is True)
 
     _run(scenario())
     assert calls == [("cancel", "0000001", "18 Loch Tee 1", "2026-09-06", "09:00")]
@@ -2797,8 +2803,7 @@ def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_se
             await pilot.pause()
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-            assert isinstance(app.screen, tui.OverviewScreen)
+            await _until(pilot, lambda: isinstance(app.screen, tui.OverviewScreen))
 
     _run(scenario())
 
@@ -3627,10 +3632,8 @@ def test_search_screen_confirm_books_and_shows_a_status_message(tmp_path, monkey
             assert isinstance(app.screen, tui.BookingScreen)
             app.screen.query_one("#go", Button).press()
             await app.workers.wait_for_complete()
-            await pilot.pause()
-
-            assert isinstance(app.screen, tui.SearchScreen)
-            assert str(app.screen.query_one("#search-status", Static).content) == i18n.t("book.done")
+            await _until(pilot, lambda: isinstance(app.screen, tui.SearchScreen))
+            await _until(pilot, lambda: str(app.screen.query_one("#search-status", Static).content) == i18n.t("book.done"))
 
     _run(scenario())
 
@@ -7095,3 +7098,78 @@ def test_the_day_row_colors_its_high_and_low_separately():
     cell = tui._temperature_cell(day, toned=True)
     assert Text.from_markup(cell).plain == tui._temperature_cell(day) == "24/13"
     assert cell.count("[#") == 2 and cell.split("/")[0] != cell.split("/")[1]
+
+
+# --- The reservations screen (2026-10-14) ------------------------------------------------------------------------
+
+
+def _one_saved_club(monkeypatch):
+    monkeypatch.setattr(tui.club_config, "list_clubs", lambda *a, **k: ["home-club"])
+    monkeypatch.setattr(tui.club_config, "load_club_config", lambda slug, *a, **k: {"club_id": "0000001", "name": "Home Club"})
+
+
+def test_reservations_screen_lists_upcoming_bookings_and_cancels_one(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    _one_saved_club(monkeypatch)
+    calls = fake_pccaddie(monkeypatch)
+    later = (date.today() + timedelta(days=3)).isoformat()
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date=later, course="18 Loch Tee 1", time="09:10", source="my_reservations", confirmed_at="t1"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(tui.ReservationsScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()  # the check against pc caddie (faked) is done
+            table = app.screen.query_one("#reservations-table", DataTable)
+            await _until(pilot, lambda: table.row_count == 1)
+            assert table.row_count == 1 and table.get_row_at(0) == [later, "09:10", "Home Club", "18 Loch Tee 1"]
+            await pilot.press("enter")  # asks first, and only then cancels
+            await pilot.pause()
+            assert isinstance(app.screen, tui.BookingScreen) and app.screen.cancelling and calls == []
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
+            await _until(pilot, lambda: isinstance(app.screen, tui.ReservationsScreen) and app.screen.query_one("#reservations-table", DataTable).row_count == 0)
+            assert "No upcoming reservations" in str(app.screen.query_one("#reservations-status", Static).content)
+
+    _run(scenario())
+    assert [c[0] for c in calls] == ["cancel"]
+
+
+def test_reservations_screen_says_when_pc_caddie_could_not_be_checked(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    _one_saved_club(monkeypatch)
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "login")
+
+    async def scenario():
+        app = _HostApp(tui.ReservationsScreen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await _until(pilot, lambda: "Home Club" in str(app.screen.query_one("#reservations-status", Static).content))
+
+    _run(scenario())
+
+
+def test_the_overview_opens_the_reservations_screen_with_b(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    _one_saved_club(monkeypatch)
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
+
+    async def scenario():
+        app = _HostApp(tui.OverviewScreen("0000001", "home-club", "18 Loch Tee 1"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("b")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.ReservationsScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, tui.OverviewScreen)
+
+    _run(scenario())

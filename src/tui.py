@@ -1067,6 +1067,89 @@ class BookingScreen(Screen[bool]):
         self._busy = False
 
 
+class ReservationsScreen(Screen[None]):
+    """Your upcoming bookings at every saved club, each cancellable (2026-10-14). The list appears at once from what
+    is known; pc caddie is then asked for the true state in a thread (bookings made on its own site appear,
+    cancelled ones go). `enter` on a row asks, and then really cancels (BookingScreen)."""
+
+    BINDINGS = [("escape", "back", "Back"), ("q", "quit", "Quit")]
+    _FOOTER_BINDINGS = [("enter", "binding.cancel_booking"), ("escape", "binding.cancel"), ("q", "binding.quit")]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rows: list[dict] = []
+
+    def compose(self) -> ComposeResult:
+        yield SafeHeader()
+        with Vertical(id="reservations-form"):
+            yield Label(i18n.t("reservations.title"))
+            yield Static(i18n.t("reservations.intro"))
+            yield Static("", id="reservations-status")
+            yield DataTable(id="reservations-table", cursor_type="row")
+        yield TranslatedFooter(self._FOOTER_BINDINGS)
+
+    @staticmethod
+    def _clubs() -> list[dict]:
+        clubs = []
+        for slug in club_config.list_clubs():
+            config = club_config.load_club_config(slug)
+            if config.get("club_id"):
+                clubs.append({"slug": slug, "id": str(config["club_id"]), "name": config.get("name") or slug})
+        return clubs
+
+    def on_mount(self) -> None:
+        table = self.query_one("#reservations-table", DataTable)
+        table.add_columns(*(i18n.t(f"reservations.col.{name}") for name in ("date", "time", "club", "course")))
+        self._show(booking_module.upcoming_reservations(self._clubs(), refresh=False))
+        self.run_worker(self._check(), exclusive=True)
+        table.focus()
+
+    def _show(self, result: dict, checking: bool = False) -> None:
+        table = self.query_one("#reservations-table", DataTable)
+        table.clear()
+        self._rows = result["reservations"]
+        for item in self._rows:
+            table.add_row(item["date"], item["time"], item["club"], item["course"])
+        status = self.query_one("#reservations-status", Static)
+        if checking:
+            status.update(i18n.t("reservations.checking"))
+        elif result.get("refresh_problems"):
+            clubs = ", ".join(p["club"] for p in result["refresh_problems"])
+            status.update(f"[red]{markup_escape(i18n.t('reservations.check_failed', clubs=clubs))}[/]")
+        elif not self._rows:
+            status.update(i18n.t("reservations.empty"))
+        else:
+            status.update("")
+
+    async def _check(self) -> None:
+        self.query_one("#reservations-status", Static).update(i18n.t("reservations.checking"))
+        result = await asyncio.to_thread(booking_module.upcoming_reservations, self._clubs(), True)
+        self._show(result)
+
+    def action_back(self) -> None:
+        self.dismiss(None)
+
+    def action_quit(self) -> None:
+        self.app.exit()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:  # `enter` on a row
+        self.action_cancel_booking()
+
+    def action_cancel_booking(self) -> None:
+        table = self.query_one("#reservations-table", DataTable)
+        if not (0 <= table.cursor_row < len(self._rows)):
+            return
+        item = self._rows[table.cursor_row]
+
+        def on_result(cancelled: bool | None) -> None:
+            if cancelled:
+                self._show(booking_module.upcoming_reservations(self._clubs(), refresh=False))
+
+        self.app.push_screen(
+            BookingScreen(item["club_id"], item["course"], item["date"], item["time"], cancelling=True, club_name=item["club"]), on_result
+        )
+
+
 # --- OverviewScreen (ROADMAP.md Phase 4) -- the multi-day home screen, added
 # 2026-09-07 once the clubhouse-overview mockup's design questions were resolved.
 # Pure helper functions first (heat-strip coloring, weather/tag text, the shared
@@ -2701,6 +2784,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         ("slash", "search(False)", "Search"),
         ("h", "heatmap(False)", "Heatmap"),
         ("p", "player_directory(False)", "Players"),
+        ("b", "reservations(False)", "Reservations"),
         ("comma", "edit_preferences(False)", "Preferences"),
         ("s", "edit_settings", "Settings"),
         ("a", "switch", "Add Club"),
@@ -3931,6 +4015,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     def action_heatmap(self, via_palette: bool = True) -> None:
         self._open(HeatmapScreen(self.club_id, self.course, self._config()), via_palette)
 
+    def action_reservations(self, via_palette: bool = True) -> None:
+        self._open(ReservationsScreen(), via_palette)
+
     def action_player_directory(self, via_palette: bool = True) -> None:
         # Added 2026-09-27, direct request: previously only reachable via
         # Settings -> Preferences -> Priorities, several menus away from the
@@ -4889,6 +4976,9 @@ class TeetimeApp(App[None]):
                 i18n.t("binding.player_directory"),
                 i18n.t("command.player_directory_description"),
                 screen.action_player_directory,
+            )
+            yield SystemCommand(
+                i18n.t("binding.reservations"), i18n.t("command.reservations_description"), screen.action_reservations
             )
             yield SystemCommand(
                 i18n.t("binding.preferences"),

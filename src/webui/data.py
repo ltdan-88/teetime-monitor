@@ -414,6 +414,11 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
     return (club, db_path_for(club["id"])) if club is not None else None
 
 
+def reservations(refresh: bool = False) -> dict:
+    """Your upcoming bookings at every saved club (src/booking.py `upcoming_reservations`)."""
+    return booking.upcoming_reservations(club_entries(), refresh)
+
+
 def book(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
     """Book `time` on `date` on `course` for you alone, on pc caddie itself (src/booking.py)."""
     found = _club_db(slug, club_id)

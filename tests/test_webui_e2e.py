@@ -233,6 +233,28 @@ def test_booking_and_cancelling_a_time(ui):
     ui.wait(f"document.querySelectorAll('.pill.booked').length === {before}")
 
 
+def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
+    ui.js("window.scrollTo(0, 0)")
+    kept = ui.js("fetch('/api/reservations').then((r) => r.json()).then((j) => j.reservations[0])")  # the demo's booking, to put back at the end
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelectorAll('.resv-list li').length > 0 && !document.querySelector('.sheet .status-line')")  # the demo has one booking
+    shown = ui.text(".resv-list li")
+    assert "11:00" in shown and "Golfclub Beispiel" in shown, shown
+    ui.shot("reservations")
+    ui.click(".resv-list .btn")
+    ui.wait("document.querySelectorAll('.sheet').length === 2")
+    assert "Cancel your" in ui.text(".sheet.small h2")
+    ui.click(".sheet.small .btn.danger")
+    ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelector('.sheet .empty h3')")  # the list is checked again, then says it is empty
+    assert "No upcoming reservations" in ui.text(".sheet") and ui.count(".resv-list li") == 0
+    _close_sheet(ui)
+    ui.wait("document.querySelectorAll('.pill.booked').length === 0")  # the overview follows
+    ui.js(  # put the demo's booking back and start the next test on a fresh page
+        f"""fetch('/api/booking', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({json.dumps(kept)})}}).then(() => {{ window.__beforeReload = true; location.reload(); }})"""
+    )
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
+
+
 def test_a_booking_pc_caddie_refuses_says_why_and_the_dialog_stays_open(ui):
     ui.js(
         """(() => { const real = window.fetch.bind(window);
@@ -1103,7 +1125,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
-    assert ui.count(".legend .tool-ico") == 7  # every toolbar icon is named
+    assert ui.count(".legend .tool-ico") == 8  # every toolbar icon is named
     assert "touch and hold" in ui.text(".sheet").lower()
     _close_sheet(ui)
     _open_sheet(ui, "h", "heatmap")  # a tapped square shows its numbers (no hover on a touch screen)
