@@ -199,6 +199,31 @@ def test_booking_needs_a_valid_time_a_known_club_and_a_pc_caddie_login(world, mo
     assert calls == []
 
 
+def test_history_lists_the_past_days_newest_first_with_what_was_saved_of_them(world, monkeypatch):
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "12:00")  # today is not over: it stays out of the history
+    today = date.today()
+    d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
+    for n in (-3, -1):
+        storage.save_schedule(_schedule(d(n)), path=world)
+    storage.save_confirmed_booking(ConfirmedBooking(date=d(-1), course=COURSE, time="10:10", source="my_reservations", confirmed_at="t"), path=world)
+    found = data.overview(SLUG, COURSE, history=True)
+    assert found["history"] is True and [day["date"] for day in found["days"]] == [d(-1), d(-3)]
+    newest = found["days"][0]
+    assert newest["history"] is True and newest["booked_time"] == "10:10" and newest["pick"] is None
+    assert not any(slot["past"] for slot in newest["slots"])  # a whole past day is the record, not dimmed
+    assert [p["name"] for p in next(slot for slot in newest["slots"] if slot["time"] == "10:10")["players"]] == ["Erika Musterfrau", "Jonas Mustermann"]
+    assert all(day["date"] >= d(0) for day in data.overview(SLUG, COURSE)["days"])  # the ordinary overview is unchanged
+
+
+def test_history_takes_in_today_once_daylight_is_over(world, monkeypatch):
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "21:30")
+    assert [day["date"] for day in data.overview(SLUG, COURSE, history=True)["days"]] == [date.today().isoformat()]
+
+
 def test_a_booking_change_is_a_localized_banner_until_acknowledged(world):
     storage.save_booking_change(
         COURSE, date.today().isoformat(), "10:00", "party_grew", "A player joined", {"count": 1, "time": "10:00"}, path=world

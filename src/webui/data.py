@@ -330,13 +330,39 @@ def _build_days(db: Path, course: str, today: str, window: int, picks: dict) -> 
     return days
 
 
+MAX_HISTORY_DAYS = 60
+
+
+def _history_days(db: Path, course: str, today: str) -> list[dict]:
+    """The past days that were scraped, newest first: each as the last tee sheet saved of it (what was booked, who
+    played, the forecast then). Today joins once daylight is over. Nothing in them can be booked."""
+    friends = storage.load_friend_names(db)
+    genders = storage.load_player_genders(db)
+    handicaps = storage.load_player_handicaps(db)
+    days = []
+    for date in storage.past_scrape_dates(course, today, MAX_HISTORY_DAYS, path=db):
+        schedule = storage.load_latest_schedule(course, date, path=db)
+        if schedule is None:
+            continue
+        booking = storage.load_confirmed_booking(course, date, path=db)
+        day = build_day(schedule, None, friends, genders, handicaps, booking.time if booking is not None else None, today)
+        if date == today and not pipeline.today_is_over(day.get("sunset")):
+            continue
+        for slot in day["slots"]:
+            slot["past"] = False  # the whole day is past: no dimming, just the record
+        day["history"] = True
+        days.append(day)
+    return days
+
+
 def _without_today_when_over(days: list[dict], today: str) -> list[dict]:
     """Today's card goes once daylight is over (at sunset, 21:00 at the latest: the terminal app's rule too)."""
     return [day for day in days if not (day["date"] == today and pipeline.today_is_over(day.get("sunset")))]
 
 
 def overview(
-    slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None, picks: bool = True
+    slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None, picks: bool = True,
+    history: bool = False,
 ) -> dict:
     """The Overview for one club (saved, by `slug`; or just opened, by `club_id`) and course;
     `{"error": ...}` for an unknown club.
@@ -380,6 +406,11 @@ def overview(
         return response
 
     today = clock.today()
+    if history:  # the past days instead of the coming ones: no picks to rank
+        response["days"] = _history_days(db, course, today)
+        response["history"] = True
+        response["hint"] = None
+        return response
     window = _overview_window(config)
     key = (str(db), course)
 

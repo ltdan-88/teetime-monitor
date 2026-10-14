@@ -155,7 +155,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
   if (slot.booked_by_you) classes.push('mine');
   if (blocked) classes.push('blocked');
   if (dimmed) classes.push('dimmed');
-  const clickable = !blocked && !slot.past && (slot.booked_by_you || capacity - slot.booked > 0); // a full time cannot be booked
+  const clickable = !blocked && !slot.past && !day.history && (slot.booked_by_you || capacity - slot.booked > 0); // a full time cannot be booked
   if (clickable) classes.push('clickable');
   const activate = () => clickable && onPick(day, slot);
   return html`

@@ -459,6 +459,17 @@ def upcoming_courses(today: str, path: Path = DEFAULT_DB_PATH) -> list[str]:
     return [row[0] for row in rows]
 
 
+def past_scrape_dates(course: str, through: str, limit: int, path: Path = DEFAULT_DB_PATH) -> list[str]:
+    """The days up to and including `through` that were ever scraped for `course`, newest first (at most `limit`):
+    what the web UI's history lists. pc caddie hides the past, so these rows are the only record of those days."""
+    init_db(path)
+    with _connect(path) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT date FROM scrapes WHERE course = ? AND date <= ? ORDER BY date DESC LIMIT ?", (course, through, limit)
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
 def load_latest_schedule(course: str, date: str, path: Path = DEFAULT_DB_PATH) -> Schedule | None:
     """Return the most recent scrape's slots (+ weather + sun times + events, if any
     was saved) for a course/date, or None if never scraped. `available_courses` isn't
