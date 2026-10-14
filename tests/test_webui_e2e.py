@@ -245,8 +245,8 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     assert "Cancel your" in ui.text(".sheet.small h2")
     ui.click(".sheet.small .btn.danger")
-    ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelectorAll('.resv-list li').length === 0")
-    assert "No upcoming reservations" in ui.text(".sheet")
+    ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelector('.sheet .empty h3')")  # the list is checked again, then says it is empty
+    assert "No upcoming reservations" in ui.text(".sheet") and ui.count(".resv-list li") == 0
     _close_sheet(ui)
     ui.wait("document.querySelectorAll('.pill.booked').length === 0")  # the overview follows
     ui.js(  # put the demo's booking back and start the next test on a fresh page
