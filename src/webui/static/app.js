@@ -75,7 +75,7 @@ function Legend({ onClose }) {
   const toolIcon = (name) => html`<span class="tool-ico"><${Icon} name=${name} size=${18} /></span>`;
   return html`<${Sheet} title=${t('legend.title')} onClose=${onClose} size="small">
     <p class="hint">${t('legend.touch')}</p>
-    <details class="legend-group"><summary>${t('legend.group.tools')}</summary>
+    <details class="legend-group" name="legend"><summary>${t('legend.group.tools')}</summary>
     <dl class="legend">
       <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
       <dt>${toolIcon('search')}</dt><dd>${t('legend.tool.search')}</dd>
@@ -87,7 +87,7 @@ function Legend({ onClose }) {
       <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
     </dl>
     </details>
-    <details class="legend-group" open><summary>${t('legend.group.times')}</summary>
+    <details class="legend-group" name="legend" open><summary>${t('legend.group.times')}</summary>
     <dl class="legend">
       <dt>${swatch('var(--green)')}</dt><dd>${t('legend.occ.open')}</dd>
       <dt>${swatch('var(--orange)')}</dt><dd>${t('legend.occ.mid')}</dd>
@@ -106,14 +106,14 @@ function Legend({ onClose }) {
     </dl>
     <p class="hint">${t('legend.slot_tap')}</p>
     </details>
-    <details class="legend-group"><summary>${t('legend.group.weather')}</summary>
+    <details class="legend-group" name="legend"><summary>${t('legend.group.weather')}</summary>
     <dl class="legend">
       <dt><span class="tones"><span style=${tempTone(3)}>3°</span> <span style=${tempTone(13)}>13°</span> <span style=${tempTone(21)}>21°</span> <span style=${tempTone(30)}>30°</span></span></dt><dd>${t('legend.temp_colors')}</dd>
       <dt><span class="tones"><span style=${rainTone(20)}>20%</span> <span style=${rainTone(80)}>80%</span></span></dt><dd>${t('legend.rain_colors')}</dd>
       <dt><span class="tones"><span style=${windTone(20)}>20</span> <span style=${windTone(40)}>40</span></span></dt><dd>${t('legend.wind_colors')}</dd>
     </dl>
     </details>
-    <details class="legend-group"><summary>${t('legend.group.players')}</summary>
+    <details class="legend-group" name="legend"><summary>${t('legend.group.players')}</summary>
     <dl class="legend">
       <dt><span class="name">Max</span></dt><dd>${t('legend.male')}</dd>
       <dt><span class="name alt">Erika</span></dt><dd>${t('legend.female')}</dd>
@@ -121,7 +121,7 @@ function Legend({ onClose }) {
       <dt><span class="name anon">${t('anonymous')}</span></dt><dd>${t('legend.anon')}</dd>
     </dl>
     </details>
-    <details class="legend-group"><summary>${t('legend.group.keys')}</summary>
+    <details class="legend-group" name="legend"><summary>${t('legend.group.keys')}</summary>
     <dl class="legend">
       <dt><span class="kbd">r</span></dt><dd>${t('action.refresh')}</dd>
       <dt><span class="kbd">s</span></dt><dd>${t('action.search')}</dd>

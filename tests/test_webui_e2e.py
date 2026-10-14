@@ -1129,8 +1129,14 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
     assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
     assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away
+    ui.click(".legend-group summary", text="Toolbar")  # opening one closes the other: only one group is open at a time
+    ui.wait("document.querySelector('.legend-group[open] summary')?.textContent.includes('Toolbar')")
+    assert ui.count(".legend-group[open]") == 1
+    ui.click(".legend-group summary", text="Weather")
+    ui.wait("document.querySelector('.legend-group[open] summary')?.textContent.includes('Weather')")
+    assert ui.count(".legend-group[open]") == 1
     ui.click(".legend-group summary", text="Toolbar")
-    ui.wait("document.querySelector('.legend-group:not([open])') && document.querySelectorAll('.legend-group[open]').length === 2")
+    ui.wait("document.querySelector('.legend-group[open] summary')?.textContent.includes('Toolbar')")
     ui.wait("document.querySelector('.legend-group .tool-ico').checkVisibility({contentVisibilityAuto: true})")  # unfolded
     assert "touch and hold" in ui.text(".sheet").lower()
     _close_sheet(ui)
