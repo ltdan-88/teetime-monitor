@@ -113,10 +113,12 @@ class FakeSite:
 
 @pytest.fixture
 def site(monkeypatch):
-    monkeypatch.setattr(scraper, "fetch_course_aliases", lambda club_id: {"18 Loch Tee 1": "COUB", COURSE: "COU6"})
+    fetched = []
+    monkeypatch.setattr(scraper, "fetch_course_aliases", lambda club_id, client=None: fetched.append(client) or {"18 Loch Tee 1": "COUB", COURSE: "COU6"})
 
     def make(**options):
         fake = FakeSite(**options)
+        fake.alias_fetches = fetched
         return fake, httpx.Client(transport=httpx.MockTransport(fake.handler), follow_redirects=True)
 
     return make
@@ -221,3 +223,24 @@ def test_the_form_serializer_follows_the_browser_rules():
     assert data["rq[players][2][friend][bd_id]"] == [""]  # a select with no selection sends its first option
     assert data["rq[players][2][search][name]"] == [""]  # an empty text field is still sent
     assert "rq[players][2][type]" in data and data["rq[players][2][type]"] == ["ignore"]  # only the checked radio
+
+
+def test_booking_asks_for_the_course_list_once_on_the_sessions_own_connection(site):
+    fake, client = site()
+    booking.book_slot(client, CLUB, COURSE, DAY, "08:10")
+    assert fake.alias_fetches == [client]  # not again for the verification, and not on a connection of its own
+
+
+def test_cancelling_asks_for_the_course_list_once_too(site):
+    fake, client = site()
+    fake.booked = True
+    booking.cancel_booking(client, CLUB, COURSE, DAY, "08:10")
+    assert fake.alias_fetches == [client]
+
+
+def test_the_page_that_verified_the_booking_comes_back_for_recording(site):
+    fake, client = site()
+    booked = booking.book_slot(client, CLUB, COURSE, DAY, "08:10")
+    assert [(b.course, b.date, b.time) for b in booked.sync.bookings] == [(COURSE, DAY, "08:10")]
+    cancelled = booking.cancel_booking(client, CLUB, COURSE, DAY, "08:10")
+    assert cancelled.sync.bookings == []

@@ -83,7 +83,7 @@ import httpx
 
 from . import booking_watch, booking_window, club_config, global_preferences, net, paths, storage
 from . import weather as weather_module
-from .models import ConfirmedBooking, SunTimes, WeatherPoint
+from .models import ConfirmedBooking, ReservationsSync, SunTimes, WeatherPoint
 from .recommend import _round_duration_minutes, course_holes_override
 from .scraper import (
     LoginError,
@@ -473,6 +473,13 @@ def _sync_my_reservations(
         _log(f"[scrape_once] reservations sync failed for {club_id}: {exc}")
         _report_reservations_sync_failure("other", db_path)
         return "network" if isinstance(exc, httpx.TransportError) else "other"
+    _apply_reservations_sync(sync, db_path)
+    return "ok"
+
+
+def _apply_reservations_sync(sync: ReservationsSync, db_path: Path) -> None:
+    """Record one fetched "My Reservations" page. Also the way booking.py records what it just read to verify a
+    booking or cancellation: no second login for the same page."""
     for booking in sync.bookings:
         storage.save_confirmed_booking(booking, path=db_path)
     _reconcile_cancelled_reservations(sync.bookings, db_path)
@@ -481,7 +488,6 @@ def _sync_my_reservations(
     if sync.my_handicap is not None:
         storage.save_my_handicap(sync.my_handicap, path=db_path)
     _clear_reservations_sync_failure(db_path)
-    return "ok"
 
 
 def _report_reservations_sync_failure(reason: str, db_path: Path) -> None:
