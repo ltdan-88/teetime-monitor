@@ -1125,13 +1125,14 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
+    assert ui.count(".lg") == 5 and ui.count(".lg.open") == 1  # accordion like the days: the tee times first, the rest closed
+    assert "Tee times" in ui.js("document.querySelector('.lg.open .lg-head').textContent")
+    assert ui.count(".lg:not(.open) .lg-body") == 0  # closed groups are not in the page at all
+    ui.click(".lg-head", text="Toolbar")
+    ui.wait("document.querySelectorAll('.lg.open').length === 2 && document.querySelector('.lg .tool-ico')")
     assert ui.count(".legend .tool-ico") == 8  # every toolbar icon is named
-    assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
-    assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
-    assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away
-    ui.click(".legend-group summary", text="Toolbar")
-    ui.wait("document.querySelector('.legend-group:not([open])') && document.querySelectorAll('.legend-group[open]').length === 2")
-    ui.wait("document.querySelector('.legend-group .tool-ico').checkVisibility({contentVisibilityAuto: true})")  # unfolded
+    ui.click(".lg-head", text="Toolbar")
+    ui.wait("document.querySelectorAll('.lg.open').length === 1")
     assert "touch and hold" in ui.text(".sheet").lower()
     _close_sheet(ui)
     _open_sheet(ui, "h", "heatmap")  # a tapped square shows its numbers (no hover on a touch screen)

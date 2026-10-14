@@ -283,13 +283,14 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 dl.legend { display: grid; grid-template-columns: max-content 1fr; gap: 0.625rem 1rem; margin: 0 0 1.125rem; align-items: center; }
 dl.legend dt { display: flex; gap: 0.5rem; align-items: center; }
 dl.legend dd { margin: 0; color: var(--mid); }
-.legend-group { border-top: 1px solid var(--line); }
-.legend-group:last-of-type { border-bottom: 1px solid var(--line); }
-.legend-group summary { cursor: pointer; padding: 0.75rem 0; font-weight: 600; list-style: none; display: flex; align-items: center; justify-content: space-between; min-height: 2.75rem; }
-.legend-group summary::-webkit-details-marker { display: none; }
-.legend-group summary::after { content: ""; width: 0.5rem; height: 0.5rem; border-right: 2px solid var(--mid); border-bottom: 2px solid var(--mid); transform: rotate(45deg); transition: transform 0.15s; margin-right: 0.25rem; }
-.legend-group[open] summary::after { transform: rotate(-135deg); }
-.legend-group[open] { padding-bottom: 0.25rem; }
+.lg { margin-bottom: 0.5rem; }
+.lg-head { display: flex; width: 100%; align-items: center; gap: 0.5rem; padding: 0.9rem 1.25rem; border-radius: 0.875rem; font-weight: 600; font-size: 1.0625rem; text-align: left; }
+.lg.open .lg-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.lg-head:hover { background: var(--surface-hover); }
+.lg-head .chev { color: var(--dim); transition: transform .15s ease; flex: none; }
+.lg.open .lg-head .chev { transform: rotate(90deg); }
+.lg-body { padding: 0.25rem 1.25rem 0.5rem; }
+.lg-body dl.legend:last-child { margin-bottom: 0.5rem; }
 .swatch { width: 1.75rem; height: 0.875rem; border-radius: 0.25rem; display: inline-block; }
 
 /* ---- forms ---- */
