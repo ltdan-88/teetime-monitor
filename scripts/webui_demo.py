@@ -146,6 +146,19 @@ def main() -> None:
             scraper.login = rejected
             ai_assist.verify_api_key = lambda provider: (False, None)
 
+            # nothing reaches pc caddie: a booking or a cancellation just succeeds (the page then shows it)
+            from src import booking, club_config
+
+            class _Session:
+                def close(self):
+                    pass
+
+            booking.open_session = lambda club_id, username, password: _Session()
+            booking.book_slot = lambda client, club_id, course, date, time: None
+            booking.cancel_booking = lambda client, club_id, course, date, time: None
+            club_config.resolve_credentials = lambda key: ("demo", "demo")
+            scrape_once._sync_my_reservations = lambda *args, **kwargs: "ok"
+
         if args.password:
             from src.webui import auth
 

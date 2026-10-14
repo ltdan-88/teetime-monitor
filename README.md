@@ -31,8 +31,9 @@ you and adds what the club's page doesn't tell you:
 - 🔔 **A heads-up when your booking changes**: someone joins your flight, the forecast turns.
 - 📈 **A crowd heatmap** that learns over the weeks which hours really fill up.
 
-**It never books anything.** You still book on pc caddie's own site. This is the part before that: working out
-which time you actually want.
+**It books only when you press the button.** Click a free time and choose *Book now*: the app books it on pc caddie
+for you (your own login, you alone), and pc caddie sends its usual confirmation e-mail. Your own booking can be
+cancelled the same way. Nothing is booked automatically or on a schedule.
 
 ## Two ways to use it — same data, same advice
 
@@ -66,7 +67,8 @@ A window opens with your week. **Closing the window ends the program**, unless y
 3. **Click a day** to open every tee time, with the players and the weather for each one.
 4. **Tell it your rules** once under **Preferences** — which hours suit you on weekdays and weekends, how many
    players, how much wind or rain you accept. From then on the ★ follows your rules.
-5. **Booked something on pc caddie?** Click that time in the app and confirm. Now it keeps watch for you.
+5. **Found your time?** Click it and choose *Book now* (needs your pc caddie login under Settings). The booking is made on
+   pc caddie, and from then on the app keeps watch over it for you.
 
 Optional, and it unlocks more: a **pc caddie login** (Settings) shows real player names, your own bookings and
 the player directory. An **AI key** (Settings) lets an AI rank the times — off by default, and it costs a little
@@ -99,7 +101,7 @@ Same week, same ★, same rules. Every screen has a one-letter key, shown in the
 
 | | Browser | Terminal |
 |---|---|---|
-| Open a day · mark a time as booked | click | **enter** |
+| Open a day · book a free time or cancel your booking | click | **enter** |
 | Refresh now | **r** | **r** |
 | Search | **s** | **/** |
 | Heatmap | **h** | **h** |

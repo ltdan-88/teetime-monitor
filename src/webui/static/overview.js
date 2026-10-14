@@ -155,12 +155,12 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
   if (slot.booked_by_you) classes.push('mine');
   if (blocked) classes.push('blocked');
   if (dimmed) classes.push('dimmed');
-  const clickable = !blocked && !slot.past;
+  const clickable = !blocked && !slot.past && (slot.booked_by_you || capacity - slot.booked > 0); // a full time cannot be booked
   if (clickable) classes.push('clickable');
   const activate = () => clickable && onPick(day, slot);
   return html`
     <div class=${classes.join(' ')} data-slot=${day.date + ' ' + slot.time} role=${clickable ? 'button' : null} tabindex=${clickable ? 0 : null}
-      title=${clickable ? t(slot.booked_by_you ? 'booking.cancel_hint' : 'booking.mark_hint') : null}
+      title=${clickable ? t(slot.booked_by_you ? 'booking.cancel_hint' : 'booking.book_hint') : null}
       onClick=${activate} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), activate())}>
       <span class="time">
         <span style="width:1rem;display:inline-flex">

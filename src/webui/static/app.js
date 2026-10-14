@@ -124,29 +124,35 @@ function Legend({ onClose }) {
   <//>`;
 }
 
-/** Mark a time as your booking, or cancel it. */
+/** Book a time on pc caddie for yourself, or cancel your booking there. Nothing happens until the button is pressed. */
 function BookingDialog({ booking, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const cancelling = booking.mode === 'cancel';
   async function confirm() {
     setBusy(true);
+    setError(null);
     try {
       const body = { ...booking.ref, course: booking.course, date: booking.date, time: booking.time };
       await post(cancelling ? '/api/booking/cancel' : '/api/booking', body);
       onDone();
     } catch (failure) {
-      setError(t('error.title'));
+      const payload = (failure && failure.payload) || {};
+      const key = 'booking.error.' + (payload.error || 'other');
+      const named = t(key, { message: payload.message || '' });
+      setError(named === key ? t('booking.error.other', { message: payload.message || '' }) : named);
       setBusy(false);
     }
   }
-  return html`<${Sheet} title=${t(cancelling ? 'booking.cancel_title' : 'booking.mark_title', { time: booking.time })} onClose=${onClose} size="small">
-    <p>${booking.course} · ${booking.dateText}</p>
+  return html`<${Sheet} title=${t(cancelling ? 'booking.cancel_title' : 'booking.book_title', { time: booking.time })} onClose=${busy ? () => {} : onClose} size="small">
+    <p><b>${booking.course}</b> · ${booking.dateText}, ${booking.time}</p>
+    <p class="hint">${t(cancelling ? 'booking.cancel_explain' : 'booking.book_explain')}</p>
+    ${busy && html`<${Status} kind="busy">${t(cancelling ? 'booking.cancelling' : 'booking.booking')}<//>`}
     <${Status} kind="error">${error}<//>
     <div class="actions">
       <span class="grow"></span>
-      <button class="btn" onClick=${onClose}>${t('booking.not_now')}</button>
-      <button class=${'btn ' + (cancelling ? 'danger' : 'pri')} onClick=${confirm} disabled=${busy}>${t(cancelling ? 'booking.cancel' : 'booking.confirm')}</button>
+      <button class="btn" onClick=${onClose} disabled=${busy}>${t('booking.not_now')}</button>
+      <button class=${'btn ' + (cancelling ? 'danger' : 'pri')} onClick=${confirm} disabled=${busy}>${t(cancelling ? 'booking.cancel' : 'booking.book')}</button>
     </div>
   <//>`;
 }
@@ -401,7 +407,7 @@ function App() {
     setView({ kind: 'saved', slug: value });
   };
   const askBooking = (date, time, courseName, ref, cancel) =>
-    setBooking({ mode: cancel ? 'cancel' : 'mark', date, time, course: courseName, ref, dateText: dayLabel(date) });
+    setBooking({ mode: cancel ? 'cancel' : 'book', date, time, course: courseName, ref, dateText: dayLabel(date) });
   const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you);
   /** Open a day and bring one of its slots into view, switching to its course first when needed. */
   const jumpTo = (date, time, courseName) => {

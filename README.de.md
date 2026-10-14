@@ -31,8 +31,9 @@ ergänzt, was die Seite des Clubs dir nicht sagt:
 - 🔔 **Ein Hinweis, wenn sich deine Buchung ändert**: jemand kommt in deinen Flight, die Vorhersage kippt.
 - 📈 **Eine Auslastungs-Heatmap**, die über die Wochen lernt, welche Stunden wirklich voll werden.
 
-**Es bucht nie etwas.** Gebucht wird weiter auf der Seite von pc caddie. Das hier ist der Teil davor: herauszufinden,
-welche Zeit du eigentlich willst.
+**Es bucht nur, wenn du den Knopf drückst.** Klicke auf eine freie Zeit und wähle *Jetzt buchen*: Die App bucht sie bei
+pc caddie für dich (mit deinem eigenen Login, nur für dich), und pc caddie schickt die übliche Bestätigungs-E-Mail. Deine
+eigene Buchung kannst du genauso stornieren. Nichts wird automatisch oder nach Zeitplan gebucht.
 
 ## Zwei Wege, dasselbe Ergebnis
 
@@ -66,7 +67,8 @@ Es öffnet sich ein Fenster mit deiner Woche. **Schließt du das Fenster, endet 
 3. **Einen Tag anklicken**, um alle Startzeiten zu sehen — mit den Spielern und dem Wetter für jede.
 4. **Deine Vorgaben** einmal unter **Präferenzen** eintragen — welche Zeiten werktags und am Wochenende passen, wie viele
    Spieler, wie viel Wind oder Regen du hinnimmst. Ab dann richtet sich der ★ nach dir.
-5. **Bei pc caddie gebucht?** Die Zeit in der App anklicken und bestätigen. Ab jetzt behält es sie für dich im Auge.
+5. **Zeit gefunden?** Anklicken und *Jetzt buchen* wählen (braucht deinen pc-caddie-Login unter Einstellungen). Gebucht wird
+   bei pc caddie, und ab dann behält die App die Buchung für dich im Auge.
 
 Optional, schaltet mehr frei: ein **pc-caddie-Login** (Einstellungen) zeigt echte Spielernamen, deine eigenen Buchungen
 und das Spielerverzeichnis. Ein **KI-Schlüssel** (Einstellungen) lässt eine KI die Zeiten ordnen — standardmäßig aus,
@@ -99,7 +101,7 @@ Dieselbe Woche, derselbe ★, dieselben Vorgaben. Jeder Bildschirm hat eine Tast
 
 | | Browser | Terminal |
 |---|---|---|
-| Tag öffnen · Zeit als gebucht markieren | Klick | **enter** |
+| Tag öffnen · freie Zeit buchen oder Buchung stornieren | Klick | **enter** |
 | Jetzt aktualisieren | **r** | **r** |
 | Suchen | **s** | **/** |
 | Heatmap | **h** | **h** |

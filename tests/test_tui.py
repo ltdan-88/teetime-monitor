@@ -631,34 +631,155 @@ def test_compute_slot_rows_star_and_moon_are_mutually_exclusive():
     assert "★" not in rows[1].time_cell
 
 
-def test_confirm_booking_requires_a_time(tmp_path, monkeypatch):
+def fake_pccaddie(monkeypatch, fail=None, login=True):
+    """pc caddie itself is replaced; what would have reached it is recorded in the returned list."""
+    from src import booking
+
+    calls = []
+
+    def attempt(kind):
+        def run(client, club_id, course, date, time):
+            calls.append((kind, club_id, course, date, time))
+            if fail is not None:
+                raise fail
+
+        return run
+
+    class Session:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(booking, "open_session", lambda club_id, user, password: Session())
+    monkeypatch.setattr(booking, "book_slot", attempt("book"))
+    monkeypatch.setattr(booking, "cancel_booking", attempt("cancel"))
+    monkeypatch.setattr(tui.club_config, "resolve_credentials", lambda key: ("me", "secret") if login else ("", ""))
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
+    return calls
+
+
+def _booking_screen(**kwargs):
+    return tui.BookingScreen("0000001", "18 Loch Tee 1", "2026-09-06", "09:00", **kwargs)
+
+
+def test_booking_screen_asks_first_and_books_nothing_until_the_button_is_pressed(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    calls = fake_pccaddie(monkeypatch)
 
     async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        app = _HostApp(_booking_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.click("#save")
+            text = " ".join(str(w.render()) for w in app.screen.query(Label))
+            assert "Book 09:00 on 2026-09-06" in text and "pc caddie" in text
+            assert calls == [] and app.result == "not dismissed yet"
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
             await pilot.pause()
-            assert "Enter a time" in str(app.screen.query_one("#confirm-status", Static).content)
-            assert app.result == "not dismissed yet"
+            assert app.result is True
 
     _run(scenario())
+    assert calls == [("book", "0000001", "18 Loch Tee 1", "2026-09-06", "09:00")]
+    saved = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert saved is not None and saved.time == "09:00" and saved.source == "my_reservations"
 
 
-def test_confirm_booking_rejects_non_numeric_holes(tmp_path, monkeypatch):
+def test_booking_screen_shows_pc_caddies_refusal_in_words_and_can_be_tried_again(tmp_path, monkeypatch):
+    from src import booking
+
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "no free seat"))
 
     async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
+        app = _HostApp(_booking_screen())
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.screen.query_one("#time", Input).value = "14:00"
-            app.screen.query_one("#holes", Input).value = "nine"
-            await pilot.click("#save")
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
             await pilot.pause()
+            assert "no longer free" in str(app.screen.query_one("#confirm-status", Static).content)
+            assert app.result == "not dismissed yet"  # it stays, so the person can read it
+            assert not app.screen.query_one("#go", Button).disabled and not app.screen.query_one("#keep", Button).disabled
 
-            assert "must be a number" in str(app.screen.query_one("#confirm-status", Static).content)
+    _run(scenario())
+    assert storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001")) is None
+
+
+def test_booking_screen_without_a_login_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    calls = fake_pccaddie(monkeypatch, login=False)
+
+    async def scenario():
+        app = _HostApp(_booking_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert "login" in str(app.screen.query_one("#confirm-status", Static).content)
+
+    _run(scenario())
+    assert calls == []
+
+
+def test_booking_screen_not_now_and_escape_dismiss_without_doing_anything(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    calls = fake_pccaddie(monkeypatch)
+
+    async def scenario():
+        app = _HostApp(_booking_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#keep")
+            await pilot.pause()
+            assert app.result is False
+
+    async def with_escape():
+        app = _HostApp(_booking_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert app.result is False
+
+    _run(scenario())
+    _run(with_escape())
+    assert calls == []
+
+
+def test_cancelling_screen_cancels_on_pc_caddie_and_records_no_booking(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    calls = fake_pccaddie(monkeypatch)
+    storage.save_confirmed_booking(
+        ConfirmedBooking(date="2026-09-06", course="18 Loch Tee 1", time="09:00", source="my_reservations", confirmed_at="t1"),
+        path=scrape_once._db_path("0000001"),
+    )
+
+    async def scenario():
+        app = _HostApp(_booking_screen(cancelling=True))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+            assert app.result is True
+
+    _run(scenario())
+    assert calls == [("cancel", "0000001", "18 Loch Tee 1", "2026-09-06", "09:00")]
+    now = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
+    assert now is not None and now.time is None
+
+
+def test_booking_screen_footer_and_labels_are_translated(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    i18n.set_language("de")
+
+    async def scenario():
+        app = _HostApp(_booking_screen())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            text = app.screen.query_one(tui.TranslatedFooter).render()
+            assert "Zurück" in text and "Beenden" in text
+            assert str(app.screen.query_one("#go", Button).label) == "Jetzt buchen"
 
     _run(scenario())
 
@@ -672,122 +793,6 @@ def test_normalized_tee_time_accepts_common_spellings_and_rejects_the_rest():
     assert tui._normalized_tee_time("14.10") == "14:10"
     for bad in ("25:00", "9", "noon", "9:60", "9:00 am"):
         assert tui._normalized_tee_time(bad) is None
-
-
-def test_confirm_booking_saves_a_normalized_time_and_rejects_garbage(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-
-    async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            app.screen.query_one("#time", Input).value = "nine"
-            await pilot.click("#save")
-            await pilot.pause()
-            assert str(app.screen.query_one("#confirm-status", Static).content) == i18n.t("confirm.invalid_time")
-            assert app.result == "not dismissed yet"
-
-            # .press(), not repeated pilot.click()s: back-to-back clicks on one
-            # button read as a double-click.
-            app.screen.query_one("#time", Input).value = "9.00"
-            app.screen.query_one("#holes", Input).value = "0"
-            app.screen.query_one("#save", Button).press()
-            await pilot.pause()
-            assert str(app.screen.query_one("#confirm-status", Static).content) == i18n.t("confirm.holes_number")
-
-            app.screen.query_one("#holes", Input).value = "18"
-            app.screen.query_one("#save", Button).press()
-            await pilot.pause()
-            assert app.result is True
-
-    _run(scenario())
-
-    booking = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
-    assert booking is not None and booking.time == "09:00"
-
-
-def test_confirm_booking_cancel_dismisses_without_saving(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-
-    async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.click("#cancel")
-            await pilot.pause()
-            assert app.result is False
-
-    _run(scenario())
-
-    booking = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
-    assert booking is None
-
-
-def test_confirm_booking_escape_dismisses_without_saving(tmp_path, monkeypatch):
-    # Found in a dedicated bug hunt (2026-09-10): this screen had no BINDINGS at
-    # all -- escape did nothing, unlike every other screen in this app.
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-
-    async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.press("escape")
-            await pilot.pause()
-            assert app.result is False
-
-    _run(scenario())
-
-    booking = storage.load_confirmed_booking("18 Loch Tee 1", "2026-09-06", path=scrape_once._db_path("0000001"))
-    assert booking is None
-
-
-def test_confirm_booking_footer_is_translated(tmp_path, monkeypatch):
-    # Found the same bug hunt: this screen yielded a plain Footer() instead of
-    # TranslatedFooter, so its key hints stayed English-only regardless of
-    # i18n.set_language() -- unlike every other screen in this app.
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    i18n.set_language("de")
-
-    async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            text = app.screen.query_one(tui.TranslatedFooter).render()
-            assert "Zurück" in text
-            assert "Beenden" in text
-
-    _run(scenario())
-
-
-# --- Pre-filled confirm form (2026-09-07, direct feedback: "I already selected a
-# specific time, and the TUI should know on which course I'm currently focused") -----
-
-
-def test_confirm_booking_screen_prefills_time_and_holes_when_given():
-    async def scenario():
-        app = _HostApp(
-            tui.ConfirmBookingScreen(
-                "0000001", "18 Loch Tee 1", "2026-09-06", default_time="14:00", default_holes=18
-            )
-        )
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            assert app.screen.query_one("#time", Input).value == "14:00"
-            assert app.screen.query_one("#holes", Input).value == "18"
-
-    _run(scenario())
-
-
-def test_confirm_booking_screen_leaves_fields_blank_with_no_defaults():
-    async def scenario():
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            assert app.screen.query_one("#time", Input).value == ""
-            assert app.screen.query_one("#holes", Input).value == ""
-
-    _run(scenario())
 
 
 def _weather(time, prob=10, temp=20.0, mm=None, wind=None, code=None):
@@ -2687,34 +2692,9 @@ def test_overview_screen_enter_on_an_expanded_slot_row_confirms_it(tmp_path, mon
             table.move_cursor(row=1)  # the 09:00 slot row just inserted
             await pilot.press("enter")
             await pilot.pause()
-            assert isinstance(app.screen, tui.ConfirmBookingScreen)
+            assert isinstance(app.screen, tui.BookingScreen) and not app.screen.cancelling
             assert app.screen.date == clock.today()
-            assert app.screen.default_time == "09:00"
-
-    _run(scenario())
-
-
-def test_overview_screen_enter_derives_holes_from_a_nine_hole_course(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
-    storage.save_schedule(
-        Schedule(date=clock.today(), course="9 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)]),
-        path=scrape_once._db_path("0000001"),
-    )
-
-    async def scenario():
-        app = _HostApp(tui.OverviewScreen("0000001", "musterhausen", "9 Loch Tee 1"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            table = app.screen.query_one("#overview-table", DataTable)
-            table.focus()
-            await pilot.press("enter")
-            await pilot.pause()
-            table.move_cursor(row=1)
-            await pilot.press("enter")
-            await pilot.pause()
-            assert app.screen.default_holes == 9
+            assert app.screen.time == "09:00"
 
     _run(scenario())
 
@@ -2746,7 +2726,7 @@ def test_overview_screen_enter_on_an_already_confirmed_slot_offers_to_cancel_it(
             table.move_cursor(row=1)  # the already-confirmed 09:00 slot row
             await pilot.press("enter")
             await pilot.pause()
-            assert isinstance(app.screen, tui.CancelBookingScreen)
+            assert isinstance(app.screen, tui.BookingScreen) and app.screen.cancelling
             assert app.screen.date == clock.today()
             assert app.screen.time == "09:00"
 
@@ -2777,7 +2757,7 @@ def test_overview_screen_cancel_booking_screen_keep_dismisses_without_changing_a
             table.move_cursor(row=1)
             await pilot.press("enter")
             await pilot.pause()
-            assert isinstance(app.screen, tui.CancelBookingScreen)
+            assert isinstance(app.screen, tui.BookingScreen) and app.screen.cancelling
             await pilot.click("#keep")
             await pilot.pause()
             assert isinstance(app.screen, tui.OverviewScreen)
@@ -2790,6 +2770,7 @@ def test_overview_screen_cancel_booking_screen_keep_dismisses_without_changing_a
 
 def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_sentinel(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    fake_pccaddie(monkeypatch)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
     storage.save_schedule(
@@ -2814,7 +2795,8 @@ def test_overview_screen_cancel_booking_screen_confirm_writes_the_not_playing_se
             table.move_cursor(row=1)
             await pilot.press("enter")
             await pilot.pause()
-            await pilot.click("#confirm-cancel")
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
             await pilot.pause()
             assert isinstance(app.screen, tui.OverviewScreen)
 
@@ -3619,16 +3601,17 @@ def test_search_screen_confirm_prefills_the_highlighted_results_own_date_and_tim
             await pilot.press("c")
             await pilot.pause()
 
-            assert isinstance(app.screen, tui.ConfirmBookingScreen)
-            assert app.screen.query_one("#time", Input).value == "10:00"
+            assert isinstance(app.screen, tui.BookingScreen)
+            assert app.screen.time == "10:00"
             assert app.screen.date == "2026-09-08"
             assert app.screen.course == "18 Loch Tee 1"
 
     _run(scenario())
 
 
-def test_search_screen_confirm_saves_and_shows_a_status_message(tmp_path, monkeypatch):
+def test_search_screen_confirm_books_and_shows_a_status_message(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    fake_pccaddie(monkeypatch)
     schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
 
     async def scenario():
@@ -3641,12 +3624,13 @@ def test_search_screen_confirm_saves_and_shows_a_status_message(tmp_path, monkey
             await pilot.pause()
             await pilot.press("c")
             await pilot.pause()
-            assert isinstance(app.screen, tui.ConfirmBookingScreen)
-            await pilot.click("#save")
+            assert isinstance(app.screen, tui.BookingScreen)
+            app.screen.query_one("#go", Button).press()
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
             assert isinstance(app.screen, tui.SearchScreen)
-            assert str(app.screen.query_one("#search-status", Static).content) == i18n.t("confirm.confirmed")
+            assert str(app.screen.query_one("#search-status", Static).content) == i18n.t("book.done")
 
     _run(scenario())
 
@@ -5360,24 +5344,6 @@ def test_app_persists_a_native_textual_theme_with_no_brew_launcher_equivalent(tm
     _run(scenario())
 
     assert theme.load_saved_theme(tmp_path / "theme-config") == "monokai"
-
-
-def test_confirm_booking_renders_german_labels_and_validation(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    i18n.set_language("de")
-
-    async def scenario():
-        from textual.widgets import Button
-
-        app = _HostApp(tui.ConfirmBookingScreen("0000001", "18 Loch Tee 1", "2026-09-06"))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            assert str(app.screen.query_one("#save", Button).label) == "Speichern"
-            await pilot.click("#save")
-            await pilot.pause()
-            assert "Uhrzeit" in str(app.screen.query_one("#confirm-status", Static).content)
-
-    _run(scenario())
 
 
 def test_app_switch_language_command_rebuilds_overview_screen_in_german(tmp_path, monkeypatch):

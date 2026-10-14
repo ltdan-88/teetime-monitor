@@ -29,6 +29,7 @@ DYNAMIC = {
     "heatmap.": ["tournament", "public_holiday", "vacation"],
     "players.sort.": ["name", "friend", "gender", "handicap", "member"],
     "players.member_status.": ["member", "guest"],
+    "booking.error.": ["no_login", "login", "taken", "not_bookable", "not_found", "not_cancelable", "unconfirmed", "network", "unknown_club", "bad_time", "other"],
     "search.flag.": ["rain", "wind", "temp"],
     "search.flag_tip.": ["rain", "wind", "temp"],
 }

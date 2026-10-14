@@ -26,6 +26,9 @@ python scripts/make_screenshots.py               # retakes the README's screensh
   three reason keys. Reason keys are localised only at the edges (`i18n.py`, `webui/static/strings.json`).
 - `src/clock.py` — the one time seam: `today()`, `now_hhmm()`, `now_utc()`. Call them as `clock.today()` (never
   `from .clock import today`) so one test patch reaches every module.
+- `src/booking.py` — real reservations on pc caddie: book a time and cancel your booking (a logged-in browser-like session,
+  the site's own two-step form with its one-time `process`/`cati` values, success read back from My Reservations).
+  Both front ends call `book_for_club()` / `cancel_for_club()`; `tests/test_booking.py` runs it against a fake of the site.
 - `src/webui/` — the browser version. `server.py` (stdlib `ThreadingHTTPServer`, no framework), `data.py` (builds the
   JSON from `storage`, `pipeline` and `picks_cli.compute_picks`), `settings_api.py`, `tools_api.py`, `clubs_api.py`,
   `auth.py` (the `--serve` password), `updates.py` (release check and the Pi's "Update now"). The page is plain

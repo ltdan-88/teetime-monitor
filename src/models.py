@@ -136,10 +136,10 @@ class ConfirmedBooking:
 
     Populated automatically each scrape from pc caddie's own "My Reservations" page
     (source="my_reservations") — revised 2026-09-05 once that page turned out to exist.
-    The TUI's `c` keybinding (source="manual") remains as a fallback for the same-day
-    booking timing gap: pc caddie hides past tee sheets, so if a same-day booking is
-    made and played between two scheduled scrapes, there's no way to reconstruct it
-    later without the manual record. See ROADMAP.md Phase 1.
+    A booking made through the app (src/booking.py, from 2026-10-14) is recorded at once with the same
+    source, and read back from "My Reservations" right after. Older databases may still hold
+    source="manual" rows from the time the app only let you mark a booking you had made elsewhere; they are
+    read as before.
     """
 
     date: str  # YYYY-MM-DD

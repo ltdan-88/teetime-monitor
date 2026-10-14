@@ -22,13 +22,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .. import (
+    booking,
     clock,
     club_config,
     global_preferences,
     i18n,
     picks_cli,
     pipeline,
-    recommend,
     scrape_health,
     scrape_once,
     storage,
@@ -36,7 +36,6 @@ from .. import (
     user_config,
     weather_icons,
 )
-from ..models import ConfirmedBooking
 
 DAYTIME_START = "08:00"
 DAYTIME_END = "20:00"
@@ -415,44 +414,26 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
     return (club, db_path_for(club["id"])) if club is not None else None
 
 
-def confirm_booking(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
-    """Mark `time` on `date` as your booking: the manual fallback the TUI's `c` key and the Mac
-    app's slot menu write (append-only: the newest row wins). Holes come from the course (name
-    heuristic or the club's `course_holes` override)."""
+def book(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
+    """Book `time` on `date` on `course` for you alone, on pc caddie itself (src/booking.py)."""
     found = _club_db(slug, club_id)
     if found is None:
         return {"error": "unknown_club"}
     club, db = found
-    if not (isinstance(time, str) and len(time) == 5 and time[2] == ":" and time.replace(":", "").isdigit()):
-        return {"error": "bad_time"}
-    config = pipeline._resolved_config(club["slug"], club["id"], club["name"])
-    storage.save_confirmed_booking(
-        ConfirmedBooking(
-            date=date,
-            course=course,
-            time=time,
-            holes=recommend.holes_for_course(course, config),
-            source="manual",
-            confirmed_at=datetime.now(UTC).isoformat(),
-        ),
-        path=db,
-    )
+    result = booking.book_for_club(club, db, course, date, time)
     _OVERVIEW_CACHE.clear()
-    return {"ok": True}
+    return result
 
 
-def cancel_booking(slug: str | None, club_id: str | None, course: str, date: str) -> dict:
-    """Record 'not playing that day' (a new row with no time, as the TUI's cancel does)."""
+def cancel(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
+    """Cancel your booking of `time` on `date` on pc caddie itself."""
     found = _club_db(slug, club_id)
     if found is None:
         return {"error": "unknown_club"}
-    _, db = found
-    storage.save_confirmed_booking(
-        ConfirmedBooking(date=date, course=course, time=None, holes=None, source="manual", confirmed_at=datetime.now(UTC).isoformat()),
-        path=db,
-    )
+    club, db = found
+    result = booking.cancel_for_club(club, db, course, date, time)
     _OVERVIEW_CACHE.clear()
-    return {"ok": True}
+    return result
 
 
 def acknowledge_banners(slug: str | None, club_id: str | None, ids: list) -> dict:

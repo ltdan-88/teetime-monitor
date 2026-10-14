@@ -427,9 +427,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # bookings and notices
         if route == ("POST", "/api/booking"):
-            return reply(data.confirm_booking(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
+            return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/cancel"):
-            return reply(data.cancel_booking(**ref(), course=arg("course") or "", date=arg("date") or ""))
+            return reply(data.cancel(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/banners/ack"):
             ids = body.get("ids") if isinstance(body.get("ids"), list) else []
             return reply(data.acknowledge_banners(**ref(), ids=ids))
