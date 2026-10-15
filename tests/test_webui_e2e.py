@@ -648,7 +648,7 @@ def test_the_window_hint_and_the_shorter_round_badge(ui):
     ui.shot("hint")
     text = ui.text(".hint-bar")
     assert "17:00" in text and "15:40" in text and "19:08" in text and "4 h" in text and "Other" in text, text
-    ui.click(".hint-bar .btn")  # the way straight to the setting
+    ui.click(".hint-bar .icon-btn", index=0)  # the gear: the way straight to the setting
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Preferences')")
     _close_sheet(ui)
     badge = ".pill.link"
@@ -1243,12 +1243,57 @@ def test_the_window_hint_can_be_dismissed_and_stays_away(ui):
         ui.key("Escape")
         if _ == 0:
             ui.wait("document.querySelector('.hint-bar')")
-            ui.click(".hint-bar .icon-btn")
+            ui.click(".hint-bar .icon-btn", index=1)  # the cross
             ui.wait("!document.querySelector('.hint-bar')")
         else:
             ui.js("new Promise((done) => setTimeout(done, 400))")
             assert ui.count(".hint-bar") == 0  # put away for good (until the window changes)
     ui.js("localStorage.removeItem('tm_hint_dismissed')")
+
+
+def test_the_tip_cards_sit_at_the_bottom_swipe_on_a_phone_and_can_be_switched_off(ui):
+    ui.js("window.scrollTo(0, 0)")
+    ui.wait("document.querySelectorAll('.tp-card').length >= 3")
+    kinds = ui.js("[...document.querySelectorAll('.tp-card .tp-label')].map((e) => e.textContent)")
+    assert kinds[0] == "Your next round" and "Best weather" in kinds
+    gap = ui.js("document.querySelector('.footer').getBoundingClientRect().top - document.querySelector('.tp').getBoundingClientRect().bottom")
+    assert 0 <= gap < 80  # at the bottom of the free space, just above the footer
+    assert ui.count(".tp-dots") == 0  # they all fit on a wide screen: no swiping, no dots
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=844, deviceScaleFactor=1, mobile=True)
+        ui.wait("document.querySelectorAll('.tp-dots span').length >= 3")
+        assert ui.count(".tp-dots span.on") == 1
+        ui.js("(() => { const kids = document.querySelector('.tp-track').children; document.querySelector('.tp-track').scrollTo({ left: kids[1].offsetLeft - kids[0].offsetLeft }); })()")
+        ui.wait("document.querySelectorAll('.tp-dots span')[1].classList.contains('on')")  # the dots follow the swipe
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+    ui.key("v")
+    ui.wait("document.querySelector('.view-panel')")
+    ui.click("#v-tips")
+    ui.wait("document.querySelectorAll('.tp-card').length === 0")  # the switch hides them
+    ui.click("#v-tips")
+    ui.wait("document.querySelectorAll('.tp-card').length >= 3")
+    ui.key("Escape")
+
+
+def test_the_flag_and_the_clouds_move_faster_the_harder_the_wind_blows(ui):
+    ui.wait("document.querySelectorAll('.tp-scene').length >= 3")
+    pairs = ui.js(
+        """[...document.querySelectorAll('.tp-card')].map((card) => {
+          const wind = Number((card.querySelector('.tp-wind')?.textContent || '').split(' ')[0]);
+          const scene = card.querySelector('.tp-scene');
+          return [wind, parseFloat(scene.style.getPropertyValue('--flag-dur')), parseFloat(scene.style.getPropertyValue('--cloud-dur'))]; })"""
+    )
+    pairs = [p for p in pairs if p[0] == p[0]]
+    ordered = sorted(pairs)
+    for (w1, f1, c1), (w2, f2, c2) in zip(ordered, ordered[1:], strict=False):
+        assert w1 == w2 or (f1 >= f2 and c1 >= c2)  # more wind: a quicker flag and quicker clouds
+
+
+def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
+    ui.wait("document.querySelectorAll('.tp-scene').length >= 1")
+    assert ui.js("getComputedStyle(document.querySelector('.tp-scene')).stroke") == "none"
+    assert ui.count(".tp-scene .tp-rays, .tp-scene .tp-cloud") >= 1
 
 
 def test_the_legend_and_escape(ui):

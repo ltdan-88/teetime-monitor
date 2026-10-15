@@ -676,13 +676,90 @@ button, select, input { touch-action: manipulation; }
   .resv-list li .btn { grid-column: 2; grid-row: 1 / span 2; }
 }
 
-/* Search on a large screen held sideways: the criteria on the left, the results beside them (more room for the results than under the criteria) */
+/* Search on a large screen held sideways: the criteria on the left, the results beside them (more room for the results than under the criteria).
+   In the narrow left column every row is its label above its control, and a time window may wrap onto two lines. */
 @media (min-width: 1000px) and (min-height: 600px) and (orientation: landscape) {
-  .sheet.wide:has(.criteria) { max-width: 84rem; }
-  .sheet-body.fixed:has(> .criteria) { display: grid; grid-template-columns: 22rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1.5rem; }
-  .sheet-body.fixed:has(> .criteria) > .criteria { grid-column: 1; grid-row: 1 / span 2; overflow-y: auto; min-height: 0; padding-right: 0.25rem; }
+  .sheet.wide:has(.criteria) { max-width: 96rem; }
+  .sheet-body.fixed:has(> .criteria) { display: grid; grid-template-columns: 25rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1.5rem; }
+  .sheet-body.fixed:has(> .criteria) > .criteria { grid-column: 1; grid-row: 1 / span 2; overflow: hidden auto; min-height: 0; padding: 0.25rem; margin: -0.25rem; }
   .sheet-body.fixed:has(> .criteria) > .results-head { grid-column: 2; grid-row: 1; margin-top: 0.25rem; }
   .sheet-body.fixed:has(> .criteria) > .results, .sheet-body.fixed:has(> .criteria) > .empty { grid-column: 2; grid-row: 2; min-height: 0; }
   .criteria .crit-cards { grid-template-columns: minmax(0, 1fr); }
+  .criteria .crit-cards .group { display: block; }
+  .criteria .crit-cards .field-row { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; padding: 0.375rem 0; min-height: 0; }
+  .criteria .crit-cards .field-row > label { justify-content: flex-start; text-align: left; min-height: 0; white-space: normal; }
+  .criteria .crit-cards .field-row > :last-child { justify-self: start; }
+  .criteria .time-pair { flex-wrap: wrap; row-gap: 0.375rem; }
   .criteria .actions { position: sticky; bottom: 0; background: var(--bg); padding: 0.75rem 0 0.25rem; }
 }
+
+/* ---- the window hint's icon buttons (the text keeps the width) ---- */
+.hint-bar { flex-wrap: nowrap; }
+.banner-actions { display: flex; gap: 0.125rem; flex: none; align-self: flex-start; }
+@media (max-width: 640px) { .banner-actions { flex-direction: column; } }
+
+/* ---- tip cards at the bottom of the Overview ---- */
+.tp { margin-top: auto; padding-top: 1rem; display: flex; flex-direction: column; gap: 0.625rem; }
+.tp-track { display: flex; gap: 0.625rem; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 0 0.125rem; margin: 0 -0.125rem; }
+.tp-track::-webkit-scrollbar { display: none; }
+.tp-track > .tp-card:first-child { margin-left: auto; }  /* centred while they all fit, from the left once they scroll */
+.tp-track > .tp-card:last-child { margin-right: auto; }
+.tp-card { position: relative; flex: 0 0 min(20rem, 84vw); aspect-ratio: 300 / 168; scroll-snap-align: start; border-radius: 0.875rem; overflow: hidden; text-align: left; color: #f4f6fc; background: var(--surface); padding: 0; }
+.tp-scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; stroke: none; }  /* the page's svg rule outlines icons: not these drawings */
+.tp-text { position: relative; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: 0.75rem 0.875rem; }
+.tp-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.tp-label { font-size: 0.6875rem; letter-spacing: 0.0625rem; text-transform: uppercase; font-weight: 600; color: rgba(244,246,252,.72); }
+.tp-count { font-family: var(--mono); font-size: 0.8125rem; color: #d9c2fb; }
+.tp-main { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.25rem; font-size: 1.25rem; font-weight: 600; }
+.tp-main svg { flex: none; }
+.tp-sub { margin-top: 0.125rem; font-size: 0.8125rem; color: rgba(244,246,252,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-chips { display: flex; gap: 0.875rem; margin-top: 0.625rem; font-family: var(--mono); font-size: 0.8125rem; }
+.tp-temp { color: #ffd97a; } .tp-rain { color: #a9ceff; } .tp-wind { color: #ffd7a0; }
+.tp-avs { display: inline-flex; }
+.tp-av { width: 1.75rem; height: 1.75rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6875rem; font-weight: 600; box-shadow: 0 0 0 2px rgba(20,24,40,.55); }
+.tp-av + .tp-av { margin-left: -0.375rem; }
+.tp-av.f { background: #4a2d42; color: #f08fd2; } .tp-av.m { background: #24365a; color: #7db8ff; }
+.tp-dots { display: flex; justify-content: center; gap: 0.4375rem; }
+.tp-dots span { width: 0.5rem; height: 0.5rem; border-radius: 0.25rem; background: var(--line-strong); transition: width .2s; }
+.tp-dots .on { width: 1.375rem; background: var(--accent); }
+
+/* the scene: wind sets the flag's and the clouds' pace (--flag-dur, --cloud-dur); the sun turns; the ball rolls into the hole */
+@keyframes tp-wave { 0% { transform: skewY(-9deg) scaleX(1); } 100% { transform: skewY(9deg) scaleX(.86); } }
+@keyframes tp-drift { 0% { transform: translateX(0); } 100% { transform: translateX(50px); } }
+@keyframes tp-turn { to { transform: rotate(360deg); } }
+@keyframes tp-shimmer { 0% { opacity: .6; } 100% { opacity: 1; } }
+@keyframes tp-fall-rain { to { transform: translateY(40px); } }
+@keyframes tp-fall-far { to { transform: translateY(50px); } }
+@keyframes tp-fall-near { to { transform: translateY(70px); } }
+@keyframes tp-roll { 0%, 8% { transform: translateX(0); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 92% { transform: translateX(226px); } 93%, 100% { transform: translateX(0); } }
+@keyframes tp-drop { 0%, 70% { transform: scale(1); } 76%, 92% { transform: scale(0); } 94%, 100% { transform: scale(1); } }
+@keyframes tp-spin { 0%, 8% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 100% { transform: rotate(1700deg); } }
+.tp-flag { transform-origin: 252px 114px; animation: tp-wave var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
+.tp-cloud { animation: tp-drift var(--cloud-dur, 26s) ease-in-out infinite alternate; }
+.tp-cloud.tp-back { animation-direction: alternate-reverse; }
+.tp-rays { transform-box: fill-box; transform-origin: 50% 50%; animation: tp-turn 60s linear infinite, tp-shimmer 3s ease-in-out infinite alternate; }
+.tp-glow { animation: tp-shimmer 4s ease-in-out infinite alternate; }
+.tp-fall-rain { animation: tp-fall-rain .5s linear infinite; }
+.tp-fall-far { animation: tp-fall-far 5s linear infinite; }
+.tp-fall-near { animation: tp-fall-near 8s linear infinite; }
+.tp-roll { animation: tp-roll 6s linear infinite; }
+.tp-drop, .tp-spin { transform-box: fill-box; transform-origin: 50% 50%; }
+.tp-drop { animation: tp-drop 6s linear infinite; }
+.tp-spin { animation: tp-spin 6s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .tp-scene, .tp-scene * { animation: none !important; } }
+
+/* ---- welcome ---- */
+.wl { width: 100%; max-width: 26rem; margin: 0.5rem auto 0; display: flex; flex-direction: column; gap: 0.875rem; }
+.wl-scene { aspect-ratio: 300 / 168; border-radius: 0.875rem; overflow: hidden; position: relative; }
+.wl h1 { margin: 0.25rem 0 0; font-size: 1.625rem; font-weight: 700; }
+.wl-lead { margin: 0; color: var(--mid); line-height: 1.5; }
+.wl-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.625rem; }
+.wl-step { display: flex; align-items: center; gap: 0.75rem; background: var(--surface); border-radius: 0.75rem; padding: 0.75rem 0.875rem; }
+.wl-step b { display: block; font-weight: 600; }
+.wl-text { display: block; margin-top: 0.125rem; font-size: 0.8125rem; color: var(--mid); }
+.wl-num { flex: none; width: 1.75rem; height: 1.75rem; border-radius: 50%; border: 2px solid var(--line-strong); color: var(--dim); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; }
+.wl-step.now .wl-num { border-color: var(--accent); color: var(--accent); }
+.wl-step.done .wl-num { background: var(--green); border-color: var(--green); color: #12301c; }
+.wl-actions { display: flex; flex-wrap: wrap; gap: 0.625rem; }
+.wl-actions .btn { min-height: 2.75rem; }
+.wl-actions .btn.pri { flex: 1 1 10rem; }
