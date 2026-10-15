@@ -1,13 +1,19 @@
 // The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
 
 import {
-  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor,
+  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor, occupancyState,
 } from '/lib.js';
 
 function pickTooltip(pick) {
   const parts = (pick.reasons || []).map((key) => t('reason.' + key)).filter((text, i) => text !== 'reason.' + pick.reasons[i]);
   if (pick.ai_reasons) parts.push(...pick.ai_reasons);
   return parts.length ? t('tip.pick_reasons', { reasons: parts.join(' · ') }) : t('tip.pick');
+}
+
+const HEAT_FROM = [8, 10, 12, 14, 16, 18]; // the six two-hour buckets of the strip
+const hh = (n) => String(n).padStart(2, '0');
+function heatPart(ratio, i) {
+  return `${hh(HEAT_FROM[i])}–${hh(HEAT_FROM[i] + 2)} ${t('heat.' + occupancyState(ratio))}`;
 }
 
 export function Badge({ day, onAlternative }) {
@@ -93,7 +99,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
       <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
-      <span class="heat" aria-hidden="true">${day.heat.map((ratio) => html`<span style=${{ background: occupancyColor(ratio) }}></span>`)}</span>
+      <span class="heat" role="img" aria-label=${t('heat.title') + ': ' + day.heat.map((ratio, i) => heatPart(ratio, i)).join(', ')}>${day.heat.map((ratio, i) => html`<span class=${'o-' + occupancyState(ratio)} style=${{ backgroundColor: occupancyColor(ratio) }} title=${heatPart(ratio, i)}></span>`)}</span>
       ${(day.events.length > 0 || (reserveNote && !open)) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
     </button>
     ${open && html`<div class="slots-head"><${WeatherHeads} units=${units} /></div>`}

@@ -49,6 +49,7 @@ export const language = () => LANG;
 
 export async function loadStrings(code) {
   LANG = code === 'de' ? 'de' : 'en';
+  document.documentElement.lang = LANG; // screen readers pick the voice from this
   const [local, server] = await Promise.all([api('/strings.json'), api('/api/strings')]);
   LOCAL = local;
   SERVER = server.strings || {};
@@ -116,6 +117,8 @@ export function conditionKind(code) {
   return null;
 }
 
+/** The state of one occupancy bar as a word (not only a colour): "open" under half booked, "mid" half or more, "full", "none". */
+export const occupancyState = (ratio) => (ratio == null ? 'none' : ratio >= 1 ? 'full' : ratio >= 0.5 ? 'mid' : 'open');
 export const occupancyColor = (ratio) => (ratio == null ? 'var(--faint)' : ratio >= 1 ? 'var(--red)' : ratio >= 0.5 ? 'var(--orange)' : 'var(--green)');
 
 // ---------------------------------------------------------------- scale
@@ -123,7 +126,8 @@ export const occupancyColor = (ratio) => (ratio == null ? 'var(--faint)' : ratio
 // (the browser's own zoom, Ctrl +/-, works on top of it); Settings > Scale changes it, per browser.
 
 export const SCALES = [70, 80, 90, 100, 110, 125];
-export const DEFAULT_SCALE = 80;
+// a phone is held close and has no browser zoom to lean on: its text starts one step larger
+export const DEFAULT_SCALE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 90 : 80;
 
 export function getScale() {
   try {
@@ -368,13 +372,65 @@ export function systemTheme() {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'catppuccin-latte' : 'catppuccin';
 }
 
+// ---- readable colours: whatever the palette, text keeps at least 4.5:1 (WCAG AA) against the colours it sits on ----
+const toRgb = (hex) => { const h = hex.trim().replace('#', ''); const f = h.length === 3 ? h.replace(/./g, (c) => c + c) : h; return [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16)); };
+const toHex = (rgb) => '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+const linear = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+const luminance = (c) => 0.2126 * linear(c[0]) + 0.7152 * linear(c[1]) + 0.0722 * linear(c[2]);
+export const contrastRatio = (a, b) => { const x = luminance(a); const y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const mixRgb = (a, b, share) => a.map((v, i) => v * share + b[i] * (1 - share)); // `share` of a, the rest b
+/** `color`, moved toward `toward` just far enough to reach `min` against every background `backgrounds(color)` names. */
+function readable(color, backgrounds, toward, min) {
+  for (let step = 0; step <= 1.0001; step += 0.02) {
+    const candidate = mixRgb(toward, color, step);
+    if (backgrounds(candidate).every((b) => contrastRatio(candidate, b) >= min)) return candidate;
+  }
+  return toward;
+}
+const HUES = ['--blue', '--pink', '--green', '--orange', '--yellow', '--red', '--tc-cold', '--tc-cool', '--tc-mild', '--tc-warm', '--tc-hot'];
+
 export function applyTheme(name) {
   const palette = THEMES && (THEMES[name] || THEMES[systemTheme()]);
   if (!palette) return;
   const root = document.documentElement;
-  root.style.setProperty('--bg', palette.background);
-  root.style.setProperty('--surface', palette.surface);
-  root.style.setProperty('--text', palette.foreground);
-  root.style.setProperty('--accent', palette.accent);
+  const set = (key, value) => root.style.setProperty(key, value);
+  set('--bg', palette.background);
+  set('--surface', palette.surface);
+  set('--accent', palette.accent);
   root.setAttribute('data-scheme', palette.dark ? 'dark' : 'light');
+  const bg = toRgb(palette.background);
+  const surface = toRgb(palette.surface);
+  const accent = toRgb(palette.accent);
+  const extreme = palette.dark ? [255, 255, 255] : [0, 0, 0];
+  const both = () => [bg, surface];
+  const text = readable(toRgb(palette.foreground), both, extreme, 7);
+  set('--text', toHex(text));
+  // secondary and tertiary text: a share of the text colour over the surface, as much as it takes
+  const pillGrey = mixRgb(text, surface, 0.12); // the quiet pill's background
+  const share = (min) => { for (let p = 0.5; p <= 1.0001; p += 0.02) { const c = mixRgb(text, surface, p); if ([bg, surface, pillGrey].every((b) => contrastRatio(c, b) >= min)) return c; } return text; };
+  set('--mid', toHex(share(7)));
+  set('--dim', toHex(share(4.7)));
+  // the status and weather colours, and the accent used as text and as the focus ring
+  for (const hue of [...HUES, '--pill-blue-bg', '--pill-yellow-bg']) root.style.removeProperty(hue); // start again from the stylesheet's values for this scheme
+  const base = getComputedStyle(root);
+  let yellow = null;
+  for (const hue of HUES) {
+    const value = base.getPropertyValue(hue);
+    if (!value.trim().startsWith('#')) continue;
+    const color = toRgb(value);
+    const tinted = hue === '--yellow'; // text on its own pill: the pill is 18% of it over the surface
+    const result = readable(color, (c) => (tinted ? [bg, surface, mixRgb(c, surface, 0.18)] : both()), text, 4.6);
+    if (tinted) yellow = result;
+    if (result.some((v, i) => Math.abs(v - color[i]) > 1)) set(hue, toHex(result));
+  }
+  const pillBlue = mixRgb(accent, surface, 0.24);
+  const accentText = readable(accent, () => [bg, surface, pillBlue], text, 4.6);
+  set('--accent-text', toHex(accentText));
+  // a pill's tint may have to be paler (a monochrome palette has no hue to tell the pill from the text)
+  const pale = (tint, textColor, tintShare) => { for (let k = tintShare; k >= 0.04; k -= 0.02) { if (contrastRatio(textColor, mixRgb(tint, surface, k)) >= 4.6) return k; } return 0.04; };
+  const yellowText = yellow || toRgb(base.getPropertyValue('--yellow'));
+  const blueShare = pale(accent, accentText, 0.24);
+  const yellowShare = pale(yellowText, yellowText, 0.18);
+  if (blueShare < 0.24) set('--pill-blue-bg', toHex(mixRgb(accent, surface, blueShare)));
+  if (yellowShare < 0.18) set('--pill-yellow-bg', toHex(mixRgb(yellowText, surface, yellowShare)));
 }

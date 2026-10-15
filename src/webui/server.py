@@ -26,6 +26,8 @@ not leave a program running. `--keep-running` turns that off. Ctrl+C always work
 """
 
 import argparse
+import gzip
+import hashlib
 import hmac
 import json
 import mimetypes
@@ -167,6 +169,13 @@ class WebServer(ThreadingHTTPServer):
         return self.idle_for() > limit
 
 
+GZIP_MIN_BYTES = 600
+
+
+def _compressible(content_type: str) -> bool:
+    return content_type.startswith(("text/", "application/json", "application/javascript", "image/svg+xml", "application/manifest+json"))
+
+
 class Handler(BaseHTTPRequestHandler):
     server: WebServer
     server_version = "teetime-monitor-web"
@@ -179,9 +188,15 @@ class Handler(BaseHTTPRequestHandler):
     # ---- plumbing ---------------------------------------------------------------------
 
     def _send(self, status: int, body: bytes, content_type: str, extra: dict[str, str] | None = None) -> None:
+        compressed = False
+        if len(body) >= GZIP_MIN_BYTES and _compressible(content_type) and "gzip" in self.headers.get("Accept-Encoding", ""):
+            body, compressed = gzip.compress(body, 5, mtime=0), True  # the overview alone is ~115 KB of JSON
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", CSP)
@@ -364,7 +379,11 @@ class Handler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         if content_type.startswith("text/") or content_type in ("application/json", "image/svg+xml"):
             content_type += "; charset=utf-8"
-        self._send(HTTPStatus.OK, target.read_bytes(), content_type, {"Cache-Control": "no-cache"})
+        body = target.read_bytes()
+        tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'  # the page revalidates (no-cache): unchanged files answer 304
+        if self.headers.get("If-None-Match") == tag:
+            return self._send(HTTPStatus.NOT_MODIFIED, b"", content_type, {"Cache-Control": "no-cache", "ETag": tag})
+        self._send(HTTPStatus.OK, body, content_type, {"Cache-Control": "no-cache", "ETag": tag})
 
     def _api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
         body = self._read_json() if method == "POST" else {}
