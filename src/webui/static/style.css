@@ -731,9 +731,45 @@ button, select, input { touch-action: manipulation; }
 @keyframes tp-fall-rain { to { transform: translateY(40px); } }
 @keyframes tp-fall-far { to { transform: translateY(50px); } }
 @keyframes tp-fall-near { to { transform: translateY(70px); } }
-@keyframes tp-roll { 0%, 8% { transform: translateX(0); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 92% { transform: translateX(226px); } 93%, 100% { transform: translateX(0); } }
-@keyframes tp-drop { 0%, 70% { transform: scale(1); } 76%, 92% { transform: scale(0); } 94%, 100% { transform: scale(1); } }
-@keyframes tp-spin { 0%, 8% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 100% { transform: rotate(1700deg); } }
+/* three ways for the ball to travel, so the cards are never the same show: rolls straight in (6 s), chipped up and bounced in (7 s), stops at the edge and hesitates (8 s) */
+@keyframes tp-roll-x { 0%, 8% { transform: translateX(0); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 92% { transform: translateX(226px); } 93%, 100% { transform: translateX(0); } }
+@keyframes tp-roll-drop { 0%, 70% { transform: scale(1); } 76%, 92% { transform: scale(0); } 94%, 100% { transform: scale(1); } }
+@keyframes tp-roll-spin { 0%, 8% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.25,.6,.35,1); } 70%, 100% { transform: rotate(1700deg); } }
+@keyframes tp-chip-x { 0%, 10% { transform: translateX(0); } 45% { transform: translateX(168px); } 56% { transform: translateX(196px); animation-timing-function: ease-out; } 76%, 92% { transform: translateX(226px); } 93%, 100% { transform: translateX(0); } }
+@keyframes tp-chip-y { 0%, 10% { transform: translateY(0); animation-timing-function: ease-out; } 28% { transform: translateY(-52px); animation-timing-function: ease-in; } 45% { transform: translateY(0); animation-timing-function: ease-out; } 50% { transform: translateY(-9px); animation-timing-function: ease-in; } 56%, 100% { transform: translateY(0); } }
+@keyframes tp-chip-drop { 0%, 76% { transform: scale(1); } 82%, 92% { transform: scale(0); } 94%, 100% { transform: scale(1); } }
+@keyframes tp-chip-spin { 0%, 10% { transform: rotate(0deg); } 76%, 100% { transform: rotate(1500deg); } }
+@keyframes tp-wob-x { 0%, 8% { transform: translateX(0); animation-timing-function: cubic-bezier(.2,.6,.3,1); } 56% { transform: translateX(218px); } 64% { transform: translateX(223px); } 70% { transform: translateX(221px); } 76%, 92% { transform: translateX(226px); } 93%, 100% { transform: translateX(0); } }
+@keyframes tp-wob-y { 0%, 56% { transform: translateY(0); } 62% { transform: translateY(-2px); } 68%, 100% { transform: translateY(0); } }
+@keyframes tp-wob-drop { 0%, 76% { transform: scale(1); } 82%, 92% { transform: scale(0); } 94%, 100% { transform: scale(1); } }
+@keyframes tp-wob-spin { 0%, 8% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.2,.6,.3,1); } 56% { transform: rotate(1500deg); } 64% { transform: rotate(1535deg); } 70% { transform: rotate(1512deg); } 76%, 100% { transform: rotate(1560deg); } }
+.tp-roll-x { animation: tp-roll-x 6s linear infinite; } .tp-roll-drop { animation: tp-roll-drop 6s linear infinite; } .tp-roll-spin { animation: tp-roll-spin 6s linear infinite; }
+.tp-chip-x { animation: tp-chip-x 7s linear infinite; } .tp-chip-y { animation: tp-chip-y 7s linear infinite; } .tp-chip-drop { animation: tp-chip-drop 7s linear infinite; } .tp-chip-spin { animation: tp-chip-spin 7s linear infinite; }
+.tp-wob-x { animation: tp-wob-x 8s linear infinite; } .tp-wob-y { animation: tp-wob-y 8s linear infinite; } .tp-wob-drop { animation: tp-wob-drop 8s linear infinite; } .tp-wob-spin { animation: tp-wob-spin 8s linear infinite; }
+.tp-roll-x, .tp-roll-drop, .tp-roll-spin, .tp-chip-x, .tp-chip-y, .tp-chip-drop, .tp-chip-spin, .tp-wob-x, .tp-wob-y, .tp-wob-drop, .tp-wob-spin { animation-delay: calc(var(--phase, 0s) + var(--d, 0s)); }
+.tp-roll-drop, .tp-roll-spin, .tp-chip-drop, .tp-chip-spin, .tp-wob-drop, .tp-wob-spin { transform-box: fill-box; transform-origin: 50% 50%; }
+/* who else is out: birds when it is calm, a butterfly when it is very calm, blowing leaves and leaning grass when it is windy, puddle rings in the rain, a snowman in the snow */
+@keyframes tp-fly { 0% { transform: translateX(-24px); } 100% { transform: translateX(324px); } }
+@keyframes tp-flap { 0% { transform: scaleY(1); } 100% { transform: scaleY(.3); } }
+@keyframes tp-flutter { 0% { transform: translate(40px, 0); } 25% { transform: translate(85px, -9px); } 50% { transform: translate(125px, 2px); } 75% { transform: translate(170px, -8px); } 100% { transform: translate(215px, 0); } }
+@keyframes tp-flap2 { from { transform: scaleX(1); } to { transform: scaleX(.3); } }
+@keyframes tp-blow { 0% { transform: translateX(-12px) rotate(0deg); } 100% { transform: translateX(316px) rotate(720deg); } }
+@keyframes tp-lean { from { transform: skewX(calc(var(--lean, 6deg) * -.4)); } to { transform: skewX(var(--lean, 6deg)); } }
+@keyframes tp-ring { 0% { transform: scale(.2); opacity: .9; } 100% { transform: scale(1.5); opacity: 0; } }
+.tp-bird { animation: tp-fly 17s linear infinite; animation-delay: calc(var(--phase, 0s) - 4s); }
+.tp-bird2 { animation-duration: 23s; animation-delay: calc(var(--phase, 0s) - 13s); }
+.tp-wing { fill: none; stroke: #121a2e; stroke-opacity: .75; stroke-width: 1.3; transform-box: fill-box; transform-origin: 50% 100%; animation: tp-flap .5s ease-in-out infinite alternate; }
+.tp-flutter { animation: tp-flutter 9s ease-in-out infinite alternate; animation-delay: var(--phase, 0s); }
+.tp-wing2 { fill: #ffd27a; stroke: none; transform-box: fill-box; transform-origin: 50% 50%; animation: tp-flap2 .22s ease-in-out infinite alternate; }
+.tp-leaf { fill: #e8a23a; stroke: none; animation: tp-blow calc(var(--cloud-dur, 26s) * .35) linear infinite; animation-delay: var(--phase, 0s); }
+.tp-leaf2 { fill: #d8742e; animation-delay: calc(var(--phase, 0s) - 1.6s); }
+.tp-leaf3 { fill: #b9c23a; animation-delay: calc(var(--phase, 0s) - 3s); }
+.tp-grass path { fill: none; stroke: #3f9a63; stroke-width: 1.4; stroke-linecap: round; transform-box: fill-box; transform-origin: 50% 100%; animation: tp-lean var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
+.tp-grass path:nth-child(2) { animation-delay: -.3s; } .tp-grass path:nth-child(3) { animation-delay: -.6s; } .tp-grass path:nth-child(4) { animation-delay: -.9s; }
+.tp-ripple { fill: none; stroke: #a9c4ff; stroke-opacity: .75; stroke-width: .9; transform-box: fill-box; transform-origin: 50% 50%; animation: tp-ring 1.8s ease-out infinite; }
+.tp-ripple2 { animation-delay: -.9s; }
+.tp-snowman circle { fill: #f4f7fc; stroke: #8a98b8; stroke-width: .7; }
+.tp-snowman .tp-coal { fill: #1b2438; stroke: none; } .tp-snowman .tp-nose { fill: #ff8a3d; stroke: none; }
 .tp-flag { transform-origin: 252px 114px; animation: tp-wave var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
 .tp-cloud { animation: tp-drift var(--cloud-dur, 26s) ease-in-out infinite alternate; }
 .tp-cloud.tp-back { animation-direction: alternate-reverse; }
@@ -742,11 +778,7 @@ button, select, input { touch-action: manipulation; }
 .tp-fall-rain { animation: tp-fall-rain .5s linear infinite; }
 .tp-fall-far { animation: tp-fall-far 5s linear infinite; }
 .tp-fall-near { animation: tp-fall-near 8s linear infinite; }
-.tp-roll { animation: tp-roll 6s linear infinite; }
-.tp-drop, .tp-spin { transform-box: fill-box; transform-origin: 50% 50%; }
-.tp-drop { animation: tp-drop 6s linear infinite; }
-.tp-spin { animation: tp-spin 6s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .tp-scene, .tp-scene * { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .tp-scene, .tp-scene * { animation: none !important; } .tp-bird, .tp-flutter, .tp-leaf { display: none; } }  /* a still picture: no visitors parked at the edge */
 
 /* ---- welcome ---- */
 .wl { width: 100%; max-width: 26rem; margin: 0.5rem auto 0; display: flex; flex-direction: column; gap: 0.875rem; }
@@ -766,8 +798,7 @@ button, select, input { touch-action: manipulation; }
 
 /* ---- accessibility ---- */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-/* occupancy is never colour alone: half booked is dotted, fully booked is striped */
-.o-mid { background-image: radial-gradient(rgba(0,0,0,.34) 1.1px, transparent 1.5px); background-size: 5px 5px; }
+/* occupancy is not colour alone: fully booked is striped */
 .o-full { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,.34) 0 2px, transparent 2px 5px); }
 /* a finger needs about 44 px: primary controls grow, small ones keep their look and get a larger touch area */
 @media (pointer: coarse) {

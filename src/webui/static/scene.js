@@ -40,32 +40,63 @@ export function windTimes(kph) {
   return { flag: Math.max(0.35, Math.min(2.4, 2.4 - wind * 0.075)), clouds: Math.max(8, Math.min(34, 34 - wind * 0.9)) };
 }
 
-/** The scene for `mood` ("clear" | "partly" | "overcast" | "rain" | "snow"), filling its box (300 x 168 drawing). */
-export function Scene({ mood, wind }) {
+const BALL = { roll: 'tp-roll', chip: 'tp-chip', wobble: 'tp-wob' };
+
+/** One ball, however it travels: `variant` "roll" runs straight in, "chip" flies up and bounces in, "wobble" stops at
+ *  the edge, hesitates, then drops. `delay` (seconds) lets several balls follow each other. */
+function Ball({ variant, color, mark, delay = 0, lane = 0 }) {
+  const kind = BALL[variant] || BALL.roll;
+  return html`<g transform=${`translate(26 ${144 + lane})`} style=${`--d:${delay}s`}><g class=${kind + '-x'}><g class=${kind + '-y'}><g class=${kind + '-drop'}><g class=${kind + '-spin'}>
+    <circle r="3.3" fill=${color} /><path d="M-2 -1a2.4 2.4 0 0 1 3-1.3" fill="none" stroke=${mark} stroke-width="1" /><circle cx="1.1" cy="1.3" r=".6" fill=${mark} />
+  </g></g></g></g></g>`;
+}
+
+const GENDER_BALL = { female: '#f08fd2', male: '#7db8ff' };
+
+/** The scene for `mood` ("clear" | "partly" | "overcast" | "rain" | "snow"), filling its box (300 x 168 drawing).
+ *  `variant` picks how the ball travels ("roll", "chip", "wobble", "trio" for friends: one ball each, `friends` are
+ *  their genders); `phase` (seconds) starts the loop part-way so neighbouring cards are never in step. The wind
+ *  (km/h) sets the pace of flag and clouds, and decides who else is out: birds when calm, butterflies when very
+ *  calm, blowing leaves and bending grass when it is windy. */
+export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0 }) {
   const { flag, clouds } = windTimes(wind);
+  const kph = wind == null ? 8 : wind;
   const snow = mood === 'snow';
+  const wet = mood === 'rain';
   const sun = mood === 'clear' || mood === 'partly';
+  const fair = sun || mood === 'overcast';
   const pair = CLOUDS[mood];
-  return html`<svg class=${'tp-scene tp-' + mood} style=${`--flag-dur:${flag.toFixed(2)}s;--cloud-dur:${clouds.toFixed(1)}s`} viewBox="0 0 300 168" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  const white = snow ? '#ff8a3d' : '#f7f7f7';
+  const mark = snow ? '#ffd0ae' : '#9aa0b5';
+  const lean = Math.min(24, 4 + kph * 0.55).toFixed(1);
+  const balls = variant === 'trio'
+    ? [{ color: white, delay: 0 }, ...friends.slice(0, 2).map((g, i) => ({ color: GENDER_BALL[g] || '#c9cddd', delay: 1.4 * (i + 1) }))]
+    : [{ color: white, delay: 0 }];
+  const style = `--flag-dur:${flag.toFixed(2)}s;--cloud-dur:${clouds.toFixed(1)}s;--lean:${lean}deg;--phase:${-phase}s`;
+  return html`<svg class=${'tp-scene tp-' + mood} style=${style} viewBox="0 0 300 168" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect width="300" height="168" fill=${'url(#tp-' + mood + ')'} />
     ${sun && html`<g transform="translate(250 38)"><circle class="tp-glow" r="32" fill="url(#tp-glow)" /><g class="tp-rays"><use href="#tp-rays" /></g><circle r="10" fill="#ffd60a" /></g>`}
     ${mood === 'partly' && html`<g class="tp-cloud"><ellipse cx="60" cy="26" rx="28" ry="8" fill="#e8ecf5" fill-opacity=".7" /><ellipse cx="80" cy="19" rx="18" ry="8" fill="#e8ecf5" fill-opacity=".7" /></g>`}
     ${mood === 'clear' && html`<g class="tp-cloud"><ellipse cx="70" cy="30" rx="24" ry="7" fill="#e8ecf5" fill-opacity=".45" /><ellipse cx="86" cy="24" rx="15" ry="7" fill="#e8ecf5" fill-opacity=".45" /></g>`}
     ${pair && html`<g class="tp-cloud"><ellipse cx="60" cy="22" rx="30" ry="9" fill=${pair[0]} /><ellipse cx="82" cy="15" rx="19" ry="9" fill=${pair[0]} /></g>
       <g class="tp-cloud tp-back"><ellipse cx="220" cy="24" rx="32" ry="9" fill=${pair[1]} /><ellipse cx="244" cy="17" rx="19" ry="9" fill=${pair[1]} /></g>`}
+    ${sun && kph < 22 && html`<g transform="translate(0 52)"><g class="tp-bird"><path class="tp-wing" d="M0 0q3-4 6 0q3-4 6 0" /></g></g>
+      <g transform="translate(0 74)"><g class="tp-bird tp-bird2"><path class="tp-wing" d="M0 0q3-4 6 0q3-4 6 0" /></g></g>`}
     <rect width="300" height="132" fill="url(#tp-scrim)" />
     <path d="M0 168V132Q70 120 150 128T300 122V168Z" fill=${snow ? '#e4eaf4' : '#2a6a45'} />
     <path d="M0 168V150Q90 142 180 148T300 144V168Z" fill=${snow ? '#cdd7e8' : '#1f5a3a'} />
+    ${!snow && html`<g class="tp-grass"><path d="M64 150l-2-8m2 8v-9m2 9l2-8" /><path d="M118 152l-2-8m2 8v-9m2 9l2-8" /><path d="M176 151l-2-8m2 8v-9m2 9l2-8" /><path d="M222 152l-2-8m2 8v-9m2 9l2-8" /></g>`}
+    ${snow && html`<g class="tp-snowman"><circle cx="150" cy="140" r="8" /><circle cx="150" cy="129" r="6" /><circle cx="150" cy="120" r="4.4" /><path class="tp-nose" d="M150 120l6 1.2l-6 1z" /><circle class="tp-coal" cx="148.4" cy="119" r=".7" /><circle class="tp-coal" cx="151.6" cy="119" r=".7" /></g>`}
     <ellipse cx="252" cy="147" rx="28" ry="4" fill=${snow ? '#f4f7fc' : '#2f7a50'} />
     <ellipse cx="252" cy="147" rx="4" ry="1.4" fill=${snow ? '#7c88a4' : '#0c2a1c'} />
     <path d="M252 147V114" stroke="#f2f4fa" stroke-width="1.6" />
     <path class="tp-flag" d="M252 114l18 5-18 6z" fill="#ff453a" />
-    <g transform="translate(26 144)"><g class="tp-roll"><g class="tp-drop"><g class="tp-spin">
-      <circle r="3.3" fill=${snow ? '#ff8a3d' : '#f7f7f7'} />
-      <path d="M-2 -1a2.4 2.4 0 0 1 3-1.3" fill="none" stroke=${snow ? '#ffd0ae' : '#9aa0b5'} stroke-width="1" /><circle cx="1.1" cy="1.3" r=".6" fill=${snow ? '#ffd0ae' : '#9aa0b5'} />
-    </g></g></g></g>
+    ${wet && html`<ellipse class="tp-ripple" cx="104" cy="156" rx="12" ry="2.4" /><ellipse class="tp-ripple tp-ripple2" cx="196" cy="158" rx="10" ry="2" />`}
+    ${sun && kph < 12 && html`<g transform="translate(0 124)"><g class="tp-flutter"><ellipse class="tp-wing2" cx="-2" cy="0" rx="2.6" ry="1.6" /><ellipse class="tp-wing2" cx="2" cy="0" rx="2.6" ry="1.6" /></g></g>`}
+    ${fair && kph >= 25 && html`<g transform="translate(0 70)"><path class="tp-leaf" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 100)"><path class="tp-leaf tp-leaf2" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 124)"><path class="tp-leaf tp-leaf3" d="M0 0q3-4 6 0q-3 4-6 0z" /></g>`}
+    ${balls.map((b, i) => html`<${Ball} key=${i} variant=${variant === 'trio' ? 'roll' : variant} color=${b.color} mark=${mark} delay=${b.delay} lane=${i === 1 ? 3 : i === 2 ? -3 : 0} />`)}
     ${mood === 'overcast' && html`<rect width="300" height="168" fill="#0c1020" opacity=".12" />`}
-    ${mood === 'rain' && html`<g class="tp-fall-rain"><rect y="-40" width="300" height="208" fill="url(#tp-drops)" /></g>`}
+    ${wet && html`<g class="tp-fall-rain"><rect y="-40" width="300" height="208" fill="url(#tp-drops)" /></g>`}
     ${snow && html`<g class="tp-fall-far"><rect y="-50" width="300" height="218" fill="url(#tp-flakes-far)" /></g><g class="tp-fall-near"><rect y="-70" width="300" height="238" fill="url(#tp-flakes-near)" /></g>`}
   </svg>`;
 }

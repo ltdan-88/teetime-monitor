@@ -49,6 +49,9 @@ function Chips({ weather, units }) {
   </span>`;
 }
 
+const VARIANT = { next_round: 'roll', best_window: 'chip', friends: 'trio', best_weather: 'wobble' };
+const PHASE = { next_round: 0, best_window: 2.3, friends: 4.1, best_weather: 6.2 }; // seconds into the loop, so the cards never move in step
+
 function Card({ card, units, onOpen, now }) {
   const w = card.weather;
   const kind = card.kind;
@@ -59,7 +62,7 @@ function Card({ card, units, onOpen, now }) {
   else sub = conditionText(w.code);
   const title = kind === 'best_weather' ? dayLabel(card.date) : `${dayLabel(card.date)} · ${card.time}`;
   return html`<button class="tp-card" onClick=${() => onOpen(card)} aria-label=${t('panel.' + kind) + ': ' + title}>
-    <${Scene} mood=${w.mood} wind=${w.wind} />
+    <${Scene} mood=${w.mood} wind=${w.wind} variant=${VARIANT[kind]} phase=${PHASE[kind]} friends=${(card.friends || []).map((p) => p.gender)} />
     <span class="tp-text">
       <span class="tp-top"><span class="tp-label">${t('panel.' + kind)}</span>${kind === 'next_round' && html`<span class="tp-count">${countdownText(card.date, card.time, now)}</span>`}</span>
       <span class="tp-main"><span>${title}</span>
