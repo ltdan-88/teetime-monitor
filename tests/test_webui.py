@@ -5,6 +5,7 @@ import json
 import threading
 import time
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -384,3 +385,30 @@ def test_the_short_hole_count_reads_9L_in_german():
 
     strings = json.loads((Path(__file__).resolve().parent.parent / "src" / "webui" / "static" / "strings.json").read_text(encoding="utf-8"))
     assert strings["en"]["holes.short"] == "{n}H" and strings["de"]["holes.short"] == "{n}L"
+
+
+def test_big_text_answers_are_compressed_for_a_browser_that_accepts_it_and_only_then(running):
+    import gzip
+
+    plain, plain_body = _request(running, "GET", "/api/overview?slug=golfclub-beispiel", headers={})
+    packed, packed_body = _request(running, "GET", "/api/overview?slug=golfclub-beispiel", headers={"Accept-Encoding": "gzip, br"})
+    assert plain.getheader("Content-Encoding") is None and packed.getheader("Content-Encoding") == "gzip"
+    assert gzip.decompress(packed_body) == plain_body and len(packed_body) < len(plain_body)
+    assert packed.getheader("Vary") == "Accept-Encoding"
+    asset, _ = _request(running, "GET", "/app.js", headers={"Accept-Encoding": "gzip"})
+    assert asset.getheader("Content-Encoding") == "gzip"
+
+
+def test_a_static_file_that_has_not_changed_answers_304_when_the_browser_asks_again(running):
+    first, body = _request(running, "GET", "/app.js")
+    tag = first.getheader("ETag")
+    assert tag and first.getheader("Cache-Control") == "no-cache"
+    again, empty = _request(running, "GET", "/app.js", headers={"If-None-Match": tag})
+    assert again.status == 304 and empty == b""
+    other, _ = _request(running, "GET", "/app.js", headers={"If-None-Match": '"something-else"'})
+    assert other.status == 200
+
+
+def test_the_page_language_attribute_follows_the_ui_language():
+    source = (Path(__file__).resolve().parent.parent / "src" / "webui" / "static" / "lib.js").read_text(encoding="utf-8")
+    assert "document.documentElement.lang = LANG" in source

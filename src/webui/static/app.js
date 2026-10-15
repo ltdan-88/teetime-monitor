@@ -76,7 +76,7 @@ function Empty({ title, text, children }) {
 }
 
 function Legend({ onClose }) {
-  const swatch = (color) => html`<span class="swatch" style=${{ background: color }}></span>`;
+  const swatch = (color, state) => html`<span class=${'swatch o-' + state} style=${{ backgroundColor: color }}></span>`;
   const toolIcon = (name) => html`<span class="tool-ico"><${Icon} name=${name} size=${18} /></span>`;
   return html`<${Sheet} title=${t('legend.title')} onClose=${onClose} size="small">
     <p class="hint">${t('legend.touch')}</p>
@@ -94,10 +94,10 @@ function Legend({ onClose }) {
     </details>
     <details class="legend-group" name="legend" open><summary>${t('legend.group.times')}</summary>
     <dl class="legend">
-      <dt>${swatch('var(--green)')}</dt><dd>${t('legend.occ.open')}</dd>
-      <dt>${swatch('var(--orange)')}</dt><dd>${t('legend.occ.mid')}</dd>
-      <dt>${swatch('var(--red)')}</dt><dd>${t('legend.occ.full')}</dd>
-      <dt>${swatch('var(--faint)')}</dt><dd>${t('legend.occ.none')}</dd>
+      <dt>${swatch('var(--green)', 'open')}</dt><dd>${t('legend.occ.open')}</dd>
+      <dt>${swatch('var(--orange)', 'mid')}</dt><dd>${t('legend.occ.mid')}</dd>
+      <dt>${swatch('var(--red)', 'full')}</dt><dd>${t('legend.occ.full')}</dd>
+      <dt>${swatch('var(--faint)', 'none')}</dt><dd>${t('legend.occ.none')}</dd>
     </dl>
     <dl class="legend">
       <dt><span class="pill pick"><${Icon} name="star" size=${14} style="fill:currentColor" />09:10</span></dt><dd>${t('legend.pick')}</dd>
@@ -535,6 +535,7 @@ function App() {
         </div>
       </header>
       <main class="main">
+        <h1 class="sr-only">${t('app.title')}</h1>
         ${view && view.kind === 'preview' && html`
           <div class="preview-bar" role="status"><${Icon} name="info" size=${18} />
             <span>${t('preview.not_saved', { name: view.name })}</span><span class="grow"></span>

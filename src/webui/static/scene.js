@@ -14,7 +14,7 @@ export function SceneDefs() {
       <linearGradient id="tp-overcast" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#343a52" /><stop offset="1" stop-color="#636a86" /></linearGradient>
       <linearGradient id="tp-clear" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b4f8f" /><stop offset="1" stop-color="#5a9bd8" /></linearGradient>
       <linearGradient id="tp-snow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b3856" /><stop offset="1" stop-color="#7f91b2" /></linearGradient>
-      <linearGradient id="tp-scrim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e1e" stop-opacity=".38" /><stop offset="1" stop-color="#0a0e1e" stop-opacity="0" /></linearGradient>
+      <linearGradient id="tp-scrim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a0e1e" stop-opacity=".5" /><stop offset=".78" stop-color="#0a0e1e" stop-opacity=".46" /><stop offset="1" stop-color="#0a0e1e" stop-opacity="0" /></linearGradient>
       <radialGradient id="tp-glow"><stop offset="0" stop-color="#ffd60a" stop-opacity=".55" /><stop offset="1" stop-color="#ffd60a" stop-opacity="0" /></radialGradient>
       <pattern id="tp-drops" width="30" height="40" patternUnits="userSpaceOnUse"><path d="M6 2l-3 10M21 22l-3 10" stroke="#a9c4ff" stroke-opacity=".5" stroke-width="1.1" stroke-linecap="round" fill="none" /></pattern>
       <pattern id="tp-flakes-near" width="70" height="70" patternUnits="userSpaceOnUse"><circle cx="14" cy="12" r="2.2" fill="#fff" fill-opacity=".95" /><circle cx="52" cy="30" r="1.9" fill="#fff" fill-opacity=".85" /><circle cx="30" cy="58" r="2.4" fill="#fff" fill-opacity=".95" /></pattern>
@@ -53,7 +53,7 @@ export function Scene({ mood, wind }) {
     ${mood === 'clear' && html`<g class="tp-cloud"><ellipse cx="70" cy="30" rx="24" ry="7" fill="#e8ecf5" fill-opacity=".45" /><ellipse cx="86" cy="24" rx="15" ry="7" fill="#e8ecf5" fill-opacity=".45" /></g>`}
     ${pair && html`<g class="tp-cloud"><ellipse cx="60" cy="22" rx="30" ry="9" fill=${pair[0]} /><ellipse cx="82" cy="15" rx="19" ry="9" fill=${pair[0]} /></g>
       <g class="tp-cloud tp-back"><ellipse cx="220" cy="24" rx="32" ry="9" fill=${pair[1]} /><ellipse cx="244" cy="17" rx="19" ry="9" fill=${pair[1]} /></g>`}
-    <rect width="300" height="100" fill="url(#tp-scrim)" />
+    <rect width="300" height="132" fill="url(#tp-scrim)" />
     <path d="M0 168V132Q70 120 150 128T300 122V168Z" fill=${snow ? '#e4eaf4' : '#2a6a45'} />
     <path d="M0 168V150Q90 142 180 148T300 144V168Z" fill=${snow ? '#cdd7e8' : '#1f5a3a'} />
     <ellipse cx="252" cy="147" rx="28" ry="4" fill=${snow ? '#f4f7fc' : '#2f7a50'} />

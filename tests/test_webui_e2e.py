@@ -510,6 +510,7 @@ def test_the_language_switches_to_german_in_the_view_menu_and_back(ui):
     ui.set("#v-language", "de")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Aktualisieren' || document.querySelector('.tool-label')?.textContent === 'Aktualisiere…'", 30)
     ui.shot("overview-de")
+    assert ui.js("document.documentElement.lang") == "de"  # screen readers pronounce German as German
     _open_view(ui)
     assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
     ui.set("#v-language", "en")
@@ -1294,6 +1295,66 @@ def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
     ui.wait("document.querySelectorAll('.tp-scene').length >= 1")
     assert ui.js("getComputedStyle(document.querySelector('.tp-scene')).stroke") == "none"
     assert ui.count(".tp-scene .tp-rays, .tp-scene .tp-cloud") >= 1
+
+
+# every visible plain text against what it sits on (colours resolved through a canvas, so `color-mix()` values count)
+CONTRAST_JS = r"""(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const parse = (c) => { cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return { r: d[0], g: d[1], b: d[2], a: d[3] / 255 }; };
+  const over = (top, bot) => ({ r: top.r * top.a + bot.r * (1 - top.a), g: top.g * top.a + bot.g * (1 - top.a), b: top.b * top.a + bot.b * (1 - top.a), a: 1 });
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const bg = (e) => { let stack = []; for (let n = e; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c && c.a > 0) { stack.push(c); if (c.a === 1) break; } } let base = { r: 30, g: 30, b: 46, a: 1 }; for (const c of stack.reverse()) base = over(c, base); return base; };
+  const rows = new Map();
+  for (const e of document.querySelectorAll('body *')) {
+    const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+    if (!r.width || !r.height || s.visibility === 'hidden' || e.closest('.tp-card, svg')) continue;
+    if (![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const fg = parse(s.color); if (!fg) continue; const back = bg(e); const text = over({ ...fg, a: fg.a * Number(s.opacity) }, back);
+    const cr = ratio(text, back); const big = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.66 && parseInt(s.fontWeight) >= 700);
+    const need = big ? 3 : 4.5;
+    if (cr < need) { const k = e.tagName.toLowerCase() + '.' + String(e.className).split(' ')[0] + ' ' + s.color + ' on ' + s.backgroundColor; if (!rows.has(k)) rows.set(k, [cr.toFixed(2), need, (e.textContent || '').trim().slice(0, 30)]); }
+  }
+  return [...rows.entries()].slice(0, 25);
+})()"""
+
+
+def test_text_reads_at_4_5_to_1_in_the_themes_that_were_weakest(ui):
+    ui.wait("document.querySelectorAll('.card').length > 0")
+    original = ui.js("document.documentElement.getAttribute('data-scheme') === 'light' ? 'catppuccin-latte' : 'catppuccin'")
+    try:
+        for theme in ("catppuccin-latte", "dracula", "solarized-light", "amber", "red-sands", "catppuccin"):
+            _open_view(ui)
+            ui.set("#v-theme", theme)
+            ui.js("new Promise((done) => setTimeout(done, 300))")
+            ui.key("Escape")
+            failing = ui.js(CONTRAST_JS)
+            assert failing == [], (theme, failing[:3])
+    finally:
+        _open_view(ui)
+        ui.set("#v-theme", original)
+        ui.key("Escape")
+
+
+def test_the_page_has_a_heading_and_the_occupancy_bars_have_words_and_patterns_not_only_colours(ui):
+    ui.wait("document.querySelectorAll('.heat').length > 0")
+    assert ui.js("document.querySelector('main h1')?.textContent") == "Teetime Monitor"
+    assert "Occupancy by time of day" in ui.js("document.querySelector('.heat').getAttribute('aria-label')")
+    assert "08–10" in ui.js("document.querySelector('.heat span').title")
+    assert ui.js("getComputedStyle(document.querySelector('.heat .o-mid')).backgroundImage") != "none"  # dotted: half booked
+
+
+def test_on_a_touch_screen_the_main_controls_are_at_least_44_px_tall(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=844, deviceScaleFactor=1, mobile=True)
+        ui.call("Emulation.setTouchEmulationEnabled", enabled=True, maxTouchPoints=5)
+        ui.wait("matchMedia('(pointer: coarse)').matches")
+        ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+        small = ui.js("[...document.querySelectorAll('.tool, .btn, .select select')].filter((e) => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height < 43.5).map((e) => e.className + ' ' + Math.round(e.getBoundingClientRect().height))")
+        assert small == [], small
+    finally:
+        ui.call("Emulation.setTouchEmulationEnabled", enabled=False)
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
 def test_the_legend_and_escape(ui):
