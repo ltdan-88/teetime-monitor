@@ -51,14 +51,15 @@ function refreshErrorText(error) {
 
 /** One standing explanation for days that all say "too dark": your window opens after the latest start
  *  that still finishes before sunset (the terminal app's and the Mac app's hint, with a way to the setting). */
-function WindowHint({ hint, onPreferences }) {
+function WindowHint({ hint, onPreferences, onDismiss }) {
   const hours = String(Math.round((hint.round_minutes / 60) * 100) / 100).replace('.', language() === 'de' ? ',' : '.');
   let text = t('hint.window_too_late', { after: hint.window_after, hours, sunset: hint.sunset, latest: hint.latest_start });
   if (hint.alternative_courses && hint.alternative_courses.length) {
     text += ' ' + t('overview.hint_alternative', { courses: hint.alternative_courses.join(', ') });
   }
   return html`<div class="banner hint-bar" role="status"><${Icon} name="info" size=${18} /><span>${text}</span>
-    <button class="btn" onClick=${onPreferences}>${t('action.preferences')}</button></div>`;
+    <button class="btn" onClick=${onPreferences}>${t('action.preferences')}</button>
+    <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button></div>`;
 }
 
 /** The app's name, always in view (the browser tab has it too): beside the toolbar on wide windows, a slim line above it on narrow ones. */
@@ -100,7 +101,7 @@ function Legend({ onClose }) {
       <dt><span class="pill quiet"><${Icon} name="lock" size=${14} />Wed 21:00</span></dt><dd>${t('legend.locked')}</dd>
       <dt><${Icon} name="star" size=${16} style="color:var(--accent);fill:var(--accent)" /></dt><dd>${t('legend.recommended')}</dd>
       <dt><${Icon} name="moon" size=${16} class="dim" /></dt><dd>${t('legend.too_late')}</dd>
-      <dt><span class="pill quiet"><${Icon} name="star" size=${14} />12:10 · 9H</span></dt><dd>${t('legend.alternative')}</dd>
+      <dt><span class="pill quiet"><${Icon} name="star" size=${14} />12:10 · ${t('holes.short', { n: 9 })}</span></dt><dd>${t('legend.alternative')}</dd>
       <dt><span class="chipdemo"><${Icon} name="users" size=${14} />3</span></dt><dd>${t('legend.chip')}</dd>
       <dt><span class="cell warn">13°</span></dt><dd>${t('legend.warn')}</dd>
     </dl>
@@ -187,6 +188,10 @@ function App() {
   const [dismissedUpdate, setDismissedUpdate] = useState(() => { try { return localStorage.getItem('tm_update_dismissed'); } catch (failure) { return null; } });
   const dismissUpdate = () => { try { localStorage.setItem('tm_update_dismissed', update.latest); } catch (failure) { /* just not remembered */ } setDismissedUpdate(update.latest); };
   // "Check for updates" always shows what it found, even a version dismissed before
+  // The "your window starts too late" note can be put away. It stays away until the window or the round length changes (the sunset moves every day, so it is not part of the key).
+  const hintKey = overview && overview.hint ? [overview.club.id, overview.hint.window_after, overview.hint.round_minutes].join('|') : null;
+  const [dismissedHint, setDismissedHint] = useState(() => { try { return localStorage.getItem('tm_hint_dismissed'); } catch (failure) { return null; } });
+  const dismissHint = () => { try { localStorage.setItem('tm_hint_dismissed', hintKey); } catch (failure) { /* just not remembered */ } setDismissedHint(hintKey); };
   const checked = (result) => { if (result && result.newer) { try { localStorage.removeItem('tm_update_dismissed'); } catch (failure) { /* fine */ } setDismissedUpdate(null); } setUpdate(result); };
   const loadSeq = useRef(0);
   const [searchTick, setSearchTick] = useState(0);
@@ -538,7 +543,7 @@ function App() {
           <div class="preview-bar" role="status"><${Icon} name="info" size=${18} /><span>${t('history.note')}</span><span class="grow"></span>
             <button class="btn pri" onClick=${() => setShowPast(false)}>${t('history.back')}</button></div>`}
         ${showPast && overview && overview.days.length === 0 && html`<${Empty} title=${t('history.empty.title')} text=${t('history.empty.text')} />`}
-        ${overview && overview.hint && html`<${WindowHint} hint=${overview.hint} onPreferences=${() => setSheet('preferences')} />`}
+        ${overview && overview.hint && hintKey !== dismissedHint && html`<${WindowHint} hint=${overview.hint} onPreferences=${() => setSheet('preferences')} onDismiss=${dismissHint} />`}
         ${view && !overview && !failure && html`<${Empty} title=${t('empty.updating')} />`}
         ${empty && html`<${Empty}
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}

@@ -1199,6 +1199,58 @@ def test_the_history_switch_shows_the_past_days_and_goes_back(ui):
     ui.key("Escape")
 
 
+def test_search_puts_the_criteria_beside_the_results_on_a_large_landscape_screen(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1400, height=800, deviceScaleFactor=1, mobile=False)
+        _open_sheet(ui, "s", "")
+        ui.wait("document.querySelectorAll('.res').length > 3")
+        side = ui.js("(() => { const c = document.querySelector('.criteria').getBoundingClientRect(), r = document.querySelector('.results').getBoundingClientRect(); return [c.right <= r.left, r.width, r.height]; })()")
+        assert side[0] is True and side[1] > 700 and side[2] > 400  # criteria left, results right, both with room
+        _close_sheet(ui)
+        ui.call("Emulation.setDeviceMetricsOverride", width=820, height=1100, deviceScaleFactor=1, mobile=False)  # upright: one column again
+        _open_sheet(ui, "s", "")
+        ui.wait("document.querySelectorAll('.res').length > 3")
+        assert ui.js("document.querySelector('.criteria').getBoundingClientRect().bottom <= document.querySelector('.results-head').getBoundingClientRect().top + 1")
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_a_pill_in_the_day_header_fits_inside_its_card_on_a_phone(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        ui.js("document.querySelector('.badge-slot').innerHTML = '<span class=\"pill quiet link\"><svg width=15 height=15></svg>16:00 · 9H</span>'")
+        ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+        fits = ui.js("(() => { const pill = document.querySelector('.badge-slot .pill'), card = document.querySelector('.card'); return [pill.scrollWidth <= pill.clientWidth, pill.getBoundingClientRect().right <= card.getBoundingClientRect().right]; })()")
+        assert fits == [True, True]  # the text sits inside the pill and the pill inside the card
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.dispatchEvent(new Event('focus'))")
+
+
+def test_the_window_hint_can_be_dismissed_and_stays_away(ui):
+    ui.js("""(() => { const real = window.fetch; window.fetch = async (...args) => { const response = await real(...args);
+      if (!String(args[0]).startsWith('/api/overview')) return response;
+      const body = await response.json(); body.hint = { window_after: '16:00', round_minutes: 240, sunset: '18:32', latest_start: '14:02', alternative_courses: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()""")
+    for _ in range(2):  # the past days and back: the overview is read again
+        ui.key("v")
+        ui.wait("document.querySelector('.view-panel')")
+        ui.click("#v-history")
+        ui.wait("document.querySelector('#v-history')?.checked || document.querySelector('.preview-bar')")
+        ui.click("#v-history")
+        ui.wait("!document.querySelector('.preview-bar')")
+        ui.key("Escape")
+        if _ == 0:
+            ui.wait("document.querySelector('.hint-bar')")
+            ui.click(".hint-bar .icon-btn")
+            ui.wait("!document.querySelector('.hint-bar')")
+        else:
+            ui.js("new Promise((done) => setTimeout(done, 400))")
+            assert ui.count(".hint-bar") == 0  # put away for good (until the window changes)
+    ui.js("localStorage.removeItem('tm_hint_dismissed')")
+
+
 def test_the_legend_and_escape(ui):
     ui.key("?")
     ui.wait(SHEET_READY)

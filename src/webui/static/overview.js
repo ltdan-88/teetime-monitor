@@ -25,10 +25,10 @@ export function Badge({ day, onAlternative }) {
   if (pick && pick.alternative) {
     const alt = pick.alternative;
     const tip = t('tip.alt', { time: alt.time, course: alt.course, holes: alt.holes });
-    if (!onAlternative) return html`<span class="pill quiet" title=${tip}><${Icon} name="star" size=${15} />${alt.time} · ${alt.holes}H</span>`;
+    if (!onAlternative) return html`<span class="pill quiet" title=${tip}><${Icon} name="star" size=${15} />${alt.time} · ${t('holes.short', { n: alt.holes })}</span>`;
     // Inside the header button, so a click must not also toggle the day.
     const go = (event) => { event.stopPropagation(); onAlternative(day, alt); };
-    return html`<span class="pill quiet link" title=${tip + ' ' + t('tip.pick_alternative_click')} onClick=${go}><${Icon} name="star" size=${15} />${alt.time} · ${alt.holes}H</span>`;
+    return html`<span class="pill quiet link" title=${tip + ' ' + t('tip.pick_alternative_click')} onClick=${go}><${Icon} name="star" size=${15} />${alt.time} · ${t('holes.short', { n: alt.holes })}</span>`;
   }
   if (pick && pick.unplayable && pick.unplayable.length) {
     const reasons = [...pick.unplayable].sort();

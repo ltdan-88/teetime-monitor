@@ -376,3 +376,11 @@ def test_the_stylesheet_has_balanced_braces_and_no_stray_ones():
             depth += (char == "{") - (char == "}")
             assert depth >= 0, f"a closing brace with nothing open, at line {number} (comments removed)"
     assert depth == 0, f"{depth} rule(s) never closed"
+
+
+def test_the_short_hole_count_reads_9L_in_german():
+    import json
+    from pathlib import Path
+
+    strings = json.loads((Path(__file__).resolve().parent.parent / "src" / "webui" / "static" / "strings.json").read_text(encoding="utf-8"))
+    assert strings["en"]["holes.short"] == "{n}H" and strings["de"]["holes.short"] == "{n}L"
