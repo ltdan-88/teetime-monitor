@@ -232,6 +232,14 @@ def test_the_mood_of_a_card_follows_the_weather_code_snow_included():
     ]  # fmt: skip
 
 
+def test_a_drizzle_code_at_a_small_rain_chance_is_not_drawn_as_a_wet_day():
+    from src.webui import panel
+
+    assert panel.mood_for_code(51, 11) == "overcast" and panel.mood_for_code(61, 29) == "overcast"  # forecasts send "drizzle" at 11 %
+    assert panel.mood_for_code(51, 40) == "rain" and panel.mood_for_code(63, 80) == "rain" and panel.mood_for_code(61, None) == "rain"
+    assert panel.mood_for_code(95, 5) == "rain" and panel.mood_for_code(71, 5) == "snow"  # storms and snow follow the code alone
+
+
 def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(world, monkeypatch):
     from src import clock
     from src.webui import panel

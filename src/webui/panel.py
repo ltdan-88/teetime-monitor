@@ -15,16 +15,23 @@ WEEK = 7  # days looked at
 
 # WMO weather codes (see weather_icons.py) -> the scene drawn behind a card
 _SNOW = {71, 73, 75, 77, 85, 86}
-_RAIN = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99}
+_RAIN = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82}
+_STORM = {95, 96, 99}
+RAIN_LIKELY_PERCENT = 30  # the default rain limit in Preferences
 _OVERCAST = {3, 45, 48}
 
 
-def mood_for_code(code: int | None) -> str:
-    """"snow" | "rain" | "overcast" | "partly" | "clear" for a WMO code; an unknown or missing code reads as overcast."""
+def mood_for_code(code: int | None, rain: float | None = None) -> str:
+    """"snow" | "rain" | "overcast" | "partly" | "clear" for a WMO code; an unknown or missing code reads as overcast.
+    A light rain code (drizzle, showers, rain) only draws the rain scene when rain is actually likely: forecasts do
+    send "drizzle" at an 11 % chance, which would look like a wet day on a day that passes your own rain limit.
+    Snow and thunderstorms follow the code alone."""
     if code in _SNOW:
         return "snow"
-    if code in _RAIN:
+    if code in _STORM:
         return "rain"
+    if code in _RAIN:
+        return "rain" if rain is None or rain >= RAIN_LIKELY_PERCENT else "overcast"
     if code in _OVERCAST:
         return "overcast"
     if code == 2:
@@ -47,7 +54,7 @@ def _score(temp: float | None, rain: float | None, wind: float | None) -> float:
 
 
 def _weather(temp, rain, wind, code, temp_low=None) -> dict:
-    return {"temp": temp, "temp_low": temp_low, "rain": rain, "wind": wind, "code": code, "mood": mood_for_code(code)}
+    return {"temp": temp, "temp_low": temp_low, "rain": rain, "wind": wind, "code": code, "mood": mood_for_code(code, rain)}
 
 
 def _slot_card(kind: str, day: dict, slot: dict, **extra) -> dict:
