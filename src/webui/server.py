@@ -44,7 +44,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .. import club_config, global_preferences, i18n, net, paths, scrape_once
-from . import auth, clubs_api, data, settings_api, tools_api, updates
+from . import auth, clubs_api, data, panel, settings_api, tools_api, updates
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 COOKIE_NAME = "tm_session"
@@ -391,6 +391,10 @@ class Handler(BaseHTTPRequestHandler):
             if not (arg("slug") or arg("club_id")):
                 return self._json({"error": "missing_club"}, HTTPStatus.BAD_REQUEST)
             return reply(data.overview(arg("slug"), arg("course"), arg("club_id"), arg("name"), picks=arg("picks") != "0", history=arg("history") == "1"))
+        if route == ("GET", "/api/panel"):
+            if not (arg("slug") or arg("club_id")):
+                return self._json({"error": "missing_club"}, HTTPStatus.BAD_REQUEST)
+            return reply(panel.build(arg("slug"), arg("course"), arg("club_id"), arg("name")))
         if route == ("GET", "/api/refresh/status"):
             return self._json(self.server.refresher.status(arg("key") or ""))
         if route == ("POST", "/api/refresh"):

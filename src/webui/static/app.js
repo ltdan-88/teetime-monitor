@@ -13,6 +13,8 @@ import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
 import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
+import { BottomPanel } from '/panel.js';
+import { Welcome } from '/welcome.js';
 import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
 import { installTouchTips } from '/tips.js';
 
@@ -58,8 +60,10 @@ function WindowHint({ hint, onPreferences, onDismiss }) {
     text += ' ' + t('overview.hint_alternative', { courses: hint.alternative_courses.join(', ') });
   }
   return html`<div class="banner hint-bar" role="status"><${Icon} name="info" size=${18} /><span>${text}</span>
-    <button class="btn" onClick=${onPreferences}>${t('action.preferences')}</button>
-    <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button></div>`;
+    <div class="banner-actions">
+      <button class="icon-btn" onClick=${onPreferences} aria-label=${t('action.preferences')} title=${t('action.preferences')}><${Icon} name="gear" size=${18} /></button>
+      <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button>
+    </div></div>`;
 }
 
 /** The app's name, always in view (the browser tab has it too): beside the toolbar on wide windows, a slim line above it on narrow ones. */
@@ -197,6 +201,8 @@ function App() {
   const [searchTick, setSearchTick] = useState(0);
   const [failure, setFailure] = useState(null);
   const [, tick] = useState(0);
+  const [tips, setTips] = useState(() => { try { return localStorage.getItem('tm_tips') !== '0'; } catch (failure) { return true; } }); // the tip cards at the bottom
+  const chooseTips = (on) => { try { localStorage.setItem('tm_tips', on ? '1' : '0'); } catch (failure) { /* just not remembered */ } setTips(on); };
   const [showPast, setShowPast] = useState(false); // the past days instead of the coming ones
   const current = useRef({ view: null, course: null, showPast: false });
   current.current = { view, course, showPast };
@@ -524,7 +530,7 @@ function App() {
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
-        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
+        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
           onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${checked} />
         </div>
       </header>
@@ -534,9 +540,7 @@ function App() {
             <span>${t('preview.not_saved', { name: view.name })}</span><span class="grow"></span>
             <button class="btn pri" onClick=${savePreview}><${Icon} name="plus" size=${16} />${t('preview.add')}</button>
             <button class="btn" onClick=${closePreview}>${t('preview.close')}</button></div>`}
-        ${noClub && html`<${Empty} title=${t('empty.no_clubs.title')} text=${t('empty.no_clubs.text')}>
-          <div class="actions center"><button class="btn pri" onClick=${() => setSheet('addclub')}><${Icon} name="plus" size=${16} />${t('addclub.title')}</button>
-            <button class="btn" onClick=${() => setSheet('settings')}>${t('settings.title')}</button></div><//>`}
+        ${noClub && html`<${Welcome} onAddClub=${() => setSheet('addclub')} onLogin=${() => setSheet('settings')} />`}
         ${update && update.newer && dismissedUpdate !== update.latest && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} onDismiss=${dismissUpdate} />`}
         ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
         ${showPast && html`
@@ -551,6 +555,9 @@ function App() {
         ${overview && overview.days.map((day) => html`
           <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)} reserveNote=${overview.days.some((entry) => entry.events.length > 0)}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
+        ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
+          dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}
+          onOpen=${(card) => jumpTo(card.date, card.time, card.course)} />`}
       </main>
       <footer class="footer">
         <div class="status">

@@ -224,6 +224,47 @@ def test_history_takes_in_today_once_daylight_is_over(world, monkeypatch):
     assert [day["date"] for day in data.overview(SLUG, COURSE, history=True)["days"]] == [date.today().isoformat()]
 
 
+def test_the_mood_of_a_card_follows_the_weather_code_snow_included():
+    from src.webui import panel
+
+    assert [panel.mood_for_code(c) for c in (0, 1, 2, 3, 45, 61, 80, 95, 71, 75, 85, None, 999)] == [
+        "clear", "clear", "partly", "overcast", "overcast", "rain", "rain", "rain", "snow", "snow", "snow", "overcast", "overcast",
+    ]  # fmt: skip
+
+
+def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(world, monkeypatch):
+    from src import clock
+    from src.webui import panel
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
+    today = date.today()
+    d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
+    sunny, rainy = _schedule(d(0), rain=5), _schedule(d(1), rain=80)
+    for item in (sunny, rainy, _schedule(d(2), rain=30)):
+        storage.save_schedule(item, path=world)
+    storage.record_seen_players([PlayerSighting(name="Erika Musterfrau", gender="female", member_status="member")], "2026-10-01T10:00:00+00:00", path=world)
+    storage.set_player_friend("Erika Musterfrau", True, path=world)
+    storage.save_confirmed_booking(ConfirmedBooking(date=d(1), course=COURSE, time="15:00", source="my_reservations", confirmed_at="t"), path=world)
+    data._OVERVIEW_CACHE.clear()
+    cards = {card["kind"]: card for card in panel.build(SLUG, COURSE)["cards"]}
+    assert set(cards) == {"next_round", "best_window", "friends", "best_weather"} or set(cards) == {"next_round", "friends", "best_weather"}
+    nxt = cards["next_round"]
+    assert (nxt["date"], nxt["time"], nxt["course"]) == (d(1), "15:00", COURSE) and nxt["finish"] > "15:00" and nxt["weather"]["rain"] == 80
+    assert nxt["weather"]["mood"] == "clear"  # the fake forecast's code is 1
+    friends = cards["friends"]
+    assert friends["time"] == "10:10" and [f["name"] for f in friends["friends"]] == ["Erika Musterfrau"] and friends["free"] == 2
+    assert cards["best_weather"]["date"] != cards["best_window"]["date"] if "best_window" in cards else cards["best_weather"]["date"] in (d(0), d(2))
+    assert cards["best_weather"]["weather"]["rain"] <= 30  # the rainy day loses
+
+
+def test_the_bottom_panel_without_anything_to_say_has_no_cards(world):
+    from src.webui import panel
+
+    data._OVERVIEW_CACHE.clear()
+    assert panel.build(None, None, club_id="0000009", name="Golfclub Fremd")["cards"] == []  # nothing saved for it yet
+    assert panel.build("nope", COURSE) == {"error": "unknown_club"}
+
+
 def test_a_booking_change_is_a_localized_banner_until_acknowledged(world):
     storage.save_booking_change(
         COURSE, date.today().isoformat(), "10:00", "party_grew", "A player joined", {"count": 1, "time": "10:00"}, path=world
