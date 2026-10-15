@@ -1291,6 +1291,13 @@ def test_the_flag_and_the_clouds_move_faster_the_harder_the_wind_blows(ui):
         assert w1 == w2 or (f1 >= f2 and c1 >= c2)  # more wind: a quicker flag and quicker clouds
 
 
+def test_each_card_moves_its_own_way_and_out_of_step_with_the_others(ui):
+    ui.wait("document.querySelectorAll('.tp-scene').length >= 3")
+    ways = ui.js("[...document.querySelectorAll('.tp-card')].map((c) => [c.querySelector('[class$=\"-x\"]').getAttribute('class'), getComputedStyle(c.querySelector('[class$=\"-x\"]')).animationDelay])")
+    assert len({w[0] for w in ways}) >= 3  # roll, chip, wobble, (a roll per friend): not one show on every card
+    assert len({w[1] for w in ways}) == len(ways)  # and each starts at a different point of its loop
+
+
 def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
     ui.wait("document.querySelectorAll('.tp-scene').length >= 1")
     assert ui.js("getComputedStyle(document.querySelector('.tp-scene')).stroke") == "none"
@@ -1341,7 +1348,8 @@ def test_the_page_has_a_heading_and_the_occupancy_bars_have_words_and_patterns_n
     assert ui.js("document.querySelector('main h1')?.textContent") == "Teetime Monitor"
     assert "Occupancy by time of day" in ui.js("document.querySelector('.heat').getAttribute('aria-label')")
     assert "08–10" in ui.js("document.querySelector('.heat span').title")
-    assert ui.js("getComputedStyle(document.querySelector('.heat .o-mid')).backgroundImage") != "none"  # dotted: half booked
+    assert ui.js("getComputedStyle(document.querySelector('.heat .o-mid')).backgroundImage") == "none"  # half booked is plain orange: no dots
+    assert "repeating-linear-gradient" in ui.js("(() => { const css = [...document.styleSheets].flatMap((s) => [...s.cssRules]).find((r) => r.selectorText === '.o-full'); return css ? css.style.backgroundImage : ''; })()")  # fully booked keeps its stripes
 
 
 def test_on_a_touch_screen_the_main_controls_are_at_least_44_px_tall(ui):
