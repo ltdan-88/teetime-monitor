@@ -1293,9 +1293,9 @@ def test_the_flag_and_the_clouds_move_faster_the_harder_the_wind_blows(ui):
 
 def test_each_card_moves_its_own_way_and_out_of_step_with_the_others(ui):
     ui.wait("document.querySelectorAll('.tp-scene').length >= 3")
-    ways = ui.js("[...document.querySelectorAll('.tp-card')].map((c) => [c.querySelector('[class$=\"-x\"]').getAttribute('class'), getComputedStyle(c.querySelector('[class$=\"-x\"]')).animationDelay])")
+    ways = ui.js("[...document.querySelectorAll('.tp-card')].map((c) => [c.querySelector('[class$=\"-x\"]').getAttribute('class'), c.querySelector('.tp-scene').style.getPropertyValue('--phase')])")
     assert len({w[0] for w in ways}) >= 3  # roll, chip, wobble, (a roll per friend): not one show on every card
-    assert len({w[1] for w in ways}) == len(ways)  # and each starts at a different point of its loop
+    assert len({w[1] for w in ways}) == len(ways)  # each starts at a different point of its loop (read from the style: a machine set to reduce motion has no animation to measure)
 
 
 def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
