@@ -1,4 +1,4 @@
-// The View menu in the toolbar: how the page looks and reads, one click from the Overview. Language, theme,
+// The View menu at the bottom, beside the Legend: how the page looks and reads, one click from the Overview. Language, theme,
 // scale, units and handicaps live here (not in Settings); each applies at once.
 
 import { CheckButton } from '/update.js';
@@ -52,8 +52,8 @@ export function ViewMenu({ boot, units, showHandicaps, history, onHistory, tips,
 
   return html`
     <span class="view-wrap">
-      <button class=${'tool' + (open ? ' on' : '')} data-view-button onClick=${onToggle} aria-expanded=${open} aria-haspopup="true"
-        title=${t('action.view') + ' (v)'} aria-keyshortcuts="v"><${Icon} name="palette" /><span class="tool-label">${t('action.view')}</span></button>
+      <button class=${'tool small' + (open ? ' on' : '')} data-view-button onClick=${onToggle} aria-expanded=${open} aria-haspopup="true"
+        title=${t('action.view') + ' (v)'} aria-label=${t('action.view')} aria-keyshortcuts="v"><${Icon} name="palette" size=${16} /><span class="tool-label">${t('action.view')}</span></button>
       ${open && html`
         <div class="view-panel" ref=${panel} role="dialog" aria-label=${t('action.view')}>
           <div class="field-row"><label for="v-language">${t('settings.field.language')}</label>
@@ -82,30 +82,3 @@ export function ViewMenu({ boot, units, showHandicaps, history, onHistory, tips,
     </span>`;
 }
 
-/** The tools used least (`items`, each { name, icon, label, key, onClick, disabled, phoneOnly }): the Heatmap on every
- *  screen, and on a phone, where the toolbar has room for only a few buttons a finger can hit, Preferences and Settings
- *  too (`phoneOnly`: style.css shows those here only on a narrow screen; wider ones keep them in the toolbar). */
-export function MoreMenu({ items, open, onToggle, onClose }) {
-  const panel = useRef(null);
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const outside = (event) => panel.current && !panel.current.contains(event.target) && !event.target.closest('[data-more-button]') && onClose();
-    const escape = (event) => event.key === 'Escape' && (event.stopPropagation(), onClose());
-    document.addEventListener('mousedown', outside);
-    window.addEventListener('keydown', escape, true);
-    return () => {
-      document.removeEventListener('mousedown', outside);
-      window.removeEventListener('keydown', escape, true);
-    };
-  }, [open]);
-  return html`
-    <span class="view-wrap more-wrap">
-      <button class=${'tool' + (open ? ' on' : '')} data-more-button onClick=${onToggle} aria-expanded=${open} aria-haspopup="menu" title=${t('action.more')}>
-        <${Icon} name="more" /><span class="tool-label">${t('action.more')}</span></button>
-      ${open && html`
-        <div class="view-panel more-panel" ref=${panel} role="menu" aria-label=${t('action.more')}>
-          ${items.map((item) => html`<button key=${item.name} class=${'more-item' + (item.phoneOnly ? ' phone-only' : '')} role="menuitem" disabled=${item.disabled} onClick=${() => { onClose(); item.onClick(); }}>
-            <${Icon} name=${item.icon} /><span>${item.label}</span><span class="kbd">${item.key}</span></button>`)}
-        </div>`}
-    </span>`;
-}

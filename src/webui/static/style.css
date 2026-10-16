@@ -107,7 +107,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   position: sticky; bottom: 0; background: var(--bg);
 }
 /* a phone on its side has ~390 px: a pinned footer would cover the last rows (and take their taps), so it just ends the page */
-@media (max-height: 500px) and (orientation: landscape) { .footer { position: static; } }
+@media (max-height: 500px) and (orientation: landscape) { .footer { position: relative; } }  /* not pinned, but still the frame the View panel opens from */
 .status { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
 .footer .refresh-btn { padding: 0 0.5rem; margin-left: -0.5rem; color: var(--mid); }  /* the status and the button that renews it, side by side */
 .footer .refresh-btn[disabled] { opacity: 1; }
@@ -272,7 +272,13 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .sheet.wide { max-width: 67.5rem; }
 .sheet.directory { max-width: 54rem; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 1.125rem 1.5rem 0.5rem; flex: none; }
-.sheet-head h2 { margin: 0; font-size: 1.3125rem; font-weight: 600; }
+.sheet-head h2 { margin: 0; font-size: 1.3125rem; font-weight: 600; text-wrap: balance; }
+.sheet-head:has(.sheet-tabs) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: 0.25rem; }  /* the title may wrap, the close button stays beside it */
+.sheet-tabs { grid-column: 1 / -1; display: flex; gap: 0.25rem; border-bottom: 1px solid var(--line); margin-top: 0.25rem; }
+.sheet-tab { border: 0; background: transparent; color: var(--mid); font: inherit; font-weight: 500; padding: 0.5rem 0.875rem; min-height: 2.5rem; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.sheet-tab:hover { color: var(--text); }
+.sheet-tab[aria-selected="true"] { color: var(--accent-text, var(--accent)); border-bottom-color: var(--accent-text, var(--accent)); }
 .sheet-body { padding: 0.5rem 1.5rem 1.375rem; overflow: auto; }
 /* a spacer, not only padding: some browsers (Safari) leave a scrolling box's bottom padding out, and the last buttons then touch the edge */
 .sheet-body:not(.fixed)::after { content: ""; display: block; height: 0.75rem; }
@@ -450,8 +456,6 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .toolbar-picks .select { flex: 1 1 0; }
   .toolbar-picks .select select { max-width: none; }
   .toolbar-tools { flex: 1 1 100%; justify-content: space-between; }
-  .toolbar-tools > .tool, .toolbar-tools .view-wrap { flex: 1 1 0; justify-content: center; }
-  .toolbar-tools .view-wrap > .tool { width: 100%; justify-content: center; }
   .dh { grid-template-columns: 1.375rem max-content 2.25rem minmax(0, 1fr) auto; padding: 0.5rem 0.75rem; row-gap: 0.375rem; container-type: inline-size; }  /* the date never wraps; the badge column is as wide as its pill */
   .dh .temp { overflow: hidden; white-space: nowrap; }
   .dh .temp svg { display: none; }  /* the thermometer: the colours already say temperature, and the room goes to the date */
@@ -514,6 +518,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 
 /* ---- View menu ---- */
 .view-wrap { position: relative; display: inline-flex; }
+.footer .view-panel { top: auto; bottom: calc(100% + 0.5rem); max-height: calc(100dvh - 7rem); overflow: auto; }
 .tool.on { background: var(--surface); color: var(--text); }
 .view-panel {
   position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 30; width: 25rem; max-width: calc(100vw - 2rem);
@@ -646,9 +651,9 @@ button, select, input { touch-action: manipulation; }
   .view-about { display: flex; }
   /* the View panel opens under the toolbar across the screen (centred on its far-right button it ran off the edge); after
      the base .view-panel rule, which would otherwise win */
-  .toolbar-tools { position: relative; }
-  .toolbar-tools .view-wrap { position: static; }  /* the menus hang from the row of icons, below it (the app name above the bar made a fixed top land on the icons) */
-  .view-panel { position: absolute; left: 0; right: 0; top: calc(100% + 0.375rem); width: auto; max-width: none; max-height: calc(100dvh - var(--toolbar-h, 6rem) - 4rem); overflow: auto; }
+  .footer .view-wrap { position: static; }  /* the View panel rises from the footer across the screen */
+  .footer .view-panel { left: 0.75rem; right: 0.75rem; width: auto; max-width: none; }
+  .footer .tool-label, .footer .legend-text { display: none; }  /* View and Legend as icons: the status keeps the room */
 }
 
 /* ---- app name ---- */
@@ -924,25 +929,10 @@ button, select, input { touch-action: manipulation; }
 .tourn-link:hover { text-decoration: underline; }
 .tourn-link svg { flex: none; }
 
-/* ---- the phone's More menu: seven toolbar buttons fit a finger; Heatmap, Preferences and Settings move behind More */
-.more-item.phone-only { display: none; }
-.more-panel { width: 16rem; padding: 0.375rem; display: flex; flex-direction: column; }
-.more-item { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0 0.75rem;
-  border: 0; border-radius: 0.5rem; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.more-item:hover, .more-item:focus-visible { background: var(--surface-hover); }
-.more-item[disabled] { opacity: .5; cursor: default; }
-.more-item .kbd { color: var(--dim); }
+/* ---- phones: the six toolbar buttons share the width equally at every text size (no padding or minimum to push the row off the screen) */
 @media (max-width: 640px) {
-  .toolbar-tools > .tool.in-more { display: none; }
-  .more-item.phone-only { display: grid; }
-  /* More is the right-most button: its menu opens right under it, not across the screen like the View panel */
-  .view-panel.more-panel { left: auto; right: 0; width: min(16rem, 100%); max-height: none; }
-  .toolbar-tools .more-wrap { flex: 1 1 0; }
-  .toolbar-tools .more-wrap > .tool { width: 100%; justify-content: center; }
-  /* seven equal shares of the width at every text size: no padding or minimum to push the row off the screen */
   .toolbar-tools { gap: 0; }
-  .toolbar-tools > .tool, .toolbar-tools .view-wrap > .tool { padding-left: 0; padding-right: 0; min-width: 0; }
-  .toolbar-tools > .tool, .toolbar-tools .view-wrap { min-width: 0; }
+  .toolbar-tools > .tool { flex: 1 1 0; justify-content: center; padding-left: 0; padding-right: 0; min-width: 0; }
 }
 /* a phone at a large text size: the day's low goes first, so the date, the high and the badge keep one line */
 @container (max-width: 20rem) { .dh .temp .lo { display: none; } }

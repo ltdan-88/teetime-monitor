@@ -1222,7 +1222,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
-    assert ui.count(".legend .tool-ico") == 10  # every toolbar icon is named, More included
+    assert ui.count(".legend .tool-ico") == 9  # every tool is named, View and Heatmap included
     assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
     assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
     assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away
@@ -1484,7 +1484,7 @@ def test_the_legend_and_escape(ui):
     ui.wait("!document.querySelector('.scrim')")
 
 
-def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every_text_size(ui):
+def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_heatmap_is_a_search_tab(ui):
     ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
     try:
         for scale in (90, 110, 125):
@@ -1499,24 +1499,28 @@ def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every
                 assert shape["narrow"] >= 44, (scale, width, shape)  # a finger still hits every button
                 one_line = ui.js("[...document.querySelectorAll('.dh .day')].every((e) => e.getBoundingClientRect().height < parseFloat(getComputedStyle(e).fontSize) * 1.8)")
                 assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
-        ui.click(".more-wrap .tool")
-        ui.wait("document.querySelector('.more-panel')")
-        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Heatmap", "Preferences", "Settings"]
-        ui.click(".more-item", text="Settings")
-        ui.wait("!document.querySelector('.more-panel') && document.querySelector('.sheet h2')?.textContent.includes('Settings')")
-        _close_sheet(ui)
+        assert ui.count(".more-wrap, .more-panel") == 0  # no More menu any more
+        ui.js("document.querySelector('.footer [data-view-button]').click()")  # View sits in the footer and opens upwards
+        ui.wait("document.querySelector('.view-panel #v-theme')")
+        box = ui.js("""(() => { const p = document.querySelector('.view-panel').getBoundingClientRect(), f = document.querySelector('.footer').getBoundingClientRect();
+          return {bottom: p.bottom, footer: f.top, left: p.left, right: p.right, w: innerWidth, top: p.top}; })()""")
+        assert box["bottom"] <= box["footer"] + 1 and box["top"] >= 0 and box["left"] >= 0 and box["right"] <= box["w"] + 1, box
+        ui.key("Escape")
+        ui.wait("!document.querySelector('.view-panel')")
     finally:
         ui.js("localStorage.removeItem('tm_scale'); window.__beforeReload = true; location.reload()")
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
-    ui.click(".more-wrap .tool")  # a wide screen: More holds only the Heatmap, Preferences and Settings stay in the toolbar
-    ui.wait("document.querySelector('.more-panel')")
-    shown = ui.js("[...document.querySelectorAll('.more-item')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.querySelector('span').textContent)")
-    assert shown == ["Heatmap"], shown
     assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Players", "Reservations", "Tournaments", "Preferences", "Settings"]
-    ui.click(".more-item", text="Heatmap")
-    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap')")
+    assert ui.js("[...document.querySelectorAll('.footer .tool')].map((e) => e.textContent.trim())")[-2:] == ["View", "Legend"]  # beside each other at the bottom
+    _open_sheet(ui, "s", "Search")  # Search and the Heatmap: one window, two tabs
+    assert ui.js("[...document.querySelectorAll('.sheet-tab')].map((e) => e.textContent.trim() + (e.getAttribute('aria-selected') === 'true' ? '*' : ''))") == ["Open times*", "Heatmap"]
+    ui.click(".sheet-tab", text="Heatmap")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('.sheet-tab[aria-selected=true]').textContent.trim() === 'Heatmap'")
+    ui.wait("document.querySelector('.hm-wrap, .sheet .empty')")
+    ui.click(".sheet-tab", text="Open times")
+    ui.wait("document.querySelector('.sheet .criteria')")
     _close_sheet(ui)
 
 

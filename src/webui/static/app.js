@@ -13,7 +13,7 @@ import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
 import { TournamentsSheet } from '/tournaments.js';
 import { PlayersSheet } from '/players.js';
-import { ViewMenu, MoreMenu } from '/viewmenu.js';
+import { ViewMenu } from '/viewmenu.js';
 import { BottomPanel } from '/panel.js';
 import { Welcome } from '/welcome.js';
 import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
@@ -92,7 +92,6 @@ function Legend({ onClose }) {
       <dt>${toolIcon('gear')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
       <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
-      <dt>${toolIcon('more')}</dt><dd>${t('legend.tool.more')}</dd>
     </dl>
     </details>
     <details class="legend-group" name="legend" open><summary>${t('legend.group.times')}</summary>
@@ -190,7 +189,6 @@ function App() {
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false); // the More menu: the Heatmap, and on a phone Preferences and Settings
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
@@ -520,13 +518,11 @@ function App() {
     <button class=${'tool' + extra} onClick=${onClick} disabled=${disabled} title=${label + ' (' + key + ')'} aria-keyshortcuts=${key}>
       <${Icon} name=${icon} class=${name === 'refresh' && refresh.running ? 'spin' : ''} /><span class="tool-label">${label}</span></button>`;
   const noCourse = noClub || !overview || !overview.course;
-  // behind More: the Heatmap everywhere; Preferences and Settings only on a phone (wider screens keep them in the toolbar)
-  const rare = [
-    { name: 'heatmap', icon: 'grid', label: t('action.heatmap'), key: 'h', onClick: () => setSheet('heatmap'), disabled: noCourse },
-    { name: 'preferences', icon: 'gear', label: t('action.preferences'), key: 'e', onClick: () => setSheet('preferences'), disabled: false, phoneOnly: true },
-    { name: 'settings', icon: 'sliders', label: t('action.settings'), key: ',', onClick: () => setSheet('settings'), disabled: false, phoneOnly: true },
+  // Search and the Heatmap are one window with two tabs: both answer "when should I play?"
+  const searchTabs = (active) => [
+    { key: 'search', label: t('search.tab.free'), on: active === 'search', onSelect: () => setSheet('search') },
+    { key: 'heatmap', label: t('action.heatmap'), on: active === 'heatmap', onSelect: () => setSheet('heatmap') },
   ];
-  const rareTool = (name) => { const item = rare.find((r) => r.name === name); return tool(item.name, item.icon, item.label, item.key, item.onClick, item.disabled, ' in-more'); };
 
   return html`
     <div class="app">
@@ -543,11 +539,8 @@ function App() {
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
-        ${rareTool('preferences')}
-        ${rareTool('settings')}
-        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => { setMoreOpen(false); setViewOpen((o) => !o); }} onClose=${() => setViewOpen(false)}
-          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${checked} />
-        <${MoreMenu} items=${rare} open=${moreOpen} onToggle=${() => { setViewOpen(false); setMoreOpen((o) => !o); }} onClose=${() => setMoreOpen(false)} />
+        ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
+        ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         </div>
       </header>
       <main class="main">
@@ -587,6 +580,8 @@ function App() {
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
         <span class="about"><span class="version dim" title=${t('app.title')}>v${boot.version}</span><${CheckButton} onResult=${checked} /></span>
+        <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
+          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} onLanguage=${() => location.reload()} onUpdate=${checked} />
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} /><span class="legend-text">${t('legend')}</span></button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
@@ -597,8 +592,8 @@ function App() {
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
-        refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} />`}
-      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} />`}
+        refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
+      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
