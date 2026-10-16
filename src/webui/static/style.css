@@ -518,7 +518,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 
 /* ---- View menu ---- */
 .view-wrap { position: relative; display: inline-flex; }
-.footer .view-panel { top: auto; bottom: calc(100% + 0.5rem); max-height: calc(100dvh - 7rem); overflow: auto; }
+.footer .view-panel { top: auto; bottom: calc(100% + 0.5rem); max-height: calc(100dvh - var(--toolbar-h, 6rem) - 6rem); overflow: auto; }  /* never under the pinned toolbar */
 .tool.on { background: var(--surface); color: var(--text); }
 .view-panel {
   position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 30; width: 25rem; max-width: calc(100vw - 2rem);
@@ -937,3 +937,13 @@ button, select, input { touch-action: manipulation; }
 /* a phone at a large text size: the day's low goes first, so the date, the high and the badge keep one line */
 @container (max-width: 20rem) { .dh .temp .lo { display: none; } }
 @container (max-width: 18rem) { .dh .temp { visibility: hidden; } }  /* no room for even the high: none rather than a cut-off digit (the open day shows it per time) */
+
+/* ---- the View panel: three switches, each label beside its switch (on a phone too) */
+.view-panel.slim { width: 21rem; }
+.view-more { margin: 0.375rem 0 0.125rem; padding-top: 0.5rem; border-top: 1px solid var(--line); color: var(--dim); font-size: 0.8125rem; line-height: 1.4; }
+.about-group .view-about { display: flex; border-top: 0; margin-top: 0; padding-top: 0.25rem; }
+.about-logout { padding-top: 0.5rem; }
+@media (max-width: 640px) {
+  .view-panel.slim .field-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 0; }
+  .view-panel.slim .field-row > label { white-space: normal; }
+}
