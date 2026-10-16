@@ -1115,25 +1115,29 @@ def test_a_narrow_computer_window_and_a_phone_on_its_side_use_the_chip_and_scrol
         ui.js("window.scrollTo(0, 0)")
 
 
-def test_collapsed_days_are_all_the_same_height(ui):
-    """A day with an event note, one with a pick badge and one with neither used to differ in height: the note line
-    is kept for every day once any day has a note, and the badge slot always has the badge's height."""
-    def heights():
-        return ui.js("(() => [...document.querySelectorAll('.card:not(.open)')].map((c) => Math.round(c.getBoundingClientRect().height)))()")
+def test_a_day_is_only_as_tall_as_what_it_says(ui):
+    """The event line used to be kept on every day once any day had one, which left an empty band on most days
+    (2026-10-16: "is this screen too crowded?"). Now only a day with an event has the line; the others are one height,
+    and the badge slot keeps a day with a badge as tall as one without."""
+    def heights(with_note):
+        return ui.js(f"[...document.querySelectorAll('.card:not(.open)')].filter((c) => !!c.querySelector('.events') === {str(with_note).lower()}).map((c) => Math.round(c.getBoundingClientRect().height))")
 
     ui.js("window.scrollTo(0, 0)")
     while ui.count(".card.open"):
         ui.click(".card.open button.dh")
         ui.wait("document.querySelectorAll('.card.open').length === 0 || true")
     ui.wait("document.querySelectorAll('.card').length === 5 && !document.querySelector('.card.open')")
-    assert ui.count(".dh .events") == 5 and ui.js("[...document.querySelectorAll('.dh .events')].filter((e) => e.textContent.trim()).length") >= 1  # some days have notes, all have the line
-    assert len(set(heights())) == 1, heights()
-    ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=2, mobile=True)
-    try:
-        ui.js("window.scrollTo(0, 0)")
-        assert len(set(heights())) == 1, heights()  # and on a phone, where the note is its own row
-    finally:
-        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+    assert ui.js("[...document.querySelectorAll('.dh .events')].every((e) => e.textContent.trim())")  # no empty placeholder line
+    assert 1 <= ui.count(".dh .events") < 5
+    for width, mobile in ((1280, False), (390, True)):
+        ui.call("Emulation.setDeviceMetricsOverride", width=width, height=800, deviceScaleFactor=2 if mobile else 1, mobile=mobile)
+        try:
+            ui.js("window.scrollTo(0, 0)")
+            plain, noted = heights(False), heights(True)
+            assert len(set(plain)) == 1 and len(set(noted)) == 1, (width, plain, noted)
+            assert min(noted) > max(plain), (width, plain, noted)  # the note adds its line, nothing else does
+        finally:
+            ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 
 
 def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_retry_button(ui, hurry):
@@ -1167,11 +1171,14 @@ def test_a_dropped_connection_at_page_load_is_retried_and_a_dead_server_gets_a_r
         ui.wait("document.querySelectorAll('.card').length > 0", 30)
 
 
-def test_the_app_name_is_always_in_view(ui):
+def test_the_app_name_shows_where_there_is_room_and_a_phone_gives_its_row_to_the_days(ui):
     assert "Teetime Monitor" in ui.text(".brand.in-bar") and ui.js("getComputedStyle(document.querySelector('.brand.top')).display") == "none"
-    ui.call("Emulation.setDeviceMetricsOverride", width=393, height=800, deviceScaleFactor=2, mobile=True)
+    ui.call("Emulation.setDeviceMetricsOverride", width=760, height=900, deviceScaleFactor=1, mobile=False)
     try:
-        assert "Teetime Monitor" in ui.text(".brand.top") and ui.js("getComputedStyle(document.querySelector('.brand.in-bar')).display") == "none"
+        assert "Teetime Monitor" in ui.text(".brand.top") and ui.js("getComputedStyle(document.querySelector('.brand.in-bar')).display") == "none"  # a narrow window: its own row
+        ui.call("Emulation.setDeviceMetricsOverride", width=393, height=800, deviceScaleFactor=2, mobile=True)
+        hidden = ui.js("[...document.querySelectorAll('.brand')].every((b) => getComputedStyle(b).display === 'none')")
+        assert hidden  # a phone: the home-screen icon and the tab say it (2026-10-16)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
 

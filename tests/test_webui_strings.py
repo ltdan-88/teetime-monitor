@@ -15,7 +15,7 @@ from src.webui import data  # noqa: F401  (imported so a broken package fails he
 STATIC = Path(__file__).resolve().parent.parent / "src" / "webui" / "static"
 LOCAL = json.loads((STATIC / "strings.json").read_text(encoding="utf-8"))
 NAMESPACES = (
-    "action|addclub|ai|booking|club|cond|empty|error|heatmap|legend|login|players|preferences|preview|reason|search|settings|tip|tournaments|updated"
+    "action|addclub|ai|badge|booking|club|cond|empty|error|heatmap|legend|login|players|preferences|preview|reason|search|settings|tip|tournaments|updated"
 )
 LITERAL = re.compile(rf"""['"]((?:{NAMESPACES})(?:\.[a-z_0-9]+)+|updated_\w+|expand|collapse|free|anonymous|refreshing|legend|club|course)['"]""")
 # keys built at run time: (prefix, the suffixes the scripts build)

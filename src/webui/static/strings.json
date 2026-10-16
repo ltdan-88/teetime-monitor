@@ -367,7 +367,10 @@
   "search.tab.free": "Open times",
   "view.more_in_settings": "Language, theme, size and units are in Settings.",
   "settings.display_hint": "These apply at once; the size is kept for this device.",
-  "settings.group.about": "About"
+  "settings.group.about": "About",
+  "badge.rain": "Rain",
+  "badge.dark": "Too dark",
+  "badge.rain_dark": "Rain · dark"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -737,6 +740,9 @@
   "search.tab.free": "Freie Zeiten",
   "view.more_in_settings": "Sprache, Design, Größe und Einheiten findest du in den Einstellungen.",
   "settings.display_hint": "Gilt sofort; die Größe gilt für dieses Gerät.",
-  "settings.group.about": "Über"
+  "settings.group.about": "Über",
+  "badge.rain": "Regen",
+  "badge.dark": "Zu dunkel",
+  "badge.rain_dark": "Regen · dunkel"
  }
 }
