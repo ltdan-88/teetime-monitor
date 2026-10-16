@@ -2,6 +2,7 @@
 // Settings sheet's own sections (clubs, login, AI key).
 
 import { html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon } from '/lib.js';
+import { DisplaySection, AboutSection } from '/viewmenu.js';
 
 // ---------------------------------------------------------------- generated form
 
@@ -265,19 +266,19 @@ function AiSection({ ai, onChanged }) {
     </form>`;
 }
 
-export function SettingsSheet({ clubId, serve, onClose, onSaved, onAddClub, onClubsChanged }) {
+export function SettingsSheet({ clubId, serve, display, onClose, onSaved, onAddClub, onClubsChanged }) {
   const { data, error, reload } = useLoad(() => api('/api/settings' + query({ club_id: clubId })), [clubId]);
   return html`<${Sheet} title=${t('settings.title')} onClose=${onClose} size="wide">
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('loading')}</p>`}
-    ${data && html`<${SettingsBody} data=${data} clubId=${clubId} serve=${serve} reload=${reload} onClose=${onClose} onSaved=${onSaved} onAddClub=${onAddClub} onClubsChanged=${onClubsChanged} />`}
+    ${data && html`<${SettingsBody} data=${data} clubId=${clubId} serve=${serve} display=${display} reload=${reload} onClose=${onClose} onSaved=${onSaved} onAddClub=${onAddClub} onClubsChanged=${onClubsChanged} />`}
   <//>`;
 }
 
-// Language, theme, scale, units and handicaps are in the toolbar's View menu, not here.
+// The server's Display group (language, units, handicaps) is drawn by DisplaySection instead: those apply at once.
 const VIEW_GROUP = 'settings.group.display';
 
-function SettingsBody({ data, clubId, serve, reload, onClose, onSaved, onAddClub, onClubsChanged }) {
+function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, onAddClub, onClubsChanged }) {
   const visible = data.groups.filter((group) => group.key !== VIEW_GROUP);
   const [values, setValue] = useForm(visible);
   const [message, setMessage] = useState(null);
@@ -302,6 +303,7 @@ function SettingsBody({ data, clubId, serve, reload, onClose, onSaved, onAddClub
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
       <${Columns} items=${[
         { weight: 7, node: html`<${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />` },
+        ...(display ? [{ weight: 6, node: html`<${DisplaySection} ...${display} />` }] : []),
         ...groupItems(otherGroups, values, setValue),
         ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(aiGroup ? [{ weight: aiGroup.fields.length + 6, node: html`
@@ -312,6 +314,7 @@ function SettingsBody({ data, clubId, serve, reload, onClose, onSaved, onAddClub
                 <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} /></div>`)}
             <${AiSection} ai=${data.ai} onChanged=${reload} />
           </section>` }] : []),
+        ...(display ? [{ weight: 3, node: html`<${AboutSection} boot=${display.boot} onUpdate=${display.onUpdate} />` }] : []),
       ]} />
     </div>
     <div class="actions">

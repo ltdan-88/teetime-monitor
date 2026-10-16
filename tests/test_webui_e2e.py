@@ -533,79 +533,98 @@ BACKGROUND = "getComputedStyle(document.body).backgroundColor"
 
 def _open_view(ui):
     ui.key("v")
-    ui.wait("document.querySelector('.view-panel')")
-    ui.wait("document.querySelector('.view-panel #v-theme')")
+    ui.wait("document.querySelector('.view-panel #v-hcp')")
     ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")  # let the page finish drawing
 
 
-def test_the_view_menu_holds_what_changes_how_the_page_looks_and_reads(ui):
+def _open_display(ui):
+    """Settings, where language, theme, size and units live (set once, so not in the View menu)."""
+    ui.key(",")
+    ui.wait("document.querySelector('.sheet .display-group #v-theme')")
+    ui.wait(SHEET_READY)
+    ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+
+
+def _close_display(ui):
+    ui.key("Escape")
+    ui.wait("!document.querySelector('.scrim')")
+
+
+def test_the_view_menu_holds_three_switches_and_settings_the_rest(ui):
     _open_view(ui)
     ui.shot("view-menu")
-    for control in ("#v-language", "#v-theme", "#v-units", "#v-hcp"):
-        assert ui.count(control) == 1, control
-    assert ui.count(".view-panel .stepper button") == 2
+    assert [ui.count(c) for c in ("#v-hcp", "#v-tips", "#v-history")] == [1, 1, 1]
+    assert ui.count(".view-panel select, .view-panel .stepper") == 0  # language, theme, size and units moved out
+    assert "Settings" in ui.text(".view-panel .view-more")
     ui.key("Escape")
     ui.wait("!document.querySelector('.view-panel')")
-    _open_sheet(ui, ",", "Settings")  # and none of it is buried in Settings any more
-    ui.wait("document.querySelector('#login-user')")
-    assert ui.count("#f-theme") == 0 and ui.count("#f-scale") == 0 and ui.count("#f-field-__language__") == 0
-    assert ui.count("#f-field-units") == 0
-    _close_sheet(ui)
+    _open_display(ui)  # Settings: a Display group that applies at once, and About with the version and the update check
+    for control in ("#v-language", "#v-theme", "#v-units"):
+        assert ui.count(".display-group " + control) == 1, control
+    assert ui.count(".display-group .stepper button") == 2
+    assert ui.count("#f-field-__language__") == 0 and ui.count("#f-field-units") == 0  # not twice
+    assert re.search(r"v\d", ui.text(".about-group")) and ui.count(".about-group .check-update") == 1
+    ui.shot("settings-display")
+    _close_display(ui)
 
 
-def test_a_theme_is_chosen_in_the_view_menu_and_survives_a_reload(ui):
-    _open_view(ui)
+def test_a_theme_is_chosen_in_settings_and_survives_a_reload(ui):
+    _open_display(ui)
     ui.set("#v-theme", "solarized-light")
     ui.wait(f"{BACKGROUND} === 'rgb(253, 246, 227)'")
     ui.shot("theme-solarized-light")
     ui.js("window.__beforeReload = true; location.reload()")
     # wait for the NEW page: the old one still shows cards and the theme until the reload replaces it
     ui.wait(f"window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0 && {BACKGROUND} === 'rgb(253, 246, 227)'")
-    _open_view(ui)
+    _open_display(ui)
     ui.set("#v-theme", "catppuccin")
     ui.wait(f"{BACKGROUND} === 'rgb(30, 30, 46)'")
-    ui.key("Escape")
+    _close_display(ui)
 
 
-def test_the_scale_is_stepped_in_the_view_menu_and_remembered(ui):
+def test_the_scale_is_stepped_in_settings_and_remembered(ui):
     assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
-    _open_view(ui)
-    ui.click(".view-panel .stepper button", "A+")
+    _open_display(ui)
+    ui.click(".display-group .stepper button", "A+")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '14.4px'")
     assert "90" in ui.text(".stepper-value")
     ui.js("localStorage.getItem('tm_scale') === '90' || (() => { throw new Error('not saved'); })()")
-    ui.click(".view-panel .stepper button", "A−")
+    ui.click(".display-group .stepper button", "A−")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
-    ui.key("Escape")
+    _close_display(ui)
 
 
-def test_units_and_handicaps_switch_from_the_view_menu(ui):
+def test_units_switch_in_settings_and_handicaps_in_the_view_menu(ui):
     if not ui.count(".card.open"):  # (closing a looked-at club leaves every day collapsed)
         ui.click("button.dh", index=0)
         ui.wait("document.querySelector('.card.open .names')")
     before = ui.js("document.querySelector('.dh .temp').textContent")
     names = "document.querySelector('.card.open .names')?.textContent || ''"
     assert "(18.4)" in ui.js(names) or "(22.1)" in ui.js(names)
-    _open_view(ui)
+    _open_display(ui)
     ui.set("#v-units", "imperial")
     ui.wait(f"document.querySelector('.dh .temp').textContent !== {json.dumps(before)}")
+    ui.set("#v-units", "metric")
+    ui.wait(f"document.querySelector('.dh .temp').textContent === {json.dumps(before)}")
+    _close_display(ui)
+    _open_view(ui)
     ui.js("document.querySelector('#v-hcp').click()")
     ui.wait(f"!/\\(\\d+\\.\\d\\)/.test({names})")
     ui.js("document.querySelector('#v-hcp').click()")  # and back to how it was
-    ui.set("#v-units", "metric")
-    ui.wait(f"document.querySelector('.dh .temp').textContent === {json.dumps(before)}")
     ui.wait(f"/\\(\\d+\\.\\d\\)/.test({names})")
     ui.key("Escape")
 
 
-def test_the_language_switches_to_german_in_the_view_menu_and_back(ui):
-    _open_view(ui)
+def test_the_language_switches_to_german_in_settings_and_back(ui):
+    _open_display(ui)
     ui.set("#v-language", "de")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Suchen'", 30)
     ui.shot("overview-de")
     assert ui.js("document.documentElement.lang") == "de"  # screen readers pronounce German as German
     _open_view(ui)
     assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
+    ui.key("Escape")
+    _open_display(ui)
     ui.set("#v-language", "en")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Search'", 30)
 
@@ -1040,12 +1059,13 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         assert ui.js("document.querySelector('.card.open .who-list').innerText.length") > 3
         ui.js("document.querySelector('.card.open .slot .who-chip').click()")
         ui.wait("!document.querySelector('.card.open .who-list')")
-        # the View menu stays inside the screen, with the version and the update check
+        # the View menu stays inside the screen (the version and the update check are in Settings)
         ui.js("document.querySelector('[data-view-button]').click()")
         ui.wait("document.querySelector('.view-panel')")
-        box = ui.js("(() => { const r = document.querySelector('.view-panel').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
+        box = ui.js("(() => { const r = document.querySelector('.view-panel').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth, r.top]; })()")
         assert box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2] + 1, box
-        assert re.search(r"v\d", ui.text(".view-about")) and ui.js("getComputedStyle(document.querySelector('.view-about')).display") != "none"
+        toolbar = ui.js("document.querySelector('.toolbar').getBoundingClientRect().bottom")
+        assert box[4] >= toolbar - 1, (box, toolbar)  # all of it below the toolbar, nothing hidden under it
         ui.key("Escape")
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
@@ -1443,16 +1463,16 @@ def test_text_reads_at_4_5_to_1_in_the_themes_that_were_weakest(ui):
     original = ui.js("document.documentElement.getAttribute('data-scheme') === 'light' ? 'catppuccin-latte' : 'catppuccin'")
     try:
         for theme in ("catppuccin-latte", "dracula", "solarized-light", "amber", "red-sands", "catppuccin"):
-            _open_view(ui)
+            _open_display(ui)
             ui.set("#v-theme", theme)
             ui.js("new Promise((done) => setTimeout(done, 300))")
-            ui.key("Escape")
+            _close_display(ui)
             failing = ui.js(CONTRAST_JS)
             assert failing == [], (theme, failing[:3])
     finally:
-        _open_view(ui)
+        _open_display(ui)
         ui.set("#v-theme", original)
-        ui.key("Escape")
+        _close_display(ui)
 
 
 def test_the_page_has_a_heading_and_the_occupancy_bars_have_words_and_patterns_not_only_colours(ui):
@@ -1501,7 +1521,7 @@ def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_he
                 assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
         assert ui.count(".more-wrap, .more-panel") == 0  # no More menu any more
         ui.js("document.querySelector('.footer [data-view-button]').click()")  # View sits in the footer and opens upwards
-        ui.wait("document.querySelector('.view-panel #v-theme')")
+        ui.wait("document.querySelector('.view-panel #v-hcp')")
         box = ui.js("""(() => { const p = document.querySelector('.view-panel').getBoundingClientRect(), f = document.querySelector('.footer').getBoundingClientRect();
           return {bottom: p.bottom, footer: f.top, left: p.left, right: p.right, w: innerWidth, top: p.top}; })()""")
         assert box["bottom"] <= box["footer"] + 1 and box["top"] >= 0 and box["left"] >= 0 and box["right"] <= box["w"] + 1, box
@@ -1603,9 +1623,9 @@ def test_the_server_asks_for_its_password_and_remembers_you(served_ui):
     page.wait("document.querySelectorAll('.card').length > 0")  # the Overview, with its data
     page.js("window.__beforeReload = true; location.reload()")
     page.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")  # still logged in
-    page.js("document.querySelector('[data-view-button]').click()")
-    page.wait("document.querySelector('.view-panel')")
-    page.click(".view-panel .btn", "Log out")
+    page.key(",")  # Log out sits in Settings, under About
+    page.wait("document.querySelector('.about-group .btn')")
+    page.click(".about-group .btn", "Log out")
     page.wait("document.documentElement.dataset.ready")  # back at the login page
     page.go(f"http://127.0.0.1:{port}/api/bootstrap")
     page.wait("document.body.innerText.includes('auth')")  # and nothing is open without it: the data answers 401
@@ -1639,9 +1659,9 @@ def test_the_server_password_is_changed_in_settings(served_ui):
     _close_sheet(page)
     page.js("window.__beforeReload = true; location.reload()")
     page.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")  # this browser stays logged in
-    page.js("document.querySelector('[data-view-button]').click()")
-    page.wait("document.querySelector('.view-panel')")
-    page.click(".view-panel .btn", "Log out")
+    page.key(",")  # Log out sits in Settings, under About
+    page.wait("document.querySelector('.about-group .btn')")
+    page.click(".about-group .btn", "Log out")
     page.wait("document.documentElement.dataset.ready")
     page.set("#password", "swing and a miss")  # the old password is refused ...
     page.click("#submit")

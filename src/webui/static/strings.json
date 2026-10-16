@@ -327,8 +327,8 @@
   "legend.tool.heatmap": "Heatmap (a tab in Search): how full the course usually is",
   "legend.tool.players": "Players: everyone seen on the sheets, friends",
   "legend.tool.preferences": "Preferences: when you can play, weather limits",
-  "legend.tool.settings": "Settings: clubs, logins, scraping, AI",
-  "legend.tool.view": "View (at the bottom, beside the Legend): language, theme, size, units",
+  "legend.tool.settings": "Settings: clubs, logins, language, theme, size, units, scraping, AI",
+  "legend.tool.view": "View (at the bottom, beside the Legend): handicaps, tip cards, past days",
   "legend.alternative": "a shorter round on another course still fits (tap to switch)",
   "legend.chip": "players booked in a slot: tap to list them",
   "legend.warn": "orange value in Search: outside your rain, wind or temperature limit",
@@ -364,7 +364,10 @@
   "tournaments.clear_filters": "Clear filters",
   "tournaments.none_filtered": "No tournament matches these filters.",
   "tournaments.open_day": "Open in the calendar",
-  "search.tab.free": "Open times"
+  "search.tab.free": "Open times",
+  "view.more_in_settings": "Language, theme, size and units are in Settings.",
+  "settings.display_hint": "These apply at once; the size is kept for this device.",
+  "settings.group.about": "About"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -694,8 +697,8 @@
   "legend.tool.heatmap": "Heatmap (ein Reiter in der Suche): wie voll der Platz meist ist",
   "legend.tool.players": "Spieler: alle, die auf den Sheets zu sehen waren, Freunde",
   "legend.tool.preferences": "Präferenzen: wann du spielen kannst, Wettergrenzen",
-  "legend.tool.settings": "Einstellungen: Clubs, Logins, Abruf, KI",
-  "legend.tool.view": "Ansicht (unten, neben der Legende): Sprache, Design, Größe, Einheiten",
+  "legend.tool.settings": "Einstellungen: Clubs, Logins, Sprache, Design, Größe, Einheiten, Abruf, KI",
+  "legend.tool.view": "Ansicht (unten, neben der Legende): Handicaps, Tipp-Karten, vergangene Tage",
   "legend.alternative": "eine kürzere Runde auf einem anderen Platz passt noch (antippen zum Wechseln)",
   "legend.chip": "Spieler in einer Startzeit: antippen für die Liste",
   "legend.warn": "orange Wert in der Suche: außerhalb deiner Regen-, Wind- oder Temperaturgrenze",
@@ -731,6 +734,9 @@
   "tournaments.clear_filters": "Filter löschen",
   "tournaments.none_filtered": "Kein Turnier passt zu diesen Filtern.",
   "tournaments.open_day": "Im Kalender öffnen",
-  "search.tab.free": "Freie Zeiten"
+  "search.tab.free": "Freie Zeiten",
+  "view.more_in_settings": "Sprache, Design, Größe und Einheiten findest du in den Einstellungen.",
+  "settings.display_hint": "Gilt sofort; die Größe gilt für dieses Gerät.",
+  "settings.group.about": "Über"
  }
 }
