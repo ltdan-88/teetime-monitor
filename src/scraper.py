@@ -129,7 +129,7 @@ from datetime import UTC, datetime
 import httpx
 from bs4 import BeautifulSoup, Tag
 
-from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot, looks_like_player_name
+from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot, Tournament, looks_like_player_name
 
 # Confirmed 2026-09-05 by inspecting the real site — these are real values, not guesses.
 COURSE_ALIASES: dict[str, str] = {
@@ -963,12 +963,76 @@ def fetch_club_directory(club_id: str, username: str, password: str) -> list[tup
         client.close()
 
 
-def scrape_events_calendar(club_id: str, year: int) -> list[str]:
-    """Read the dedicated tournaments/events calendar for a club/year (ROADMAP.md
-    Phase 1). Note: events also show directly in the tee sheet as a `block-time` row
-    carrying the event name (see parse_schedule_html), so this calendar is mainly
-    useful for looking further ahead than the 5-day tee-sheet window reaches, not the
-    only source."""
-    raise NotImplementedError(
-        "scraper.py is a stub — see the module docstring and ROADMAP.md Phase 1"
-    )
+_ISO_DAY_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_GERMAN_DAY_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})")
+_CLOCK_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+
+
+def _day_and_time(text: str) -> tuple[str | None, str | None]:
+    """The date (as YYYY-MM-DD) and the HH:MM in a calendar text — "Sun., 2026-10-18, 11:00 o'clock" in English,
+    "So., 18.10.2026, 11:00 Uhr" in German; either half can be missing."""
+    day = None
+    if match := _ISO_DAY_RE.search(text):
+        day = match.group(0)
+    elif match := _GERMAN_DAY_RE.search(text):
+        day = f"{match.group(3)}-{int(match.group(2)):02d}-{int(match.group(1)):02d}"
+    clock = _CLOCK_RE.search(text)
+    return day, f"{int(clock.group(1)):02d}:{clock.group(2)}" if clock else None
+
+
+def _parse_tournaments_html(html: str) -> list[Tournament]:
+    """The tournament calendar's rows (`tr.pcco-xcal-list-item`, confirmed 2026-10-16 against a real club; the
+    markup is the same in both languages, so only dates and numbers are read, never label text). An unrecognised
+    page raises `NotImplementedError`, like the other parsers; a recognised page with no rows is just empty."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows = soup.select("tr.pcco-xcal-list-item")
+    if not rows and soup.select_one(".cat-ts_calendar") is None:
+        raise NotImplementedError("pc caddie's tournament calendar has a markup this parser does not know")
+    found: list[Tournament] = []
+    for row in rows:
+        stamp = row.select_one("time[datetime]")
+        day, start = _day_and_time(stamp["datetime"]) if stamp else (None, None)
+        ident = row.get("data-id")
+        cell = row.select_one("td.tk-body-name")
+        if not (day and ident and cell):
+            continue
+        spans = [(span, span.get_text(" ", strip=True)) for span in cell.find_all("span")]
+        name = next((text for span, text in spans if text and "tk-art" not in span.get("class", [])), "")
+        subtitle = next((text for span, text in spans if "tk-club" in span.get("class", []) and text and not _day_and_time(text)[0]), "")
+        deadline = None
+        for span, text in spans:
+            if "hidden" in span.get("class", []) and (when := _day_and_time(text))[0]:
+                deadline = f"{when[0]} {when[1]}" if when[1] else when[0]
+        holes = row.find(class_=re.compile(r"\bnumholes-\d+"))
+        holes_match = re.search(r"numholes-(\d+)", " ".join(holes.get("class", []))) if holes else None
+        guest = row.select_one(".tk-icon-guest")
+        details = row.select_one("a.href-detail")
+        register_cell = details.find_parent("td").find_previous_sibling("td") if details and details.find_parent("td") else None
+        register = register_cell.find("a") if register_cell else None
+        found.append(
+            Tournament(
+                id=str(ident),
+                date=day,
+                time=start,
+                name=name,
+                subtitle=subtitle,
+                holes=int(holes_match.group(1)) if holes_match else None,
+                guests=bool(guest and "fa-check" in guest.get("class", [])),
+                deadline=deadline,
+                register_open=bool(register and "pcco-disabled" not in register.get("class", [])),
+            )
+        )
+    found.sort(key=lambda item: (item.date, item.time or "", item.name))
+    return found
+
+
+def scrape_tournaments(club_id: str, username: str, password: str) -> list[Tournament]:
+    """Log in and read the club's tournament calendar, which looks months ahead where the tee sheet reaches a few
+    days (events also show on the tee sheet as blocked rows). Needs login like "My Reservations"."""
+    client = login(club_id, username, password)
+    try:
+        response = client.get(club_url(club_id, EVENTS_CALENDAR_CATEGORY))
+        response.raise_for_status()
+        return _parse_tournaments_html(response.text)
+    finally:
+        client.close()

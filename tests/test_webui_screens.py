@@ -691,3 +691,47 @@ def test_a_rejected_preview_is_reported_as_the_error(running, monkeypatch):
             break
         threading.Event().wait(0.05)
     assert state["error"] == "no_tee_sheet"
+
+
+def test_the_tournament_calendar_is_read_with_the_saved_login_and_kept_for_a_while(running, monkeypatch):
+    from src import scraper
+    from src.models import Tournament
+
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret"))
+    data._TOURNAMENT_CACHE.clear()
+    reads = []
+
+    def fake(club_id, user, password):
+        reads.append(club_id)
+        return [Tournament(id="5", date="2026-11-02", time="17:00", name="Autumn Cup", holes=18, guests=True, deadline="2026-11-02 10:00", register_open=True)]
+
+    monkeypatch.setattr(scraper, "scrape_tournaments", fake)
+    status, first = _call(running, "GET", f"/api/tournaments?slug={SLUG}")
+    [item] = first["tournaments"]
+    assert status == 200 and first["problem"] is None and (item["date"], item["name"], item["register_open"]) == ("2026-11-02", "Autumn Cup", True)
+    assert item["url"] == f"https://www.pccaddie.net/clubs/{CLUB_ID}/app.php?cat=ts_calendar&sub=detail&id=5"  # no entry list link
+    _call(running, "GET", f"/api/tournaments?slug={SLUG}")
+    assert len(reads) == 1  # the second look comes from the half hour cache
+    _call(running, "GET", f"/api/tournaments?slug={SLUG}&refresh=1")
+    assert len(reads) == 2
+    assert _call(running, "GET", "/api/tournaments?slug=nope")[0] == 404
+
+
+def test_a_tournament_calendar_that_cannot_be_read_says_why_and_keeps_the_last_list(world, monkeypatch):
+    import httpx
+
+    from src import scraper
+    from src.models import Tournament
+
+    data._TOURNAMENT_CACHE.clear()
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("", ""))
+    assert data.tournaments(SLUG, None) == {"tournaments": [], "problem": "no_login"}
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret"))
+    for failure, problem in ((scraper.LoginError("no"), "login"), (httpx.ConnectError("down"), "network"), (NotImplementedError("markup"), "parsing")):
+        monkeypatch.setattr(scraper, "scrape_tournaments", lambda *args, failure=failure: (_ for _ in ()).throw(failure))
+        assert data.tournaments(SLUG, None, refresh=True) == {"tournaments": [], "problem": problem}
+    monkeypatch.setattr(scraper, "scrape_tournaments", lambda *args: [Tournament(id="1", date="2026-11-02", time=None, name="Cup")])
+    assert len(data.tournaments(SLUG, None, refresh=True)["tournaments"]) == 1
+    monkeypatch.setattr(scraper, "scrape_tournaments", lambda *args: (_ for _ in ()).throw(httpx.ConnectError("down")))
+    again = data.tournaments(SLUG, None, refresh=True)
+    assert again["problem"] == "network" and len(again["tournaments"]) == 1  # the old list stays on screen
