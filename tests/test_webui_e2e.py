@@ -258,6 +258,34 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
 
 
+def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "t", "Tournaments")
+    ui.wait("document.querySelectorAll('.tn-cell').length >= 28 && !document.querySelector('.sheet .status-line')")
+    assert ui.count(".tn-wd") == 7 and ui.js("document.querySelectorAll('.tn-cell').length % 7") == 0  # whole weeks, seven columns
+    columns = ui.js("[...new Set([...document.querySelectorAll('.tn-cell')].slice(0, 14).map((c) => Math.round(c.getBoundingClientRect().left)))].length")
+    assert columns == 7  # every week lines up on the same seven columns
+    ui.shot("tournaments-month")
+    busy = ui.js("[...document.querySelectorAll('.tn-cell.has')].map((c) => c.getAttribute('aria-label'))")
+    assert any("Autumn Trophy, Twilight Scramble" in label for label in busy), busy  # two on one day, both named
+    shown = ui.text(".tn-list")
+    assert "Autumn Trophy" in shown and "9 holes" in shown or "Winter Opener" in shown  # the month's list, before any day is picked
+    first = ui.js("(() => { const cell = document.querySelector('.tn-cell.has'); const day = cell.getAttribute('aria-label').split(':')[0]; cell.click(); return day; })()")
+    ui.wait("document.querySelector('.tn-cell.on')")
+    assert ui.js("document.querySelector('.tn-head').textContent") == first
+    listed = ui.text(".tn-list")
+    assert "Register by" in listed or "Registration" in listed
+    assert ui.js("document.querySelector('.tn-item a[href*=\"sub=detail\"]').target") == "_blank"
+    assert "entrylist" not in ui.js("document.querySelector('.sheet').innerHTML")  # the entry list names other members: never linked
+    ui.shot("tournaments-day")
+    ui.click(".tn-cell.on")  # a second tap clears the day: the month's list is back
+    ui.wait("!document.querySelector('.tn-cell.on')")
+    before = ui.text(".tn-month")
+    ui.click(".tn-step:last-child")
+    ui.wait(f"document.querySelector('.tn-month').textContent !== {json.dumps(before)}")
+    _close_sheet(ui)
+
+
 def test_a_booking_pc_caddie_refuses_says_why_and_the_dialog_stays_open(ui):
     ui.js(
         """(() => { const real = window.fetch.bind(window);
@@ -1129,7 +1157,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
-    assert ui.count(".legend .tool-ico") == 8  # every toolbar icon is named
+    assert ui.count(".legend .tool-ico") == 9  # every toolbar icon is named
     assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
     assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
     assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away

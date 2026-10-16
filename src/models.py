@@ -151,6 +151,22 @@ class ConfirmedBooking:
 
 
 @dataclass
+class Tournament:
+    """One row of the club's tournament calendar (pc caddie's `cat=ts_calendar`). The entry list is deliberately not
+    read: it names other members."""
+
+    id: str  # pc caddie's own id, the detail page is `...&sub=detail&id=<id>`
+    date: str  # YYYY-MM-DD
+    time: str | None  # HH:MM start, when the calendar gives one
+    name: str
+    subtitle: str = ""  # the course and group line under the name
+    holes: int | None = None
+    guests: bool = False  # open to guests (the public column)
+    deadline: str | None = None  # registration deadline, "YYYY-MM-DD HH:MM" (or just the date)
+    register_open: bool = False  # the Register button is live right now
+
+
+@dataclass
 class ReservationsSync:
     """What one "My Reservations" page fetch actually carries (2026-09-27, direct
     follow-up: "would it make sense to have the option to choose to play with

@@ -306,3 +306,20 @@ not offered); a club can even have the course selector *and* no timetable behind
   so it needs clamping to the real seat range.
 - `data-status="past-time"` is a fifth value beyond the four originally documented, and
   by far the most common one on any given page. It parses like a normal row.
+
+## Tournament calendar (`cat=ts_calendar`, confirmed 2026-10-16)
+
+Needs login; plain server-rendered HTML, the same in both languages apart from labels. One table, one
+`<tr class="pcco-xcal-list-item">` per tournament with `data-id`, `data-year`, `data-month`, `data-category`. Inside a row:
+
+- `time.icon[datetime]` — "Sun., 2026-10-18, 11:00 o'clock" (English) or German "18.10.2026 ... Uhr"; the time is absent for
+  an all-day entry.
+- `td.tk-body-name` — the name is the first non-empty `<span>` after the empty `span.tk-turnier`; the first `span.tk-club`
+  is the course/group line (a second one repeats the date). A `span.hidden` carries "Registration deadline: <date, time>".
+- `numholes-N` on the first `<td>` (6, 9, 16 and 18 seen); `i.tk-icon-guest.fa-check` / `fa-times` is "open to guests".
+- The Register button is the `<a>` in the cell before the `a.href-detail` cell; `pcco-disabled` on it means registration is
+  closed or not open yet (its `title` says which, in the page's language).
+- Details: `?cat=ts_calendar&sub=detail&id=<data-id>`. The entry list (`sub=entrylist`) names other members and is not read.
+
+The page lists every upcoming tournament at once (14 rows from October to March at the probed club), so unlike the tee sheet
+it looks months ahead. Parsed by `scraper._parse_tournaments_html()`; the app shows it as the Tournaments month grid.

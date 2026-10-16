@@ -157,6 +157,24 @@ def main() -> None:
             booking.book_slot = lambda client, club_id, course, date, time: None
             booking.cancel_booking = lambda client, club_id, course, date, time: None
             club_config.resolve_credentials = lambda key: ("demo", "demo")
+
+            def tournaments(club_id, username, password):  # an invented calendar, relative to today
+                from datetime import date, timedelta
+
+                from src.models import Tournament
+
+                def day(n):
+                    return (date.today() + timedelta(days=n)).isoformat()
+
+                return [
+                    Tournament("9001", day(2), "09:30", "Autumn Trophy", "Round A+B", 18, True, f"{day(0)} 10:00", True),
+                    Tournament("9002", day(2), "14:00", "Twilight Scramble", "Round C", 9, False, f"{day(1)} 12:00", True),
+                    Tournament("9003", day(9), "10:00", "Ladies Coffee Cup", "Clubhouse", 18, True, f"{day(7)} 10:00", False),
+                    Tournament("9004", day(16), None, "Winter Opener", "", None, True, None, False),
+                    Tournament("9005", day(40), "15:00", "Rules Evening", "Clubhouse", None, True, f"{day(38)} 10:00", False),
+                ]
+
+            scraper.scrape_tournaments = tournaments
             scrape_once._sync_my_reservations = lambda *args, **kwargs: "ok"
 
         if args.password:

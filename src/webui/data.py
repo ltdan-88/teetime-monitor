@@ -18,8 +18,12 @@ import importlib.metadata
 import json
 import os
 import threading
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import monotonic
+
+import httpx
 
 from .. import (
     booking,
@@ -31,6 +35,7 @@ from .. import (
     pipeline,
     scrape_health,
     scrape_once,
+    scraper,
     storage,
     units,
     user_config,
@@ -448,6 +453,41 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
 def reservations(refresh: bool = False) -> dict:
     """Your upcoming bookings at every saved club (src/booking.py `upcoming_reservations`)."""
     return booking.upcoming_reservations(club_entries(), refresh)
+
+
+_TOURNAMENT_CACHE: dict[str, tuple[float, list]] = {}
+_TOURNAMENT_TTL = 30 * 60  # seconds; the calendar changes rarely, and the Refresh button asks again
+
+
+def tournaments(slug: str | None, club_id: str | None, refresh: bool = False) -> dict:
+    """The club's tournament calendar from pc caddie, read with the saved login (src/scraper.py `scrape_tournaments`)
+    and kept for half an hour. When it cannot be read, `problem` says why ("no_login", "login", "network",
+    "parsing") and the last list that was read, if any, still comes with it."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    club = found[0]
+    cached = _TOURNAMENT_CACHE.get(club["id"])
+    if cached and not refresh and monotonic() - cached[0] < _TOURNAMENT_TTL:
+        return {"tournaments": cached[1], "problem": None}
+    problem = None
+    username, password = club_config.resolve_credentials(club["slug"]) if club["slug"] else ("", "")
+    if not (username and password):
+        problem = "no_login"
+    else:
+        try:
+            listed = scraper.scrape_tournaments(club["id"], username, password)
+        except scraper.LoginError:
+            problem = "login"
+        except httpx.HTTPError:
+            problem = "network"
+        except NotImplementedError:
+            problem = "parsing"
+        else:
+            rows = [{**asdict(item), "url": f"{scraper.club_url(club['id'], scraper.EVENTS_CALENDAR_CATEGORY)}&sub=detail&id={item.id}"} for item in listed]
+            _TOURNAMENT_CACHE[club["id"]] = (monotonic(), rows)
+            return {"tournaments": rows, "problem": None}
+    return {"tournaments": cached[1] if cached else [], "problem": problem}
 
 
 def book(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:

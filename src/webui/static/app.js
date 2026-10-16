@@ -11,6 +11,7 @@ import { AddClubSheet } from '/addclub.js';
 import { SearchSheet } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
+import { TournamentsSheet } from '/tournaments.js';
 import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
 import { BottomPanel } from '/panel.js';
@@ -87,6 +88,7 @@ function Legend({ onClose }) {
       <dt>${toolIcon('grid')}</dt><dd>${t('legend.tool.heatmap')}</dd>
       <dt>${toolIcon('users')}</dt><dd>${t('legend.tool.players')}</dd>
       <dt>${toolIcon('calendarcheck')}</dt><dd>${t('legend.tool.reservations')}</dd>
+      <dt>${toolIcon('trophy')}</dt><dd>${t('legend.tool.tournaments')}</dd>
       <dt>${toolIcon('gear')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
       <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
@@ -133,6 +135,7 @@ function Legend({ onClose }) {
       <dt><span class="kbd">h</span></dt><dd>${t('action.heatmap')}</dd>
       <dt><span class="kbd">p</span></dt><dd>${t('action.players')}</dd>
       <dt><span class="kbd">b</span></dt><dd>${t('action.reservations')}</dd>
+      <dt><span class="kbd">t</span></dt><dd>${t('action.tournaments')}</dd>
       <dt><span class="kbd">e</span></dt><dd>${t('action.preferences')}</dd>
       <dt><span class="kbd">,</span></dt><dd>${t('action.settings')}</dd>
       <dt><span class="kbd">a</span></dt><dd>${t('addclub.title')}</dd>
@@ -419,6 +422,7 @@ function App() {
       else if (event.key === 'h' && v) open('heatmap');
       else if (event.key === 'p' && v) open('players');
       else if (event.key === 'b') open('reservations');
+      else if (event.key === 't' && v) open('tournaments');
       else if (event.key === 'e') open('preferences');
       else if (event.key === ',') open('settings');
       else if (event.key === 'a') open('addclub');
@@ -528,6 +532,7 @@ function App() {
         ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noClub || !overview || !overview.course)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
+        ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => setSheet('tournaments'), noClub || !(club && club.slug))}
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
@@ -582,6 +587,7 @@ function App() {
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
+      ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
