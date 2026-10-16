@@ -43,15 +43,16 @@ function Item({ item, now, canShow, onShow }) {
   </li>`;
 }
 
-/** One row of buttons, one of them lit: `options` are { value, label }. */
-function Choice({ label, value, options, onChange }) {
+/** A labelled row of on/off chips; any number may be on, none on means no filter. `value` is the list that is on,
+ *  `onFlip(v)` turns one on or off. */
+function Choice({ label, value, options, onFlip }) {
   return html`<span class="tn-choice" role="group" aria-label=${label}>
     <span class="tn-choice-label">${label}</span>
-    ${options.map((option) => html`<button key=${option.value} class="chip tn-pick" aria-pressed=${option.value === value} onClick=${() => onChange(option.value)}>${option.label}</button>`)}
+    ${options.map((option) => html`<button key=${option.value} class="chip tn-pick" aria-pressed=${value.includes(option.value)} onClick=${() => onFlip(option.value)}>${option.label}</button>`)}
   </span>`;
 }
 
-const NO_FILTER = { holes: 'all', who: 'all', open: false };
+const NO_FILTER = { holes: [], who: [], open: false };
 
 export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClose }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
@@ -64,8 +65,8 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
   const all = (data && data.tournaments) || [];
   const holeSizes = [...new Set(all.map((item) => item.holes).filter(Boolean))].sort((a, b) => a - b);
   const mixedWho = all.some((item) => item.guests) && all.some((item) => !item.guests);
-  const list = all.filter((item) => (filter.holes === 'all' || item.holes === filter.holes) && (filter.who === 'all' || item.guests === (filter.who === 'guests')) && (!filter.open || item.register_open));
-  const filtered = filter.holes !== 'all' || filter.who !== 'all' || filter.open;
+  const list = all.filter((item) => (!filter.holes.length || filter.holes.includes(item.holes)) && (!filter.who.length || filter.who.includes(item.guests ? 'guests' : 'members')) && (!filter.open || item.register_open));
+  const filtered = filter.holes.length > 0 || filter.who.length > 0 || filter.open;
   const byDay = useMemo(() => {
     const map = {};
     for (const item of list) (map[item.date] = map[item.date] || []).push(item);
@@ -82,7 +83,8 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
     setShown({ year: moved.getFullYear(), month: moved.getMonth() });
     setPicked(null);
   };
-  const change = (part) => setFilter((current) => ({ ...current, ...part }));
+  // from the state as it is now, not as it was drawn: two quick taps both count
+  const flip = (key, v) => setFilter((current) => ({ ...current, [key]: current[key].includes(v) ? current[key].filter((x) => x !== v) : [...current[key], v] }));
   return html`<${Sheet} title=${t('tournaments.title')} onClose=${onClose} size="medium">
     <p class="hint">${t('tournaments.intro')}</p>
     ${!data && !error && html`<${Status} kind="busy">${t('tournaments.loading')}<//>`}
@@ -90,11 +92,11 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
     ${data && html`
       <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
-        ${holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onChange=${(value) => change({ holes: value })}
-          options=${[{ value: 'all', label: t('tournaments.all') }, ...holeSizes.map((n) => ({ value: n, label: String(n) }))]} />`}
-        ${mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onChange=${(value) => change({ who: value })}
-          options=${[{ value: 'all', label: t('tournaments.all') }, { value: 'guests', label: t('tournaments.guests') }, { value: 'members', label: t('tournaments.members_only') }]} />`}
-        <button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => change({ open: !filter.open })}>${t('tournaments.reg_open')}</button>
+        ${holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onFlip=${(v) => flip('holes', v)}
+          options=${holeSizes.map((n) => ({ value: n, label: String(n) }))} />`}
+        ${mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}
+          options=${[{ value: 'guests', label: t('tournaments.guests') }, { value: 'members', label: t('tournaments.members_only') }]} />`}
+        <button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => setFilter((current) => ({ ...current, open: !current.open }))}>${t('tournaments.reg_open')}</button>
         ${filtered && html`<button class="link-btn" onClick=${() => setFilter(NO_FILTER)}>${t('tournaments.clear_filters')}</button>`}
       </div>
       <div class="tn-split">

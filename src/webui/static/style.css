@@ -109,6 +109,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 /* a phone on its side has ~390 px: a pinned footer would cover the last rows (and take their taps), so it just ends the page */
 @media (max-height: 500px) and (orientation: landscape) { .footer { position: static; } }
 .status { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.footer .refresh-btn { padding: 0 0.5rem; margin-left: -0.5rem; color: var(--mid); }  /* the status and the button that renews it, side by side */
+.footer .refresh-btn[disabled] { opacity: 1; }
 .dot { width: 0.5625rem; height: 0.5625rem; border-radius: 50%; background: var(--green); flex: none; }
 .dot.warn { background: var(--orange); }
 .dot.busy { background: var(--blue); }

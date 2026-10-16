@@ -190,7 +190,7 @@ function App() {
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false); // the phone's More menu (Heatmap, Preferences, Settings)
+  const [moreOpen, setMoreOpen] = useState(false); // the phone's More menu (Preferences, Settings)
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
@@ -522,7 +522,6 @@ function App() {
   const noCourse = noClub || !overview || !overview.course;
   // in the toolbar on a wider screen, behind More on a phone (style.css hides one or the other)
   const rare = [
-    { name: 'heatmap', icon: 'grid', label: t('action.heatmap'), key: 'h', onClick: () => setSheet('heatmap'), disabled: noCourse },
     { name: 'preferences', icon: 'gear', label: t('action.preferences'), key: 'e', onClick: () => setSheet('preferences'), disabled: false },
     { name: 'settings', icon: 'sliders', label: t('action.settings'), key: ',', onClick: () => setSheet('settings'), disabled: false },
   ];
@@ -539,9 +538,8 @@ function App() {
         ${courseOptions.length > 0 && html`<${Select} id="course" aria-label=${t('course')} value=${(overview && overview.course) || course} options=${courseOptions} onChange=${(value) => { setOpenDate(null); setCourse(value); }} />`}
         </div>
         <div class="toolbar-tools">
-        ${tool('refresh', 'refresh', t(refresh.running ? 'refreshing' : 'action.refresh'), 'r', () => startRefresh(true), refresh.running || noClub)}
         ${tool('search', 'search', t('action.search'), 's', () => setSheet('search'), noClub || !overview || !overview.course)}
-        ${rareTool('heatmap')}
+        ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noCourse)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
@@ -580,6 +578,8 @@ function App() {
       </main>
       <footer class="footer">
         <div class="status">
+          <button class="tool small refresh-btn" onClick=${() => startRefresh(true)} disabled=${refresh.running || noClub} title=${t('action.refresh') + ' (r)'}
+            aria-label=${t('action.refresh')} aria-keyshortcuts="r"><${Icon} name="refresh" size=${18} class=${refresh.running ? 'spin' : ''} /></button>
           <span class=${'dot' + (freshness && freshness.warning ? ' warn' : refresh.running ? ' busy' : '')}></span>
           <span>${refresh.running ? t('refreshing') : updatedText(freshness && freshness.last_success_at)}</span>
           ${picksPending && html`<span class="dim">· ${t('picks.loading')}</span>`}

@@ -322,7 +322,7 @@
   "overview.switch_course": "Switch to {course}",
   "heatmap.tap_hint": "Tap a square for its numbers.",
   "legend.touch": "On a touch screen, touch and hold an icon, a number or a heading to see what it means.",
-  "legend.tool.refresh": "Refresh: fetch new tee sheets now",
+  "legend.tool.refresh": "Refresh (next to the status at the bottom): fetch new tee sheets now",
   "legend.tool.search": "Search: find the best open times",
   "legend.tool.heatmap": "Heatmap: how full the course usually is",
   "legend.tool.players": "Players: everyone seen on the sheets, friends",
@@ -361,12 +361,11 @@
   "tournaments.filters": "Filter tournaments",
   "tournaments.holes_label": "Holes",
   "tournaments.who_label": "Who",
-  "tournaments.all": "All",
   "tournaments.clear_filters": "Clear filters",
   "tournaments.none_filtered": "No tournament matches these filters.",
   "tournaments.open_day": "Open in the calendar",
   "action.more": "More",
-  "legend.tool.more": "More (on a phone): Heatmap, Preferences and Settings"
+  "legend.tool.more": "More (on a phone): Preferences and Settings"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -691,7 +690,7 @@
   "overview.switch_course": "Zu {course} wechseln",
   "heatmap.tap_hint": "Ein Quadrat antippen für seine Zahlen.",
   "legend.touch": "Auf einem Touchscreen: ein Symbol, eine Zahl oder eine Überschrift berühren und halten, dann steht dort, was es bedeutet.",
-  "legend.tool.refresh": "Aktualisieren: neue Tee-Sheets jetzt abrufen",
+  "legend.tool.refresh": "Aktualisieren (unten neben dem Stand): neue Tee-Sheets jetzt abrufen",
   "legend.tool.search": "Suche: die besten freien Zeiten finden",
   "legend.tool.heatmap": "Heatmap: wie voll der Platz meist ist",
   "legend.tool.players": "Spieler: alle, die auf den Sheets zu sehen waren, Freunde",
@@ -730,11 +729,10 @@
   "tournaments.filters": "Turniere filtern",
   "tournaments.holes_label": "Löcher",
   "tournaments.who_label": "Wer",
-  "tournaments.all": "Alle",
   "tournaments.clear_filters": "Filter löschen",
   "tournaments.none_filtered": "Kein Turnier passt zu diesen Filtern.",
   "tournaments.open_day": "Im Kalender öffnen",
   "action.more": "Mehr",
-  "legend.tool.more": "Mehr (auf dem Handy): Heatmap, Präferenzen und Einstellungen"
+  "legend.tool.more": "Mehr (auf dem Handy): Präferenzen und Einstellungen"
  }
 }
