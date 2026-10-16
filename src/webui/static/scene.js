@@ -19,6 +19,7 @@ export function SceneDefs() {
       <pattern id="tp-drops" width="30" height="40" patternUnits="userSpaceOnUse"><path d="M6 2l-3 10M21 22l-3 10" stroke="#a9c4ff" stroke-opacity=".5" stroke-width="1.1" stroke-linecap="round" fill="none" /></pattern>
       <pattern id="tp-flakes-near" width="70" height="70" patternUnits="userSpaceOnUse"><circle cx="14" cy="12" r="2.2" fill="#fff" fill-opacity=".95" /><circle cx="52" cy="30" r="1.9" fill="#fff" fill-opacity=".85" /><circle cx="30" cy="58" r="2.4" fill="#fff" fill-opacity=".95" /></pattern>
       <pattern id="tp-flakes-far" width="50" height="50" patternUnits="userSpaceOnUse"><circle cx="8" cy="6" r="1.5" fill="#fff" fill-opacity=".9" /><circle cx="33" cy="20" r="1.2" fill="#fff" fill-opacity=".8" /><circle cx="18" cy="38" r="1.7" fill="#fff" fill-opacity=".9" /><circle cx="44" cy="44" r="1.1" fill="#fff" fill-opacity=".7" /></pattern>
+      <clipPath id="tp-above"><rect x="-14" y="-24" width="28" height="26" /></clipPath>
       <g id="tp-rays" fill="#ffd60a">
         <path d="M0-14L2.2-27L-2.2-27Z" /><path d="M0-14L1.8-22L-1.8-22Z" transform="rotate(30)" /><path d="M0-14L2.2-27L-2.2-27Z" transform="rotate(60)" /><path d="M0-14L1.8-22L-1.8-22Z" transform="rotate(90)" />
         <path d="M0-14L2.2-27L-2.2-27Z" transform="rotate(120)" /><path d="M0-14L1.8-22L-1.8-22Z" transform="rotate(150)" /><path d="M0-14L2.2-27L-2.2-27Z" transform="rotate(180)" /><path d="M0-14L1.8-22L-1.8-22Z" transform="rotate(210)" />
@@ -98,6 +99,54 @@ function Bunker({ x, snow }) {
   return html`<g><ellipse cx=${x} cy="153" rx="16" ry="3.8" fill=${snow ? '#b9c4d8' : '#c7b57f'} /><ellipse cx=${x} cy="153.4" rx="14" ry="3" fill=${snow ? '#f4f7fc' : '#ecdfb2'} /><ellipse cx=${x - 4} cy="153" rx="5" ry="1" fill="#ffffff" fill-opacity=".35" /></g>`;
 }
 
+
+// ---- guests: small animals that pop up now and then (a few seconds in every 15 to 30) ---------------------------------
+const FUR = { spring: '#c9b8a4', summer: '#b98a5c', autumn: '#a9784a', winter: '#f2f4f8' };
+
+/** Who may visit: by weather, season and what the course has. Two different guests per card, chosen by the seed. */
+function guestsFor({ season, mood, pond, trees, seed }) {
+  const options = [];
+  if (mood === 'snow') options.push('penguin', 'rabbit', 'fox');
+  else if (mood === 'rain') options.push('snail', pond ? 'frog' : 'snail', 'mole');
+  else {
+    options.push('rabbit');
+    if (season !== 'winter') options.push('mole');
+    if (pond && (season === 'spring' || season === 'summer')) options.push('frog');
+    if (trees.length && season !== 'winter') options.push('squirrel');
+    if (season === 'autumn') options.push('hedgehog', 'fox');
+    if (season === 'winter') options.push('fox', 'penguin');
+  }
+  const unique = [...new Set(options)];
+  const first = unique[hash(seed + 'a') % unique.length];
+  const rest = unique.filter((kind) => kind !== first);
+  return rest.length ? [first, rest[hash(seed + 'b') % rest.length]] : [first];
+}
+
+function Guest({ kind, season, pondX, treeX, snow }) {
+  switch (kind) {
+    case 'rabbit': {
+      const fur = snow ? '#f2f4f8' : FUR[season];
+      return html`<g transform="translate(0 162)"><g class="tp-guest tp-run"><g class="tp-hop"><ellipse cx="0" cy="-3" rx="4.6" ry="3" fill=${fur} /><circle cx="4.2" cy="-5.4" r="2.4" fill=${fur} /><ellipse cx="3.6" cy="-9" rx=".9" ry="2.8" fill=${fur} /><ellipse cx="5.7" cy="-8.8" rx=".9" ry="2.6" fill=${fur} /><circle cx="-4.8" cy="-3.6" r="1.4" fill="#ffffff" /><circle cx="5.3" cy="-5.9" r=".5" fill="#1b1b1b" /></g></g></g>`;
+    }
+    case 'mole':
+      return html`<g transform="translate(176 153)"><g class="tp-guest"><g clip-path="url(#tp-above)"><g class="tp-mole"><ellipse cx="0" cy="-1" rx="3.4" ry="4" fill="#4f4540" /><circle cx="-1.3" cy="-2.4" r=".6" fill="#ffffff" /><circle cx="1.3" cy="-2.4" r=".6" fill="#ffffff" /><circle cx="0" cy=".2" r=".9" fill="#ff9fb3" /></g></g><ellipse cx="0" cy="1.6" rx="6.5" ry="1.8" fill=${snow ? '#b9c4d8' : '#6a4a32'} /></g></g>`;
+    case 'frog':
+      return html`<g transform=${`translate(${pondX + 14} 138.4)`}><g class="tp-guest"><g clip-path="url(#tp-above)"><g class="tp-frog"><ellipse rx="3.6" ry="2.6" fill="#5fb75a" /><circle cx="-2" cy="-2.4" r="1.3" fill="#7fd070" /><circle cx="2" cy="-2.4" r="1.3" fill="#7fd070" /><circle cx="-2" cy="-2.5" r=".5" fill="#111111" /><circle cx="2" cy="-2.5" r=".5" fill="#111111" /></g></g><ellipse class="tp-ripple tp-frog-ring" cx="0" cy="0" rx="6" ry="1.4" /></g></g>`;
+    case 'squirrel':
+      return html`<g transform=${`translate(${treeX + 5} 127)`}><g class="tp-guest"><g class="tp-squirrel"><path class="tp-tail" d="M-1.6 -6q-6 -2 -3 -9q4 3 1 6z" fill="#d98a3a" /><ellipse cx="0" cy="-5" rx="2.6" ry="3.6" fill="#b5651d" /><circle cx="1" cy="-9.4" r="2" fill="#b5651d" /><circle cx="1.8" cy="-9.8" r=".5" fill="#111111" /></g></g></g>`;
+    case 'hedgehog':
+      return html`<g transform="translate(0 163)"><g class="tp-guest tp-walk-left"><ellipse cx="0" cy="-3" rx="5.5" ry="3.6" fill="#6b4f3a" /><path d="M-4.6 -5.2l1-3 1 3 1-3 1 3 1-3 1 3 1-3 1 3" fill="none" stroke="#3a2a1e" stroke-width="1" /><ellipse cx="-5.8" cy="-2" rx="2.4" ry="1.8" fill="#c9a37a" /><circle cx="-7.9" cy="-2" r=".6" fill="#111111" /><circle cx="-6.2" cy="-2.9" r=".5" fill="#111111" /></g></g>`;
+    case 'fox':
+      return html`<g transform="translate(0 130)"><g class="tp-guest tp-trot"><g class="tp-hop tp-hop-small"><ellipse cx="0" cy="-3" rx="5" ry="2.4" fill="#e0762e" /><circle cx="5" cy="-4.4" r="2" fill="#e0762e" /><path d="M4 -6l.4 -2.4l1.4 1.8zM6 -6l1.2 -2.2l.4 2.2z" fill="#e0762e" /><path d="M-4.6 -3.4q-4 -2 -6 .6q3 2 6 .4z" fill="#e0762e" /><ellipse cx="-9.6" cy="-2.6" rx="1.3" ry=".9" fill="#ffffff" /><circle cx="5.7" cy="-4.8" r=".45" fill="#111111" /><path d="M-2 -1v3M2 -1v3" stroke="#6b3a14" stroke-width=".9" /></g></g></g>`;
+    case 'penguin':
+      return html`<g transform="translate(0 161)"><g class="tp-guest tp-parade"><g class="tp-waddle"><ellipse cx="0" cy="-4.4" rx="3" ry="4.8" fill="#1e2433" /><ellipse cx="0" cy="-3.6" rx="1.8" ry="3.4" fill="#f4f7fc" /><circle cx="0" cy="-9.4" r="2.4" fill="#1e2433" /><path d="M-.9 -9l.9 1.4l.9 -1.4z" fill="#ff9f0a" /><circle cx="-1" cy="-9.9" r=".4" fill="#ffffff" /><circle cx="1" cy="-9.9" r=".4" fill="#ffffff" /><ellipse cx="-1.4" cy="-.2" rx="1.4" ry=".6" fill="#ff9f0a" /><ellipse cx="1.4" cy="-.2" rx="1.4" ry=".6" fill="#ff9f0a" /></g></g></g>`;
+    case 'snail':
+      return html`<g transform="translate(0 164)"><g class="tp-guest tp-crawl"><ellipse cx="0" cy="-1" rx="5" ry="1.2" fill="#cdb58a" /><circle cx="-1" cy="-3.6" r="3.2" fill="#b5651d" /><path d="M-1 -3.6m-1.8 0a1.8 1.8 0 1 1 3.6 0a1 1 0 1 1 -2 0" fill="none" stroke="#7a3f10" stroke-width=".7" /><path d="M3.8 -1.6l1.4 -2.6M4.8 -1.4l2 -2" fill="none" stroke="#cdb58a" stroke-width=".7" /></g></g>`;
+    default:
+      return null;
+  }
+}
+
 const BALL = { roll: 'tp-roll', chip: 'tp-chip', wobble: 'tp-wob' };
 
 /** One ball, however it travels: `variant` "roll" runs straight in, "chip" flies up and bounces in, "wobble" stops at
@@ -137,6 +186,7 @@ export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0, s
     : [{ color: white, delay: 0 }];
   const style = `--flag-dur:${flag.toFixed(2)}s;--cloud-dur:${clouds.toFixed(1)}s;--lean:${lean}deg;--phase:${-phase}s`;
   const treeSizes = [20, 17, 22];
+  const guests = guestsFor({ season, mood, pond: layout.pond, trees: layout.trees, seed });
   return html`<svg class=${'tp-scene tp-' + mood + ' tp-' + season} style=${style} viewBox="0 0 300 168" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect width="300" height="168" fill=${'url(#tp-' + mood + ')'} />
     ${sun && html`<g transform="translate(250 38)"><circle class="tp-glow" r="32" fill="url(#tp-glow)" /><g class="tp-rays"><use href="#tp-rays" /></g><circle r="10" fill="#ffd60a" /></g>`}
@@ -165,6 +215,7 @@ export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0, s
     ${wet && html`<ellipse class="tp-ripple" cx="60" cy="158" rx="12" ry="2.4" /><ellipse class="tp-ripple tp-ripple2" cx="168" cy="160" rx="10" ry="2" />`}
     ${sun && kph < 12 && season !== 'winter' && html`<g transform="translate(0 124)"><g class="tp-flutter"><ellipse class="tp-wing2" cx="-2" cy="0" rx="2.6" ry="1.6" /><ellipse class="tp-wing2" cx="2" cy="0" rx="2.6" ry="1.6" /></g></g>`}
     ${fair && kph >= 25 && html`<g transform="translate(0 70)"><path class="tp-leaf" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 100)"><path class="tp-leaf tp-leaf2" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 124)"><path class="tp-leaf tp-leaf3" d="M0 0q3-4 6 0q-3 4-6 0z" /></g>`}
+    ${guests.map((kind) => html`<${Guest} key=${kind} kind=${kind} season=${season} pondX=${112} treeX=${layout.trees[0] || 0} snow=${snow} />`)}
     ${balls.map((b, i) => html`<${Ball} key=${i} variant=${variant === 'trio' ? 'roll' : variant} color=${b.color} mark=${mark} delay=${b.delay} lane=${i === 1 ? 3 : i === 2 ? -3 : 0} />`)}
     ${mood === 'overcast' && html`<rect width="300" height="168" fill="#0c1020" opacity=".12" />`}
     ${season === 'spring' && !wet && !snow && html`<g class="tp-petals"><ellipse cx="40" cy="-6" rx="2" ry="1" fill="#f9c8dc" /><ellipse cx="120" cy="-30" rx="2" ry="1" fill="#ffffff" /><ellipse cx="190" cy="-14" rx="2" ry="1" fill="#f9c8dc" /><ellipse cx="270" cy="-40" rx="2" ry="1" fill="#ffffff" /></g>`}

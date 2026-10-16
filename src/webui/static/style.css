@@ -786,6 +786,32 @@ button, select, input { touch-action: manipulation; }
 .tp-falling path { transform-box: fill-box; transform-origin: 50% 50%; animation: tp-leaffall calc(var(--cloud-dur, 26s) * .45) linear infinite; }
 .tp-falling path:nth-child(2) { animation-delay: -3s; } .tp-falling path:nth-child(3) { animation-delay: -6s; }
 .tp-frost circle { fill: #ffffff; stroke: none; animation: tp-twinkle 2.4s ease-in-out infinite alternate; } .tp-frost circle:nth-child(2n) { animation-delay: -1.2s; }
+/* guests: each pops up for a few seconds in a loop of 15 to 30, out of step with the card's other animals */
+@keyframes tp-run { 0% { transform: translateX(-30px); } 22% { transform: translateX(330px); } 100% { transform: translateX(330px); } }
+@keyframes tp-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes tp-walkl { 0% { transform: translateX(330px); } 38% { transform: translateX(-40px); } 100% { transform: translateX(-40px); } }
+@keyframes tp-trotr { 0% { transform: translateX(-30px); } 26% { transform: translateX(330px); } 100% { transform: translateX(330px); } }
+@keyframes tp-parade { 0% { transform: translateX(-20px); } 34% { transform: translateX(320px); } 100% { transform: translateX(320px); } }
+@keyframes tp-waddle { 0%, 100% { transform: rotate(-9deg); } 50% { transform: rotate(9deg); } }
+@keyframes tp-crawl { 0% { transform: translateX(-20px); } 70% { transform: translateX(320px); } 100% { transform: translateX(320px); } }
+@keyframes tp-mole { 0%, 6% { transform: translateY(7px); } 11%, 15% { transform: translateY(-1px); } 13% { transform: translateY(-1px) rotate(-10deg); } 19%, 100% { transform: translateY(7px); } }
+@keyframes tp-frog { 0%, 8% { transform: translateY(6px); } 13%, 28% { transform: translateY(0); } 18% { transform: translateY(-1px) scale(1.12); } 34%, 100% { transform: translateY(6px); } }
+@keyframes tp-ringpop { 0%, 8% { opacity: 0; transform: scale(.2); } 14% { opacity: .9; transform: scale(.4); } 30%, 100% { opacity: 0; transform: scale(1.5); } }
+@keyframes tp-peek { 0%, 8% { transform: translateX(-7px); opacity: 0; } 14%, 34% { transform: translateX(0); opacity: 1; } 40%, 100% { transform: translateX(-7px); opacity: 0; } }
+@keyframes tp-wag { from { transform: rotate(-8deg); } to { transform: rotate(10deg); } }
+.tp-guest { animation-delay: calc(var(--phase, 0s) - 3s); }
+.tp-run { animation: tp-run 19s linear infinite; animation-delay: calc(var(--phase, 0s) - 2s); }
+.tp-hop { animation: tp-hop .55s ease-out infinite; } .tp-hop-small { animation-duration: .3s; transform: none; }
+.tp-walk-left { animation: tp-walkl 26s linear infinite; animation-delay: calc(var(--phase, 0s) - 5s); }
+.tp-trot { animation: tp-trotr 23s linear infinite; animation-delay: calc(var(--phase, 0s) - 6s); }
+.tp-parade { animation: tp-parade 27s linear infinite; animation-delay: calc(var(--phase, 0s) - 4s); }
+.tp-waddle { transform-box: fill-box; transform-origin: 50% 100%; animation: tp-waddle .5s ease-in-out infinite; }
+.tp-crawl { animation: tp-crawl 34s linear infinite; animation-delay: calc(var(--phase, 0s) - 8s); }
+.tp-mole { animation: tp-mole 21s ease-in-out infinite; animation-delay: calc(var(--phase, 0s) - 1s); transform-box: fill-box; transform-origin: 50% 100%; }
+.tp-frog { animation: tp-frog 17s ease-in-out infinite; animation-delay: calc(var(--phase, 0s) - 2s); }
+.tp-frog-ring { animation: tp-ringpop 17s linear infinite; animation-delay: calc(var(--phase, 0s) - 2s); stroke-opacity: 1; }
+.tp-squirrel { animation: tp-peek 18s ease-in-out infinite; animation-delay: calc(var(--phase, 0s) - 3s); }
+.tp-tail { transform-box: fill-box; transform-origin: 80% 100%; animation: tp-wag .6s ease-in-out infinite alternate; }
 .tp-flag { transform-origin: 252px 114px; animation: tp-wave var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
 .tp-cloud { animation: tp-drift var(--cloud-dur, 26s) ease-in-out infinite alternate; }
 .tp-cloud.tp-back { animation-direction: alternate-reverse; }
@@ -794,7 +820,7 @@ button, select, input { touch-action: manipulation; }
 .tp-fall-rain { animation: tp-fall-rain .5s linear infinite; }
 .tp-fall-far { animation: tp-fall-far 5s linear infinite; }
 .tp-fall-near { animation: tp-fall-near 8s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .tp-scene, .tp-scene * { animation: none !important; } .tp-bird, .tp-flutter, .tp-leaf { display: none; } }  /* a still picture: no visitors parked at the edge */
+@media (prefers-reduced-motion: reduce) { .tp-scene, .tp-scene * { animation: none !important; } .tp-bird, .tp-flutter, .tp-leaf, .tp-guest, .tp-squirrel, .tp-frog-ring { display: none; } }  /* a still picture: no visitors parked at the edge */
 
 /* ---- welcome ---- */
 .wl { width: 100%; max-width: 26rem; margin: 0.5rem auto 0; display: flex; flex-direction: column; gap: 0.875rem; }
