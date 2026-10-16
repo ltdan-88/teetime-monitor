@@ -165,4 +165,5 @@ def build(slug: str | None, course: str | None, club_id: str | None = None, name
     for card in (window, _with_friends(days), _best_weather(days, window["date"] if window else None)):
         if card:
             cards.append(card)
+    cards.sort(key=lambda card: (card["date"], card.get("time", "")))  # soonest first; a whole-day card comes before that day's timed ones
     return {"cards": cards, "south": south}
