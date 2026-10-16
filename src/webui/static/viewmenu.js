@@ -81,3 +81,30 @@ export function ViewMenu({ boot, units, showHandicaps, history, onHistory, tips,
         </div>`}
     </span>`;
 }
+
+/** On a phone the toolbar has room for seven buttons a finger can hit: the ones used less often (`items`, each
+ *  { name, icon, label, key, onClick, disabled }) move into this menu there. Wider screens hide it (style.css). */
+export function MoreMenu({ items, open, onToggle, onClose }) {
+  const panel = useRef(null);
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const outside = (event) => panel.current && !panel.current.contains(event.target) && !event.target.closest('[data-more-button]') && onClose();
+    const escape = (event) => event.key === 'Escape' && (event.stopPropagation(), onClose());
+    document.addEventListener('mousedown', outside);
+    window.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('mousedown', outside);
+      window.removeEventListener('keydown', escape, true);
+    };
+  }, [open]);
+  return html`
+    <span class="view-wrap more-wrap">
+      <button class=${'tool' + (open ? ' on' : '')} data-more-button onClick=${onToggle} aria-expanded=${open} aria-haspopup="menu" title=${t('action.more')} aria-label=${t('action.more')}>
+        <${Icon} name="more" /></button>
+      ${open && html`
+        <div class="view-panel more-panel" ref=${panel} role="menu" aria-label=${t('action.more')}>
+          ${items.map((item) => html`<button key=${item.name} class="more-item" role="menuitem" disabled=${item.disabled} onClick=${() => { onClose(); item.onClick(); }}>
+            <${Icon} name=${item.icon} /><span>${item.label}</span><span class="kbd">${item.key}</span></button>`)}
+        </div>`}
+    </span>`;
+}

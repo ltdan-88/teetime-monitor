@@ -89,7 +89,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       <span class="day">${label}</span>
       <span>${w && html`<${Condition} code=${w.code} />`}</span>
       <span class="temp" title=${t('tip.temp')}>
-        ${w && w.temp_high != null && html`<${Icon} name="thermo" size=${16} class="dim" /><span style=${tempTone(w.temp_high)}>${temperature(w.temp_high, units)}°</span>/<span style=${tempTone(w.temp_low)}>${temperature(w.temp_low, units)}°</span>`}
+        ${w && w.temp_high != null && html`<${Icon} name="thermo" size=${16} class="dim" /><span style=${tempTone(w.temp_high)}>${temperature(w.temp_high, units)}°</span><span class="lo">/<span style=${tempTone(w.temp_low)}>${temperature(w.temp_low, units)}°</span></span>`}
       </span>
       <span class="small rain" style=${w ? rainTone(w.rain_avg) : null} title=${rainTip}>
         ${w && html`<${Icon} name="drop" size=${15} />${round(w.rain_avg)}%`}

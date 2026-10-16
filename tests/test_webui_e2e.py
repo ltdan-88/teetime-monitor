@@ -1193,7 +1193,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
-    assert ui.count(".legend .tool-ico") == 9  # every toolbar icon is named
+    assert ui.count(".legend .tool-ico") == 10  # every toolbar icon is named, More included
     assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
     assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
     assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away
@@ -1453,6 +1453,35 @@ def test_the_legend_and_escape(ui):
     ui.wait(SHEET_READY)
     ui.key("Escape")
     ui.wait("!document.querySelector('.scrim')")
+
+
+def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every_text_size(ui):
+    ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
+    try:
+        for scale in (90, 110, 125):
+            ui.js(f"localStorage.setItem('tm_scale', '{scale}'); window.__beforeReload = true; location.reload()")
+            ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+            for width in (360, 390, 430):
+                ui.call("Emulation.setDeviceMetricsOverride", width=width, height=850, deviceScaleFactor=2, mobile=True)
+                ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+                shape = ui.js("""(() => { const shown = [...document.querySelectorAll('.toolbar-tools > *')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
+                  return {n: shown.length, right: Math.max(...shown.map((b) => b.right)), narrow: Math.min(...shown.map((b) => b.width)), page: document.documentElement.scrollWidth, w: innerWidth}; })()""")
+                assert shape["n"] == 7 and shape["right"] <= shape["w"] and shape["page"] <= shape["w"] + 1, (scale, width, shape)
+                assert shape["narrow"] >= 44, (scale, width, shape)  # a finger still hits every button
+                one_line = ui.js("[...document.querySelectorAll('.dh .day')].every((e) => e.getBoundingClientRect().height < parseFloat(getComputedStyle(e).fontSize) * 1.8)")
+                assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
+        ui.click(".more-wrap .tool")
+        ui.wait("document.querySelector('.more-panel')")
+        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Heatmap", "Preferences", "Settings"]
+        ui.click(".more-item", text="Settings")
+        ui.wait("!document.querySelector('.more-panel') && document.querySelector('.sheet h2')?.textContent.includes('Settings')")
+        _close_sheet(ui)
+    finally:
+        ui.js("localStorage.removeItem('tm_scale'); window.__beforeReload = true; location.reload()")
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+    assert ui.count(".more-wrap .tool") == 1 and ui.js("getComputedStyle(document.querySelector('.more-wrap')).display") == "none"  # a wide screen shows every tool
 
 
 def test_every_screen_fits_the_window_at_three_widths(ui):
