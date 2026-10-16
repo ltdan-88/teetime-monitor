@@ -43,18 +43,34 @@ function Item({ item, now, canShow, onShow }) {
   </li>`;
 }
 
-export function TournamentsSheet({ club, knownDays, onShowDay, onClose }) {
+/** One row of buttons, one of them lit: `options` are { value, label }. */
+function Choice({ label, value, options, onChange }) {
+  return html`<span class="tn-choice" role="group" aria-label=${label}>
+    <span class="tn-choice-label">${label}</span>
+    ${options.map((option) => html`<button key=${option.value} class="chip tn-pick" aria-pressed=${option.value === value} onClick=${() => onChange(option.value)}>${option.label}</button>`)}
+  </span>`;
+}
+
+const NO_FILTER = { holes: 'all', who: 'all', open: false };
+
+export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClose }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data, error } = useLoad(() => api('/api/tournaments' + query(ref)), [club.id]);
   const today = new Date();
-  const [shown, setShown] = useState({ year: today.getFullYear(), month: today.getMonth() });
-  const [picked, setPicked] = useState(null);
-  const list = (data && data.tournaments) || [];
+  const start = focusDate ? new Date(Number(focusDate.slice(0, 4)), Number(focusDate.slice(5, 7)) - 1, 1) : today;
+  const [shown, setShown] = useState({ year: start.getFullYear(), month: start.getMonth() });
+  const [picked, setPicked] = useState(focusDate || null);
+  const [filter, setFilter] = useState(NO_FILTER);
+  const all = (data && data.tournaments) || [];
+  const holeSizes = [...new Set(all.map((item) => item.holes).filter(Boolean))].sort((a, b) => a - b);
+  const mixedWho = all.some((item) => item.guests) && all.some((item) => !item.guests);
+  const list = all.filter((item) => (filter.holes === 'all' || item.holes === filter.holes) && (filter.who === 'all' || item.guests === (filter.who === 'guests')) && (!filter.open || item.register_open));
+  const filtered = filter.holes !== 'all' || filter.who !== 'all' || filter.open;
   const byDay = useMemo(() => {
     const map = {};
     for (const item of list) (map[item.date] = map[item.date] || []).push(item);
     return map;
-  }, [data]);
+  }, [data, filter]);
   const now = stamp();
   const todayIso = now.slice(0, 10);
   const first = iso(shown.year, shown.month, 1);
@@ -66,34 +82,50 @@ export function TournamentsSheet({ club, knownDays, onShowDay, onClose }) {
     setShown({ year: moved.getFullYear(), month: moved.getMonth() });
     setPicked(null);
   };
+  const change = (part) => setFilter((current) => ({ ...current, ...part }));
   return html`<${Sheet} title=${t('tournaments.title')} onClose=${onClose} size="medium">
     <p class="hint">${t('tournaments.intro')}</p>
     ${!data && !error && html`<${Status} kind="busy">${t('tournaments.loading')}<//>`}
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
     ${data && html`
-      <div class="tn-nav">
-        <button class="btn small tn-step" aria-label=${t('tournaments.prev')} onClick=${() => step(-1)}><${Icon} name="chevron" size=${18} class="flip" /></button>
-        <h3 class="tn-month" aria-live="polite">${monthName}</h3>
-        <button class="btn small tn-step" aria-label=${t('tournaments.next')} onClick=${() => step(1)}><${Icon} name="chevron" size=${18} /></button>
+      <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
+        ${holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onChange=${(value) => change({ holes: value })}
+          options=${[{ value: 'all', label: t('tournaments.all') }, ...holeSizes.map((n) => ({ value: n, label: String(n) }))]} />`}
+        ${mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onChange=${(value) => change({ who: value })}
+          options=${[{ value: 'all', label: t('tournaments.all') }, { value: 'guests', label: t('tournaments.guests') }, { value: 'members', label: t('tournaments.members_only') }]} />`}
+        <button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => change({ open: !filter.open })}>${t('tournaments.reg_open')}</button>
+        ${filtered && html`<button class="link-btn" onClick=${() => setFilter(NO_FILTER)}>${t('tournaments.clear_filters')}</button>`}
       </div>
-      <div class="tn-cal" role="group" aria-label=${monthName}>
-        ${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<span class="tn-wd" key=${i}>${monday(i)}</span>`)}
-        ${monthWeeks(shown.year, shown.month).flat().map((day, i) => {
-          if (!day) return html`<span class="tn-cell blank" key=${'b' + i}></span>`;
-          const events = byDay[day] || [];
-          const cls = 'tn-cell' + (events.length ? ' has' : '') + (day === picked ? ' on' : '') + (day === todayIso ? ' today' : '') + (day < todayIso ? ' past' : '');
-          const label = dayLabel(day) + (events.length ? ': ' + events.map((item) => item.name).join(', ') : '');
-          if (!events.length) return html`<span class=${cls} key=${day} aria-label=${label}>${Number(day.slice(8))}</span>`;
-          return html`<button class=${cls} key=${day} aria-pressed=${day === picked} aria-label=${label} onClick=${() => setPicked(day === picked ? null : day)}>
-            <span>${Number(day.slice(8))}</span><span class="tn-dots" aria-hidden="true">${events.slice(0, 3).map((_, d) => html`<i key=${d}></i>`)}</span></button>`;
-        })}
-      </div>
-      <h3 class="tn-head">${picked ? dayLabel(picked) : monthName}</h3>
-      <div class="tn-scroll">
-      ${rows.length === 0 && html`<div class="empty small"><p>${list.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: monthName })}</p></div>`}
-      <ul class="tn-list">
-        ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${(knownDays || []).includes(item.date)} onShow=${onShowDay} />`)}
-      </ul></div>`}
+      <div class="tn-split">
+        <div class="tn-left">
+          <div class="tn-nav">
+            <button class="btn small tn-step" aria-label=${t('tournaments.prev')} onClick=${() => step(-1)}><${Icon} name="chevron" size=${18} /></button>
+            <h3 class="tn-month" aria-live="polite">${monthName}</h3>
+            <button class="btn small tn-step" aria-label=${t('tournaments.next')} onClick=${() => step(1)}><${Icon} name="chevron" size=${18} /></button>
+          </div>
+          <div class="tn-cal" role="group" aria-label=${monthName}>
+            ${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<span class="tn-wd" key=${i}>${monday(i)}</span>`)}
+            ${monthWeeks(shown.year, shown.month).flat().map((day, i) => {
+              if (!day) return html`<span class="tn-cell blank" key=${'b' + i}></span>`;
+              const events = byDay[day] || [];
+              const cls = 'tn-cell' + (events.length ? ' has' : '') + (day === picked ? ' on' : '') + (day === todayIso ? ' today' : '') + (day < todayIso ? ' past' : '');
+              const label = dayLabel(day) + (events.length ? ': ' + events.map((item) => item.name).join(', ') : '');
+              if (!events.length) return html`<span class=${cls} key=${day} aria-label=${label}>${Number(day.slice(8))}</span>`;
+              return html`<button class=${cls} key=${day} aria-pressed=${day === picked} aria-label=${label} onClick=${() => setPicked(day === picked ? null : day)}>
+                <span>${Number(day.slice(8))}</span><span class="tn-dots" aria-hidden="true">${events.slice(0, 3).map((_, d) => html`<i key=${d}></i>`)}</span></button>`;
+            })}
+          </div>
+        </div>
+        <div class="tn-right">
+          <h3 class="tn-head">${picked ? dayLabel(picked) : monthName}</h3>
+          <div class="tn-scroll">
+            ${rows.length === 0 && html`<div class="empty small"><p>${filtered ? t('tournaments.none_filtered') : all.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: picked ? dayLabel(picked) : monthName })}</p></div>`}
+            <ul class="tn-list">
+              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${(knownDays || []).includes(item.date)} onShow=${onShowDay} />`)}
+            </ul>
+          </div>
+        </div>
+      </div>`}
   <//>`;
 }

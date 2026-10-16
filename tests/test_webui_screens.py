@@ -248,7 +248,7 @@ def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(
     today = date.today()
     d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
     sunny, rainy = _schedule(d(0), rain=5), _schedule(d(1), rain=80)
-    for item in (sunny, rainy, _schedule(d(2), rain=30)):
+    for item in (sunny, rainy, _schedule(d(2), rain=10)):
         storage.save_schedule(item, path=world)
     storage.record_seen_players([PlayerSighting(name="Erika Musterfrau", gender="female", member_status="member")], "2026-10-01T10:00:00+00:00", path=world)
     storage.set_player_friend("Erika Musterfrau", True, path=world)
@@ -265,6 +265,22 @@ def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(
     assert cards["best_weather"]["weather"]["rain"] <= 30  # the rainy day loses
     order = [(c["date"], c.get("time", "")) for c in panel.build(SLUG, COURSE)["cards"]]
     assert order == sorted(order)  # the cards run in chronological order
+
+
+def test_best_weather_is_only_named_when_a_day_is_actually_good(world, monkeypatch):
+    from src import clock
+    from src.webui import panel
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
+    today = date.today()
+    for n, rain in enumerate((45, 80, 35)):  # a wet week: the least bad day is still not good weather
+        storage.save_schedule(_schedule((today + timedelta(days=n)).isoformat(), rain=rain), path=world)
+    data._OVERVIEW_CACHE.clear()
+    assert "best_weather" not in {card["kind"] for card in panel.build(SLUG, COURSE)["cards"]}
+    storage.save_schedule(_schedule((today + timedelta(days=3)).isoformat(), rain=12), path=world)  # one dry day brings it back
+    data._OVERVIEW_CACHE.clear()
+    cards = {card["kind"]: card for card in panel.build(SLUG, COURSE)["cards"]}
+    assert cards["best_weather"]["date"] == (today + timedelta(days=3)).isoformat() and cards["best_weather"]["weather"]["rain"] == 12
 
 
 def test_the_panel_says_when_the_club_lies_south_of_the_equator(world):
@@ -735,3 +751,18 @@ def test_a_tournament_calendar_that_cannot_be_read_says_why_and_keeps_the_last_l
     monkeypatch.setattr(scraper, "scrape_tournaments", lambda *args: (_ for _ in ()).throw(httpx.ConnectError("down")))
     again = data.tournaments(SLUG, None, refresh=True)
     assert again["problem"] == "network" and len(again["tournaments"]) == 1  # the old list stays on screen
+
+
+def test_a_day_with_a_tournament_block_says_so_and_a_routine_event_does_not(world):
+    today = date.today()
+    championship, group = _schedule(today.isoformat()), _schedule((today + timedelta(days=1)).isoformat())
+    championship.events = ["Club Championship"]
+    championship.slots[1].block_reason = "Club Championship"
+    group.events = ["Ladies Afternoon"]  # a weekly group: it blocks one time and its name does not read like a competition
+    group.slots[1].block_reason = "Ladies Afternoon"
+    for item in (championship, group):
+        storage.save_schedule(item, path=world)
+    data._OVERVIEW_CACHE.clear()
+    days = {day["date"]: day for day in data.overview(SLUG, COURSE)["days"]}
+    assert days[today.isoformat()]["tournament_day"] is True  # its blocked times link to the calendar
+    assert days[(today + timedelta(days=1)).isoformat()]["tournament_day"] is False

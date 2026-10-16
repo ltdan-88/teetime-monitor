@@ -144,7 +144,7 @@ export function WhoList({ slot, showHandicaps }) {
   </span>`;
 }
 
-function SlotRow({ slot, day, units, showHandicaps, onPick }) {
+function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
   const [whoOpen, setWhoOpen] = useState(false);
   const dimmed = outsideWindow(day, slot);
   const capacity = slot.capacity > 0 ? slot.capacity : 4;
@@ -175,7 +175,9 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
         <span style=${slot.booked_by_you ? { fontWeight: 700 } : null}>${slot.time}</span>
       </span>
       ${blocked
-        ? html`<span class="people blocked-note"><span class="dim blocked-text" title=${slot.block_reason || t('not_bookable')}>${slot.block_reason || t('not_bookable')}</span></span>`
+        ? html`<span class="people blocked-note">${onTournament && day.tournament_day && slot.block_reason && day.events.includes(slot.block_reason)
+          ? html`<button class="blocked-text tourn-link" title=${t('tournaments.open_day')} onClick=${(event) => { event.stopPropagation(); onTournament(day.date); }}><${Icon} name="trophy" size=${14} />${slot.block_reason}</button>`
+          : html`<span class="dim blocked-text" title=${slot.block_reason || t('not_bookable')}>${slot.block_reason || t('not_bookable')}</span>`}</span>`
         : html`
           <span class="seats" title=${t('tip.seats', { booked: slot.booked, capacity })}>${seats}</span>
           <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>
@@ -192,7 +194,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onAlternative, reserveNote }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, reserveNote }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
       <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} reserveNote=${reserveNote} />
@@ -202,7 +204,7 @@ export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onA
           return note && html`<p class="day-why"><${Icon} name=${note.icon} size=${16} />${note.text}
             ${note.alt && onAlternative && html` <button class="link-btn" onClick=${() => onAlternative(day, note.alt)}>${t('overview.switch_course', { course: note.alt.course })}</button>`}</p>`;
         })()}
-        ${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} />`)}</div>`}
+        ${day.slots.map((slot) => html`<${SlotRow} key=${slot.time} slot=${slot} day=${day} units=${units} showHandicaps=${showHandicaps} onPick=${onPick} onTournament=${onTournament} />`)}</div>`}
     </section>`;
 }
 

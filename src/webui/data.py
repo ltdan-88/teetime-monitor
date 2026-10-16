@@ -27,6 +27,7 @@ import httpx
 
 from .. import (
     booking,
+    calendar_context,
     clock,
     club_config,
     global_preferences,
@@ -271,6 +272,7 @@ def build_day(
     return {
         "date": schedule.date,
         "events": list(schedule.events),
+        "tournament_day": calendar_context.is_tournament_day(schedule.events, schedule.slots),  # its event blocks link to the calendar
         "booked_time": booked_time,
         "sunrise": sunrise,
         "sunset": sunset,
