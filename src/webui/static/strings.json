@@ -364,7 +364,9 @@
   "tournaments.all": "All",
   "tournaments.clear_filters": "Clear filters",
   "tournaments.none_filtered": "No tournament matches these filters.",
-  "tournaments.open_day": "Open in the calendar"
+  "tournaments.open_day": "Open in the calendar",
+  "action.more": "More",
+  "legend.tool.more": "More (on a phone): Heatmap, Preferences and Settings"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -731,6 +733,8 @@
   "tournaments.all": "Alle",
   "tournaments.clear_filters": "Filter löschen",
   "tournaments.none_filtered": "Kein Turnier passt zu diesen Filtern.",
-  "tournaments.open_day": "Im Kalender öffnen"
+  "tournaments.open_day": "Im Kalender öffnen",
+  "action.more": "Mehr",
+  "legend.tool.more": "Mehr (auf dem Handy): Heatmap, Präferenzen und Einstellungen"
  }
 }

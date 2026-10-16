@@ -187,6 +187,7 @@ const ICONS = {
   arrowup: html`<path d="M12 19V5M5 12l7-7 7 7" />`,
   check: html`<path d="M5 12.5l4.5 4.5L19 7.5" />`,
   calendarcheck: html`<rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M9 15.2l2.1 2.1 3.9-4.1" />`,
+  more: html`<circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none" />`,
   trophy: html`<path d="M7.5 4h9v5.5a4.5 4.5 0 0 1-9 0zM7.5 6H4.5v1.2A3 3 0 0 0 7.6 10M16.5 6h3v1.2a3 3 0 0 1-3.1 2.8M12 14v4M8.5 20h7" />`,
   trash: html`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />`,
   palette: html`<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8.3-9-8.3z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" />`,

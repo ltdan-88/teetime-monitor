@@ -125,7 +125,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .dh:hover { background: var(--surface-hover); }
 .dh .chev { color: var(--dim); transition: transform .15s ease; }
 .card.open .dh .chev { transform: rotate(90deg); }
-.dh .day { font-size: 1.0625rem; font-weight: 600; }
+.dh .day { font-size: 1.0625rem; font-weight: 600; white-space: nowrap; }
 .dh .cond { display: flex; color: var(--seat); }
 /* weather icons in their own colors (the numbers beside them have theirs) */
 .cond.k-sun, .cond.k-partly { color: var(--yellow); }
@@ -134,6 +134,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .cond.k-storm { color: var(--orange); }
 .tones { font-family: var(--mono); white-space: nowrap; }
 .dh .temp { font-family: var(--mono); font-size: 0.9375rem; display: flex; align-items: center; gap: 0.375rem; }
+.dh .temp .lo { display: contents; }
 .dh .small { display: flex; align-items: center; gap: 0.375rem; color: var(--dim); font-family: var(--mono); font-size: 0.8125rem; }
 .dh .sun { color: var(--dim); font-family: var(--mono); font-size: 0.8125rem; }
 .dh .badge-slot { display: flex; justify-content: flex-end; padding-right: 0.75rem; min-width: 0; min-height: 1.875rem; align-items: center; }
@@ -449,7 +450,9 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .toolbar-tools { flex: 1 1 100%; justify-content: space-between; }
   .toolbar-tools > .tool, .toolbar-tools .view-wrap { flex: 1 1 0; justify-content: center; }
   .toolbar-tools .view-wrap > .tool { width: 100%; justify-content: center; }
-  .dh { grid-template-columns: 1.375rem minmax(0, 1fr) 2.25rem 6rem auto; padding: 0.5rem 0.75rem; row-gap: 0.375rem; }  /* the badge column is as wide as its pill */
+  .dh { grid-template-columns: 1.375rem max-content 2.25rem minmax(0, 1fr) auto; padding: 0.5rem 0.75rem; row-gap: 0.375rem; container-type: inline-size; }  /* the date never wraps; the badge column is as wide as its pill */
+  .dh .temp { overflow: hidden; white-space: nowrap; }
+  .dh .temp svg { display: none; }  /* the thermometer: the colours already say temperature, and the room goes to the date */
   .dh .badge-slot .pill { flex: none; }
   .dh .rain, .dh .wind, .dh .sun { display: none; }
   .dh .heat { grid-column: 1 / -1; justify-content: flex-start; }
@@ -902,3 +905,24 @@ button, select, input { touch-action: manipulation; }
 .tourn-link { display: inline-flex; align-items: center; gap: 0.375rem; max-width: 100%; border: 0; background: transparent; color: var(--accent-text, var(--accent)); font: inherit; font-size: 0.8125rem; font-style: normal; cursor: pointer; padding: 0.25rem 0; text-align: left; }
 .tourn-link:hover { text-decoration: underline; }
 .tourn-link svg { flex: none; }
+
+/* ---- the phone's More menu: seven toolbar buttons fit a finger; Heatmap, Preferences and Settings move behind More */
+.more-wrap { display: none; }
+.more-panel { width: 16rem; padding: 0.375rem; display: flex; flex-direction: column; }
+.more-item { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) auto; align-items: center; gap: 0.75rem; min-height: 44px; padding: 0 0.75rem;
+  border: 0; border-radius: 0.5rem; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.more-item:hover, .more-item:focus-visible { background: var(--surface-hover); }
+.more-item[disabled] { opacity: .5; cursor: default; }
+.more-item .kbd { color: var(--dim); }
+@media (max-width: 640px) {
+  .toolbar-tools > .tool.in-more { display: none; }
+  .toolbar-tools .more-wrap { display: inline-flex; flex: 1 1 0; }
+  .toolbar-tools .more-wrap > .tool { width: 100%; justify-content: center; }
+  /* seven equal shares of the width at every text size: no padding or minimum to push the row off the screen */
+  .toolbar-tools { gap: 0; }
+  .toolbar-tools > .tool, .toolbar-tools .view-wrap > .tool { padding-left: 0; padding-right: 0; min-width: 0; }
+  .toolbar-tools > .tool, .toolbar-tools .view-wrap { min-width: 0; }
+}
+/* a phone at a large text size: the day's low goes first, so the date, the high and the badge keep one line */
+@container (max-width: 20rem) { .dh .temp .lo { display: none; } }
+@container (max-width: 18rem) { .dh .temp { visibility: hidden; } }  /* no room for even the high: none rather than a cut-off digit (the open day shows it per time) */
