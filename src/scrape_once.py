@@ -858,6 +858,12 @@ def _daily_backup(club_id: str, today: str | None = None) -> Path | None:
         existing = sorted(backups.glob(f"{club_id}-????-??-??.db"))
         for stale in existing[:-BACKUPS_KEPT_PER_CLUB]:
             stale.unlink(missing_ok=True)
+        directory = storage.players_db_path(source)  # the shared player directory (friends) once a day too
+        directory_target = backups / f"players-{day}.db"
+        if directory.exists() and not directory_target.exists():
+            storage.backup_db(directory, directory_target)
+            for stale in sorted(backups.glob("players-????-??-??.db"))[:-BACKUPS_KEPT_PER_CLUB]:
+                stale.unlink(missing_ok=True)
         return target
     except Exception as exc:  # noqa: BLE001
         _log(f"[scrape_once] {club_id}: daily backup failed: {exc}")

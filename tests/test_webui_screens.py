@@ -789,3 +789,15 @@ def test_the_page_addresses_its_stylesheet_and_script_by_content(running):
     assert css.group(1).decode() == hashlib.sha1((server.STATIC_DIR / "style.css").read_bytes()).hexdigest()[:12]
     status, sheet = get("/style.css?v=" + css.group(1).decode())
     assert status == 200 and sheet == (server.STATIC_DIR / "style.css").read_bytes()  # the query does not change which file comes back
+
+
+def test_the_player_list_is_one_for_every_club_and_names_the_home_club(world):
+    from src.webui import tools_api
+
+    other = world.parent / "0000002.db"  # a second club in the same data folder
+    storage.record_seen_players([PlayerSighting(name="Lena Beispiel", gender="female", member_status="guest", handicap=12.0)], "2026-10-02T10:00:00+00:00", path=other)
+    storage.set_player_friend("Lena Beispiel", True, path=other)  # marked while looking at the other club
+    players = {p["name"]: p for p in tools_api.players(SLUG, None)["players"]}
+    assert players["Lena Beispiel"]["friend"] is True and players["Lena Beispiel"]["home_clubs"] == []  # a guest: club unknown
+    assert players["Max Mustermann"]["home_clubs"] == ["Golfclub Beispiel"]  # a member here, by the saved club's name
+    assert "Lena Beispiel" in storage.load_friend_names(world)  # and a friend at this club too

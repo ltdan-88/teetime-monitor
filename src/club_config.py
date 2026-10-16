@@ -221,6 +221,20 @@ def new_club_stub(club_id: str, name: str = "") -> dict:
     return stub
 
 
+def club_names_by_id(clubs_dir: Path | None = None) -> dict[str, str]:
+    """pc caddie club id -> the saved club's name, for every saved club (a malformed file is skipped). What turns
+    the player directory's home-club ids into words."""
+    names: dict[str, str] = {}
+    for slug in list_clubs(clubs_dir):
+        try:
+            config = load_club_config(slug, clubs_dir)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if config.get("club_id"):
+            names[str(config["club_id"])] = config.get("name") or slug
+    return names
+
+
 def slug_for_club_id(club_id: str, clubs_dir: Path | None = None) -> str | None:
     """The saved slug for a club's numeric pc caddie id, if it's a favorite.
 

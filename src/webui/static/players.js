@@ -4,6 +4,11 @@
 import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
 const SORTS = ['name', 'friend', 'gender', 'handicap', 'member'];
+
+/** The Club column: the club(s) the name was seen at as a member, else "Guest" (the directory is shared by every
+ *  club; pc caddie never names a guest's own club). */
+const memberText = (player) => !player.member_status ? '' : player.member_status === 'member' && player.home_clubs && player.home_clubs.length
+  ? player.home_clubs.join(', ') : t('players.member_status.' + player.member_status);
 const familyName = (name) => name.trim().split(/\s+/).pop().toLowerCase();
 
 function sorted(players, key) {
@@ -79,7 +84,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
             <${Icon} name="star" size=${18} style=${player.friend ? 'fill:currentColor' : ''} /></button>
           <span class=${'player-name' + (player.gender === 'female' ? ' alt' : '') + (player.friend ? ' f' : '')} title=${player.name}>${player.name}</span>
           <span class="dim player-meta">${player.gender ? t('players.gender.' + player.gender) : ''}</span>
-          <span class="dim player-meta">${player.member_status ? t('players.member_status.' + player.member_status) : ''}</span>
+          <span class="dim player-meta" title=${memberText(player)}>${memberText(player)}</span>
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
           ${player.upcoming && player.upcoming.length > 0
             ? html`<button class="tee-btn" onClick=${() => focus(player)} title=${t('players.focus_title') + ': ' + player.name}>

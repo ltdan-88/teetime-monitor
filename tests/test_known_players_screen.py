@@ -77,7 +77,7 @@ def test_shows_gender_member_status_and_handicap_columns(tmp_path):
             table = app.screen.query_one("#players-table", DataTable)
             row = table.get_row_at(0)
             assert row[1] == "Male"
-            assert row[2] == "Member"
+            assert row[2] == "club"  # the Club column: the home club, by its id when no name is known for it
             assert row[3] == "25.1"
 
     asyncio.run(scenario())
