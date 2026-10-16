@@ -220,6 +220,10 @@ class KnownPlayer:
     gender: str | None = None
     member_status: str | None = None
     handicap: float | None = None
+    # 2026-10-17: the directory is shared by every club (storage.py "player directory"). The ids of the clubs this
+    # name was seen at as "Mitglied" -- the home club(s) as far as your own tee sheets can tell; pc caddie never
+    # names a guest's club, so a friend from a club you have not saved stays a guest here.
+    home_clubs: tuple[str, ...] = ()
 
 
 @dataclass

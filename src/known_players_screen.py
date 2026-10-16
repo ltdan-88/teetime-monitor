@@ -46,7 +46,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Input, Label, Static, Switch
 from textual.widgets.data_table import RowDoesNotExist
 
-from . import i18n, storage
+from . import club_directory, i18n, storage
 from . import theme as theme_module
 from .models import KnownPlayer, family_name
 from .safe_header import SafeHeader
@@ -78,8 +78,13 @@ def _gender_cell(gender: str | None) -> str:
     return i18n.t(f"players.gender.{gender}") if gender else ""
 
 
-def _member_status_cell(member_status: str | None) -> str:
-    return i18n.t(f"players.member_status.{member_status}") if member_status else ""
+def _member_status_cell(player: KnownPlayer, club_names: dict[str, str]) -> str:
+    """The Club column: the club(s) the shared directory saw this name at as a member, else "Guest"."""
+    if not player.member_status:
+        return ""
+    if player.member_status == "member" and player.home_clubs:
+        return ", ".join(club_names.get(club, club) for club in player.home_clubs)
+    return i18n.t(f"players.member_status.{player.member_status}")
 
 
 def _handicap_cell(handicap: float | None) -> str:
@@ -192,11 +197,12 @@ class KnownPlayersScreen(Screen[str | None]):
         table.add_column(self._column_label("member_status", "players.column.member_status"), key="member_status")
         table.add_column(self._column_label("handicap", "players.column.handicap"), key="handicap")
         table.add_column(self._column_label("friend", "players.column.friend"), key="friend")
+        club_names = club_directory.names_by_id()
         for player in self._visible_players():
             table.add_row(
                 player.name,
                 _gender_cell(player.gender),
-                _member_status_cell(player.member_status),
+                _member_status_cell(player, club_names),
                 _handicap_cell(player.handicap),
                 _FRIEND_MARK if player.is_friend else "",
                 key=player.name,

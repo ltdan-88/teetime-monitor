@@ -64,6 +64,7 @@ scrape_once.py is wired up.
 """
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -754,6 +755,115 @@ def load_my_handicap(path: Path = DEFAULT_DB_PATH) -> float | None:
 
 _PURGED_PATHS: set[str] = set()
 
+# ---- the player directory (2026-10-17) -------------------------------------------------------------------
+# One directory of people for every club, in `players.db` beside the club databases: a friend is marked once and
+# counts everywhere, and each name carries the clubs it was seen at -- as "Mitglied" there, that is its home club.
+# Each club database keeps its own `known_players` rows (who was seen at that club); the directory is built from
+# them once (`_directory()`), then kept up to date by every `record_seen_players()`. Names are the identity, as
+# before: pc caddie shows nothing else about a person.
+
+PLAYERS_DB_NAME = "players.db"
+PLAYERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS players (
+    name TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    is_friend INTEGER NOT NULL DEFAULT 0,
+    gender TEXT,
+    handicap REAL
+);
+CREATE TABLE IF NOT EXISTS player_clubs (
+    name TEXT NOT NULL,
+    club_id TEXT NOT NULL,       -- the club database's own name: pc caddie's club id
+    member_status TEXT,          -- "member" / "guest" / NULL, as last seen at that club
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (name, club_id)
+);
+"""
+_DIRECTORIES_READY: set[str] = set()
+
+
+def players_db_path(club_db: Path) -> Path:
+    """The shared directory that belongs with `club_db` (they live in the same folder)."""
+    return club_db.parent / PLAYERS_DB_NAME
+
+
+_CLUB_ID_RE = re.compile(r"0[1-9]\d{4,}")  # a pc caddie club id: 0, the country calling code, the club number
+
+
+def _club_databases(folder: Path) -> list[Path]:
+    """The club databases in `folder`: every `<club id>.db` with a `known_players` table. Files named otherwise (a
+    test or development run's leftovers, a placeholder id like 0000001) are not clubs and are left alone."""
+    found = []
+    for candidate in sorted(folder.glob("*.db")):
+        if not _CLUB_ID_RE.fullmatch(candidate.stem) or not candidate.is_file():
+            continue
+        try:
+            conn = sqlite3.connect(f"{candidate.resolve().as_uri()}?mode=ro", uri=True)
+            try:
+                has = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='known_players'").fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            continue
+        if has:
+            found.append(candidate)
+    return found
+
+
+def _upsert_directory(conn: sqlite3.Connection, club_id: str, rows: list[tuple]) -> None:
+    """rows: (name, first_seen, last_seen, is_friend, gender, member_status, handicap), oldest sighting first, so a
+    later one's gender and handicap win and an earlier one's are kept where the later one shows none."""
+    conn.executemany(
+        "INSERT INTO players (name, first_seen, last_seen, is_friend, gender, handicap) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(name) DO UPDATE SET "
+        "first_seen = MIN(players.first_seen, excluded.first_seen), "
+        "last_seen = MAX(players.last_seen, excluded.last_seen), "
+        "is_friend = MAX(players.is_friend, excluded.is_friend), "
+        "gender = CASE WHEN excluded.last_seen >= players.last_seen THEN COALESCE(excluded.gender, players.gender) ELSE COALESCE(players.gender, excluded.gender) END, "
+        "handicap = CASE WHEN excluded.last_seen >= players.last_seen THEN COALESCE(excluded.handicap, players.handicap) ELSE COALESCE(players.handicap, excluded.handicap) END",
+        [(name, first, last, int(bool(friend)), gender, handicap) for name, first, last, friend, gender, _status, handicap in rows],
+    )
+    conn.executemany(
+        "INSERT INTO player_clubs (name, club_id, member_status, first_seen, last_seen) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(name, club_id) DO UPDATE SET "
+        "member_status = COALESCE(excluded.member_status, player_clubs.member_status), "
+        "first_seen = MIN(player_clubs.first_seen, excluded.first_seen), "
+        "last_seen = MAX(player_clubs.last_seen, excluded.last_seen)",
+        [(name, club_id, status, first, last) for name, first, last, _friend, _gender, status, _handicap in rows],
+    )
+
+
+def _directory(club_db: Path) -> Path:
+    """The directory for `club_db`'s folder, created on first use from every club database there: a friend anywhere
+    stays a friend, the newest gender and handicap win, and each club records whether the name was a member there.
+    Runs once per folder (PRAGMA user_version marks it done), so it also upgrades an existing install in place."""
+    target = players_db_path(club_db)
+    key = str(target.resolve()) if target.parent.exists() else str(target)
+    if key in _DIRECTORIES_READY and target.exists():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with _connect(target) as conn:
+        conn.executescript(PLAYERS_SCHEMA)
+        if conn.execute("PRAGMA user_version").fetchone()[0] < 1:
+            sources = _club_databases(target.parent)
+            if club_db.exists() and club_db not in sources:  # the club in use counts, whatever its file is called
+                sources.append(club_db)
+            for source in sources:
+                try:
+                    with _connect(source) as club:
+                        rows = club.execute(
+                            "SELECT name, first_seen, last_seen, is_friend, gender, member_status, handicap FROM known_players ORDER BY last_seen"
+                        ).fetchall()
+                except sqlite3.Error:
+                    continue  # a database without a known_players table yet
+                rows = [row for row in rows if row[3] or looks_like_player_name(row[0])]
+                _upsert_directory(conn, source.stem, rows)
+            conn.execute("PRAGMA user_version = 1")
+    _DIRECTORIES_READY.add(key)
+    return target
+
 
 def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
     """Deletes `known_players` rows that were recorded before the scraper learned to
@@ -773,8 +883,8 @@ def purge_non_player_names(path: Path = DEFAULT_DB_PATH) -> int:
 
 
 def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Path = DEFAULT_DB_PATH) -> None:
-    """Upsert each sighting into `known_players` -- a new row (both timestamps set to
-    `seen_at`) the first time a name is ever seen, or just `last_seen` bumped (plus
+    """Upsert each sighting into this club's `known_players` and into the shared player directory -- a new row (both
+    timestamps set to `seen_at`) the first time a name is ever seen, or just `last_seen` bumped (plus
     gender/member_status/handicap refreshed) on every later sighting. `is_friend` is
     never touched here, on purpose: it's the one field a person actually sets (via the
     directory screen), and a later scrape re-seeing an already-marked friend must not
@@ -810,59 +920,53 @@ def record_seen_players(sightings: list[PlayerSighting], seen_at: str, path: Pat
                 for sighting in sightings
             ],
         )
+    with _connect(_directory(path)) as conn:
+        _upsert_directory(conn, path.stem, [(s.name, seen_at, seen_at, False, s.gender, s.member_status, s.handicap) for s in sightings])
 
 
 def load_known_players(path: Path = DEFAULT_DB_PATH) -> list[KnownPlayer]:
-    """Every name ever seen in this club's own scrapes, sorted alphabetically by
-    family name (2026-09-27, direct request; "better: make the player directory
-    sortable and searchable" -- this is just the default order both front ends load
-    with, before any in-screen re-sort) -- the directory screen's own listing (both
-    front ends). Sorted in Python, not SQL: `family_name()`'s own last-whitespace-
-    token rule isn't expressible as a plain `ORDER BY`."""
-    if not path.exists():
+    """Every name ever seen at any of your clubs (the shared directory), sorted alphabetically by family name
+    (2026-09-27, direct request) -- the directory screen's own listing (both front ends). `member_status` reads
+    "member" when the name was seen as one at any club (`home_clubs` says which), else what was last seen.
+    Sorted in Python, not SQL: `family_name()`'s own last-whitespace-token rule isn't expressible as a plain
+    `ORDER BY`."""
+    if not path.parent.exists():
         return []
-    init_db(path)
-    with _connect(path) as conn:
-        rows = conn.execute(
-            "SELECT name, first_seen, last_seen, is_friend, gender, member_status, handicap FROM known_players"
-        ).fetchall()
-    players = [
-        KnownPlayer(
-            name=name,
-            first_seen=first_seen,
-            last_seen=last_seen,
-            is_friend=bool(is_friend),
-            gender=gender,
-            member_status=member_status,
-            handicap=handicap,
+    with _connect(_directory(path)) as conn:
+        rows = conn.execute("SELECT name, first_seen, last_seen, is_friend, gender, handicap FROM players").fetchall()
+        clubs: dict[str, list[tuple[str, str | None]]] = {}
+        for name, club_id, status in conn.execute("SELECT name, club_id, member_status FROM player_clubs ORDER BY last_seen DESC"):
+            clubs.setdefault(name, []).append((club_id, status))
+    players = []
+    for name, first_seen, last_seen, is_friend, gender, handicap in rows:
+        seen = clubs.get(name, [])
+        home = tuple(club_id for club_id, status in seen if status == "member")
+        status = "member" if home else next((s for _, s in seen if s), None)
+        players.append(
+            KnownPlayer(name=name, first_seen=first_seen, last_seen=last_seen, is_friend=bool(is_friend), gender=gender,
+                        member_status=status, handicap=handicap, home_clubs=home)
         )
-        for name, first_seen, last_seen, is_friend, gender, member_status, handicap in rows
-    ]
     players.sort(key=lambda p: (family_name(p.name).casefold(), p.name.casefold()))
     return players
 
 
 def load_friend_names(path: Path = DEFAULT_DB_PATH) -> set[str]:
-    """Just the names marked `is_friend` -- what `recommend.ranked_matches()` actually
-    needs, without loading (or the caller having to filter) the whole directory."""
-    if not path.exists():
+    """The names marked as friends, at any club -- what `recommend.ranked_matches()` actually needs, without loading
+    (or the caller having to filter) the whole directory."""
+    if not path.parent.exists():
         return set()
-    init_db(path)
-    with _connect(path) as conn:
-        rows = conn.execute("SELECT name FROM known_players WHERE is_friend = 1").fetchall()
+    with _connect(_directory(path)) as conn:
+        rows = conn.execute("SELECT name FROM players WHERE is_friend = 1").fetchall()
     return {name for (name,) in rows}
 
 
 def load_player_genders(path: Path = DEFAULT_DB_PATH) -> dict[str, str]:
     """Name -> "male"/"female" for every known player whose gender is recorded (the
     site's own "unknown" marker is left out) -- what colours names in the overview."""
-    if not path.exists():
+    if not path.parent.exists():
         return {}
-    init_db(path)
-    with _connect(path) as conn:
-        rows = conn.execute(
-            "SELECT name, gender FROM known_players WHERE gender IN ('male', 'female')"
-        ).fetchall()
+    with _connect(_directory(path)) as conn:
+        rows = conn.execute("SELECT name, gender FROM players WHERE gender IN ('male', 'female')").fetchall()
     return dict(rows)
 
 
@@ -872,11 +976,10 @@ def load_known_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
     every call site repeating the same `load_known_players()` + filter-and-dict-
     comprehension. Same shape of shortcut `load_friend_names()` already is over
     `load_known_players()`."""
-    if not path.exists():
+    if not path.parent.exists():
         return {}
-    init_db(path)
-    with _connect(path) as conn:
-        rows = conn.execute("SELECT name, handicap FROM known_players WHERE handicap IS NOT NULL").fetchall()
+    with _connect(_directory(path)) as conn:
+        rows = conn.execute("SELECT name, handicap FROM players WHERE handicap IS NOT NULL").fetchall()
     return dict(rows)
 
 
@@ -890,12 +993,14 @@ def load_player_handicaps(path: Path = DEFAULT_DB_PATH) -> dict[str, float]:
 
 
 def set_player_friend(name: str, is_friend: bool, path: Path = DEFAULT_DB_PATH) -> None:
-    """Mark (or unmark) one known name as a friend -- the directory screen's own edit
-    action. A no-op if `name` was never actually seen (nothing to mark), rather than
-    inserting a friend with no real sighting behind it."""
-    init_db(path)
-    with _connect(path) as conn:
-        conn.execute("UPDATE known_players SET is_friend = ? WHERE name = ?", (int(is_friend), name))
+    """Mark (or unmark) one known name as a friend, for every club -- the directory screen's own edit action. A no-op
+    if `name` was never actually seen anywhere (nothing to mark). Each club database's own row is updated too, so an
+    older version of the app, which reads only those, still sees the same friends."""
+    with _connect(_directory(path)) as conn:
+        conn.execute("UPDATE players SET is_friend = ? WHERE name = ?", (int(is_friend), name))
+    for club in _club_databases(path.parent):
+        with _connect(club) as conn:
+            conn.execute("UPDATE known_players SET is_friend = ? WHERE name = ?", (int(is_friend), name))
 
 
 def record_scrape_run(

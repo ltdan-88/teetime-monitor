@@ -677,10 +677,10 @@ def test_the_player_list_scrolls_under_a_fixed_search_with_letter_headers(ui):
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 8")
     heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
-    assert heads == ["Name", "Gender", "Status", "HCP", "Next tee time"], heads  # every column of the directory is shown
+    assert heads == ["Name", "Gender", "Club", "HCP", "Next tee time"], heads  # every column of the directory is shown (Club: where each one is a member)
     assert ui.js("document.querySelector('.player-list li:not(.letter) .player-meta').textContent.trim()") in ("Male", "Female", "Unknown")
     heads = ui.js("[...document.querySelectorAll('.player-head span')].map((e) => e.textContent.trim()).filter(Boolean)")
-    assert heads == ["Name", "Gender", "Status", "HCP", "Next tee time"], heads  # every column of the directory is shown
+    assert heads == ["Name", "Gender", "Club", "HCP", "Next tee time"], heads  # every column of the directory is shown (Club: where each one is a member)
     edges = ui.js(
         """(() => { const list = document.querySelector('.player-list').getBoundingClientRect();
         const head = document.querySelector('.player-head .r').getBoundingClientRect();

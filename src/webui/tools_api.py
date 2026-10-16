@@ -7,7 +7,7 @@ pipeline), `pipeline._cached_crowd_heatmap()` with the club's holidays and vacat
 
 from datetime import datetime, timedelta
 
-from .. import analytics, calendar_context, clock, pipeline, recommend, search_cli, storage
+from .. import analytics, calendar_context, clock, club_directory, pipeline, recommend, search_cli, storage
 from . import data
 
 SEARCH_DAYS = 7  # "this week", as the terminal app's Search
@@ -151,6 +151,7 @@ def players(slug: str | None, club_id: str | None) -> dict:
     if club is None:
         return {"error": "unknown_club"}
     upcoming = _upcoming_by_player(club, db, config)
+    names = club_directory.names_by_id()  # the directory is shared by every club: say which one is home
     return {
         "players": [
             {
@@ -158,6 +159,7 @@ def players(slug: str | None, club_id: str | None) -> dict:
                 "name": p.name,
                 "gender": p.gender,
                 "member_status": p.member_status,
+                "home_clubs": [names.get(club, club) for club in p.home_clubs],
                 "handicap": p.handicap,
                 "friend": p.is_friend,
                 "last_seen": p.last_seen,

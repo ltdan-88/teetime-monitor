@@ -222,6 +222,13 @@ def credentials_configured() -> bool:
     return bool(os.environ.get("PCC_USER")) and bool(os.environ.get("PCC_PASS"))
 
 
+def names_by_id() -> dict[str, str]:
+    """pc caddie club id -> name for every club this install knows: the bundled snapshot, the fetched directory on
+    top, and your saved clubs (their names as you keep them) on top of that -- what names a player's home club."""
+    names = {**dict(load_seed_directory()), **dict(load_cached_directory()), **club_config.club_names_by_id()}
+    return {club_id: name.strip() for club_id, name in names.items()}
+
+
 def search(directory: list[tuple[str, str]], query: str, limit: int = 50) -> list[tuple[str, str]]:
     """Case-insensitive substring match on the club name — a friendlier choice than
     pc caddie's own exact/umlaut-sensitive matching. A blank query returns nothing

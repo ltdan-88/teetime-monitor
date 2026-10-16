@@ -360,8 +360,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.unverified": "Saved, but couldn't verify the key right now ({error}) — it'll be used as-is.",
         "players.title": "Player directory",
         "players.intro": (
-            "Every real name your own scrapes have seen (only possible once logged in — "
-            "see Settings). Select a row to mark or unmark a friend."
+            "Every real name seen on the tee sheets of all your clubs (only possible once logged in — "
+            "see Settings). Select a row to mark or unmark a friend; a friend counts at every club."
         ),
         "players.friends_only": "Friends only",
         "players.picker_title": "Choose a player",
@@ -370,7 +370,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "players.search_placeholder": "Search by name…",
         "players.column.name": "Name",
         "players.column.gender": "Gender",
-        "players.column.member_status": "Status",
+        "players.column.member_status": "Club",
         "players.column.handicap": "HCP",
         "players.column.friend": "Friend",
         "players.gender.male": "Male",
@@ -738,8 +738,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.unverified": "Gespeichert, aber Schlüssel konnte gerade nicht geprüft werden ({error}) — wird trotzdem verwendet.",
         "players.title": "Spielerverzeichnis",
         "players.intro": (
-            "Jeder echte Name, den deine eigenen Scrapes gesehen haben (nur eingeloggt möglich — "
-            "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen."
+            "Jeder echte Name von den Tee-Sheets all deiner Clubs (nur eingeloggt möglich — "
+            "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen; Freunde gelten in jedem Club."
         ),
         "players.friends_only": "Nur Freunde",
         "players.picker_title": "Spieler auswählen",
@@ -748,7 +748,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "players.search_placeholder": "Nach Namen suchen…",
         "players.column.name": "Name",
         "players.column.gender": "Geschlecht",
-        "players.column.member_status": "Status",
+        "players.column.member_status": "Club",
         "players.column.handicap": "HCP",
         "players.column.friend": "Freund/in",
         "players.gender.male": "Männlich",

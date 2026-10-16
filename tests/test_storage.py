@@ -950,7 +950,7 @@ def test_load_player_genders_returns_only_male_and_female(tmp_path):
     )
 
     assert load_player_genders(path=db) == {"Max Mustermann": "male", "Erika Mustermann": "female"}
-    assert load_player_genders(path=tmp_path / "missing.db") == {}
+    assert load_player_genders(path=tmp_path / "nowhere" / "missing.db") == {}  # no folder, no directory
 
 
 def test_history_lookups_use_indexes_not_full_scans(tmp_path):
@@ -1243,7 +1243,7 @@ def test_load_player_handicaps_skips_players_without_one(tmp_path):
     record_seen_players([_sighting("Max Mustermann")], "2026-10-06T10:00:00+00:00", path=db)
 
     assert load_player_handicaps(path=db) == {"Max Mustermann": 18.4, "Erika Mustermann": 0.0}
-    assert load_player_handicaps(path=tmp_path / "missing.db") == {}
+    assert load_player_handicaps(path=tmp_path / "nowhere" / "missing.db") == {}  # no folder, no directory
 
 
 # --- WAL, busy timeout, user_version (2026-10-05): the launchd agent, the TUI worker and
@@ -1489,3 +1489,74 @@ def test_scrapes_record_whether_they_were_logged_in_and_old_databases_gain_the_c
     assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is False
     storage.save_schedule(schedule, path=db, authenticated=True)
     assert storage.last_scrape_authenticated("18 Loch Tee 1", "2026-10-07", path=db) is True
+
+
+# ---- the shared player directory (2026-10-17) ---------------------------------------------------------------
+
+
+def _legacy_club(folder, club_id, rows):
+    """A club database as an older version left it: known_players rows, and no players.db yet."""
+    path = folder / f"{club_id}.db"
+    storage.init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.executemany(
+            "INSERT INTO known_players (name, first_seen, last_seen, is_friend, gender, member_status, handicap) VALUES (?, ?, ?, ?, ?, ?, ?)", rows
+        )
+    return path
+
+
+def test_an_existing_install_is_read_into_the_directory_once(tmp_path):
+    a = _legacy_club(tmp_path, "0491001", [
+        ("Erika Musterfrau", "2026-09-01", "2026-09-20", 1, "female", "member", 21.0),
+        ("Max Mustermann", "2026-09-01", "2026-09-02", 0, "male", "guest", 30.0),
+        ("Mitglieder 4 Tage im voraus ab 20 Uhr buchbar", "2026-09-01", "2026-09-01", 0, None, None, None),  # an old notice row, not a person
+    ])
+    b = _legacy_club(tmp_path, "0492002", [
+        ("Max Mustermann", "2026-09-05", "2026-10-01", 0, None, "member", 28.5),  # newer: its handicap wins
+        ("Erika Musterfrau", "2026-09-10", "2026-09-11", 0, None, "guest", None),
+    ])
+    assert not (tmp_path / "players.db").exists()
+    assert storage.load_friend_names(b) == {"Erika Musterfrau"}  # marked at one club, a friend at the other
+    players = {p.name: p for p in storage.load_known_players(a)}
+    assert set(players) == {"Erika Musterfrau", "Max Mustermann"}  # one list for every club, without the event
+    assert players["Max Mustermann"].handicap == 28.5 and players["Max Mustermann"].gender == "male"
+    assert players["Max Mustermann"].home_clubs == ("0492002",) and players["Erika Musterfrau"].home_clubs == ("0491001",)
+    assert (players["Erika Musterfrau"].first_seen, players["Erika Musterfrau"].last_seen) == ("2026-09-01", "2026-09-20")
+    with sqlite3.connect(tmp_path / "players.db") as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    with sqlite3.connect(a) as conn:  # read once: a later change in a club file is not imported again
+        conn.execute("UPDATE known_players SET is_friend = 1 WHERE name = 'Max Mustermann'")
+    storage._DIRECTORIES_READY.clear()
+    assert storage.load_friend_names(a) == {"Erika Musterfrau"}
+
+
+def test_a_friend_is_marked_once_for_every_club_and_older_versions_see_it_too(tmp_path):
+    a, b = tmp_path / "0491001.db", tmp_path / "0492002.db"
+    storage.record_seen_players([_sighting("Lena Beispiel", "female", "member", 18.4)], "2026-10-01T10:00:00+00:00", path=a)
+    storage.record_seen_players([_sighting("Lena Beispiel", None, "guest", None)], "2026-10-05T10:00:00+00:00", path=b)
+    storage.set_player_friend("Lena Beispiel", True, path=b)
+    assert storage.load_friend_names(a) == {"Lena Beispiel"} == storage.load_friend_names(b)
+    for club in (a, b):  # each club file says so as well, for an app that predates the directory
+        with sqlite3.connect(club) as conn:
+            assert conn.execute("SELECT is_friend FROM known_players WHERE name = 'Lena Beispiel'").fetchone() == (1,)
+    [lena] = storage.load_known_players(b)
+    assert (lena.member_status, lena.home_clubs, lena.handicap, lena.gender) == ("member", ("0491001",), 18.4, "female")
+    storage.set_player_friend("Lena Beispiel", False, path=a)
+    assert storage.load_friend_names(b) == set()
+    storage.set_player_friend("Nobody Seen", True, path=a)  # never seen anywhere: nothing to mark
+    junk = _legacy_club(tmp_path, "0000001", [("Test Person", "2026-09-01", "2026-09-01", 1, None, None, None)])
+    assert junk.exists() and "Test Person" not in storage.load_friend_names(a)  # a placeholder id is no club: never read
+    assert storage.load_friend_names(a) == set()
+
+
+def test_a_guest_from_a_club_you_have_not_saved_stays_a_guest(tmp_path):
+    club = tmp_path / "0491001.db"
+    storage.record_seen_players([_sighting("Tom Gast", "male", "guest", 36.0)], "2026-10-01T10:00:00+00:00", path=club)
+    [tom] = storage.load_known_players(club)
+    assert (tom.member_status, tom.home_clubs) == ("guest", ())  # pc caddie never names a guest's club
+
+
+def test_separate_folders_keep_separate_directories(tmp_path):
+    one, two = tmp_path / "one" / "0491001.db", tmp_path / "two" / "0491001.db"
+    storage.record_seen_players([_sighting("Max Mustermann")], "2026-10-01T10:00:00+00:00", path=one)
+    assert storage.load_known_players(two) == [] and storage.load_known_players(one)[0].name == "Max Mustermann"
