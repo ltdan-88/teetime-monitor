@@ -348,7 +348,7 @@
   "tournaments.prev": "Previous month",
   "tournaments.next": "Next month",
   "tournaments.none": "This club lists no tournaments.",
-  "tournaments.none_month": "Nothing on in {month}.",
+  "tournaments.none_month": "Nothing scheduled for {month}.",
   "tournaments.holes": "{n} holes",
   "tournaments.guests": "Guests welcome",
   "tournaments.members_only": "Members only",
@@ -357,7 +357,14 @@
   "tournaments.reg_closed": "Registration closed",
   "tournaments.reg_later": "Registration not open yet",
   "tournaments.tee_sheet": "Tee sheet",
-  "tournaments.details": "Details on pc caddie"
+  "tournaments.details": "Details on pc caddie",
+  "tournaments.filters": "Filter tournaments",
+  "tournaments.holes_label": "Holes",
+  "tournaments.who_label": "Who",
+  "tournaments.all": "All",
+  "tournaments.clear_filters": "Clear filters",
+  "tournaments.none_filtered": "No tournament matches these filters.",
+  "tournaments.open_day": "Open in the calendar"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -708,7 +715,7 @@
   "tournaments.prev": "Voriger Monat",
   "tournaments.next": "Nächster Monat",
   "tournaments.none": "Dieser Club listet keine Turniere.",
-  "tournaments.none_month": "Im {month} ist nichts geplant.",
+  "tournaments.none_month": "Für {month} ist nichts geplant.",
   "tournaments.holes": "{n} Löcher",
   "tournaments.guests": "Gäste willkommen",
   "tournaments.members_only": "Nur Mitglieder",
@@ -717,6 +724,13 @@
   "tournaments.reg_closed": "Anmeldung geschlossen",
   "tournaments.reg_later": "Anmeldung noch nicht offen",
   "tournaments.tee_sheet": "Tee-Sheet",
-  "tournaments.details": "Details bei pc caddie"
+  "tournaments.details": "Details bei pc caddie",
+  "tournaments.filters": "Turniere filtern",
+  "tournaments.holes_label": "Löcher",
+  "tournaments.who_label": "Wer",
+  "tournaments.all": "Alle",
+  "tournaments.clear_filters": "Filter löschen",
+  "tournaments.none_filtered": "Kein Turnier passt zu diesen Filtern.",
+  "tournaments.open_day": "Im Kalender öffnen"
  }
 }

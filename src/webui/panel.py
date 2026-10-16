@@ -130,8 +130,15 @@ def _with_friends(days: list[dict]) -> dict | None:
     return _slot_card("friends", day, slot, friends=[{"name": p["name"], "gender": p["gender"]} for p in friends])
 
 
+def _decent(weather: dict) -> bool:
+    """A day worth calling good weather: not snow or thunder or a likely rain (the same 30 % the rain scene uses).
+    Without this the card named the least bad day of a wet week "Best weather"."""
+    rain = weather["rain_avg"]
+    return mood_for_code(weather["code"], rain) not in ("rain", "snow") and (rain is None or rain < RAIN_LIKELY_PERCENT)
+
+
 def _best_weather(days: list[dict], not_date: str | None) -> dict | None:
-    candidates = [d for d in days if d["weather"] and _free_slots(d)]
+    candidates = [d for d in days if d["weather"] and _decent(d["weather"]) and _free_slots(d)]
     others = [d for d in candidates if d["date"] != not_date]
     pool = others or candidates
     if not pool:

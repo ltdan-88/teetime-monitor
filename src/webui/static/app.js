@@ -185,6 +185,7 @@ function App() {
   const [overview, setOverview] = useState(null);
   const [openDate, setOpenDate] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(location.hash.slice(1)) ? location.hash.slice(1) : null));
   const [refresh, setRefresh] = useState({ running: false, error: null });
+  const [tournamentDate, setTournamentDate] = useState(null); // the day the Tournaments window opens on (a tournament slot in the tee sheet), else this month
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -422,7 +423,7 @@ function App() {
       else if (event.key === 'h' && v) open('heatmap');
       else if (event.key === 'p' && v) open('players');
       else if (event.key === 'b') open('reservations');
-      else if (event.key === 't' && v) open('tournaments');
+      else if (event.key === 't' && v) (event.preventDefault(), openTournaments(null));
       else if (event.key === 'e') open('preferences');
       else if (event.key === ',') open('settings');
       else if (event.key === 'a') open('addclub');
@@ -445,6 +446,7 @@ function App() {
     setBooking({ mode: cancel ? 'cancel' : 'book', date, time, course: courseName, ref, dateText: dayLabel(date) });
   const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you);
   /** Open a day and bring one of its slots into view, switching to its course first when needed. */
+  const openTournaments = (date) => { setTournamentDate(date); setSheet('tournaments'); };
   const jumpTo = (date, time, courseName) => {
     const target = courseName || (overview && overview.course);
     focusOnOpen.current = null;
@@ -532,7 +534,7 @@ function App() {
         ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noClub || !overview || !overview.course)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
-        ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => setSheet('tournaments'), noClub || !(club && club.slug))}
+        ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
         ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         <${ViewMenu} boot=${boot} units=${units} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
@@ -559,7 +561,7 @@ function App() {
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
-          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)} reserveNote=${overview.days.some((entry) => entry.events.length > 0)}
+          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)} reserveNote=${overview.days.some((entry) => entry.events.length > 0)}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}
@@ -587,7 +589,7 @@ function App() {
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
-      ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
+      ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}

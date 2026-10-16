@@ -167,6 +167,7 @@ def main() -> None:
                     return (date.today() + timedelta(days=n)).isoformat()
 
                 return [
+                    Tournament("9000", day(1), "12:10", "Vierer-Clubmeisterschaften AB", "Round A", 18, False, f"{day(-1)} 10:00", False),
                     Tournament("9001", day(2), "09:30", "Autumn Trophy", "Round A+B", 18, True, f"{day(0)} 10:00", True),
                     Tournament("9002", day(2), "14:00", "Twilight Scramble", "Round C", 9, False, f"{day(1)} 12:00", True),
                     Tournament("9003", day(9), "10:00", "Ladies Coffee Cup", "Clubhouse", 18, True, f"{day(7)} 10:00", False),

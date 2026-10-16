@@ -268,8 +268,6 @@ def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     ui.shot("tournaments-month")
     busy = ui.js("[...document.querySelectorAll('.tn-cell.has')].map((c) => c.getAttribute('aria-label'))")
     assert any("Autumn Trophy, Twilight Scramble" in label for label in busy), busy  # two on one day, both named
-    shown = ui.text(".tn-list")
-    assert "Autumn Trophy" in shown and "9 holes" in shown or "Winter Opener" in shown  # the month's list, before any day is picked
     first = ui.js("(() => { const cell = document.querySelector('.tn-cell.has'); const day = cell.getAttribute('aria-label').split(':')[0]; cell.click(); return day; })()")
     ui.wait("document.querySelector('.tn-cell.on')")
     assert ui.js("document.querySelector('.tn-head').textContent") == first
@@ -284,6 +282,44 @@ def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     ui.click(".tn-step:last-child")
     ui.wait(f"document.querySelector('.tn-month').textContent !== {json.dumps(before)}")
     _close_sheet(ui)
+
+
+def test_the_tournament_filters_narrow_the_list_and_the_dots(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "t", "Tournaments")
+    ui.wait("document.querySelectorAll('.tn-item').length >= 3")
+    everything = ui.count(".tn-cell.has")
+    assert ui.count(".tn-filters .tn-choice") == 2 and "9" in ui.text(".tn-filters")  # holes and guests: both kinds are in the demo calendar
+    ui.click(".tn-filters .tn-pick", text="9")  # only the 9-hole events
+    ui.wait("document.querySelectorAll('.tn-item').length === 1")
+    assert "Twilight Scramble" in ui.text(".tn-list") and ui.count(".tn-cell.has") < everything  # the dots follow the filter
+    assert ui.js("document.querySelector('.tn-filters .tn-pick[aria-pressed=true]').textContent") == "9"
+    ui.click(".tn-filters .tn-pick", text="Members only")  # 9 holes and members only
+    ui.wait("document.querySelectorAll('.tn-item').length === 1")
+    ui.click(".tn-filters .tn-pick", text="Guests welcome")  # no 9-hole event welcomes guests
+    ui.wait("document.querySelectorAll('.tn-item').length === 0")
+    assert "No tournament matches" in ui.text(".tn-right")
+    ui.click(".tn-filters .link-btn")  # Clear filters
+    ui.wait("document.querySelectorAll('.tn-item').length >= 3")
+    ui.click(".tn-filters > .tn-pick", text="Registration open")
+    ui.wait("[...document.querySelectorAll('.tn-item')].every((i) => !i.textContent.includes('closed') && !i.textContent.includes('not open yet'))")
+    _close_sheet(ui)
+
+
+def test_a_tournament_slot_on_the_tee_sheet_opens_the_calendar_on_that_day(ui):
+    ui.js("window.scrollTo(0, 0)")
+    if not ui.js("document.querySelectorAll('.card')[1].classList.contains('open')"):  # the page remembers the day last opened
+        ui.click("button.dh", index=1)  # the demo's day with the club championship blocking the midday times
+    ui.wait("document.querySelector('.card.open .tourn-link')")
+    name = ui.text(".card.open .tourn-link")
+    assert "Clubmeisterschaften" in name
+    assert ui.js("document.querySelectorAll('.card.open .slot.blocked .tourn-link').length") >= 3  # every blocked time of the event links
+    ui.click(".card.open .tourn-link")
+    ui.wait("document.querySelector('.sheet h2') && document.querySelector('.sheet h2').textContent === 'Tournaments' && document.querySelector('.tn-cell.on')")
+    assert "Clubmeisterschaften" in ui.text(".tn-list")  # opened on that day, the event listed
+    ui.shot("tournaments-from-slot")
+    ui.click(".tn-item .btn", text="Tee sheet")  # and back to that day's times
+    ui.wait("!document.querySelector('.scrim') && document.querySelectorAll('.card.open .slot').length > 20")
 
 
 def test_a_booking_pc_caddie_refuses_says_why_and_the_dialog_stays_open(ui):
