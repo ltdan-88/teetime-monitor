@@ -1298,6 +1298,16 @@ def test_each_card_moves_its_own_way_and_out_of_step_with_the_others(ui):
     assert len({w[1] for w in ways}) == len(ways)  # each starts at a different point of its loop (read from the style: a machine set to reduce motion has no animation to measure)
 
 
+def test_the_scenes_follow_the_season_of_their_date_and_every_card_has_another_course(ui):
+    ui.wait("document.querySelectorAll('.tp-scene').length >= 3")
+    seasons = ui.js("""(async () => { const { seasonOf } = await import('/scene.js');
+      return [seasonOf('2026-04-20'), seasonOf('2026-07-15'), seasonOf('2026-10-18'), seasonOf('2026-01-12'), seasonOf('2026-04-20', true), seasonOf('2026-12-01'), seasonOf('2026-03-01')]; })()""")
+    assert seasons == ["spring", "summer", "autumn", "winter", "autumn", "winter", "spring"]  # the south swaps the halves of the year
+    shown = ui.js("[...document.querySelectorAll('.tp-card')].map((c) => [c.querySelector('.tp-scene').getAttribute('class').split(' ').pop(), c.querySelector('.tp-scene').innerHTML.length])")
+    assert all(s[0] in ("tp-spring", "tp-summer", "tp-autumn", "tp-winter") for s in shown)
+    assert len({s[1] for s in shown}) >= 3  # ponds, bunkers and trees differ from card to card
+
+
 def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
     ui.wait("document.querySelectorAll('.tp-scene').length >= 1")
     assert ui.js("getComputedStyle(document.querySelector('.tp-scene')).stroke") == "none"

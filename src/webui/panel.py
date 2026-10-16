@@ -152,8 +152,11 @@ def build(slug: str | None, course: str | None, club_id: str | None = None, name
         return shown
     club = shown["club"]
     cards: list[dict] = []
+    south = False
     if club["slug"] is not None:
         config = pipeline._resolved_config(club["slug"], club["id"], club["name"])
+        latitude = (config.get("location") or {}).get("lat")
+        south = isinstance(latitude, int | float) and latitude < 0  # the seasons run the other way down there
         nxt = _next_round(club, data.db_path_for(club["id"]), config)
         if nxt:
             cards.append(nxt)
@@ -162,4 +165,4 @@ def build(slug: str | None, course: str | None, club_id: str | None = None, name
     for card in (window, _with_friends(days), _best_weather(days, window["date"] if window else None)):
         if card:
             cards.append(card)
-    return {"cards": cards}
+    return {"cards": cards, "south": south}
