@@ -187,7 +187,6 @@ const ICONS = {
   arrowup: html`<path d="M12 19V5M5 12l7-7 7 7" />`,
   check: html`<path d="M5 12.5l4.5 4.5L19 7.5" />`,
   calendarcheck: html`<rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M9 15.2l2.1 2.1 3.9-4.1" />`,
-  more: html`<circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none" />`,
   external: html`<path d="M14 4h6v6M20 4l-8.5 8.5M18 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5.5" />`,
   teesheet: html`<rect x="4" y="4" width="16" height="16" rx="2.5" /><path d="M4 9.5h16M4 14.5h16M9 4v16" />`,
   trophy: html`<path d="M7.5 4h9v5.5a4.5 4.5 0 0 1-9 0zM7.5 6H4.5v1.2A3 3 0 0 0 7.6 10M16.5 6h3v1.2a3 3 0 0 1-3.1 2.8M12 14v4M8.5 20h7" />`,
@@ -280,7 +279,7 @@ export function useEscape(handler) {
 }
 
 /** A modal sheet over the page: Escape or a click on the dim area closes it. */
-export function Sheet({ title, onClose, size = 'medium', fixed = false, children, footer }) {
+export function Sheet({ title, onClose, size = 'medium', fixed = false, children, footer, tabs }) {
   useEscape(onClose);
   const ref = useRef(null);
   useEffect(() => {
@@ -294,6 +293,8 @@ export function Sheet({ title, onClose, size = 'medium', fixed = false, children
         <header class="sheet-head">
           <h2>${title}</h2>
           <button class="icon-btn" onClick=${onClose} aria-label=${t('close')} title=${t('close')}><${Icon} name="close" size=${18} /></button>
+          ${tabs && html`<div class="sheet-tabs" role="tablist">${tabs.map((tab) => html`
+            <button key=${tab.key} role="tab" class="sheet-tab" aria-selected=${tab.on} onClick=${() => !tab.on && tab.onSelect()}>${tab.label}</button>`)}</div>`}
         </header>
         <div class=${'sheet-body' + (fixed ? ' fixed' : '')}>${children}</div>
         ${footer && html`<footer class="sheet-foot">${footer}</footer>`}

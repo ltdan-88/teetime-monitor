@@ -40,13 +40,13 @@ function Grid({ title, keys, labels, group, hours, minSamples, onPick }) {
     </div>`;
 }
 
-export function HeatmapSheet({ club, course, onClose }) {
+export function HeatmapSheet({ club, course, onClose, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [chosen, setChosen] = useState(course);
   const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: chosen })), [club.id, chosen]);
   const [picked, setPicked] = useState(null); // the numbers of the cell last tapped (no hover on a touch screen)
   const swatch = (color, text, style) => html`<span><span class="sw" style=${{ background: color, ...style }}></span>${text}</span>`;
-  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide">
+  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide" tabs=${tabs}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('heatmap.loading')}</p>`}
     ${data && data.courses && data.courses.length > 1 && html`

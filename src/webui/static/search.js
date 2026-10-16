@@ -57,7 +57,7 @@ function ResultRow({ match, units, showHandicaps, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, course, units, showHandicaps, onClose, onMark, refreshKey }) {
+export function SearchSheet({ club, course, units, showHandicaps, onClose, onMark, refreshKey, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [criteria, setCriteria] = useState(null);
   const [players, setPlayers] = useState([]);
@@ -119,7 +119,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
 
   const set = (key) => (value) => setCriteria((current) => ({ ...current, [key]: value }));
   const matches = (result && result.matches) || [];
-  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed>
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
     ${criteria && html`
       <section class="criteria">
         <p class="lab">${t('search.criteria')} <span class="lab-note">${t('search.prefill_note')}</span></p>
