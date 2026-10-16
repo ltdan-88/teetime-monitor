@@ -895,16 +895,16 @@ button, select, input { touch-action: manipulation; }
 .tn-actions { grid-row: 1; grid-column: 3; display: flex; gap: 0.375rem; }
 .tn-chips { grid-row: 2; grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.375rem; }
 .tn-chips .chip { height: auto; min-height: 1.5rem; white-space: nowrap; }
-.tn-act { width: 2.25rem; height: 2.25rem; border: 1px solid var(--line-strong); color: var(--accent-text, var(--accent)); background: transparent; cursor: pointer; }
+.tn-act { width: 2.5rem; height: 2.5rem; border: 0; border-radius: 0.625rem; color: var(--accent-text, var(--accent)); background: transparent; cursor: pointer; }  /* plain icons: they serve the entry, they are not its headline */
 .tn-act:hover { background: var(--surface-hover); }
 @media (max-width: 40rem) {
   .tn-scroll { max-height: none; overflow: visible; }
-  /* date and the two icons on one line, then the name, then the facts */
-  .tn-item { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; }
-  .tn-when { grid-column: 1; }
-  .tn-name { grid-row: 2; grid-column: 1 / -1; padding-top: 0; }
-  .tn-actions { grid-column: 2; }
-  .tn-chips { grid-row: 3; grid-column: 1 / -1; }
+  /* date, name and facts on the left; the icons in their own column on the right, centred on the entry */
+  .tn-item { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0.25rem; column-gap: 0.5rem; }
+  .tn-when { grid-row: 1; grid-column: 1; padding-top: 0; }
+  .tn-name { grid-row: 2; grid-column: 1; padding-top: 0; }
+  .tn-chips { grid-row: 3; grid-column: 1; }
+  .tn-actions { grid-row: 1 / span 3; grid-column: 2; align-self: center; flex-direction: column; gap: 0.25rem; }
 }
 .tn-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-top: 0.75rem; }
 .tn-choice { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
