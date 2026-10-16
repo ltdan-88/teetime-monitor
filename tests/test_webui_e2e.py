@@ -1308,6 +1308,15 @@ def test_the_scenes_follow_the_season_of_their_date_and_every_card_has_another_c
     assert len({s[1] for s in shown}) >= 3  # ponds, bunkers and trees differ from card to card
 
 
+def test_every_card_has_a_couple_of_guest_animals_and_not_the_same_ones(ui):
+    ui.wait("document.querySelectorAll('.tp-scene').length >= 3")
+    guests = ui.js("""[...document.querySelectorAll('.tp-card')].map((c) => [...c.querySelectorAll('.tp-guest')].map((g) => g.getAttribute('class') + '/' + (g.querySelector('.tp-mole,.tp-frog,.tp-squirrel,.tp-waddle,.tp-hop') || g).getAttribute('class')))""")
+    assert all(1 <= len(cards) <= 2 for cards in guests), guests
+    assert len({g for cards in guests for g in cards}) >= 3  # a mole here, a rabbit there: not the same visitor on every card
+    for cards in guests:
+        assert len(set(cards)) == len(cards)  # two different animals on one card
+
+
 def test_a_cards_scene_is_drawn_without_the_icon_outline(ui):
     ui.wait("document.querySelectorAll('.tp-scene').length >= 1")
     assert ui.js("getComputedStyle(document.querySelector('.tp-scene')).stroke") == "none"
