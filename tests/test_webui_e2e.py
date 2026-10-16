@@ -258,6 +258,17 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
 
 
+def _tournament_month(ui, name):
+    """Page the Tournaments window to the month that lists `name` (the demo's dates follow today)."""
+    for _ in range(3):
+        if ui.js(f"[...document.querySelectorAll('.tn-cell.has')].some((c) => c.getAttribute('aria-label').includes({json.dumps(name)}))"):
+            return
+        before = ui.text(".tn-month")
+        ui.click(".tn-step:last-child")
+        ui.wait(f"document.querySelector('.tn-month').textContent !== {json.dumps(before)}")
+    raise AssertionError(f"{name} is in no month")
+
+
 def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     ui.js("window.scrollTo(0, 0)")
     _open_sheet(ui, "t", "Tournaments")
@@ -265,6 +276,7 @@ def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     assert ui.count(".tn-wd") == 7 and ui.js("document.querySelectorAll('.tn-cell').length % 7") == 0  # whole weeks, seven columns
     columns = ui.js("[...new Set([...document.querySelectorAll('.tn-cell')].slice(0, 14).map((c) => Math.round(c.getBoundingClientRect().left)))].length")
     assert columns == 7  # every week lines up on the same seven columns
+    _tournament_month(ui, "Twilight Scramble")
     ui.shot("tournaments-month")
     busy = ui.js("[...document.querySelectorAll('.tn-cell.has')].map((c) => c.getAttribute('aria-label'))")
     assert any("Autumn Trophy, Twilight Scramble" in label for label in busy), busy  # two on one day, both named
@@ -284,26 +296,42 @@ def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     _close_sheet(ui)
 
 
-def test_the_tournament_filters_narrow_the_list_and_the_dots(ui):
+def test_the_tournament_filters_are_on_off_chips_that_narrow_the_list_and_the_dots(ui):
     ui.js("window.scrollTo(0, 0)")
     _open_sheet(ui, "t", "Tournaments")
-    ui.wait("document.querySelectorAll('.tn-item').length >= 3")
-    everything = ui.count(".tn-cell.has")
-    assert ui.count(".tn-filters .tn-choice") == 2 and "9" in ui.text(".tn-filters")  # holes and guests: both kinds are in the demo calendar
-    ui.click(".tn-filters .tn-pick", text="9")  # only the 9-hole events
+    ui.wait("document.querySelectorAll('.tn-cell').length >= 28 && !document.querySelector('.sheet .status-line')")
+    _tournament_month(ui, "Twilight Scramble")
+    count = lambda: ui.count(".tn-item")  # noqa: E731
+    everything, dots = count(), ui.count(".tn-cell.has")
+    chips = ui.js("[...document.querySelectorAll('.tn-filters .tn-pick')].map((b) => b.textContent)")
+    assert "All" not in chips and ui.count(".tn-filters .tn-pick[aria-pressed=true]") == 0, chips  # nothing on means everything shown
+    ui.click(".tn-filters .tn-pick", text="9")
     ui.wait("document.querySelectorAll('.tn-item').length === 1")
-    assert "Twilight Scramble" in ui.text(".tn-list") and ui.count(".tn-cell.has") < everything  # the dots follow the filter
-    assert ui.js("document.querySelector('.tn-filters .tn-pick[aria-pressed=true]').textContent") == "9"
-    ui.click(".tn-filters .tn-pick", text="Members only")  # 9 holes and members only
-    ui.wait("document.querySelectorAll('.tn-item').length === 1")
-    ui.click(".tn-filters .tn-pick", text="Guests welcome")  # no 9-hole event welcomes guests
-    ui.wait("document.querySelectorAll('.tn-item').length === 0")
-    assert "No tournament matches" in ui.text(".tn-right")
+    assert "Twilight Scramble" in ui.text(".tn-list") and ui.count(".tn-cell.has") < dots  # the dots follow the filter
+    ui.click(".tn-filters .tn-pick", text="18")  # a second size adds to the first: 9 or 18
+    ui.wait("document.querySelectorAll('.tn-item').length > 1")
+    assert ui.count(".tn-filters .tn-pick[aria-pressed=true]") == 2
+    ui.click(".tn-filters .tn-pick", text="Members only")
+    ui.wait("[...document.querySelectorAll('.tn-item')].every((i) => i.textContent.includes('Members only'))")
+    ui.click(".tn-filters .tn-pick", text="Guests welcome")  # both kinds on: no narrowing by who
+    ui.wait(f"document.querySelectorAll('.tn-item').length >= {count() + 1} || [...document.querySelectorAll('.tn-item')].some((i) => i.textContent.includes('Guests welcome'))")
+    ui.click(".tn-filters .tn-pick", text="9")  # off again
+    ui.wait("![...document.querySelectorAll('.tn-item')].some((i) => i.textContent.includes('9 holes'))")
     ui.click(".tn-filters .link-btn")  # Clear filters
-    ui.wait("document.querySelectorAll('.tn-item').length >= 3")
+    ui.wait(f"document.querySelectorAll('.tn-item').length === {everything} && document.querySelectorAll('.tn-filters .tn-pick[aria-pressed=true]').length === 0")
     ui.click(".tn-filters > .tn-pick", text="Registration open")
     ui.wait("[...document.querySelectorAll('.tn-item')].every((i) => !i.textContent.includes('closed') && !i.textContent.includes('not open yet'))")
     _close_sheet(ui)
+
+
+def test_the_refresh_button_sits_beside_the_status_it_renews(ui):
+    ui.js("window.scrollTo(0, 0)")
+    assert ui.count(".toolbar .refresh-btn, .toolbar-tools [aria-keyshortcuts=r]") == 0  # no longer in the toolbar
+    gap = ui.js("""(() => { const b = document.querySelector('.footer .refresh-btn').getBoundingClientRect(), s = document.querySelector('.footer .status .dot').getBoundingClientRect();
+      return s.left - b.right; })()""")
+    assert 0 <= gap < 24, gap  # right next to the dot and the "updated ..." text
+    ui.click(".footer .refresh-btn")
+    ui.wait("document.querySelector('.footer .refresh-btn svg.spin') || document.querySelector('.footer .refresh-btn:not([disabled])')")
 
 
 def test_a_tournament_slot_on_the_tee_sheet_opens_the_calendar_on_that_day(ui):
@@ -572,13 +600,13 @@ def test_units_and_handicaps_switch_from_the_view_menu(ui):
 def test_the_language_switches_to_german_in_the_view_menu_and_back(ui):
     _open_view(ui)
     ui.set("#v-language", "de")
-    ui.wait("document.querySelector('.tool-label')?.textContent === 'Aktualisieren' || document.querySelector('.tool-label')?.textContent === 'Aktualisiere…'", 30)
+    ui.wait("document.querySelector('.tool-label')?.textContent === 'Suchen'", 30)
     ui.shot("overview-de")
     assert ui.js("document.documentElement.lang") == "de"  # screen readers pronounce German as German
     _open_view(ui)
     assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
     ui.set("#v-language", "en")
-    ui.wait("document.querySelector('.tool-label')?.textContent === 'Refresh' || document.querySelector('.tool-label')?.textContent === 'Updating…'", 30)
+    ui.wait("document.querySelector('.tool-label')?.textContent === 'Search'", 30)
 
 
 def test_reset_filters_clears_everything_without_searching_again(ui):
@@ -1472,7 +1500,7 @@ def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every
                 assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
         ui.click(".more-wrap .tool")
         ui.wait("document.querySelector('.more-panel')")
-        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Heatmap", "Preferences", "Settings"]
+        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Preferences", "Settings"]
         ui.click(".more-item", text="Settings")
         ui.wait("!document.querySelector('.more-panel') && document.querySelector('.sheet h2')?.textContent.includes('Settings')")
         _close_sheet(ui)
