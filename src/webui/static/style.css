@@ -27,6 +27,7 @@
   --blue: #4da3ff;
   --pink: #e872c4;
   --green: #30d158;
+  --green-calm: color-mix(in srgb, var(--green) 40%, var(--surface));
   --orange: #ff9f0a;
   --yellow: #ffd60a;
   --red: #ff453a;
@@ -665,6 +666,8 @@ button, select, input { touch-action: manipulation; }
   .brand.in-bar { display: none; }
   .brand.top { display: flex; }
 }
+/* a phone: the name row goes (the home-screen icon and the tab already say it), the days move up */
+@media (max-width: 640px) { .brand.top { display: none; } }
 
 /* ---- touch: tooltips by touch and hold, written-out explanations ---- */
 .touch-tip { position: fixed; z-index: 60; max-width: min(20rem, calc(100vw - 1rem)); padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--text); color: var(--bg);
@@ -947,3 +950,7 @@ button, select, input { touch-action: manipulation; }
   .view-panel.slim .field-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 0; }
   .view-panel.slim .field-row > label { white-space: normal; }
 }
+
+/* the day header, calmer: the no-pick badge is a word, and on a phone the occupancy bars are slim */
+.pill.word { font-family: var(--font); font-size: 0.875rem; color: var(--mid); }
+@media (max-width: 640px) { .dh .heat span { height: 0.4375rem; } }

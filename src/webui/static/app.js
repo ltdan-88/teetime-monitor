@@ -62,7 +62,7 @@ function WindowHint({ hint, onPreferences, onDismiss }) {
   }
   return html`<div class="banner hint-bar" role="status"><${Icon} name="info" size=${18} /><span>${text}</span>
     <div class="banner-actions">
-      <button class="icon-btn" onClick=${onPreferences} aria-label=${t('action.preferences')} title=${t('action.preferences')}><${Icon} name="gear" size=${18} /></button>
+      <button class="icon-btn" onClick=${onPreferences} aria-label=${t('action.preferences')} title=${t('action.preferences')}><${Icon} name="clock" size=${18} /></button>
       <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button>
     </div></div>`;
 }
@@ -89,7 +89,7 @@ function Legend({ onClose }) {
       <dt>${toolIcon('users')}</dt><dd>${t('legend.tool.players')}</dd>
       <dt>${toolIcon('calendarcheck')}</dt><dd>${t('legend.tool.reservations')}</dd>
       <dt>${toolIcon('trophy')}</dt><dd>${t('legend.tool.tournaments')}</dd>
-      <dt>${toolIcon('gear')}</dt><dd>${t('legend.tool.preferences')}</dd>
+      <dt>${toolIcon('clock')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
       <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
     </dl>
@@ -539,7 +539,7 @@ function App() {
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
-        ${tool('preferences', 'gear', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
+        ${tool('preferences', 'clock', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         </div>
       </header>
@@ -563,7 +563,7 @@ function App() {
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
-          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)} reserveNote=${overview.days.some((entry) => entry.events.length > 0)}
+          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}

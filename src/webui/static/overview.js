@@ -1,7 +1,7 @@
 // The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
 
 import {
-  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, occupancyColor, occupancyState,
+  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, quietOccupancyColor, occupancyState,
 } from '/lib.js';
 
 function pickTooltip(pick) {
@@ -40,7 +40,8 @@ export function Badge({ day, onAlternative }) {
     const reasons = [...pick.unplayable].sort();
     const dark = reasons.length === 1 && reasons[0] === 'daylight';
     const key = dark ? 'tip.no_pick_daylight' : reasons.length === 1 && reasons[0] === 'weather' ? 'tip.no_pick_weather' : 'tip.no_pick_both';
-    return html`<span class="pill quiet" title=${t(key)}><${Icon} name=${dark ? 'moon' : 'rain'} size=${16} /></span>`;
+    const word = dark ? 'badge.dark' : reasons.length === 1 && reasons[0] === 'weather' ? 'badge.rain' : 'badge.rain_dark';
+    return html`<span class="pill quiet word" title=${t(key)}>${t(word)}</span>`;
   }
   return null;
 }
@@ -78,7 +79,7 @@ function dayNote(day) {
   return null;
 }
 
-function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
+function DayHeader({ day, open, onToggle, units, onAlternative }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -99,8 +100,8 @@ function DayHeader({ day, open, onToggle, units, onAlternative, reserveNote }) {
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
       <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
-      <span class="heat" role="img" aria-label=${t('heat.title') + ': ' + day.heat.map((ratio, i) => heatPart(ratio, i)).join(', ')}>${day.heat.map((ratio, i) => html`<span class=${'o-' + occupancyState(ratio)} style=${{ backgroundColor: occupancyColor(ratio) }} title=${heatPart(ratio, i)}></span>`)}</span>
-      ${(day.events.length > 0 || (reserveNote && !open)) && html`<span class="events" title=${day.events.join(' · ')}>${day.events.length ? day.events.join(' · ') : '\u00a0'}</span>`}
+      <span class="heat" role="img" aria-label=${t('heat.title') + ': ' + day.heat.map((ratio, i) => heatPart(ratio, i)).join(', ')}>${day.heat.map((ratio, i) => html`<span class=${'o-' + occupancyState(ratio)} style=${{ backgroundColor: quietOccupancyColor(ratio) }} title=${heatPart(ratio, i)}></span>`)}</span>
+      ${day.events.length > 0 && html`<span class="events" title=${day.events.join(' · ')}>${day.events.join(' · ')}</span>`}
     </button>
     ${open && html`<div class="slots-head"><${WeatherHeads} units=${units} /></div>`}
     </div>
@@ -194,10 +195,10 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, reserveNote }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} reserveNote=${reserveNote} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} />
       ${open && html`<div class="slots">
         ${(() => {
           const note = dayNote(day);
