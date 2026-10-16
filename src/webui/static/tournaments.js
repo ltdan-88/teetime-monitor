@@ -120,7 +120,6 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
           </div>
         </div>
         <div class="tn-right">
-          <h3 class="tn-head">${picked ? dayLabel(picked) : monthName}</h3>
           <div class="tn-scroll">
             ${rows.length === 0 && html`<div class="empty small"><p>${filtered ? t('tournaments.none_filtered') : all.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: picked ? dayLabel(picked) : monthName })}</p></div>`}
             <ul class="tn-list">

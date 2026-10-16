@@ -282,7 +282,8 @@ def test_the_tournament_calendar_is_a_month_grid_that_lists_the_day_you_tap(ui):
     assert any("Autumn Trophy, Twilight Scramble" in label for label in busy), busy  # two on one day, both named
     first = ui.js("(() => { const cell = document.querySelector('.tn-cell.has'); const day = cell.getAttribute('aria-label').split(':')[0]; cell.click(); return day; })()")
     ui.wait("document.querySelector('.tn-cell.on')")
-    assert ui.js("document.querySelector('.tn-head').textContent") == first
+    assert ui.count(".tn-head") == 0  # no heading over the list: the calendar's title already names the month
+    assert all(when.startswith(first) for when in ui.js("[...document.querySelectorAll('.tn-when b')].map((e) => e.textContent)"))  # only the picked day
     listed = ui.text(".tn-list")
     assert "Register by" in listed or "Registration" in listed
     assert ui.js("document.querySelector('.tn-item a[href*=\"sub=detail\"]').target") == "_blank"
@@ -1494,13 +1495,13 @@ def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every
                 ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
                 shape = ui.js("""(() => { const shown = [...document.querySelectorAll('.toolbar-tools > *')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0);
                   return {n: shown.length, right: Math.max(...shown.map((b) => b.right)), narrow: Math.min(...shown.map((b) => b.width)), page: document.documentElement.scrollWidth, w: innerWidth}; })()""")
-                assert shape["n"] == 7 and shape["right"] <= shape["w"] and shape["page"] <= shape["w"] + 1, (scale, width, shape)
+                assert shape["n"] == 6 and shape["right"] <= shape["w"] and shape["page"] <= shape["w"] + 1, (scale, width, shape)
                 assert shape["narrow"] >= 44, (scale, width, shape)  # a finger still hits every button
                 one_line = ui.js("[...document.querySelectorAll('.dh .day')].every((e) => e.getBoundingClientRect().height < parseFloat(getComputedStyle(e).fontSize) * 1.8)")
                 assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
         ui.click(".more-wrap .tool")
         ui.wait("document.querySelector('.more-panel')")
-        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Preferences", "Settings"]
+        assert [e.strip() for e in ui.js("[...document.querySelectorAll('.more-item span:not(.kbd)')].map((e) => e.textContent)")] == ["Heatmap", "Preferences", "Settings"]
         ui.click(".more-item", text="Settings")
         ui.wait("!document.querySelector('.more-panel') && document.querySelector('.sheet h2')?.textContent.includes('Settings')")
         _close_sheet(ui)
@@ -1509,7 +1510,14 @@ def test_on_a_phone_the_rare_tools_sit_behind_more_and_the_toolbar_fits_at_every
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
-    assert ui.count(".more-wrap .tool") == 1 and ui.js("getComputedStyle(document.querySelector('.more-wrap')).display") == "none"  # a wide screen shows every tool
+    ui.click(".more-wrap .tool")  # a wide screen: More holds only the Heatmap, Preferences and Settings stay in the toolbar
+    ui.wait("document.querySelector('.more-panel')")
+    shown = ui.js("[...document.querySelectorAll('.more-item')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.querySelector('span').textContent)")
+    assert shown == ["Heatmap"], shown
+    assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Players", "Reservations", "Tournaments", "Preferences", "Settings"]
+    ui.click(".more-item", text="Heatmap")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap')")
+    _close_sheet(ui)
 
 
 def test_every_screen_fits_the_window_at_three_widths(ui):

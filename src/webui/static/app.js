@@ -190,7 +190,7 @@ function App() {
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false); // the phone's More menu (Preferences, Settings)
+  const [moreOpen, setMoreOpen] = useState(false); // the More menu: the Heatmap, and on a phone Preferences and Settings
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
@@ -520,10 +520,11 @@ function App() {
     <button class=${'tool' + extra} onClick=${onClick} disabled=${disabled} title=${label + ' (' + key + ')'} aria-keyshortcuts=${key}>
       <${Icon} name=${icon} class=${name === 'refresh' && refresh.running ? 'spin' : ''} /><span class="tool-label">${label}</span></button>`;
   const noCourse = noClub || !overview || !overview.course;
-  // in the toolbar on a wider screen, behind More on a phone (style.css hides one or the other)
+  // behind More: the Heatmap everywhere; Preferences and Settings only on a phone (wider screens keep them in the toolbar)
   const rare = [
-    { name: 'preferences', icon: 'gear', label: t('action.preferences'), key: 'e', onClick: () => setSheet('preferences'), disabled: false },
-    { name: 'settings', icon: 'sliders', label: t('action.settings'), key: ',', onClick: () => setSheet('settings'), disabled: false },
+    { name: 'heatmap', icon: 'grid', label: t('action.heatmap'), key: 'h', onClick: () => setSheet('heatmap'), disabled: noCourse },
+    { name: 'preferences', icon: 'gear', label: t('action.preferences'), key: 'e', onClick: () => setSheet('preferences'), disabled: false, phoneOnly: true },
+    { name: 'settings', icon: 'sliders', label: t('action.settings'), key: ',', onClick: () => setSheet('settings'), disabled: false, phoneOnly: true },
   ];
   const rareTool = (name) => { const item = rare.find((r) => r.name === name); return tool(item.name, item.icon, item.label, item.key, item.onClick, item.disabled, ' in-more'); };
 
@@ -539,7 +540,6 @@ function App() {
         </div>
         <div class="toolbar-tools">
         ${tool('search', 'search', t('action.search'), 's', () => setSheet('search'), noClub || !overview || !overview.course)}
-        ${tool('heatmap', 'grid', t('action.heatmap'), 'h', () => setSheet('heatmap'), noCourse)}
         ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
