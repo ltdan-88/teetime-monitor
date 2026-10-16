@@ -1,7 +1,7 @@
 // The first screen, before a club is saved: what the app does and the three steps to get going.
 
 import { html, t, Icon } from '/lib.js';
-import { Scene, SceneDefs } from '/scene.js';
+import { Scene, SceneDefs, seasonOf } from '/scene.js';
 
 function Step({ number, title, text, state }) {
   return html`<li class=${'wl-step ' + state}>
@@ -13,7 +13,7 @@ function Step({ number, title, text, state }) {
 export function Welcome({ onAddClub, onLogin }) {
   return html`<section class="wl" aria-labelledby="wl-title">
     <${SceneDefs} />
-    <div class="wl-scene"><${Scene} mood="clear" wind=${8} /></div>
+    <div class="wl-scene"><${Scene} mood="clear" wind=${8} season=${seasonOf(new Date().toISOString().slice(0, 10))} seed="welcome" /></div>
     <h1 id="wl-title">${t('welcome.title')}</h1>
     <p class="wl-lead">${t('welcome.lead')}</p>
     <ol class="wl-steps">

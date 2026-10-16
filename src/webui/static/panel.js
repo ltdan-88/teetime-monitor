@@ -3,7 +3,7 @@
 // screen they swipe, on a wide one they all sit in a row. Tapping a card opens that day.
 
 import { html, t, useState, useEffect, useRef, Icon, api, query, dayLabel, temperature, windSpeed, round, conditionKind } from '/lib.js';
-import { Scene, SceneDefs } from '/scene.js';
+import { Scene, SceneDefs, seasonOf } from '/scene.js';
 
 function conditionText(code) {
   const named = t('wmo.' + code);
@@ -52,7 +52,7 @@ function Chips({ weather, units }) {
 const VARIANT = { next_round: 'roll', best_window: 'chip', friends: 'trio', best_weather: 'wobble' };
 const PHASE = { next_round: 0, best_window: 2.3, friends: 4.1, best_weather: 6.2 }; // seconds into the loop, so the cards never move in step
 
-function Card({ card, units, onOpen, now }) {
+function Card({ card, units, onOpen, now, south }) {
   const w = card.weather;
   const kind = card.kind;
   let sub = '';
@@ -62,7 +62,7 @@ function Card({ card, units, onOpen, now }) {
   else sub = conditionText(w.code);
   const title = kind === 'best_weather' ? dayLabel(card.date) : `${dayLabel(card.date)} · ${card.time}`;
   return html`<button class="tp-card" onClick=${() => onOpen(card)} aria-label=${t('panel.' + kind) + ': ' + title}>
-    <${Scene} mood=${w.mood} wind=${w.wind} variant=${VARIANT[kind]} phase=${PHASE[kind]} friends=${(card.friends || []).map((p) => p.gender)} />
+    <${Scene} mood=${w.mood} wind=${w.wind} variant=${VARIANT[kind]} phase=${PHASE[kind]} friends=${(card.friends || []).map((p) => p.gender)} season=${seasonOf(card.date, south)} seed=${card.kind + '|' + card.date} />
     <span class="tp-text">
       <span class="tp-top"><span class="tp-label">${t('panel.' + kind)}</span>${kind === 'next_round' && html`<span class="tp-count">${countdownText(card.date, card.time, now)}</span>`}</span>
       <span class="tp-main"><span>${title}</span>
@@ -76,6 +76,7 @@ function Card({ card, units, onOpen, now }) {
 /** `refQuery`: which club the cards are for ({slug} or {club_id, name}); `dataKey` changes when the days did. */
 export function BottomPanel({ refQuery, course, dataKey, ready, units, onOpen }) {
   const [cards, setCards] = useState([]);
+  const [south, setSouth] = useState(false); // the club lies south of the equator: the seasons run the other way
   const [index, setIndex] = useState(0);
   const [scrollable, setScrollable] = useState(false);
   const track = useRef(null);
@@ -84,7 +85,7 @@ export function BottomPanel({ refQuery, course, dataKey, ready, units, onOpen })
     if (!ready || !course) return undefined;
     let cancelled = false;
     api('/api/panel' + query({ ...refQuery, course }))
-      .then((result) => !cancelled && setCards(result.cards || []))
+      .then((result) => { if (cancelled) return; setCards(result.cards || []); setSouth(!!result.south); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [dataKey, ready, course]);
@@ -112,7 +113,7 @@ export function BottomPanel({ refQuery, course, dataKey, ready, units, onOpen })
   return html`<section class="tp" role="region" aria-roledescription="carousel" aria-label=${t('panel.title')}>
     <${SceneDefs} />
     <div class="tp-track" ref=${track} onScroll=${scrolled}>
-      ${cards.map((card) => html`<${Card} key=${card.kind} card=${card} units=${units} onOpen=${onOpen} now=${now} />`)}
+      ${cards.map((card) => html`<${Card} key=${card.kind} card=${card} units=${units} onOpen=${onOpen} now=${now} south=${south} />`)}
     </div>
     ${scrollable && html`<div class="tp-dots" aria-hidden="true">${cards.map((card, i) => html`<span key=${card.kind} class=${i === index ? 'on' : ''}></span>`)}</div>`}
   </section>`;

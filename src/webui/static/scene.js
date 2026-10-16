@@ -40,6 +40,64 @@ export function windTimes(kph) {
   return { flag: Math.max(0.35, Math.min(2.4, 2.4 - wind * 0.075)), clouds: Math.max(8, Math.min(34, 34 - wind * 0.9)) };
 }
 
+// ---- the seasons: ground, trees and the things that fall -------------------------------------------------------------
+const SEASONS = {
+  spring: { back: '#4f9a4e', front: '#3d8442', green: '#66b85c', leaves: ['#f6c1d6', '#f9dbe6', '#ffffff'], trunk: '#5a4636', water: '#5aa0cc', line: '#7fb56a' },
+  summer: { back: '#2a6a45', front: '#1f5a3a', green: '#2f7a50', leaves: ['#1f6b3a', '#2b7d45', '#175a30'], trunk: '#4a3a2c', water: '#4a8fc0', line: '#1b5a34' },
+  autumn: { back: '#6e7a3a', front: '#59652f', green: '#7d8a42', leaves: ['#d8742e', '#e8a23a', '#b8402a'], trunk: '#4a3a2c', water: '#4a7fa8', line: '#9a6a2a' },
+  winter: { back: '#66755f', front: '#566450', green: '#74846b', leaves: [], trunk: '#4a3a2c', water: '#a9cbe0', line: '#4e5a4a' },
+};
+const WHITE_GROUND = { back: '#e4eaf4', front: '#cdd7e8', green: '#f4f7fc', water: '#d9e8f5', line: '#c5d0e2' };
+
+/** "spring" | "summer" | "autumn" | "winter" for a date ("YYYY-MM-DD"); `south` swaps the halves of the year. */
+export function seasonOf(date, south = false) {
+  const month = Number(String(date || '').slice(5, 7)) || new Date().getMonth() + 1;
+  const m = south ? ((month + 5) % 12) + 1 : month;
+  return m >= 3 && m <= 5 ? 'spring' : m >= 6 && m <= 8 ? 'summer' : m >= 9 && m <= 11 ? 'autumn' : 'winter';
+}
+
+const hash = (text) => { let h = 7; for (const c of String(text)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
+
+// which features a course has: every card gets another mix, so no two greens look alike
+const LAYOUTS = [
+  { pond: true, bunker: false, trees: [285] }, { pond: false, bunker: true, trees: [205, 226] }, { pond: true, bunker: true, trees: [] },
+  { pond: false, bunker: true, trees: [208, 287] }, { pond: true, bunker: false, trees: [224, 280] }, { pond: false, bunker: false, trees: [200, 222, 284] },
+];
+
+/** A tree standing on the ground at (x, base): lush, blossoming, coloured, bare or a pine, by season and snow. */
+function Tree({ x, base, size, season, snow, pine, colors, trunk }) {
+  const s = size;
+  const cap = snow ? html`<ellipse cx="0" cy=${-s * 0.9} rx=${s * 0.3} ry=${s * 0.1} fill="#f4f7fc" />` : null;
+  let body;
+  if (pine) {
+    body = html`<path d=${`M0 ${-s}L${s * 0.22} ${-s * 0.62}H${-s * 0.22}ZM0 ${-s * 0.78}L${s * 0.3} ${-s * 0.34}H${-s * 0.3}ZM0 ${-s * 0.55}L${s * 0.38} ${-s * 0.1}H${-s * 0.38}Z`} fill=${snow ? '#cfd9ea' : '#1c5a35'} />`;
+  } else if (season === 'winter' && !snow) {
+    body = html`<path class="tp-bare" d=${`M0 0V${-s * 0.55}M0 ${-s * 0.35}l${-s * 0.2} ${-s * 0.22}M0 ${-s * 0.45}l${s * 0.22} ${-s * 0.24}M0 ${-s * 0.58}l${-s * 0.1} ${-s * 0.2}M0 ${-s * 0.58}l${s * 0.1} ${-s * 0.2}`} stroke=${trunk} />`;
+  } else {
+    const c = snow || season === 'winter' ? ['#dfe7f2', '#cfd9ea', '#e9eff7'] : colors;
+    body = html`<rect x="-1" y=${-s * 0.45} width="2" height=${s * 0.45} fill=${trunk} />
+      <ellipse cx="0" cy=${-s * 0.72} rx=${s * 0.38} ry=${s * 0.32} fill=${c[0]} /><ellipse cx=${-s * 0.22} cy=${-s * 0.55} rx=${s * 0.27} ry=${s * 0.24} fill=${c[1]} /><ellipse cx=${s * 0.24} cy=${-s * 0.58} rx=${s * 0.26} ry=${s * 0.23} fill=${c[2]} />`;
+  }
+  return html`<g transform=${`translate(${x} ${base})`}><g class="tp-tree">${body}${cap}</g></g>`;
+}
+
+/** The far treeline: a row of rounded tops along the back of the course. */
+function treeline(y) {
+  let d = `M0 ${y + 8}`;
+  for (let x = 0; x < 300; x += 12) d += `q6 ${-9 - ((x * 7) % 5)} 12 0`;
+  return d + 'V140H0Z'; // down into the back hill, so no sky shows between them
+}
+
+function Pond({ x, color, ice, rain, duck }) {
+  return html`<g><ellipse cx=${x} cy="138" rx="27" ry="4.4" fill=${color} /><ellipse class="tp-glint" cx=${x - 8} cy="137" rx="7" ry="1" fill="#ffffff" fill-opacity=".55" /><ellipse class="tp-glint tp-glint2" cx=${x + 9} cy="139.4" rx="5" ry="0.8" fill="#ffffff" fill-opacity=".45" />
+    ${rain && html`<ellipse class="tp-ripple" cx=${x} cy="138" rx="10" ry="2" />`}
+    ${duck && !ice && html`<g transform=${`translate(${x - 12} 136.4)`}><g class="tp-duck"><ellipse rx="3.4" ry="1.8" fill="#8a6a3a" /><circle cx="3" cy="-1.8" r="1.5" fill="#2f7a50" /><path d="M4.4 -1.8l2 .5l-2 .5z" fill="#ff9f0a" /></g></g>`}</g>`;
+}
+
+function Bunker({ x, snow }) {
+  return html`<g><ellipse cx=${x} cy="153" rx="16" ry="3.8" fill=${snow ? '#b9c4d8' : '#c7b57f'} /><ellipse cx=${x} cy="153.4" rx="14" ry="3" fill=${snow ? '#f4f7fc' : '#ecdfb2'} /><ellipse cx=${x - 4} cy="153" rx="5" ry="1" fill="#ffffff" fill-opacity=".35" /></g>`;
+}
+
 const BALL = { roll: 'tp-roll', chip: 'tp-chip', wobble: 'tp-wob' };
 
 /** One ball, however it travels: `variant` "roll" runs straight in, "chip" flies up and bounces in, "wobble" stops at
@@ -54,11 +112,13 @@ function Ball({ variant, color, mark, delay = 0, lane = 0 }) {
 const GENDER_BALL = { female: '#f08fd2', male: '#7db8ff' };
 
 /** The scene for `mood` ("clear" | "partly" | "overcast" | "rain" | "snow"), filling its box (300 x 168 drawing).
- *  `variant` picks how the ball travels ("roll", "chip", "wobble", "trio" for friends: one ball each, `friends` are
- *  their genders); `phase` (seconds) starts the loop part-way so neighbouring cards are never in step. The wind
- *  (km/h) sets the pace of flag and clouds, and decides who else is out: birds when calm, butterflies when very
- *  calm, blowing leaves and bending grass when it is windy. */
-export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0 }) {
+ *  `season` colours the course and brings its own trees and falling things; `seed` (any text) picks which features
+ *  this course has (pond, bunker, trees), so every card looks like another hole. `variant` picks how the ball
+ *  travels ("roll", "chip", "wobble", "trio" for friends: one ball each, `friends` are their genders); `phase`
+ *  (seconds) starts the loop part-way so neighbouring cards are never in step. The wind (km/h) sets the pace of flag,
+ *  clouds and trees, and decides who else is out: birds when calm, a butterfly when very calm, blowing leaves and
+ *  bending grass when it is windy. */
+export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0, season = 'summer', seed = '' }) {
   const { flag, clouds } = windTimes(wind);
   const kph = wind == null ? 8 : wind;
   const snow = mood === 'snow';
@@ -66,6 +126,9 @@ export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0 })
   const sun = mood === 'clear' || mood === 'partly';
   const fair = sun || mood === 'overcast';
   const pair = CLOUDS[mood];
+  const palette = { ...SEASONS[season] || SEASONS.summer, ...(snow ? WHITE_GROUND : {}) };
+  const layout = LAYOUTS[hash(seed) % LAYOUTS.length];
+  const ice = snow || (season === 'winter' && !wet);
   const white = snow ? '#ff8a3d' : '#f7f7f7';
   const mark = snow ? '#ffd0ae' : '#9aa0b5';
   const lean = Math.min(24, 4 + kph * 0.55).toFixed(1);
@@ -73,29 +136,39 @@ export function Scene({ mood, wind, variant = 'roll', friends = [], phase = 0 })
     ? [{ color: white, delay: 0 }, ...friends.slice(0, 2).map((g, i) => ({ color: GENDER_BALL[g] || '#c9cddd', delay: 1.4 * (i + 1) }))]
     : [{ color: white, delay: 0 }];
   const style = `--flag-dur:${flag.toFixed(2)}s;--cloud-dur:${clouds.toFixed(1)}s;--lean:${lean}deg;--phase:${-phase}s`;
-  return html`<svg class=${'tp-scene tp-' + mood} style=${style} viewBox="0 0 300 168" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  const treeSizes = [20, 17, 22];
+  return html`<svg class=${'tp-scene tp-' + mood + ' tp-' + season} style=${style} viewBox="0 0 300 168" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect width="300" height="168" fill=${'url(#tp-' + mood + ')'} />
     ${sun && html`<g transform="translate(250 38)"><circle class="tp-glow" r="32" fill="url(#tp-glow)" /><g class="tp-rays"><use href="#tp-rays" /></g><circle r="10" fill="#ffd60a" /></g>`}
     ${mood === 'partly' && html`<g class="tp-cloud"><ellipse cx="60" cy="26" rx="28" ry="8" fill="#e8ecf5" fill-opacity=".7" /><ellipse cx="80" cy="19" rx="18" ry="8" fill="#e8ecf5" fill-opacity=".7" /></g>`}
     ${mood === 'clear' && html`<g class="tp-cloud"><ellipse cx="70" cy="30" rx="24" ry="7" fill="#e8ecf5" fill-opacity=".45" /><ellipse cx="86" cy="24" rx="15" ry="7" fill="#e8ecf5" fill-opacity=".45" /></g>`}
     ${pair && html`<g class="tp-cloud"><ellipse cx="60" cy="22" rx="30" ry="9" fill=${pair[0]} /><ellipse cx="82" cy="15" rx="19" ry="9" fill=${pair[0]} /></g>
       <g class="tp-cloud tp-back"><ellipse cx="220" cy="24" rx="32" ry="9" fill=${pair[1]} /><ellipse cx="244" cy="17" rx="19" ry="9" fill=${pair[1]} /></g>`}
-    ${sun && kph < 22 && html`<g transform="translate(0 52)"><g class="tp-bird"><path class="tp-wing" d="M0 0q3-4 6 0q3-4 6 0" /></g></g>
+    ${sun && kph < 22 && season !== 'winter' && html`<g transform="translate(0 52)"><g class="tp-bird"><path class="tp-wing" d="M0 0q3-4 6 0q3-4 6 0" /></g></g>
       <g transform="translate(0 74)"><g class="tp-bird tp-bird2"><path class="tp-wing" d="M0 0q3-4 6 0q3-4 6 0" /></g></g>`}
     <rect width="300" height="132" fill="url(#tp-scrim)" />
-    <path d="M0 168V132Q70 120 150 128T300 122V168Z" fill=${snow ? '#e4eaf4' : '#2a6a45'} />
-    <path d="M0 168V150Q90 142 180 148T300 144V168Z" fill=${snow ? '#cdd7e8' : '#1f5a3a'} />
+    <path d=${treeline(113)} fill=${palette.line} fill-opacity=".85" />
+    <path d="M0 168V132Q70 120 150 128T300 122V168Z" fill=${palette.back} />
+    ${layout.pond && html`<${Pond} x=${112} color=${palette.water} ice=${ice} rain=${wet} duck=${(season === 'spring' || season === 'summer') && fair} />`}
+    ${layout.trees.map((x, i) => html`<${Tree} key=${x} x=${x} base=${x > 270 ? 126 : 127} size=${treeSizes[i % 3]} season=${season} snow=${snow} pine=${season === 'winter' ? i % 2 === 0 : i === 1 && season !== 'autumn'} colors=${palette.leaves} trunk=${palette.trunk} />`)}
+    <path d="M0 168V150Q90 142 180 148T300 144V168Z" fill=${palette.front} />
+    ${layout.bunker && html`<${Bunker} x=${222} snow=${snow} />`}
     ${!snow && html`<g class="tp-grass"><path d="M64 150l-2-8m2 8v-9m2 9l2-8" /><path d="M118 152l-2-8m2 8v-9m2 9l2-8" /><path d="M176 151l-2-8m2 8v-9m2 9l2-8" /><path d="M222 152l-2-8m2 8v-9m2 9l2-8" /></g>`}
+    ${season === 'spring' && !snow && html`<g class="tp-flowers"><circle cx="40" cy="158" r="1.5" fill="#ff8fb8" /><circle cx="48" cy="161" r="1.3" fill="#fff6a8" /><circle cx="92" cy="159" r="1.5" fill="#ffffff" /><circle cx="146" cy="158" r="1.5" fill="#ff8fb8" /><circle cx="154" cy="161" r="1.3" fill="#ffd84a" /><circle cx="196" cy="159" r="1.4" fill="#c9a6f7" /><circle cx="270" cy="156" r="1.4" fill="#ff8fb8" /></g>`}
+    ${season === 'autumn' && !snow && html`<g class="tp-fallen"><ellipse cx="46" cy="158" rx="2.2" ry="1.1" fill="#d8742e" /><ellipse cx="100" cy="160" rx="2.2" ry="1.1" fill="#b8402a" /><ellipse cx="160" cy="159" rx="2.2" ry="1.1" fill="#e8a23a" /><ellipse cx="248" cy="158" rx="2.2" ry="1.1" fill="#d8742e" /></g>`}
+    ${season === 'winter' && !snow && html`<g class="tp-frost"><circle cx="30" cy="156" r="1" /><circle cx="84" cy="160" r="1" /><circle cx="132" cy="157" r="1" /><circle cx="186" cy="161" r="1" /><circle cx="240" cy="158" r="1" /></g>`}
     ${snow && html`<g class="tp-snowman"><circle cx="150" cy="140" r="8" /><circle cx="150" cy="129" r="6" /><circle cx="150" cy="120" r="4.4" /><path class="tp-nose" d="M150 120l6 1.2l-6 1z" /><circle class="tp-coal" cx="148.4" cy="119" r=".7" /><circle class="tp-coal" cx="151.6" cy="119" r=".7" /></g>`}
-    <ellipse cx="252" cy="147" rx="28" ry="4" fill=${snow ? '#f4f7fc' : '#2f7a50'} />
+    <ellipse cx="252" cy="147" rx="28" ry="4" fill=${palette.green} />
     <ellipse cx="252" cy="147" rx="4" ry="1.4" fill=${snow ? '#7c88a4' : '#0c2a1c'} />
     <path d="M252 147V114" stroke="#f2f4fa" stroke-width="1.6" />
     <path class="tp-flag" d="M252 114l18 5-18 6z" fill="#ff453a" />
-    ${wet && html`<ellipse class="tp-ripple" cx="104" cy="156" rx="12" ry="2.4" /><ellipse class="tp-ripple tp-ripple2" cx="196" cy="158" rx="10" ry="2" />`}
-    ${sun && kph < 12 && html`<g transform="translate(0 124)"><g class="tp-flutter"><ellipse class="tp-wing2" cx="-2" cy="0" rx="2.6" ry="1.6" /><ellipse class="tp-wing2" cx="2" cy="0" rx="2.6" ry="1.6" /></g></g>`}
+    ${wet && html`<ellipse class="tp-ripple" cx="60" cy="158" rx="12" ry="2.4" /><ellipse class="tp-ripple tp-ripple2" cx="168" cy="160" rx="10" ry="2" />`}
+    ${sun && kph < 12 && season !== 'winter' && html`<g transform="translate(0 124)"><g class="tp-flutter"><ellipse class="tp-wing2" cx="-2" cy="0" rx="2.6" ry="1.6" /><ellipse class="tp-wing2" cx="2" cy="0" rx="2.6" ry="1.6" /></g></g>`}
     ${fair && kph >= 25 && html`<g transform="translate(0 70)"><path class="tp-leaf" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 100)"><path class="tp-leaf tp-leaf2" d="M0 0q4-5 8 0q-4 5-8 0z" /></g><g transform="translate(0 124)"><path class="tp-leaf tp-leaf3" d="M0 0q3-4 6 0q-3 4-6 0z" /></g>`}
     ${balls.map((b, i) => html`<${Ball} key=${i} variant=${variant === 'trio' ? 'roll' : variant} color=${b.color} mark=${mark} delay=${b.delay} lane=${i === 1 ? 3 : i === 2 ? -3 : 0} />`)}
     ${mood === 'overcast' && html`<rect width="300" height="168" fill="#0c1020" opacity=".12" />`}
+    ${season === 'spring' && !wet && !snow && html`<g class="tp-petals"><ellipse cx="40" cy="-6" rx="2" ry="1" fill="#f9c8dc" /><ellipse cx="120" cy="-30" rx="2" ry="1" fill="#ffffff" /><ellipse cx="190" cy="-14" rx="2" ry="1" fill="#f9c8dc" /><ellipse cx="270" cy="-40" rx="2" ry="1" fill="#ffffff" /></g>`}
+    ${season === 'autumn' && !wet && !snow && html`<g class="tp-falling"><path d="M60 -4q4-5 8 0q-4 5-8 0z" fill="#d8742e" /><path d="M150 -26q4-5 8 0q-4 5-8 0z" fill="#e8a23a" /><path d="M230 -12q4-5 8 0q-4 5-8 0z" fill="#b8402a" /></g>`}
     ${wet && html`<g class="tp-fall-rain"><rect y="-40" width="300" height="208" fill="url(#tp-drops)" /></g>`}
     ${snow && html`<g class="tp-fall-far"><rect y="-50" width="300" height="218" fill="url(#tp-flakes-far)" /></g><g class="tp-fall-near"><rect y="-70" width="300" height="238" fill="url(#tp-flakes-near)" /></g>`}
   </svg>`;

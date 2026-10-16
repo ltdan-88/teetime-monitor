@@ -265,6 +265,15 @@ def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(
     assert cards["best_weather"]["weather"]["rain"] <= 30  # the rainy day loses
 
 
+def test_the_panel_says_when_the_club_lies_south_of_the_equator(world):
+    from src.webui import panel
+
+    assert panel.build(SLUG, COURSE)["south"] is False
+    club_config.save_club_config(SLUG, {"club_id": CLUB_ID, "name": "Golfclub Beispiel", "default_course": COURSE, "location": {"lat": -33.9, "lon": 18.4}}, club_config.CLUBS_DIR)
+    data._OVERVIEW_CACHE.clear()
+    assert panel.build(SLUG, COURSE)["south"] is True  # its seasons run the other way
+
+
 def test_the_bottom_panel_without_anything_to_say_has_no_cards(world):
     from src.webui import panel
 

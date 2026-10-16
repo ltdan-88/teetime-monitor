@@ -770,6 +770,22 @@ button, select, input { touch-action: manipulation; }
 .tp-ripple2 { animation-delay: -.9s; }
 .tp-snowman circle { fill: #f4f7fc; stroke: #8a98b8; stroke-width: .7; }
 .tp-snowman .tp-coal { fill: #1b2438; stroke: none; } .tp-snowman .tp-nose { fill: #ff8a3d; stroke: none; }
+/* seasons and course features: trees sway with the wind, the pond glints and the duck paddles, petals and leaves come down, frost twinkles */
+@keyframes tp-sway { from { transform: skewX(calc(var(--lean, 6deg) * -.25)); } to { transform: skewX(calc(var(--lean, 6deg) * .35)); } }
+@keyframes tp-glint { 0%, 100% { opacity: .15; } 50% { opacity: .8; } }
+@keyframes tp-paddle { from { transform: translateX(0); } to { transform: translateX(24px); } }
+@keyframes tp-petal { 0% { transform: translate(0, -10px) rotate(0deg); } 100% { transform: translate(-40px, 190px) rotate(300deg); } }
+@keyframes tp-leaffall { 0% { transform: translate(0, -8px) rotate(0deg); } 50% { transform: translate(-18px, 90px) rotate(200deg); } 100% { transform: translate(8px, 190px) rotate(420deg); } }
+@keyframes tp-twinkle { from { opacity: .2; } to { opacity: 1; } }
+.tp-tree { transform-box: fill-box; transform-origin: 50% 100%; animation: tp-sway var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
+.tp-bare { fill: none; stroke-width: 1.2; stroke-linecap: round; }
+.tp-glint { animation: tp-glint 2.6s ease-in-out infinite; } .tp-glint2 { animation-delay: -1.3s; }
+.tp-duck { animation: tp-paddle 9s ease-in-out infinite alternate; animation-delay: var(--phase, 0s); }
+.tp-petals ellipse { transform-box: fill-box; transform-origin: 50% 50%; animation: tp-petal 9s linear infinite; }
+.tp-petals ellipse:nth-child(2) { animation-delay: -2.5s; } .tp-petals ellipse:nth-child(3) { animation-delay: -5s; } .tp-petals ellipse:nth-child(4) { animation-delay: -7s; }
+.tp-falling path { transform-box: fill-box; transform-origin: 50% 50%; animation: tp-leaffall calc(var(--cloud-dur, 26s) * .45) linear infinite; }
+.tp-falling path:nth-child(2) { animation-delay: -3s; } .tp-falling path:nth-child(3) { animation-delay: -6s; }
+.tp-frost circle { fill: #ffffff; stroke: none; animation: tp-twinkle 2.4s ease-in-out infinite alternate; } .tp-frost circle:nth-child(2n) { animation-delay: -1.2s; }
 .tp-flag { transform-origin: 252px 114px; animation: tp-wave var(--flag-dur, 1.4s) ease-in-out infinite alternate; }
 .tp-cloud { animation: tp-drift var(--cloud-dur, 26s) ease-in-out infinite alternate; }
 .tp-cloud.tp-back { animation-direction: alternate-reverse; }
