@@ -1256,7 +1256,7 @@ def test_the_tip_cards_sit_at_the_bottom_swipe_on_a_phone_and_can_be_switched_of
     ui.js("window.scrollTo(0, 0)")
     ui.wait("document.querySelectorAll('.tp-card').length >= 3")
     kinds = ui.js("[...document.querySelectorAll('.tp-card .tp-label')].map((e) => e.textContent)")
-    assert kinds[0] == "Your next round" and "Best weather" in kinds
+    assert "Your next round" in kinds and "Best weather" in kinds
     gap = ui.js("document.querySelector('.footer').getBoundingClientRect().top - document.querySelector('.tp').getBoundingClientRect().bottom")
     assert 0 <= gap < 80  # at the bottom of the free space, just above the footer
     assert ui.count(".tp-dots") == 0  # they all fit on a wide screen: no swiping, no dots

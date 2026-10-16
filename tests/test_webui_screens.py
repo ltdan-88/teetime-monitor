@@ -263,6 +263,8 @@ def test_the_bottom_panel_picks_next_round_best_window_friends_and_best_weather(
     assert friends["time"] == "10:10" and [f["name"] for f in friends["friends"]] == ["Erika Musterfrau"] and friends["free"] == 2
     assert cards["best_weather"]["date"] != cards["best_window"]["date"] if "best_window" in cards else cards["best_weather"]["date"] in (d(0), d(2))
     assert cards["best_weather"]["weather"]["rain"] <= 30  # the rainy day loses
+    order = [(c["date"], c.get("time", "")) for c in panel.build(SLUG, COURSE)["cards"]]
+    assert order == sorted(order)  # the cards run in chronological order
 
 
 def test_the_panel_says_when_the_club_lies_south_of_the_equator(world):
