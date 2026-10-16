@@ -318,7 +318,7 @@ def test_a_tournament_slot_on_the_tee_sheet_opens_the_calendar_on_that_day(ui):
     ui.wait("document.querySelector('.sheet h2') && document.querySelector('.sheet h2').textContent === 'Tournaments' && document.querySelector('.tn-cell.on')")
     assert "Clubmeisterschaften" in ui.text(".tn-list")  # opened on that day, the event listed
     ui.shot("tournaments-from-slot")
-    ui.click(".tn-item .btn", text="Tee sheet")  # and back to that day's times
+    ui.click('.tn-item [aria-label="Tee sheet"]')  # and back to that day's times
     ui.wait("!document.querySelector('.scrim') && document.querySelectorAll('.card.open .slot').length > 20")
 
 

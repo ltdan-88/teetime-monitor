@@ -766,3 +766,26 @@ def test_a_day_with_a_tournament_block_says_so_and_a_routine_event_does_not(worl
     days = {day["date"]: day for day in data.overview(SLUG, COURSE)["days"]}
     assert days[today.isoformat()]["tournament_day"] is True  # its blocked times link to the calendar
     assert days[(today + timedelta(days=1)).isoformat()]["tournament_day"] is False
+
+
+def test_the_page_addresses_its_stylesheet_and_script_by_content(running):
+    """A new version is a new address, so a browser cannot pair a fresh script with a stylesheet it kept (2026-10-16)."""
+    import hashlib
+    import re
+
+    def get(path):
+        connection = http.client.HTTPConnection("127.0.0.1", running.port, timeout=20)
+        connection.request("GET", path, headers={"Cookie": f"{server.COOKIE_NAME}={running.token}"})
+        response = connection.getresponse()
+        body = response.read()
+        connection.close()
+        return response.status, body
+
+    status, page = get("/")
+    assert status == 200
+    css = re.search(rb'href="/style\.css\?v=([0-9a-f]{12})"', page)
+    js = re.search(rb'src="/app\.js\?v=([0-9a-f]{12})"', page)
+    assert css and js
+    assert css.group(1).decode() == hashlib.sha1((server.STATIC_DIR / "style.css").read_bytes()).hexdigest()[:12]
+    status, sheet = get("/style.css?v=" + css.group(1).decode())
+    assert status == 200 and sheet == (server.STATIC_DIR / "style.css").read_bytes()  # the query does not change which file comes back

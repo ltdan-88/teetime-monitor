@@ -73,6 +73,16 @@ mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/javascript", ".mjs")
 
 
+
+def _versioned(page: bytes) -> bytes:
+    """index.html with the stylesheet and the app script addressed by their content (`/style.css?v=<hash>`). Each
+    file is revalidated anyway, but Safari on an iPad kept the old stylesheet after an update while it ran the new
+    script (2026-10-16: the tournament filters drawn without their styles); a new address cannot be served stale."""
+    for name in (b"/style.css", b"/app.js"):
+        digest = hashlib.sha1((STATIC_DIR / name.decode().lstrip("/")).read_bytes()).hexdigest()[:12].encode()
+        page = page.replace(b'"' + name + b'"', b'"' + name + b"?v=" + digest + b'"')
+    return page
+
 class Refresher:
     """Runs scrapes in the background, one per key at a time, and reports their state -- what the
     Refresh button and the 'Updating...' indicator poll. The key is a saved club's slug, or
@@ -380,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
         if content_type.startswith("text/") or content_type in ("application/json", "image/svg+xml"):
             content_type += "; charset=utf-8"
         body = target.read_bytes()
+        if relative == "index.html":
+            body = _versioned(body)
         tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'  # the page revalidates (no-cache): unchanged files answer 304
         if self.headers.get("If-None-Match") == tag:
             return self._send(HTTPStatus.NOT_MODIFIED, b"", content_type, {"Cache-Control": "no-cache", "ETag": tag})

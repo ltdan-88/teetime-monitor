@@ -31,14 +31,14 @@ function Item({ item, now, canShow, onShow }) {
   return html`<li class="tn-item">
     <span class="tn-when"><b>${dayLabel(item.date)}</b>${item.time && html` <span class="num">${item.time}</span>`}</span>
     <span class="tn-name">${item.name}${item.subtitle && html`<span class="dim"> · ${item.subtitle}</span>`}</span>
+    <span class="tn-actions">
+      ${canShow && html`<button class="icon-btn tn-act" aria-label=${t('tournaments.tee_sheet')} title=${t('tournaments.tee_sheet')} onClick=${() => onShow(item.date)}><${Icon} name="teesheet" size=${20} /></button>`}
+      <a class="icon-btn tn-act" href=${item.url} target="_blank" rel="noopener noreferrer" aria-label=${t('tournaments.details')} title=${t('tournaments.details')}><${Icon} name="external" size=${20} /></a>
+    </span>
     <span class="tn-chips">
       ${item.holes && html`<span class="chip">${t('tournaments.holes', { n: item.holes })}</span>`}
       <span class="chip">${item.guests ? t('tournaments.guests') : t('tournaments.members_only')}</span>
       <span class=${'chip' + (item.register_open ? ' mine' : '')}>${registration(item, now)}</span>
-    </span>
-    <span class="tn-actions">
-      ${canShow && html`<button class="btn small" onClick=${() => onShow(item.date)}>${t('tournaments.tee_sheet')}</button>`}
-      <a class="btn small" href=${item.url} target="_blank" rel="noopener noreferrer">${t('tournaments.details')}</a>
     </span>
   </li>`;
 }
