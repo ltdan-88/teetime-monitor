@@ -1881,6 +1881,6 @@ def test_the_gear_in_search_opens_preferences_and_brings_you_back(ui):
     ui.wait("document.querySelector('.sf-gear')")
     ui.click(".sf-gear")
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('preferences')")
-    _close_sheet(ui)
+    ui.click(".sheet-head .icon-btn")  # (closing it brings Search back, so the scrim stays)
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday').length === 14")  # and Search is open again
     _close_sheet(ui)
