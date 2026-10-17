@@ -419,8 +419,10 @@ def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
     assert shown == start  # the line above the results counts the same rows
     counted = ui.js("[...document.querySelectorAll('.strip .sday .c')].map((e) => Number(e.textContent) || 0).reduce((a, b) => a + b, 0)")
     assert counted == start  # and so do the days of the strip, together
-    ui.js("document.querySelector('.strip .sday:not(.off):not(.zero):not(.empty)').click()")  # one day: its rows only, no day heading needed
-    ui.wait("document.querySelectorAll('.dayhead').length === 0 && document.querySelectorAll('.strip .sday[aria-pressed=true]').length === 1")
+    ui.js("document.querySelector('.strip .sday:not(.off):not(.zero):not(.empty)').click()")  # one day: its rows only, under its heading (its weather)
+    ui.wait("document.querySelectorAll('.dayhead').length === 1 && document.querySelectorAll('.strip .sday[aria-pressed=true]').length === 1")
+    assert re.search(r"\d+° / \d+°", ui.text(".dayhead .dh-temp"))  # the day's high and low beside its weather icon
+    assert ui.count(".res-head .cell") == 2 and ui.count(".results .res .wind") == 0  # temperature and rain per time, no wind
     assert 0 < _search_rows(ui) <= start
     ui.js("document.querySelector('.strip .sday[aria-pressed=true]').click()")  # and back
     ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
@@ -1024,8 +1026,9 @@ def test_the_page_waits_for_a_fresh_server_process_after_an_update(ui, hurry):
 
 def test_check_for_updates_says_what_it_found(ui, hurry):
     # the demo server never calls out (the check is switched off there): the button says so
-    ui.shot("footer-check")
-    ui.click(".footer .check-update")
+    _open_sheet(ui, ",", "Settings")  # the version and the check sit in Settings, under About
+    ui.wait("document.querySelector('.about-group .check-update')")
+    ui.click(".about-group .check-update")
     ui.wait("document.querySelector('.check-update')?.textContent.includes('switched off')")
     ui.wait("document.querySelector('.check-update')?.textContent === 'Check for updates'", 15)  # back to normal after a few seconds
     # answers standing in for GitHub: up to date, a failure, and a newer release
@@ -1038,17 +1041,21 @@ def test_check_for_updates_says_what_it_found(ui, hurry):
           return real(url, options); }; })()"""
     )
     for expected in ("up to date", "Could not reach", "new version"):
-        ui.click(".footer .check-update")
+        ui.click(".about-group .check-update")
         ui.wait(f"document.querySelector('.check-update')?.textContent.includes({json.dumps(expected)})")
         ui.wait("document.querySelector('.check-update')?.textContent === 'Check for updates'", 15)
+    _close_sheet(ui)
     assert "Version 9.9.9 is available" in ui.text(".update-banner")  # the found release shows its notice at once
     ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
-def test_the_footer_shows_the_version(ui):
-    text = ui.text(".footer .version")
-    assert re.fullmatch(r"v\d+\.\d+\.\d+|vdev", text.strip()), text
+def test_the_version_is_in_settings_not_in_the_footer(ui):
+    assert ui.count(".footer .version, .footer .check-update") == 0
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('.about-group .version')")
+    assert re.fullmatch(r"v\d+\.\d+\.\d+|vdev", ui.text(".about-group .version").strip())
+    _close_sheet(ui)
 
 
 def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
@@ -1111,7 +1118,7 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         ui.key("Escape")
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
-        assert ui.js("getComputedStyle(document.querySelector('.footer .about')).display") == "none"
+        assert ui.count(".footer .version") == 0
         # Search keeps its filters on screen and only the results scroll
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelectorAll('.res').length > 3")
@@ -1598,7 +1605,7 @@ def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_he
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
-    assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Players", "Reservations", "Tournaments", "Preferences", "Settings"]
+    assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Reservations", "Tournaments", "Players", "Preferences", "Settings"]
     assert ui.js("[...document.querySelectorAll('.footer .tool')].map((e) => e.textContent.trim())")[-2:] == ["View", "Legend"]  # beside each other at the bottom
     _open_sheet(ui, "s", "Search")  # Search and the Heatmap: one window, two tabs
     assert ui.js("[...document.querySelectorAll('.sheet-tab')].map((e) => e.textContent.trim() + (e.getAttribute('aria-selected') === 'true' ? '*' : ''))") == ["Open times*", "Heatmap"]
@@ -1947,7 +1954,23 @@ def test_search_keeps_the_units_in_a_row_pinned_above_the_scrolling_results_and_
         return {pinned: Math.abs(head.top - box.top) < 2, scrolled: r.scrollTop > 0, units: document.querySelectorAll('.res-head .cell').length,
                 clearInHeader: !!document.querySelector('.res-head .btn'), clearWithFilters: clear.top >= filters.top - 1 && clear.bottom <= filters.bottom + 1}; })()"""
     )
-    assert shape == {"pinned": True, "scrolled": True, "units": 3, "clearInHeader": False, "clearWithFilters": True}, shape
+    assert shape == {"pinned": True, "scrolled": True, "units": 2, "clearInHeader": False, "clearWithFilters": True}, shape
+    _close_sheet(ui)
+
+
+def test_preferences_read_in_order_with_each_time_range_on_one_row_and_limits_under_their_switch(ui):
+    _open_sheet(ui, "e", "Preferences")
+    ui.wait("document.querySelector('#f-field-availability-weekday_window-after')")
+    row = ui.js("""(() => { const a = document.querySelector('#f-field-availability-weekday_window-after'), b = document.querySelector('#f-field-availability-weekday_window-before');
+      return [a.closest('.field-row') === b.closest('.field-row'), a.closest('.field-row').querySelector('label').textContent.trim(), /^\\d\\d:\\d\\d$/.test(a.value), [...a.options].length > 60]; })()""")
+    assert row == [True, "Weekday window", True, True], row  # from and until on one row, one choice per time (quarter hours)
+    first = ui.js("[...document.querySelectorAll('.sheet .group')][0].querySelectorAll('.field-row')[0].querySelector('label').textContent.trim()")
+    assert first == "Weekday window"  # the times come first in Availability
+    assert ui.count("#f-field-preferences-avoid_rain_mm") == 0  # rain is not avoided: no limit to set
+    ui.click("#f-field-preferences-avoid_rain")
+    ui.wait("document.querySelector('#f-field-preferences-avoid_rain_mm')")
+    ui.click("#f-field-preferences-avoid_rain")  # back, unsaved
+    ui.wait("!document.querySelector('#f-field-preferences-avoid_rain_mm')")
     _close_sheet(ui)
 
 

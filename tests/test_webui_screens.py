@@ -333,6 +333,10 @@ def test_the_preferences_form_lists_the_groups_and_current_values(world):
     assert any(c["value"] == "2" for c in fields["field-availability-min_open_spots"]["choices"])
     assert fields["field-preferences-avoid_rain"]["kind"] == "bool"
     assert [c["value"] for c in fields["field-preferences-hcp_preference"]["choices"]] == ["off", "similar", "better"]
+    # a limit names the switch it belongs to (the page shows it only while that is on); no "mark them in the directory" row
+    assert fields["field-preferences-avoid_rain_mm"]["depends"] == "field-preferences-avoid_rain"
+    assert fields["field-preferences-avoid_wind_kph"]["depends"] == "field-preferences-avoid_wind"
+    assert "depends" not in fields["field-preferences-avoid_temp_below_c"] and "field-__friends_hint__" not in fields
 
 
 def test_saving_preferences_changes_only_what_was_sent_and_refreshes_the_picks(world):

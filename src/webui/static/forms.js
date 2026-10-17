@@ -16,14 +16,14 @@ function FieldControl({ field, value, onChange }) {
     placeholder=${field.kind === 'optional_float' ? t('off') : ''} onInput=${(event) => onChange(event.target.value)} />`;
 }
 
-/** Cards in two balanced columns: each goes to the shorter one (by `weight`, roughly its rows), so a short card
- *  never leaves a hole beside a tall one. On a narrow screen the columns stack. */
+/** Cards in two balanced columns, in their order: each goes to the shorter column (by `weight`, roughly its rows), so
+ *  they read top to bottom, left before right, and a short card never leaves a hole beside a tall one. On a narrow
+ *  screen the columns stack, still in that order. */
 function Columns({ items }) {
-  // Tallest first, each to the shorter column; then back in the original order within a column.
   const side = new Map();
   let a = 0;
   let b = 0;
-  for (const item of [...items].sort((x, y) => y.weight - x.weight)) {
+  for (const item of items) {
     if (a <= b) {
       side.set(item, 0);
       a += item.weight;
@@ -32,8 +32,34 @@ function Columns({ items }) {
       b += item.weight;
     }
   }
-  const column = (n) => items.filter((item) => side.get(item) === n).map((item) => item.node);
+  const column = (n) => items.filter((item) => side.get(item) === n).map((item) => html`<div class="col-item" style=${{ order: items.indexOf(item) }}>${item.node}</div>`);
   return html`<div class="columns"><div class="col">${column(0)}</div><div class="col">${column(1)}</div></div>`;
+}
+
+/** A group's rows: the times first (each from–to pair on one row, "Weekdays 14:00 – 17:00"), then the rest; a limit
+ *  that belongs to a switch (rain from 50 %) only while that switch is on. */
+function fieldRows(group, values, setValue) {
+  const times = group.fields.filter((field) => field.kind === 'optional_time');
+  const rows = [];
+  for (const field of times) {
+    if (!field.id.endsWith('-after')) continue;
+    const until = times.find((other) => other.id === field.id.replace(/-after$/, '-before'));
+    rows.push(html`
+      <div class="field-row">
+        <label for=${'f-' + field.id}>${field.label.split(' — ')[0]}</label>
+        <span class="time-range"><${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
+          ${until && html`<span class="dim">–</span><${FieldControl} field=${until} value=${values[until.id]} onChange=${(value) => setValue(until.id, value)} />`}</span>
+      </div>`);
+  }
+  for (const field of group.fields) {
+    if (field.kind === 'optional_time' || (field.depends && !values[field.depends])) continue;
+    rows.push(html`
+      <div class=${'field-row' + (field.depends ? ' sub' : '')}>
+        <label for=${'f-' + field.id}>${field.label}</label>
+        <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
+      </div>`);
+  }
+  return rows;
 }
 
 /** The groups of fields as cards with a weight; `values`/`setValue` are the form state ({field id: value}). */
@@ -41,11 +67,7 @@ function groupItems(groups, values, setValue) {
   return groups.map((group) => ({ weight: group.fields.length + 1, node: html`
     <section class="group">
       <h3>${group.label}</h3>
-      ${group.fields.map((field) => html`
-        <div class="field-row">
-          <label for=${'f-' + field.id}>${field.label}</label>
-          <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} />
-        </div>`)}
+      ${fieldRows(group, values, setValue)}
     </section>` }));
 }
 
@@ -119,7 +141,7 @@ function PreferencesForm({ groups, clubId, onClose, onSaved }) {
     setSaving(false);
   }
   return html`
-    <${Columns} items=${[...groupItems(groups, values, setValue), ...(courses ? [courses] : [])]} />
+    <${Columns} items=${[...(courses ? [courses] : []), ...groupItems(groups, values, setValue)]} />
     <div class="actions">
       <${Status} kind=${message && message.kind}>${message && message.text}<//>
       <span class="grow"></span>
@@ -332,15 +354,13 @@ function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, 
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
       <${Columns} items=${[
         { weight: 7, node: html`<${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />` },
+        ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(display ? [{ weight: 6, node: html`<${DisplaySection} ...${display} />` }] : []),
         ...groupItems(otherGroups, values, setValue),
-        ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(aiGroup ? [{ weight: aiGroup.fields.length + 6, node: html`
           <section class="group">
             <h3>${aiGroup.label}</h3>
-            ${aiGroup.fields.map((field) => html`
-              <div class="field-row"><label for=${'f-' + field.id}>${field.label}</label>
-                <${FieldControl} field=${field} value=${values[field.id]} onChange=${(value) => setValue(field.id, value)} /></div>`)}
+            ${fieldRows(aiGroup, values, setValue)}
             <${AiSection} ai=${data.ai} onChanged=${reload} />
           </section>` }] : []),
         ...(display ? [{ weight: 3, node: html`<${AboutSection} boot=${display.boot} onUpdate=${display.onUpdate} />` }] : []),

@@ -34,6 +34,13 @@ _WEB_LABELS = {
     "settings.field.buffer_after_minutes": "webui.buffer_after",
 }
 DISPLAY_ONLY = {"field-units", "field-show_handicaps", "field-__language__"}
+# a limit that only counts while its switch is on: the page shows it only then
+_DEPENDS = {
+    "field-preferences-avoid_rain_probability_percent": "field-preferences-avoid_rain",
+    "field-preferences-avoid_rain_mm": "field-preferences-avoid_rain",
+    "field-preferences-avoid_wind_kph": "field-preferences-avoid_wind",
+}
+_WEB_HIDDEN = {"field-__friends_hint__"}  # the page marks friends with the star in the player list, no hint needed
 
 
 def _screen():
@@ -74,12 +81,14 @@ def schema(kind: str, club_id: str | None) -> dict:
     groups = []
     for group_key in group_order:
         entries = []
-        for field in (f for f in fields if f.group_key == group_key):
+        for field in (f for f in fields if f.group_key == group_key and screen._field_id(f) not in _WEB_HIDDEN):
             entry: dict[str, Any] = {
                 "id": screen._field_id(field),
                 "label": i18n.t(_WEB_LABELS.get(field.label_key, field.label_key)),
                 "kind": field.kind,
             }
+            if entry["id"] in _DEPENDS:
+                entry["depends"] = _DEPENDS[entry["id"]]
             if field.kind == "display":
                 entry["value"] = field.getter(club_id)
             else:
