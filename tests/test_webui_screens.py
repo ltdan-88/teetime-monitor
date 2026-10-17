@@ -798,7 +798,6 @@ def test_a_day_with_a_tournament_block_says_so_and_a_routine_event_does_not(worl
 
 def test_the_page_addresses_its_stylesheet_and_script_by_content(running):
     """A new version is a new address, so a browser cannot pair a fresh script with a stylesheet it kept (2026-10-16)."""
-    import hashlib
     import re
 
     def get(path):
@@ -814,9 +813,14 @@ def test_the_page_addresses_its_stylesheet_and_script_by_content(running):
     css = re.search(rb'href="/style\.css\?v=([0-9a-f]{12})"', page)
     js = re.search(rb'src="/app\.js\?v=([0-9a-f]{12})"', page)
     assert css and js
-    assert css.group(1).decode() == hashlib.sha1((server.STATIC_DIR / "style.css").read_bytes()).hexdigest()[:12]
+    assert css.group(1) == js.group(1) == server._release()  # one version for every file of the page
     status, sheet = get("/style.css?v=" + css.group(1).decode())
     assert status == 200 and sheet == (server.STATIC_DIR / "style.css").read_bytes()  # the query does not change which file comes back
+    status, script = get("/app.js?v=" + js.group(1).decode())
+    imports = re.findall(rb"from '(/[\w./-]+\.js[^']*)'", script)
+    assert imports and all(path.endswith(b"?v=" + js.group(1)) for path in imports), imports  # and so are the modules it imports
+    status, lib = get("/search.js?v=" + js.group(1).decode())
+    assert b"from '/lib.js?v=" + js.group(1) + b"'" in lib
 
 
 def test_the_player_list_is_one_for_every_club_and_names_the_home_club(world):
