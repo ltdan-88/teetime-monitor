@@ -1835,3 +1835,12 @@ def test_the_cannot_reach_screen_goes_away_by_itself_when_the_server_answers_aga
     ui.wait("document.body.innerText.includes('Cannot reach')", timeout=20)  # the server restarting: the page says so
     ui.js("window.fetch = window.__realFetch")  # ... and it is back
     ui.wait("window.__oldPage === undefined && document.querySelectorAll('.card').length > 0", timeout=30)
+
+
+def test_a_tournament_in_the_loaded_days_shows_its_forecast(ui):
+    _open_sheet(ui, "t", "Tournaments")
+    ui.wait("document.querySelectorAll('.tn-item').length > 0")
+    ui.wait("document.querySelector('.tn-item .chip.wx')")
+    assert "°" in ui.text(".tn-item .chip.wx") and "%" in ui.text(".tn-item .chip.wx")
+    assert ui.js("[...document.querySelectorAll('.tn-item')].some((li) => !li.querySelector('.chip.wx'))")  # the far ones have none
+    _close_sheet(ui)

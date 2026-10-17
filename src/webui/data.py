@@ -461,6 +461,25 @@ _TOURNAMENT_CACHE: dict[str, tuple[float, list]] = {}
 _TOURNAMENT_TTL = 30 * 60  # seconds; the calendar changes rarely, and the Refresh button asks again
 
 
+def _tournament_weather(rows: list[dict], club: dict) -> list[dict]:
+    """Each tournament with the forecast for its day at its start time (ten o'clock when none is listed), from what the
+    club's own scrapes stored: nothing is fetched, so only the days that were loaded (about two weeks ahead) have one."""
+    today = clock.today()
+    db = db_path_for(club["id"])
+    courses = courses_for(club["id"]) if db.exists() else []
+    points_by_day: dict[str, list] = {}
+    result = []
+    for row in rows:
+        date = row["date"]
+        if date >= today and date not in points_by_day:
+            points_by_day[date] = next(
+                (schedule.weather for course in courses if (schedule := storage.load_latest_schedule(course, date, path=db)) and schedule.weather), []
+            )
+        points = points_by_day.get(date) or []
+        result.append({**row, "weather": _slot_weather(points, row.get("time") or "10:00") if points else None})
+    return result
+
+
 def tournaments(slug: str | None, club_id: str | None, refresh: bool = False) -> dict:
     """The club's tournament calendar from pc caddie, read with the saved login (src/scraper.py `scrape_tournaments`)
     and kept for half an hour. When it cannot be read, `problem` says why ("no_login", "login", "network",
@@ -471,7 +490,7 @@ def tournaments(slug: str | None, club_id: str | None, refresh: bool = False) ->
     club = found[0]
     cached = _TOURNAMENT_CACHE.get(club["id"])
     if cached and not refresh and monotonic() - cached[0] < _TOURNAMENT_TTL:
-        return {"tournaments": cached[1], "problem": None}
+        return {"tournaments": _tournament_weather(cached[1], club), "problem": None}
     problem = None
     username, password = club_config.resolve_credentials(club["slug"]) if club["slug"] else ("", "")
     if not (username and password):
@@ -488,8 +507,8 @@ def tournaments(slug: str | None, club_id: str | None, refresh: bool = False) ->
         else:
             rows = [{**asdict(item), "url": f"{scraper.club_url(club['id'], scraper.EVENTS_CALENDAR_CATEGORY)}&sub=detail&id={item.id}"} for item in listed]
             _TOURNAMENT_CACHE[club["id"]] = (monotonic(), rows)
-            return {"tournaments": rows, "problem": None}
-    return {"tournaments": cached[1] if cached else [], "problem": problem}
+            return {"tournaments": _tournament_weather(rows, club), "problem": None}
+    return {"tournaments": _tournament_weather(cached[1], club) if cached else [], "problem": problem}
 
 
 def book(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
