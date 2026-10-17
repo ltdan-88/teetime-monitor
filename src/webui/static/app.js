@@ -384,14 +384,17 @@ function App() {
     // The ping also says which server process answered: once it is another one (an update restarted the server)
     // this page's scripts are the old ones, so it loads again by itself. Only a new process counts, not a new version
     // number: a server that has been updated in place but not restarted still serves the old code.
+    // And when the server was out of reach (the "cannot reach" screen) and answers again, the page loads again too,
+    // so nobody has to press "Try again" while the server restarts.
     let boot = null;
+    let wasDown = false;
     const ping = async () => {
       try {
         const answer = await post('/api/ping', {});
         if (boot === null) boot = answer.boot;
-        else if (answer.boot && answer.boot !== boot) location.reload();
+        else if (wasDown || (answer.boot && answer.boot !== boot)) location.reload();
       } catch (error) {
-        if (boot !== null) handleError(error);
+        if (boot !== null) { wasDown = true; handleError(error); }
       }
     };
     const pinger = setInterval(ping, 5000);

@@ -1827,3 +1827,11 @@ def test_a_page_reloads_by_itself_when_the_server_was_restarted(ui):
           : real(url, options); })()"""
     )  # (the next ping names a process the page was not loaded from)
     ui.wait("window.__oldPage === undefined && document.querySelectorAll('.card').length > 0", timeout=30)
+
+
+def test_the_cannot_reach_screen_goes_away_by_itself_when_the_server_answers_again(ui):
+    ui.js("window.__oldPage = true; window.__realFetch = window.fetch")
+    ui.js("window.fetch = (url, options) => String(url).includes('/api/ping') ? Promise.reject(new TypeError('Failed to fetch')) : window.__realFetch(url, options)")
+    ui.wait("document.body.innerText.includes('Cannot reach')", timeout=20)  # the server restarting: the page says so
+    ui.js("window.fetch = window.__realFetch")  # ... and it is back
+    ui.wait("window.__oldPage === undefined && document.querySelectorAll('.card').length > 0", timeout=30)
