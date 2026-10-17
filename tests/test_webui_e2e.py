@@ -411,7 +411,7 @@ def test_search_lists_matches_and_offers_to_book_one(ui):
 
 def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     start = _search_rows(ui)
     assert _chip_on(ui, "My times") == "true"  # your Preferences are on when Search opens
     assert ui.js("document.querySelectorAll('.dayhead').length") >= 1
@@ -1830,7 +1830,7 @@ def test_the_week_starts_on_sunday_with_imperial_units_else_on_monday(ui):
 def test_search_and_tournaments_have_no_club_choice_of_their_own(two_clubs_ui):
     ui = two_clubs_ui
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5")
     assert ui.count("#tool-club") == 0 and ui.count(".sheet select#club") == 0  # Search looks at the club of the page
     _close_sheet(ui)
     _open_sheet(ui, "t", "Tournaments")
@@ -1874,7 +1874,7 @@ def test_the_gear_in_search_opens_preferences_and_brings_you_back(ui):
     ui.click(".sf-gear")
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('preferences')")
     ui.click(".sheet-head .icon-btn")  # (closing it brings Search back, so the scrim stays)
-    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday').length === 14")  # and Search is open again
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday').length === 5")  # and Search is open again
     _close_sheet(ui)
 
 
@@ -1892,7 +1892,7 @@ def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
     )
     try:
         _open_sheet(ui, "s", "Search")
-        ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
         assert ui.count(".sf .chip") > 0 and "9 Loch Platz" in ui.text(".sf")  # a chip for each course
         assert ui.js("document.querySelectorAll('.results .res-course').length") > 0 and "9 Loch Platz" in ui.text(".results")  # and the course named on each row
         _chip(ui, "9 Loch Platz")
@@ -1905,18 +1905,18 @@ def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
 
 def test_search_keeps_its_filters_while_you_look_at_the_heatmap_and_forgets_them_when_closed(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     _chip(ui, "Weekend")
     _chip(ui, "3+")
     ui.js("document.querySelector('.sf-more')?.getAttribute('aria-expanded')")  # (a phone's panel is not under test here)
     ui.click(".sheet-tab", text="Heatmap")
     ui.wait("document.querySelector('.hm-wrap, .sheet .empty')")
     ui.click(".sheet-tab", text="Open times")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5")
     assert _chip_on(ui, "Weekend") == "true" and _chip_on(ui, "3+") == "true"  # as you left them
     _close_sheet(ui)
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5")
     assert _chip_on(ui, "Weekend") == "false" and _chip_on(ui, "3+") == "false"  # a new visit starts from your Preferences again
     _close_sheet(ui)
 
@@ -1993,7 +1993,7 @@ def test_each_days_heading_gives_way_to_the_next_instead_of_stacking(ui):
 
 def test_friends_and_four_free_seats_exclude_each_other_and_today_is_the_bold_day(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     _chip(ui, "4")  # four free seats: nobody is booked, so no friend can be there
     assert _chip_on(ui, "4") == "true"
     _chip(ui, "\u2605 Friends")
@@ -2007,3 +2007,45 @@ def test_friends_and_four_free_seats_exclude_each_other_and_today_is_the_bold_da
     weight = ui.js("(() => { const w = (sel) => Number(getComputedStyle(document.querySelector(sel)).fontWeight); return [w('.sday.today .n'), w('.sday.today .wd'), w('.sday:not(.today) .n'), w('.sday:not(.today) .wd'), getComputedStyle(document.querySelector('.sday.today .n')).boxShadow]; })()")
     assert weight[0] >= 700 and weight[1] >= 700 and weight[2] < 700 and weight[3] < 700 and weight[4] == "none", weight  # weekday and date bold, not outlined
     _close_sheet(ui)
+
+
+def test_on_a_phone_one_filter_button_counts_what_it_holds(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.strip .sday').length === 5")
+        line = ui.js("[...document.querySelectorAll('.sf-line .chip')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.textContent.trim())")
+        assert len(line) == 3 and line[0] == "Weekdays" and line[1] == "Weekend" and line[2].startswith("Filters"), line  # no "My rules" any more
+        start = int(ui.js("document.querySelector('.sf-more .sf-count')?.textContent || '0'"))
+        assert start >= 2  # your times and 2+ free seats, from the demo's Preferences
+        ui.click(".sf-more")
+        _chip(ui, "\u2605 Friends")
+        ui.wait(f"document.querySelector('.sf-more .sf-count')?.textContent === '{start + 1}'")
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_a_row_too_narrow_for_its_names_shows_the_player_chip_even_on_a_large_screen(ui):
+    """The names are measured: a row whose names would be cut off shows the chip, the others keep their names."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!String(url).includes('/api/search/slots')) return response;
+          const data = await response.json();
+          const long = [1, 2, 3].map((n) => ({ name: 'Maximiliane Musterfrau-Beispielhausen ' + n, friend: false, gender: 'female', hcp: 54 }));
+          data.slots = data.slots.map((slot, i) => (i === 0 ? { ...slot, players: long, booked: 3, open: 1 } : slot));
+          return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
+    )
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        ui.click(".sf-actions .sf-clear")  # everything, so the changed first slot is listed
+        ui.wait("document.querySelector('.results .res.tight')")
+        assert ui.js("getComputedStyle(document.querySelector('.results .res.tight .who-chip')).display") != "none"
+        assert ui.count(".results .res:not(.res-head):not(.tight) .res-people .name") > 0  # the others still show their names
+        _close_sheet(ui)
+    finally:
+        ui.js("window.__beforeReload = true; location.reload()")
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")

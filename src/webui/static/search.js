@@ -3,7 +3,7 @@
 // so a tap on a chip answers at once. The day strip is the calendar: one chip per day with its number of matches.
 
 import {
-  html, t, useState, useEffect, useMemo, useRef, Sheet, Status, Icon, useLoad, api, query,
+  html, t, useState, useEffect, useLayoutEffect, useMemo, useRef, Sheet, Status, Icon, useLoad, api, query,
   dayLabel, weekdayShort, WeatherHeads, WeatherCells,
 } from '/lib.js';
 import { PlayerNames, WhoChip, WhoList } from '/overview.js';
@@ -95,6 +95,24 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
     if (data && forClub.current !== club.id) { forClub.current = club.id; commit(kept && kept.id === club.id ? kept.f : defaults(data)); }
   }, [data]);
   useEffect(() => { forClub.current = null; fRef.current = null; setF(null); }, [club.id]);
+  // A row whose names do not fit shows the player chip instead (the names stay in place, unseen, to be measured again)
+  const resultsRef = useRef(null);
+  const fitNames = () => {
+    const box = resultsRef.current;
+    if (!box) return;
+    for (const row of box.querySelectorAll('.res:not(.res-head)')) {
+      const people = row.querySelector('.res-people');
+      row.classList.toggle('tight', !!people && people.scrollWidth > people.clientWidth + 1);
+    }
+  };
+  useLayoutEffect(fitNames);
+  useEffect(() => {
+    const box = resultsRef.current;
+    if (!box || !window.ResizeObserver) return undefined;
+    const watch = new ResizeObserver(() => requestAnimationFrame(fitNames));
+    watch.observe(box);
+    return () => watch.disconnect();
+  }, [!!(data && f)]);
   const first = useRef(true);
   useEffect(() => {  // a booking made from the results (or in Preferences) changes them
     if (first.current) { first.current = false; return; }
@@ -122,16 +140,13 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
   const mine = data && data.mine;
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
   const clear = () => set({ kind: '', days: [], tod: [], courses: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
-  const rules = f && ['mine', 'dry', 'gap'].filter((key) => (key === 'mine' ? hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) : key === 'dry' ? mine.weather.length > 0 : mine.gap_before > 0 || mine.gap_after > 0));
-  const allRules = f && rules.every((key) => f[key]);
-  const noRules = f && rules.every((key) => !f[key]);
-  const toggleRules = () => set(Object.fromEntries(rules.map((key) => [key, !allRules])));
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
   const atMine = !!(f && sameChips(f, defaults(data)));
   const clearButton = f && anyOn(f) && html`<button type="button" class="icon-btn danger sf-clear" onClick=${clear} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
   const resetButton = f && !atMine && html`<button type="button" class="icon-btn sf-reset" onClick=${reset} aria-label=${t('search.reset')} title=${t('search.reset')}><${Icon} name="reset" size=${18} /></button>`;
   const actions = html`<span class="sf-actions">${clearButton}${resetButton}</span>`; // after the last of the filters, wherever that is
-  const overrides = f && (f.tod.length || f.friends || f.courses.length || f.spots !== defaults(data).spots);
+  // how many of the filters behind the phone's Filter button are narrowing the list (days and weekdays are on the line itself)
+  const hidden = f ? f.tod.length + f.courses.length + [f.spots > 1, f.friends, f.mine, f.dry, f.gap].filter(Boolean).length : 0;
   const showCourse = !!(data && f && data.courses.length > 1 && f.courses.length !== 1); // (f is set one render after the data arrives)
   const darkNote = data && f && f.mine && f.kind !== 'weekend' && data.last_start && mine.weekday_window.after > data.last_start;
   const gapText = mine && t('search.tip.gap', { before: mine.gap_before, after: mine.gap_after });
@@ -148,8 +163,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
       <div class="sf">
         <div class="sf-line">
           ${days}
-          ${hasMine && html`<${Chip} className="sf-rules" on=${allRules ? true : noRules ? false : 'mixed'} onClick=${toggleRules} title=${t('search.tip.rules')}>${t('search.rules')}<//>`}
-          <button type="button" class="chip sf-chip sf-more" aria-expanded=${f.open} onClick=${() => set({ open: !f.open })}>${t('search.filters')}${overrides ? html`<i class="dot"></i>` : ''}<${Icon} name="down" size=${12} /></button>
+          <button type="button" class="chip sf-chip sf-more" aria-expanded=${f.open} onClick=${() => set({ open: !f.open })}>${t('search.filters')}${hidden > 0 && html`<span class="sf-count">${hidden}</span>`}<${Icon} name="down" size=${12} /></button>
         </div>
         <div class=${'sf-panel' + (f.open ? ' open' : '')}>
           ${hasMine && html`<span class="sf-grp"><span class="lab">${t('action.preferences')}</span>
@@ -170,7 +184,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
             <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
         </div>
       </div>
-      <div class="strip" role="group" aria-label=${t('search.days')}>
+      <div class=${'strip' + (data.dates.length > 7 ? ' many' : '')} role="group" aria-label=${t('search.days')} style=${{ '--n': data.dates.length }}>
         ${data.dates.map((day) => {
           const count = view.counts[day.date] || 0;
           const off = (f.kind === 'weekdays' && isWeekend(day.date)) || (f.kind === 'weekend' && !isWeekend(day.date));
@@ -181,7 +195,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
         })}
       </div>
       ${darkNote && html`<p class="why">${t('search.dark', { after: mine.weekday_window.after, last: data.last_start })}</p>`}
-      <div class="results scroll">
+      <div class="results scroll" ref=${resultsRef}>
         <div class="res res-head"><span class="lab rcount">${t('search.count', { n: view.kept.length })}</span><${WeatherHeads} units=${units} />
           </div>
         ${view.groups.length === 0
