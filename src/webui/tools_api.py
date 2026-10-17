@@ -1,16 +1,16 @@
 """Search, crowd heatmap and player directory for the web UI (2026-10-10).
 
-Each one reuses what the terminal and Mac apps use: `search_cli.search_matches()` (the ranking
-pipeline), `pipeline._cached_crowd_heatmap()` with the club's holidays and vacation ranges, and the
-`known_players` table. Nothing here ranks, aggregates or classifies on its own.
+Each one reuses what the terminal app uses: the playability and weather checks of `recommend`, the
+gap check of `search`, `pipeline._cached_crowd_heatmap()` with the club's holidays and vacation ranges,
+and the `known_players` table. Nothing here ranks, aggregates or classifies on its own.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
-from .. import analytics, calendar_context, clock, club_directory, pipeline, recommend, search_cli, storage
+from .. import analytics, calendar_context, clock, club_directory, pipeline, playability, recommend, search, storage
 from . import data
 
-SEARCH_DAYS = 7  # "this week", as the terminal app's Search
+SEARCH_DAYS = 14  # how far ahead Search looks: what the club's scrapes keep (scrape_once.MAX_OVERVIEW_DAYS)
 _WEATHER_DEFAULTS = {
     "avoid_rain_probability_percent": recommend.DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
     "avoid_rain_mm": recommend.DEFAULT_AVOID_RAIN_MM,
@@ -43,23 +43,6 @@ def _time_window(window) -> dict:
 # ---- search ------------------------------------------------------------------------------
 
 
-def search_defaults(slug: str | None, club_id: str | None) -> dict:
-    """The criteria the form opens with: your saved availability (Preferences)."""
-    club, _, config = _club(slug, club_id)
-    if club is None:
-        return {"error": "unknown_club"}
-    criteria = recommend.default_criteria_from_config(config)
-    return {
-        "min_open_spots": criteria.min_open_spots,
-        "weekday_window": _time_window(criteria.weekday_window),
-        "weekend_window": _time_window(criteria.weekend_window),
-        "buffer_before_minutes": criteria.buffer_before_minutes,
-        "buffer_after_minutes": criteria.buffer_after_minutes,
-        "friends_only": False,
-        "player": "",
-    }
-
-
 def _weather_flags(config: dict, weather: dict | None) -> list[str]:
     """Which of your weather limits this slot's forecast crosses (what the result's chips show)."""
     if not weather:
@@ -85,50 +68,93 @@ def _weather_flags(config: dict, weather: dict | None) -> list[str]:
     return flags
 
 
-def run_search(slug: str | None, club_id: str | None, course: str, criteria: dict, ai: bool = True) -> dict:
-    """The ranked matches. With `ai=False` the AI step is skipped and `ai_pending` says whether a second
-    request with `ai=True` would reorder them (AI ranking is on) -- the page shows the quick answer and
-    then asks again, so a search never waits seconds for an AI provider."""
+def search_slots(slug: str | None, club_id: str | None) -> dict:
+    """Every open tee time of the next `SEARCH_DAYS` days on every course of the club that can still be played
+    (not started, finished before dark), each with what the page needs to filter by your own rules: whether its
+    weather crosses your limits (`wet`) and whether another flight is too close (`gap_ok`). The page narrows these
+    down and counts them per day itself, so changing a filter never asks the server again. `mine` carries the
+    rules of your Preferences the page offers as chips, `last_start` the latest start that still finishes before
+    dark (`None` when no sunset is known)."""
     club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
-    course = _course_of(club, config, course)
-    payload = {
-        "min_open_spots": int(criteria.get("min_open_spots") or 1),
-        "weekday_window": _clean_window(criteria.get("weekday_window")),
-        "weekend_window": _clean_window(criteria.get("weekend_window")),
-        "buffer_before_minutes": int(criteria.get("buffer_before_minutes") or 0),
-        "buffer_after_minutes": int(criteria.get("buffer_after_minutes") or 0),
-        "friends_only": bool(criteria.get("friends_only")),
-        "player": (criteria.get("player") or "").strip() or None,
-    }
-    matches = search_cli.search_matches(str(db), course, club["slug"], clock.today(), SEARCH_DAYS, payload, use_ai=ai)
+    criteria = recommend.default_criteria_from_config(config)
+    preferences = config.get("preferences") or {}
+    weather_rules = [
+        rule
+        for rule, on in (
+            ("rain", preferences.get("avoid_rain")),
+            ("wind", preferences.get("avoid_wind")),
+            ("temp", preferences.get("avoid_temp_below_c") is not None or preferences.get("avoid_temp_above_c") is not None),
+        )
+        if on
+    ]
+    courses = data.courses_for(club["id"])
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
-    schedules: dict[str, object] = {}
-    booked = {}
-    for match in matches:
-        day = match["date"]
-        if day not in schedules:
-            schedules[day] = storage.load_latest_schedule(course, day, path=db)
+    handicaps = storage.load_known_handicaps(db)
+    today, now = clock.today(), clock.now_hhmm()
+    start = date.fromisoformat(today)
+    dates: list[dict] = []
+    slots: list[dict] = []
+    last_start: str | None = None
+    for offset in range(SEARCH_DAYS):
+        day = (start + timedelta(days=offset)).isoformat()
+        loaded = False
+        for course in courses:
+            schedule = storage.load_latest_schedule(course, day, path=db)
+            if schedule is None:
+                continue
+            loaded = True
+            sunset = schedule.sun_times.sunset if schedule.sun_times else None
+            if day == today and pipeline.today_is_over(sunset, now):
+                continue
+            if sunset and last_start is None:
+                duration = recommend._round_duration_minutes(course, config)
+                last_start = playability.latest_playable_start(sunset, duration, config.get("daylight_buffer_minutes", 0))
             booking = storage.load_confirmed_booking(course, day, path=db)
-            booked[day] = booking.time if booking else None
-        schedule = schedules[day]
-        weather = data._slot_weather(schedule.weather, match["time"]) if schedule else None
-        match["weather"] = weather
-        match["flags"] = _weather_flags(config, weather)
-        match["players"] = [{"name": n, "friend": n in friends, "gender": genders.get(n)} for n in match["players"]]
-        match["booked_by_you"] = booked[day] == match["time"]
-    ai_pending = (not ai) and bool((config.get("ai_assist") or {}).get("enabled")) and bool(matches)
-    return {"matches": matches, "days": SEARCH_DAYS, "units": config.get("units"), "ai_pending": ai_pending}
-
-
-def _clean_window(raw) -> dict:
-    """A time window as the search takes it. A blank one is not "skip this kind of day" but "any
-    time" (`{"after": None, "before": None}`): what the Mac app sends too, and what "Reset filters"
-    leaves behind."""
-    raw = raw if isinstance(raw, dict) else {}
-    return {"after": raw.get("after") or None, "before": raw.get("before") or None}
+            for slot in schedule.slots:
+                if slot.block_reason is not None or slot.capacity - slot.booked < 1 or (day == today and slot.time < now):
+                    continue
+                candidate = search.SlotMatch(date=day, course=course, slot=slot, score=0.0)
+                if recommend._fails_playability(candidate, schedule, config):
+                    continue
+                weather = data._slot_weather(schedule.weather, slot.time) if schedule.weather else None
+                slots.append(
+                    {
+                        "date": day,
+                        "course": course,
+                        "time": slot.time,
+                        "open": slot.capacity - slot.booked,
+                        "booked": slot.booked,
+                        "capacity": slot.capacity,
+                        "players": [
+                            {"name": n, "friend": n in friends, "gender": genders.get(n), "hcp": handicaps.get(n)} for n in slot.players
+                        ],
+                        "weather": weather,
+                        "flags": _weather_flags(config, weather),
+                        "wet": recommend._fails_weather(candidate, schedule, config),
+                        "gap_ok": search._has_buffer_clearance(slot, schedule.slots, criteria.buffer_before_minutes, criteria.buffer_after_minutes),
+                        "booked_by_you": bool(booking and booking.time == slot.time),
+                    }
+                )
+        dates.append({"date": day, "loaded": loaded})
+    return {
+        "today": today,
+        "dates": dates,
+        "courses": courses,
+        "slots": slots,
+        "units": config.get("units"),
+        "last_start": last_start,
+        "mine": {
+            "weekday_window": _time_window(criteria.weekday_window),
+            "weekend_window": _time_window(criteria.weekend_window),
+            "min_open_spots": criteria.min_open_spots,
+            "gap_before": criteria.buffer_before_minutes,
+            "gap_after": criteria.buffer_after_minutes,
+            "weather": weather_rules,
+        },
+    }
 
 
 # ---- players -----------------------------------------------------------------------------

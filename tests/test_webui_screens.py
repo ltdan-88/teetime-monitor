@@ -498,87 +498,59 @@ def test_directory_search_marks_saved_clubs_and_accepts_a_typed_id(world, monkey
 # ---- Search, players, heatmap ----------------------------------------------------------------
 
 
-def test_search_opens_with_your_availability_and_finds_slots_in_your_window(world):
-    defaults = tools_api.search_defaults(SLUG, None)
-    assert defaults["min_open_spots"] == 2 and defaults["weekday_window"] == {"after": "09:00", "before": "17:00"}
-    result = tools_api.run_search(SLUG, None, COURSE, defaults)
-    times = {m["time"] for m in result["matches"]}
-    assert "10:00" in times and "07:10" not in times  # before the window
-    match = next(m for m in result["matches"] if m["time"] == "10:10")
-    assert match["players"][0]["name"] == "Erika Musterfrau" and match["players"][0]["gender"] == "female"
-    assert match["weather"]["temp"] == 18 and match["flags"] == []
-    assert tools_api.run_search("nope", None, COURSE, defaults) == {"error": "unknown_club"}
-    # a club other than the open one has no course of the page to go by: its own default is searched
-    assert tools_api.run_search(SLUG, None, "", defaults)["matches"] == result["matches"]
-    assert tools_api.run_search(SLUG, None, "Not A Course", defaults)["matches"] == result["matches"]
-
-
-def test_search_answers_without_the_ai_first_and_says_when_the_ai_would_reorder(world, monkeypatch):
-    """AI ranking can take tens of seconds (and runs before the friends filter): the quick pass skips it,
-    `ai_pending` tells the page to ask again, and only that second request calls the provider."""
-    from src import ai_assist
-
-    global_preferences.save_preferences({"ai_assist": {"enabled": True}})
-    calls = []
-
-    def reverse(candidates, **kwargs):
-        calls.append(len(candidates))
-        return list(reversed(candidates))
-
-    monkeypatch.setattr(ai_assist, "rank_slots", reverse)
-    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
-    quick = tools_api.run_search(SLUG, None, COURSE, blank, ai=False)
-    assert calls == [] and quick["ai_pending"] is True
-    ranked = tools_api.run_search(SLUG, None, COURSE, blank)
-    assert len(calls) == 1 and ranked["ai_pending"] is False
-    assert [m["time"] for m in ranked["matches"]] != [m["time"] for m in quick["matches"]]  # the AI's order replaced it
-    global_preferences.save_preferences({"ai_assist": {"enabled": False}})
-    assert tools_api.run_search(SLUG, None, COURSE, blank, ai=False)["ai_pending"] is False  # nothing to wait for
-
-
-def test_a_blank_window_means_any_time_so_cleared_filters_find_everything(world):
-    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
-    times = {m["time"] for m in tools_api.run_search(SLUG, None, COURSE, blank)["matches"]}
-    assert {"07:10", "10:00"} <= times  # 07:10 is outside the 09:00-17:00 of your Preferences
-    assert tools_api._clean_window(None) == {"after": None, "before": None}
-
-
-def test_search_skips_tee_times_that_have_started_and_today_once_daylight_is_over(world, monkeypatch):
-    """Search looks ahead: this morning's tee times are gone at 12:00, and after sunset (19:00) all of today is."""
+def test_search_lists_every_open_time_with_your_rules_for_the_page_to_filter_by(world, monkeypatch):
     from src import clock
 
-    blank = {"min_open_spots": 1, "weekday_window": {"after": "", "before": ""}, "weekend_window": {"after": "", "before": ""}}
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
+    result = tools_api.search_slots(SLUG, None)
+    assert result["mine"]["min_open_spots"] == 2 and result["mine"]["weekday_window"] == {"after": "09:00", "before": "17:00"}
+    assert len(result["dates"]) == 14 and result["dates"][0]["loaded"] and not result["dates"][5]["loaded"]  # three days were scraped
+    assert result["courses"] == [COURSE]
+    today = date.today().isoformat()
+    times = {s["time"] for s in result["slots"] if s["date"] == today}
+    assert {"07:10", "10:00", "15:00"} <= times  # the window is the page's to apply, not the server's
+    assert "10:10" in times  # two of four booked: still open
+    slot = next(s for s in result["slots"] if s["date"] == today and s["time"] == "10:10")
+    assert slot["players"][0]["name"] == "Erika Musterfrau" and slot["players"][0]["gender"] == "female" and slot["open"] == 2
+    assert slot["weather"]["temp"] == 18 and slot["flags"] == [] and slot["wet"] is False and slot["gap_ok"] is True
+    assert tools_api.search_slots("nope", None) == {"error": "unknown_club"}
+
+
+def test_search_leaves_out_what_cannot_be_played_and_says_when_the_last_start_is(world, monkeypatch):
+    """Tee times that have started are gone, today is once daylight is over, and a start too late to finish before dark
+    never counts (sunset 19:00 and a 4 hour round: 15:00 is the last start)."""
+    from src import clock
+
     today, tomorrow = date.today().isoformat(), (date.today() + timedelta(days=1)).isoformat()
 
     def found():
-        return {(m["date"], m["time"]) for m in tools_api.run_search(SLUG, None, COURSE, blank)["matches"]}
+        return {(s["date"], s["time"]) for s in tools_api.search_slots(SLUG, None)["slots"]}
 
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
+    assert (today, "15:00") in found() and (today, "15:10") not in found() and (tomorrow, "19:00") not in found()  # too late for a round
+    assert tools_api.search_slots(SLUG, None)["last_start"] == "15:00"
     monkeypatch.setattr(clock, "now_hhmm", lambda: "12:00")
-    assert (today, "15:00") in found() and (today, "10:10") not in found() and (tomorrow, "07:10") in found()
-    monkeypatch.setattr(clock, "now_hhmm", lambda: "15:00")
-    assert (today, "15:00") in found()  # a tee time at exactly this minute still counts
+    assert (today, "10:10") not in found() and (tomorrow, "07:10") in found()
     monkeypatch.setattr(clock, "now_hhmm", lambda: "19:05")  # past the fixture's sunset (19:00)
     assert not [d for d, _ in found() if d == today] and (tomorrow, "10:00") in found()
 
 
-def test_search_flags_the_weather_limits_you_set(world):
+def test_search_marks_the_slots_that_cross_your_weather_limits_and_the_ones_with_no_room_around(world, monkeypatch):
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
     global_preferences.save_preferences(
         {
-            "availability": {"min_open_spots": 1, "weekday_window": {"after": "09:00"}, "weekend_window": {"after": "09:00"}},
+            "availability": {"min_open_spots": 1, "weekday_window": {"after": "09:00"}, "weekend_window": {"after": "09:00"}, "buffer_after_minutes": 15},
             "preferences": {"avoid_wind": True, "avoid_wind_kph": 5},
         }
     )
-    flags = {tuple(m["flags"]) for m in tools_api.run_search(SLUG, None, COURSE, tools_api.search_defaults(SLUG, None))["matches"]}
-    assert ("wind",) in flags or flags == set()  # (an excluded slot is not listed at all)
-
-
-def test_search_can_be_limited_to_friends_and_one_player(world):
-    storage.set_player_friend("Erika Musterfrau", True, path=world)
-    criteria = {**tools_api.search_defaults(SLUG, None), "friends_only": True}
-    names = {p["name"] for m in tools_api.run_search(SLUG, None, COURSE, criteria)["matches"] for p in m["players"]}
-    assert names == {"Erika Musterfrau", "Jonas Mustermann"}  # only the slot a friend is in
-    criteria = {**tools_api.search_defaults(SLUG, None), "player": "Jonas Mustermann"}
-    assert {m["time"] for m in tools_api.run_search(SLUG, None, COURSE, criteria)["matches"]} == {"10:10"}
+    result = tools_api.search_slots(SLUG, None)
+    assert result["mine"]["weather"] == ["wind"] and result["mine"]["gap_after"] == 15
+    today = date.today().isoformat()
+    by_time = {s["time"]: s for s in result["slots"] if s["date"] == today}
+    assert all(s["wet"] and s["flags"] == ["wind"] for s in by_time.values())  # 10 km/h against a limit of 5
+    assert by_time["10:00"]["gap_ok"] is False and by_time["10:10"]["gap_ok"] is True  # 10:10 is booked, 10:00 sits right before it
 
 
 def test_the_player_directory_lists_and_marks_friends(world):
@@ -672,12 +644,12 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "gone"))
     status, refused = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:10"})
     assert status == 409 and refused == {"error": "taken", "message": "gone"}  # the page can tell it from a crash
-    assert _call(running, "GET", f"/api/search/defaults?slug={SLUG}")[1]["min_open_spots"] == 2
-    status, found = _call(running, "POST", "/api/search", {"slug": SLUG, "course": COURSE, "criteria": {"min_open_spots": 1, "weekday_window": {"after": "09:00"}, "weekend_window": {"after": "09:00"}}})
-    assert status == 200 and found["matches"]
+    status, found = _call(running, "GET", f"/api/search/slots?slug={SLUG}")
+    assert status == 200 and found["slots"] and found["mine"]["min_open_spots"] == 2
     assert _call(running, "GET", f"/api/players?slug={SLUG}")[1]["players"]
     assert _call(running, "POST", "/api/players/friend", {"slug": SLUG, "name": "Max Mustermann", "friend": True})[1] == {"ok": True}
     assert _call(running, "GET", f"/api/heatmap?slug={SLUG}")[0] == 200
+    assert _call(running, "GET", f"/api/heatmap?slug={SLUG}&course=Not+A+Course")[1]["course"] == COURSE  # another club's course: its own default
     assert _call(running, "GET", "/api/directory?q=zzzz")[1]["results"] == []
     assert _call(running, "POST", "/api/club/default-course", {"slug": SLUG, "course": COURSE})[1] == {"ok": True}
     assert _call(running, "POST", "/api/club/add", {"club_id": "0000003", "name": "Drei"})[1]["ok"] is True
