@@ -31,6 +31,7 @@ import hashlib
 import hmac
 import json
 import mimetypes
+import re
 import secrets
 import shutil
 import socketserver
@@ -74,14 +75,40 @@ mimetypes.add_type("text/javascript", ".mjs")
 
 
 
+_RELEASE: tuple[tuple, bytes] | None = None
+_IMPORT = re.compile(rb"((?:from|import)\s*\(?\s*')(/[\w./-]+\.js)(')")
+
+
+def _release() -> bytes:
+    """One version for all of the page's files: a hash over every one of them, so a change to any file gives every
+    stylesheet and script a new address at once. Recomputed only when a file changed (its size or time)."""
+    global _RELEASE
+    files = sorted(path for path in STATIC_DIR.rglob("*") if path.is_file())
+    key = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size) for path in files)
+    if _RELEASE is None or _RELEASE[0] != key:
+        digest = hashlib.sha1()
+        for path in files:
+            digest.update(path.name.encode() + b"\0" + path.read_bytes())
+        _RELEASE = (key, digest.hexdigest()[:12].encode())
+    return _RELEASE[1]
+
+
 def _versioned(page: bytes) -> bytes:
-    """index.html with the stylesheet and the app script addressed by their content (`/style.css?v=<hash>`). Each
-    file is revalidated anyway, but Safari on an iPad kept the old stylesheet after an update while it ran the new
-    script (2026-10-16: the tournament filters drawn without their styles); a new address cannot be served stale."""
+    """index.html with the stylesheet and the app script addressed by the release (`/style.css?v=<hash>`). Each file is
+    revalidated anyway, but Safari on an iPad kept an old stylesheet after updates while it ran the new scripts
+    (2026-10-16, and again 2026-10-17: Search's phone-only buttons drawn on an iPad); a new address cannot be served stale."""
+    release = _release()
     for name in (b"/style.css", b"/app.js"):
-        digest = hashlib.sha1((STATIC_DIR / name.decode().lstrip("/")).read_bytes()).hexdigest()[:12].encode()
-        page = page.replace(b'"' + name + b'"', b'"' + name + b"?v=" + digest + b'"')
+        page = page.replace(b'"' + name + b'"', b'"' + name + b"?v=" + release + b'"')
     return page
+
+
+def _versioned_imports(script: bytes) -> bytes:
+    """A script with the modules it imports addressed by the release too (`from '/lib.js?v=<hash>'`): the page never
+    runs a mix of files from two versions, whatever a browser kept."""
+    release = _release()
+    return _IMPORT.sub(lambda m: m.group(1) + m.group(2) + b"?v=" + release + m.group(3), script)
+
 
 class Refresher:
     """Runs scrapes in the background, one per key at a time, and reports their state -- what the
@@ -393,6 +420,8 @@ class Handler(BaseHTTPRequestHandler):
         body = target.read_bytes()
         if relative == "index.html":
             body = _versioned(body)
+        elif relative.endswith(".js"):
+            body = _versioned_imports(body)
         tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'  # the page revalidates (no-cache): unchanged files answer 304
         if self.headers.get("If-None-Match") == tag:
             return self._send(HTTPStatus.NOT_MODIFIED, b"", content_type, {"Cache-Control": "no-cache", "ETag": tag})
