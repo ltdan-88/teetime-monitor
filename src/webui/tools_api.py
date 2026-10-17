@@ -164,6 +164,7 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
             "gap_before": criteria.buffer_before_minutes,
             "gap_after": criteria.buffer_after_minutes,
             "weather": weather_rules,
+            "courses": sorted(club_config.search_courses(config) & set(courses)),  # the ones Search starts with chosen
         },
     }
 

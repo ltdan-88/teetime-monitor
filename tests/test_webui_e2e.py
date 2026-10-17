@@ -1943,15 +1943,16 @@ def test_the_courses_you_can_play_are_a_card_in_preferences_that_saves_at_once(u
         window.fetch = async (url, options) => { const response = await real(url, options);
           if (!String(url).includes('/api/club/courses')) return response;
           const data = await response.json();
-          return new Response(JSON.stringify({ ...data, courses: [...data.courses.filter((c) => c.name !== '9 Loch Platz'), { name: '9 Loch Platz', play: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
+          return new Response(JSON.stringify({ ...data, courses: [...data.courses.filter((c) => c.name !== '9 Loch Platz'), { name: '9 Loch Platz', state: 'on' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
     )
     try:
         _open_sheet(ui, "e", "")
         ui.wait("document.querySelector('#c-play-1')")
-        ui.js("document.querySelector('#c-play-1').click()")  # switch the second course off
-        ui.wait("document.querySelector('#c-play-1').checked === false")
-        ui.js("document.querySelector('#c-play-1').click()")  # and back on: leave the demo as it was
-        ui.wait("document.querySelector('#c-play-1').checked === true")
+        assert ui.js("[...document.querySelector('#c-play-1').options].map((o) => o.value)") == ["default", "on", "off"]
+        ui.set("#c-play-1", "off")  # the second course is not for me
+        ui.wait("document.querySelector('#c-play-1').value === 'off'")
+        ui.set("#c-play-1", "on")  # and back: leave the demo as it was
+        ui.wait("document.querySelector('#c-play-1').value === 'on'")
         _close_sheet(ui)
     finally:
         ui.js("window.__beforeReload = true; location.reload()")  # drop the override
@@ -2049,3 +2050,23 @@ def test_a_row_too_narrow_for_its_names_shows_the_player_chip_even_on_a_large_sc
     finally:
         ui.js("window.__beforeReload = true; location.reload()")
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_on_a_phone_clear_and_back_to_mine_sit_beside_the_filter_button(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelector('.sf-line-actions .sf-clear')")
+        shape = ui.js(
+            """(() => { const more = document.querySelector('.sf-more').getBoundingClientRect(), trash = document.querySelector('.sf-line-actions .sf-clear').getBoundingClientRect();
+            return {right: trash.left >= more.right - 1, level: Math.abs((trash.top + trash.bottom) / 2 - (more.top + more.bottom) / 2) < 3,
+                    footer: document.querySelectorAll('.sf-foot .icon-btn').length}; })()"""
+        )
+        assert shape == {"right": True, "level": True, "footer": 0}, shape
+        ui.click(".sf-line-actions .sf-clear")
+        ui.wait("document.querySelector('.sf-line-actions .sf-reset') && !document.querySelector('.sf-line-actions .sf-clear')")
+        ui.click(".sf-line-actions .sf-reset")
+        ui.wait("!document.querySelector('.sf-line-actions .sf-reset')")
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
