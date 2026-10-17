@@ -180,6 +180,14 @@ class KnownPlayersScreen(Screen[str | None]):
         if self._query:
             query = self._query.casefold()
             players = [p for p in players if query in p.name.casefold()]
+        if self._sort_key == "member_status":  # the Club column: by the club's name, guests (no club) last
+            names = club_directory.names_by_id()
+
+            def club_key(p: KnownPlayer) -> tuple:
+                clubs = sorted(names.get(c, c).casefold() for c in p.home_clubs)
+                return (not clubs, clubs[0] if clubs else "", family_name(p.name).casefold())
+
+            return sorted(players, key=club_key, reverse=self._sort_reverse)
         return sorted(players, key=_SORT_KEYS[self._sort_key], reverse=self._sort_reverse)
 
     def _column_label(self, key: str, translation_key: str) -> str:
