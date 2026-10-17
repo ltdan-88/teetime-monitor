@@ -2004,6 +2004,6 @@ def test_friends_and_four_free_seats_exclude_each_other_and_today_is_the_bold_da
     assert _chip_on(ui, "3+") == "true"
     _chip(ui, "\u2605 Friends")
     assert ui.js("[...document.querySelectorAll('.sf .chip')].find((e) => e.textContent.trim() === '4').disabled") is False
-    weight = ui.js("(() => { const today = document.querySelector('.sday.today .n'), other = document.querySelector('.sday:not(.today) .n'); return [Number(getComputedStyle(today).fontWeight), Number(getComputedStyle(other).fontWeight), getComputedStyle(today).boxShadow]; })()")
-    assert weight[0] >= 700 and weight[1] < 700 and weight[2] == "none", weight  # bold, not outlined
+    weight = ui.js("(() => { const w = (sel) => Number(getComputedStyle(document.querySelector(sel)).fontWeight); return [w('.sday.today .n'), w('.sday.today .wd'), w('.sday:not(.today) .n'), w('.sday:not(.today) .wd'), getComputedStyle(document.querySelector('.sday.today .n')).boxShadow]; })()")
+    assert weight[0] >= 700 and weight[1] >= 700 and weight[2] < 700 and weight[3] < 700 and weight[4] == "none", weight  # weekday and date bold, not outlined
     _close_sheet(ui)

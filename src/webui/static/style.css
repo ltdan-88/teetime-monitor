@@ -932,7 +932,7 @@ button, select, input { touch-action: manipulation; }
 .sday.zero .c, .sday.noday .c { color: var(--dim); font-weight: 500; }
 .sday.we { background: color-mix(in srgb, var(--field) 82%, var(--accent)); }
 .sday.off { opacity: 0.35; }
-.sday.today .n { font-weight: 800; color: var(--text); }  /* today is the bold one */
+.sday.today .n, .sday.today .wd { font-weight: 800; color: var(--text); }  /* today is the bold one: its weekday and its date */
 .sday[aria-pressed="true"] { background: var(--pill-blue-bg); box-shadow: inset 0 0 0 1px var(--accent-text, var(--accent)); color: var(--accent-text, var(--accent)); }
 .sday:hover { filter: brightness(1.12); }
 
