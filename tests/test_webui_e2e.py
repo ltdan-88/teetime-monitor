@@ -1356,14 +1356,17 @@ def test_the_history_switch_shows_the_past_days_and_goes_back(ui):
     ui.key("Escape")
 
 
-def test_search_keeps_its_filters_above_the_results_and_gives_the_results_the_room(ui):
+def test_search_puts_the_filters_beside_the_results_on_a_large_landscape_screen_and_above_them_otherwise(ui):
     try:
-        for width, height in ((1400, 800), (820, 1100)):
+        for width, height, beside in ((1400, 800, True), (820, 1100, False)):
             ui.call("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=1, mobile=False)
             _open_sheet(ui, "s", "")
             ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
-            geometry = ui.js("(() => { const f = document.querySelector('.sf').getBoundingClientRect(), r = document.querySelector('.results').getBoundingClientRect(); return [f.bottom <= r.top + 1, Math.round(r.height)]; })()")
-            assert geometry[0] is True and geometry[1] > 300, geometry
+            geometry = ui.js("(() => { const f = document.querySelector('.sf').getBoundingClientRect(), r = document.querySelector('.results').getBoundingClientRect(); return [f.right <= r.left + 1, f.bottom <= r.top + 1, Math.round(r.height), Math.round(r.width)]; })()")
+            if beside:
+                assert geometry[0] is True and geometry[2] > 450 and geometry[3] > 700, geometry  # filters left, results right, both with room
+            else:
+                assert geometry[1] is True and geometry[2] > 300, geometry  # one column: filters, then results
             _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
@@ -1824,28 +1827,14 @@ def test_the_week_starts_on_sunday_with_imperial_units_else_on_monday(ui):
     _close_display(ui)
 
 
-def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui):
+def test_tournaments_pick_their_own_club(two_clubs_ui):
     ui = two_clubs_ui
     ui.js("(() => { const club = document.querySelector('#club'); if (club.value !== 'golfclub-beispiel') { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(club, 'golfclub-beispiel'); club.dispatchEvent(new Event('change', { bubbles: true })); } })()")
     ui.wait("document.querySelector('#club').value === 'golfclub-beispiel' && document.querySelectorAll('.card').length > 0")  # (an earlier test may have jumped to the other club)
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelector('#tool-club') && document.querySelectorAll('.strip .sday').length === 14")
-    assert ui.js("document.querySelector('#tool-club').value") == "golfclub-beispiel"
-    ui.set("#tool-club", "golfclub-nachbar")
-    ui.wait("document.querySelector('#tool-club').value === 'golfclub-nachbar' && document.querySelectorAll('.strip .sday').length === 14")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.sf-clear')][0]; if (clear) clear.click(); })()")
-    ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
-    assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
-    ui.click(".sheet-tab", text="Heatmap")  # the heatmap looks at the same club
-    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('#tool-club')?.value === 'golfclub-nachbar'")
-    ui.click(".sheet-tab", text="Open times")
-    ui.wait("[...document.querySelectorAll('.strip .sday')].length === 14 && document.querySelector('#tool-club').value === 'golfclub-nachbar'")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.sf-clear')][0]; if (clear) clear.click(); })()")
-    ui.wait("document.querySelector('.res .mark')")
-    ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
-    ui.wait("document.body.innerText.includes('9 Loch Platz')")
-    ui.key("Escape")  # leave the dialog (and whatever else Escape closes)
-    ui.wait("!document.querySelector('.scrim')")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    assert ui.count("#tool-club") == 0  # Search looks at the club of the page: no choice of its own
+    _close_sheet(ui)
     _open_sheet(ui, "t", "Tournaments")
     ui.wait("document.querySelector('#tn-club') && document.querySelectorAll('.tn-item').length > 0")
     ui.set("#tn-club", "golfclub-nachbar")
@@ -1972,18 +1961,34 @@ def test_the_courses_you_can_play_are_a_card_in_preferences_that_saves_at_once(u
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
-def test_on_a_phone_the_club_choice_has_a_row_of_its_own_below_the_tabs(two_clubs_ui):
-    ui = two_clubs_ui
+def test_where_the_names_do_not_fit_a_row_shows_the_same_chip_as_the_days_and_a_tap_lists_them(ui):
     try:
         ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
         _open_sheet(ui, "s", "Search")
-        ui.wait("document.querySelector('#tool-club') && document.querySelectorAll('.strip .sday').length === 14")
-        shape = ui.js(
-            """(() => { const club = document.querySelector('#tool-club').getBoundingClientRect(), tabs = document.querySelector('.tab-list').getBoundingClientRect(),
-            sheet = document.querySelector('.sheet').getBoundingClientRect();
-            return {below: club.top >= tabs.bottom - 1, wide: club.width > sheet.width - 60, inside: club.right <= sheet.right}; })()"""
-        )
-        assert shape == {"below": True, "wide": True, "inside": True}, shape
+        ui.wait("document.querySelectorAll('.results .res .who-chip').length > 0")
+        assert ui.js("getComputedStyle(document.querySelector('.results .res .res-people')).display") == "none"  # no names inline
+        assert ui.count(".results .who-list") == 0
+        ui.js("document.querySelector('.results .res .who-chip').click()")
+        ui.wait("document.querySelector('.results .who-list')")
+        assert ui.js("document.querySelector('.results .who-list').innerText.length") > 3
+        assert not ui.count(".scrim + .scrim")  # and the tap did not start a booking
+        _close_sheet(ui)
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        _open_sheet(ui, "s", "Search")  # room enough: the names are inline and there is no chip
+        ui.wait("document.querySelectorAll('.results .res').length > 3")
+        assert ui.js("getComputedStyle(document.querySelector('.results .res .who-chip')).display") == "none"
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_each_days_heading_gives_way_to_the_next_instead_of_stacking(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.dayhead').length >= 2")
+    ui.js("(() => { const r = document.querySelector('.results'); const second = document.querySelectorAll('.dayhead')[1]; r.scrollTop += second.getBoundingClientRect().top - r.getBoundingClientRect().top - 20; })()")
+    overlap = ui.js(
+        """(() => { const heads = [...document.querySelectorAll('.dayhead')].map((e) => e.getBoundingClientRect()).filter((b) => b.height > 0);
+        return heads.some((a, i) => heads.some((b, j) => i < j && b.top < a.bottom - 1 && b.bottom > a.top + 1)); })()"""
+    )
+    assert overlap is False  # two headings never sit on top of each other
+    _close_sheet(ui)

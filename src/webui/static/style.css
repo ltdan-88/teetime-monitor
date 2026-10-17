@@ -909,12 +909,6 @@ button, select, input { touch-action: manipulation; }
 }
 
 /* ---- Search: chips, the day strip, results grouped by day ---- */
-.tab-list { display: flex; gap: 0.25rem; }
-.sheet-tabs .tabs-extra { margin-left: auto; align-self: center; padding-bottom: 0.25rem; }
-.sheet-tabs .tabs-extra { min-width: 0; }
-.tabs-extra .select { max-width: 100%; }
-.tabs-extra .select select { height: 2rem; width: auto; min-width: 0; max-width: min(20rem, 100%); padding: 0 1.75rem 0 0.625rem; font-size: 0.875rem; }
-.tabs-extra .select svg { right: 0.5rem; }
 .sf { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.875rem; margin-top: 0.5rem; }
 .sf-line, .sf-panel { display: contents; }
 .sf-rules, .sf-more, .sf-foot { display: none; }
@@ -948,10 +942,13 @@ button, select, input { touch-action: manipulation; }
 .res-head .rcount { grid-column: 1 / 4; margin: 0; }
 .res-head .cell:first-child { grid-column: 4; }
 .dayhead + .res { border-top: 0; }
+.daygroup { display: block; }  /* each day's heading sticks only while its own day is in view, then the next one takes over */
 .dayhead { position: sticky; top: 2.25rem; z-index: 1; background: var(--bg); padding: 0.5rem 0 0.25rem; font-weight: 600; display: flex; gap: 0.5rem; align-items: baseline; }
 .dayhead small { color: var(--dim); font-weight: 400; }
 .res-time { font-weight: 600; white-space: nowrap; }
 .res-open { color: var(--green); font-weight: 500; white-space: nowrap; }
+.results { container: results / inline-size; }  /* rows answer to the room the results have, not to the window */
+.res .who-chip, .res .who-list { display: none; }
 .res-people { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .res-course { font-size: 0.8125rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .res-action { display: flex; justify-content: flex-end; }
@@ -961,16 +958,21 @@ button, select, input { touch-action: manipulation; }
 .res .cell { white-space: nowrap; }
 .none { color: var(--dim); padding: 1rem 0; display: grid; gap: 0.5rem; justify-items: start; }
 
+/* where the names do not fit, the same chip as in the days: the number of players (a star for a friend), a tap lists them */
+@container results (max-width: 46rem) {
+  .res .res-people { display: none; }
+  .res .who-chip { display: inline-flex; grid-column: 3; grid-row: 1; justify-self: start; align-items: center; gap: 0.25rem; height: 1.875rem; padding: 0 0.625rem;
+    border-radius: 62.4375rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; font-family: var(--mono); }
+  .res .who-chip[aria-expanded="true"] { background: var(--pill-blue-bg); color: var(--accent-text, var(--accent)); }
+  .res .who-chip .fr { color: var(--yellow); }
+  .res .who-list { display: block; grid-column: 2 / -1; grid-row: 2; padding: 0.125rem 0 0.5rem; }
+}
+
 @media (max-width: 640px) {
   .sheet-head:has(.sheet-tabs) { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; padding: 0.5rem 1rem 0; border-bottom: 1px solid var(--line); }
   .sheet-head:has(.sheet-tabs) h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .sheet-head:has(.sheet-tabs) .sheet-tabs { display: contents; }
-  .sheet-head:has(.sheet-tabs) .tab-list { grid-column: 1; grid-row: 1; }
+  .sheet-head:has(.sheet-tabs) .sheet-tabs { grid-column: 1; grid-row: 1; margin-top: 0; border-bottom: 0; }
   .sheet-head:has(.sheet-tabs) > .icon-btn { grid-column: 2; grid-row: 1; align-self: center; }
-  .sheet-head:has(.sheet-tabs) .tabs-extra { grid-column: 1 / -1; grid-row: 2; margin: 0; padding: 0.25rem 0 0.5rem; }  /* the club has a row of its own */
-  .sheet-head:has(.sheet-tabs) .tabs-extra:not(:has(*)) { display: none; }
-  .tabs-extra .select { display: flex; max-width: none; }
-  .tabs-extra .select select { width: 100%; max-width: none; height: 2.25rem; font-size: 1rem; }
   .sf { display: block; margin-top: 0.375rem; }
   .sf-line { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.5rem; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding: 0.125rem 1rem; }
   .sf-line::-webkit-scrollbar, .sf-panel .sf-grp::-webkit-scrollbar { display: none; }
@@ -994,6 +996,8 @@ button, select, input { touch-action: manipulation; }
   .res-time { grid-row: 1 / span 2; align-self: center; }
   .res-open { grid-column: 2; grid-row: 1; font-size: 0.8125rem; }
   .res-people { grid-column: 2; grid-row: 2; font-size: 0.8125rem; }
+  .res .who-chip { grid-column: 2; grid-row: 2; height: 1.625rem; }
+  .res .who-list { grid-column: 2 / -1; grid-row: 3; }
   .res.solo .res-open, .res.solo .res-course { grid-row: 1 / span 2; align-self: center; }  /* nobody booked: the free seats sit level with the time */
   .res-course { grid-column: 2; grid-row: 1; justify-self: end; font-size: 0.75rem; max-width: 7rem; }
   .res .temp { grid-column: 3; grid-row: 1; font-size: 0.8125rem; }
@@ -1006,4 +1010,14 @@ button, select, input { touch-action: manipulation; }
 @media (max-height: 640px) {
   .sheet-body.fixed:has(.sf) { display: block; overflow-y: auto; }
   .sheet-body.fixed:has(.sf) > .results { overflow: visible; }
+}
+
+/* A large screen held sideways: the filters and the days on the left, the results beside them with all the height */
+@media (min-width: 1000px) and (min-height: 641px) and (orientation: landscape) {
+  .sheet.wide:has(.sheet-tabs) { max-width: 96rem; }  /* Search and the Heatmap are two tabs of one sheet: the same size */
+  .sheet-body.fixed:has(> .sf) { display: grid; grid-template-columns: 21rem minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); column-gap: 1.5rem; align-content: start; }
+  .sheet-body.fixed:has(> .sf) > .sf { grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0.625rem; margin-top: 0.25rem; }
+  .sheet-body.fixed:has(> .sf) > .strip { grid-column: 1; grid-row: 2; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 0.25rem; }
+  .sheet-body.fixed:has(> .sf) > .why { grid-column: 1; grid-row: 3; }
+  .sheet-body.fixed:has(> .sf) > .results { grid-column: 2; grid-row: 1 / span 4; margin-top: 0.25rem; min-height: 0; }
 }

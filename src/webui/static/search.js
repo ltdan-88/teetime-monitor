@@ -3,10 +3,10 @@
 // so a tap on a chip answers at once. The day strip is the calendar: one chip per day with its number of matches.
 
 import {
-  html, t, useState, useEffect, useMemo, useRef, shortClub, Sheet, Select, Status, Icon, useLoad, api, query,
+  html, t, useState, useEffect, useMemo, useRef, Sheet, Status, Icon, useLoad, api, query,
   dayLabel, weekdayShort, WeatherHeads, WeatherCells,
 } from '/lib.js';
-import { PlayerNames } from '/overview.js';
+import { PlayerNames, WhoChip, WhoList } from '/overview.js';
 
 const minutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 const isWeekend = (iso) => [0, 6].includes(new Date(iso + 'T12:00:00').getDay());
@@ -63,19 +63,16 @@ function Chip({ on, onClick, children, className = '', ...rest }) {
   return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
 }
 
-/** The club choice that sits beside the tabs of Search and Heatmap: both look at the same club. */
-export function ClubPick({ clubs, slug, onSlug }) {
-  if (!slug || clubs.length < 2) return null;
-  return html`<${Select} id="tool-club" value=${slug} aria-label=${t('club')} onChange=${onSlug}
-    options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} />`;
-}
-
 function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
+  const [whoOpen, setWhoOpen] = useState(false); // where the names do not fit, a chip with the count opens them (as in the days)
+  const who = { players: slot.players, booked: slot.booked };
   return html`
     <div class=${'res' + (slot.players.length || slot.booked ? '' : ' solo')} data-slot=${slot.date + ' ' + slot.time}>
       <span class="num res-time">${slot.time}</span>
       <span class="res-open">${t('search.open_spots', { n: slot.open })}</span>
-      <span class="res-people"><${PlayerNames} slot=${{ players: slot.players, booked: slot.booked }} showHandicaps=${showHandicaps} /></span>
+      <span class="res-people"><${PlayerNames} slot=${who} showHandicaps=${showHandicaps} /></span>
+      <${WhoChip} slot=${who} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
+      ${whoOpen && html`<${WhoList} slot=${who} showHandicaps=${showHandicaps} />`}
       <${WeatherCells} weather=${slot.weather} units=${units} flags=${slot.flags} />
       <span class="res-course dim">${showCourse ? slot.course : ''}</span>
       <span class="res-action">
@@ -86,7 +83,7 @@ function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark, onPreferences, onSlug, refreshKey, tabs }) {
+export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query(ref)), [club.id]);
   const data = loading ? null : loaded;
@@ -144,8 +141,7 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
     <${Chip} on=${f && f.kind === 'weekdays'} onClick=${() => set({ kind: f.kind === 'weekdays' ? '' : 'weekdays' })}>${t('search.weekday')}<//>
     <${Chip} on=${f && f.kind === 'weekend'} onClick=${() => set({ kind: f.kind === 'weekend' ? '' : 'weekend' })}>${t('search.weekend')}<//></span>`;
 
-  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}
-    tabsExtra=${html`<${ClubPick} clubs=${clubs} slug=${club.slug} onSlug=${onSlug} />`}>
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<${Status} kind="busy">${t('loading')}<//>`}
     ${data && f && html`
@@ -190,10 +186,10 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
           </div>
         ${view.groups.length === 0
           ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
-          : html`${view.groups.map((group) => html`
+          : html`${view.groups.map((group) => html`<section class="daygroup" key=${group.date}>
               ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}<small>${group.rows.length}</small></div>`}
               ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps} showCourse=${showCourse}
-                onMark=${(picked) => onMark({ ...picked, ref })} />`)}`)}`}
+                onMark=${(picked) => onMark({ ...picked, ref })} />`)}</section>`)}`}
       </div>`}
   <//>`;
 }

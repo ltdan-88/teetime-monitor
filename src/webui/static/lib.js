@@ -289,7 +289,7 @@ export function useEscape(handler) {
 /** A modal sheet over the page: Escape or a click on the dim area closes it. */
 /** `fixed`: a full-height sheet whose body is laid out by its screen (it scrolls inside). `tall`: a full-height sheet
  *  whose body just scrolls. Both keep their size however the content changes (a month, a tab, a loading list). */
-export function Sheet({ title, onClose, size = 'medium', fixed = false, tall = false, children, footer, tabs, tabsExtra }) {
+export function Sheet({ title, onClose, size = 'medium', fixed = false, tall = false, children, footer, tabs }) {
   useEscape(onClose);
   const ref = useRef(null);
   useEffect(() => {
@@ -303,8 +303,8 @@ export function Sheet({ title, onClose, size = 'medium', fixed = false, tall = f
         <header class="sheet-head">
           <h2>${title}</h2>
           <button class="icon-btn" onClick=${onClose} aria-label=${t('close')} title=${t('close')}><${Icon} name="close" size=${18} /></button>
-          ${tabs && html`<div class="sheet-tabs"><div class="tab-list" role="tablist">${tabs.map((tab) => html`
-            <button key=${tab.key} role="tab" class="sheet-tab" aria-selected=${tab.on} onClick=${() => !tab.on && tab.onSelect()}>${tab.label}</button>`)}</div>${tabsExtra && html`<span class="tabs-extra">${tabsExtra}</span>`}</div>`}
+          ${tabs && html`<div class="sheet-tabs" role="tablist">${tabs.map((tab) => html`
+            <button key=${tab.key} role="tab" class="sheet-tab" aria-selected=${tab.on} onClick=${() => !tab.on && tab.onSelect()}>${tab.label}</button>`)}</div>`}
         </header>
         <div class=${'sheet-body' + (fixed ? ' fixed' : '')}>${children}</div>
         ${footer && html`<footer class="sheet-foot">${footer}</footer>`}
