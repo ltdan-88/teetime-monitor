@@ -587,6 +587,18 @@ def test_courses_are_off_on_or_where_search_starts_and_off_ones_are_left_out(wor
     assert settings_api.club_courses("nope", None) == {"error": "unknown_club"}
 
 
+def test_each_day_of_the_overview_counts_the_times_that_pass_your_preferences(world, monkeypatch):
+    """What Search shows when it opens: 09:00-17:00, two free seats, and a start that still finishes before dark
+    (sunset 19:00, a four hour round): 10:00, 10:10 and 15:00 today."""
+    from src import clock
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
+    tools_api._COUNTS_CACHE.clear()
+    days = data.overview(SLUG, COURSE)["days"]
+    assert days[0]["matches"] == 3 and all(day["matches"] == 3 for day in days)  # the fixture's days are alike
+    assert tools_api.default_counts(SLUG, None, "Not A Course") == {}  # nothing to say for a course you cannot play
+
+
 def test_course_tabs_come_in_a_natural_order():
     names = ["18 Loch Tee 1", "Kurzplatz", "6 Loch Platz", "9 Loch Tee 1", "18-Loch Schleife"]
     assert sorted(names, key=tools_api._natural) == ["6 Loch Platz", "9 Loch Tee 1", "18 Loch Tee 1", "18-Loch Schleife", "Kurzplatz"]

@@ -367,6 +367,15 @@ def _without_today_when_over(days: list[dict], today: str) -> list[dict]:
     return [day for day in days if not (day["date"] == today and pipeline.today_is_over(day.get("sunset")))]
 
 
+def _with_counts(days: list[dict], slug: str | None, club_id: str | None, course: str | None) -> list[dict]:
+    """Each day with `matches`: how many of its open times pass your Preferences (`tools_api.default_counts()`), or
+    None when that cannot be said (a course you cannot play). New dicts: the cached days stay as they are."""
+    from . import tools_api  # (tools_api imports this module)
+
+    counts = tools_api.default_counts(slug, club_id, course)
+    return [{**day, "matches": counts.get(day["date"]) if counts else None} for day in days]
+
+
 def overview(
     slug: str | None, course: str | None, club_id: str | None = None, name: str | None = None, picks: bool = True,
     history: bool = False,
@@ -427,7 +436,7 @@ def overview(
 
     hit = cached()
     if hit is None and not picks:
-        response["days"] = _without_today_when_over(_build_days(db, course, today, window, {}), today)
+        response["days"] = _with_counts(_without_today_when_over(_build_days(db, course, today, window, {}), today), slug, club_id, course)
         response["hint"] = None
         response["picks_pending"] = True
         return response
@@ -439,7 +448,7 @@ def overview(
                 ranked = picks_cli.compute_picks(str(db), course, slug, today, window)
                 hit = {"days": _build_days(db, course, today, window, ranked), "hint": ranked.get("_hint")}
                 _OVERVIEW_CACHE[key] = (mtime, today, hit)
-    response["days"] = _without_today_when_over(hit["days"], today)  # the cache outlives the clock: filter on every answer
+    response["days"] = _with_counts(_without_today_when_over(hit["days"], today), slug, club_id, course)  # the cache outlives the clock: filter on every answer
     response["hint"] = hit["hint"]
     return response
 

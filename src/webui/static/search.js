@@ -79,7 +79,7 @@ function ResultRow({ slot, units, showHandicaps, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, course: tabCourse, pageCourse, onCourse, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
+export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onCourse, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query({ ...ref, page_course: pageCourse || '' })), [club.id]);
   // one course at a time, the one of the course tab: the tab you chose, else where Search starts (Preferences)
@@ -90,7 +90,7 @@ export function SearchSheet({ club, course: tabCourse, pageCourse, onCourse, uni
   const commit = (next) => { fRef.current = next; kept = { id: club.id, f: next }; setF(next); };
   const forClub = useRef(null);
   useEffect(() => {
-    if (data && forClub.current !== club.id) { forClub.current = club.id; commit(kept && kept.id === club.id ? kept.f : defaults(data)); }
+    if (data && forClub.current !== club.id) { forClub.current = club.id; const base = kept && kept.id === club.id ? kept.f : defaults(data); commit(startDay ? { ...base, days: [startDay] } : base); }
   }, [data]);
   useEffect(() => { forClub.current = null; fRef.current = null; setF(null); }, [club.id]);
   // A row whose names do not fit shows the player chip instead (the names stay in place, unseen, to be measured again)
