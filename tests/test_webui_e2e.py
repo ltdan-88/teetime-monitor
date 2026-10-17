@@ -1827,18 +1827,15 @@ def test_the_week_starts_on_sunday_with_imperial_units_else_on_monday(ui):
     _close_display(ui)
 
 
-def test_tournaments_pick_their_own_club(two_clubs_ui):
+def test_search_and_tournaments_have_no_club_choice_of_their_own(two_clubs_ui):
     ui = two_clubs_ui
-    ui.js("(() => { const club = document.querySelector('#club'); if (club.value !== 'golfclub-beispiel') { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(club, 'golfclub-beispiel'); club.dispatchEvent(new Event('change', { bubbles: true })); } })()")
-    ui.wait("document.querySelector('#club').value === 'golfclub-beispiel' && document.querySelectorAll('.card').length > 0")  # (an earlier test may have jumped to the other club)
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.strip .sday').length === 14")
-    assert ui.count("#tool-club") == 0  # Search looks at the club of the page: no choice of its own
+    assert ui.count("#tool-club") == 0 and ui.count(".sheet select#club") == 0  # Search looks at the club of the page
     _close_sheet(ui)
     _open_sheet(ui, "t", "Tournaments")
-    ui.wait("document.querySelector('#tn-club') && document.querySelectorAll('.tn-item').length > 0")
-    ui.set("#tn-club", "golfclub-nachbar")
-    ui.wait("document.querySelector('#tn-club').value === 'golfclub-nachbar' && document.querySelectorAll('.tn-item').length > 0")
+    ui.wait("document.querySelectorAll('.tn-item').length > 0")
+    assert ui.count("#tn-club") == 0 and ui.count(".tn-filters select") == 0
     _close_sheet(ui)
 
 
@@ -1991,4 +1988,22 @@ def test_each_days_heading_gives_way_to_the_next_instead_of_stacking(ui):
         return heads.some((a, i) => heads.some((b, j) => i < j && b.top < a.bottom - 1 && b.bottom > a.top + 1)); })()"""
     )
     assert overlap is False  # two headings never sit on top of each other
+    _close_sheet(ui)
+
+
+def test_friends_and_four_free_seats_exclude_each_other_and_today_is_the_bold_day(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    _chip(ui, "4")  # four free seats: nobody is booked, so no friend can be there
+    assert _chip_on(ui, "4") == "true"
+    _chip(ui, "\u2605 Friends")
+    ui.wait("[...document.querySelectorAll('.sf .chip')].find((e) => e.textContent.trim() === '1+')?.getAttribute('aria-pressed') === 'true'")  # back to 1+
+    assert _chip_on(ui, "\u2605 Friends") == "true" and _chip_on(ui, "4") == "false"
+    assert ui.js("[...document.querySelectorAll('.sf .chip')].find((e) => e.textContent.trim() === '4').disabled") is True  # and 4 cannot be picked while friends is on
+    _chip(ui, "3+")  # three free seats and a friend still fit together
+    assert _chip_on(ui, "3+") == "true"
+    _chip(ui, "\u2605 Friends")
+    assert ui.js("[...document.querySelectorAll('.sf .chip')].find((e) => e.textContent.trim() === '4').disabled") is False
+    weight = ui.js("(() => { const today = document.querySelector('.sday.today .n'), other = document.querySelector('.sday:not(.today) .n'); return [Number(getComputedStyle(today).fontWeight), Number(getComputedStyle(other).fontWeight), getComputedStyle(today).boxShadow]; })()")
+    assert weight[0] >= 700 and weight[1] < 700 and weight[2] == "none", weight  # bold, not outlined
     _close_sheet(ui)
