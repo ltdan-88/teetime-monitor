@@ -21,7 +21,6 @@ from .. import (
 )
 from . import data
 
-SEARCH_DAYS = 14  # how far ahead Search looks: what the club's scrapes keep (scrape_once.MAX_OVERVIEW_DAYS)
 _WEATHER_DEFAULTS = {
     "avoid_rain_probability_percent": recommend.DEFAULT_AVOID_RAIN_PROBABILITY_PERCENT,
     "avoid_rain_mm": recommend.DEFAULT_AVOID_RAIN_MM,
@@ -80,7 +79,7 @@ def _weather_flags(config: dict, weather: dict | None) -> list[str]:
 
 
 def search_slots(slug: str | None, club_id: str | None) -> dict:
-    """Every open tee time of the next `SEARCH_DAYS` days on every course of the club that can still be played
+    """Every open tee time of the days the overview shows (`overview_days`, five unless set) on every course of the club that can still be played
     (not started, finished before dark), each with what the page needs to filter by your own rules: whether its
     weather crosses your limits (`wet`) and whether another flight is too close (`gap_ok`). The page narrows these
     down and counts them per day itself, so changing a filter never asks the server again. `mine` carries the
@@ -110,7 +109,7 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
     dates: list[dict] = []
     slots: list[dict] = []
     last_start: str | None = None
-    for offset in range(SEARCH_DAYS):
+    for offset in range(data._overview_window(config)):  # the days the overview shows: later ones have no tee sheet yet
         day = (start + timedelta(days=offset)).isoformat()
         loaded = False
         for course in courses:

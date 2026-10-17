@@ -504,7 +504,8 @@ def test_search_lists_every_open_time_with_your_rules_for_the_page_to_filter_by(
     monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
     result = tools_api.search_slots(SLUG, None)
     assert result["mine"]["min_open_spots"] == 2 and result["mine"]["weekday_window"] == {"after": "09:00", "before": "17:00"}
-    assert len(result["dates"]) == 14 and result["dates"][0]["loaded"] and not result["dates"][5]["loaded"]  # three days were scraped
+    assert len(result["dates"]) == 5  # the days the overview shows (five unless the club says otherwise)
+    assert result["dates"][2]["loaded"] and not result["dates"][3]["loaded"]  # three days were scraped
     assert result["courses"] == [COURSE]
     today = date.today().isoformat()
     times = {s["time"] for s in result["slots"] if s["date"] == today}
