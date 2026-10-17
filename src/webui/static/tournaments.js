@@ -1,19 +1,20 @@
 // The club's tournament calendar as a month grid: days with a tournament carry dots, a tap on a day lists what is on
 // (src/webui/data.py tournaments(), read from pc caddie's own calendar with the saved login).
 
-import { html, t, useState, useMemo, Sheet, Status, Icon, useLoad, api, query, dayLabel, weekdayShort, language } from '/lib.js';
+import { html, t, useState, useMemo, Sheet, Select, Status, Icon, useLoad, api, query, dayLabel, weekdayShort, language } from '/lib.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (year, month, day) => `${year}-${pad(month + 1)}-${pad(day)}`; // month is 0-based, like Date
-const monday = (index) => weekdayShort(iso(2026, 9, 5 + index)); // 2026-10-05 is a Monday: only for the localized names
+const firstDay = (units) => (units === 'imperial' ? 0 : 1); // the week starts on Sunday with imperial units, else on Monday
+const dayName = (index, units) => weekdayShort(iso(2026, 9, 4 + firstDay(units) + index)); // 2026-10-04 is a Sunday: only for the localized names
 
 function stamp(date = new Date()) {
   return `${iso(date.getFullYear(), date.getMonth(), date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** The weeks of a month, Monday first, as rows of ISO dates (null for the days outside it). */
-export function monthWeeks(year, month) {
-  const lead = (new Date(year, month, 1).getDay() + 6) % 7;
+/** The weeks of a month, Monday first (Sunday first with `units` imperial), as rows of ISO dates (null for the days outside it). */
+export function monthWeeks(year, month, units) {
+  const lead = (new Date(year, month, 1).getDay() - firstDay(units) + 7) % 7;
   const days = new Date(year, month + 1, 0).getDate();
   const cells = [...Array(lead).fill(null), ...Array.from({ length: days }, (_, i) => iso(year, month, i + 1))];
   while (cells.length % 7) cells.push(null);
@@ -55,9 +56,11 @@ function Choice({ label, value, options, onFlip }) {
 
 const NO_FILTER = { holes: [], who: [], open: false };
 
-export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClose }) {
-  const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
-  const { data, error } = useLoad(() => api('/api/tournaments' + query(ref)), [club.id]);
+export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onShowDay, onClose }) {
+  const [slug, setSlug] = useState(club.slug); // the club shown: the open one to begin with, any saved club after
+  const ref = { slug };
+  const { data: loaded, loading, error } = useLoad(() => api('/api/tournaments' + query(ref)), [slug]);
+  const data = loading ? null : loaded; // never the previous club's calendar under the new club's name
   const today = new Date();
   const start = focusDate ? new Date(Number(focusDate.slice(0, 4)), Number(focusDate.slice(5, 7)) - 1, 1) : today;
   const [shown, setShown] = useState({ year: start.getFullYear(), month: start.getMonth() });
@@ -73,6 +76,10 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
     for (const item of list) (map[item.date] = map[item.date] || []).push(item);
     return map;
   }, [data, filter]);
+  // the days with a tee sheet: for the open club the ones it loaded, for another club the same stretch of days
+  const sheetDays = knownDays || [];
+  const shown_ = (date) => (slug === club.slug ? sheetDays.includes(date) : sheetDays.length > 0 && date >= sheetDays[0] && date <= sheetDays[sheetDays.length - 1]);
+  const chooseClub = (next) => { setSlug(next); setFilter(NO_FILTER); setPicked(null); };
   const now = stamp();
   const todayIso = now.slice(0, 10);
   const first = iso(shown.year, shown.month, 1);
@@ -90,15 +97,16 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
     ${!data && !error && html`<${Status} kind="busy">${t('tournaments.loading')}<//>`}
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
-    ${data && html`
-      <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
-        ${holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onFlip=${(v) => flip('holes', v)}
+    <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
+        ${clubs.length > 1 && html`<${Select} id="tn-club" value=${slug} aria-label=${t('club')} options=${clubs.map((entry) => ({ value: entry.slug, label: entry.name }))} onChange=${chooseClub} />`}
+        ${data && holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onFlip=${(v) => flip('holes', v)}
           options=${holeSizes.map((n) => ({ value: n, label: String(n) }))} />`}
-        ${mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}
+        ${data && mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}
           options=${[{ value: 'guests', label: t('tournaments.guests') }, { value: 'members', label: t('tournaments.members_only') }]} />`}
-        <button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => setFilter((current) => ({ ...current, open: !current.open }))}>${t('tournaments.reg_open')}</button>
-        ${filtered && html`<button class="link-btn" onClick=${() => setFilter(NO_FILTER)}>${t('tournaments.clear_filters')}</button>`}
-      </div>
+        ${data && html`<button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => setFilter((current) => ({ ...current, open: !current.open }))}>${t('tournaments.reg_open')}</button>`}
+        ${data && filtered && html`<button class="link-btn" onClick=${() => setFilter(NO_FILTER)}>${t('tournaments.clear_filters')}</button>`}
+    </div>
+    ${data && html`
       <div class="tn-split">
         <div class="tn-left">
           <div class="tn-nav">
@@ -107,8 +115,8 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
             <button class="btn small tn-step" aria-label=${t('tournaments.next')} onClick=${() => step(1)}><${Icon} name="chevron" size=${18} /></button>
           </div>
           <div class="tn-cal" role="group" aria-label=${monthName}>
-            ${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<span class="tn-wd" key=${i}>${monday(i)}</span>`)}
-            ${monthWeeks(shown.year, shown.month).flat().map((day, i) => {
+            ${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<span class="tn-wd" key=${i}>${dayName(i, units)}</span>`)}
+            ${monthWeeks(shown.year, shown.month, units).flat().map((day, i) => {
               if (!day) return html`<span class="tn-cell blank" key=${'b' + i}></span>`;
               const events = byDay[day] || [];
               const cls = 'tn-cell' + (events.length ? ' has' : '') + (day === picked ? ' on' : '') + (day === todayIso ? ' today' : '') + (day < todayIso ? ' past' : '');
@@ -123,7 +131,7 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
           <div class="tn-scroll">
             ${rows.length === 0 && html`<div class="empty small"><p>${filtered ? t('tournaments.none_filtered') : all.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: picked ? dayLabel(picked) : monthName })}</p></div>`}
             <ul class="tn-list">
-              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${(knownDays || []).includes(item.date)} onShow=${onShowDay} />`)}
+              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${shown_(item.date)} onShow=${(date) => onShowDay(date, slug)} />`)}
             </ul>
           </div>
         </div>

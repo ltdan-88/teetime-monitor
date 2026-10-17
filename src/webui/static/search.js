@@ -57,8 +57,10 @@ function ResultRow({ match, units, showHandicaps, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, course, units, showHandicaps, onClose, onMark, refreshKey, tabs }) {
-  const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
+export function SearchSheet({ club, clubs, course, units, showHandicaps, onClose, onMark, refreshKey, tabs }) {
+  const [slug, setSlug] = useState(club.slug); // the club searched: the open one to begin with, any saved club after
+  const ref = slug ? { slug } : { club_id: club.id };
+  const here = slug === club.slug;
   const [criteria, setCriteria] = useState(null);
   const [players, setPlayers] = useState([]);
   const [ranking, setRanking] = useState(false);
@@ -76,14 +78,14 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
     setRanking(false);
     setError(null);
     try {
-      const quick = await post('/api/search', { ...ref, course, criteria: next, ai: false });
+      const quick = await post('/api/search', { ...ref, course: here ? course : '', criteria: next, ai: false });
       if (mine !== searchSeq.current) return;
       setResult(quick);
       setSearching(false);
       if (quick.ai_pending) {
         setRanking(true);
         try {
-          const ranked = await post('/api/search', { ...ref, course, criteria: next });
+          const ranked = await post('/api/search', { ...ref, course: here ? course : '', criteria: next });
           if (mine === searchSeq.current) setResult(ranked);
         } catch (failure) {
           /* keep the plain order */
@@ -98,6 +100,8 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
   }
 
   useEffect(() => {
+    setResult(null);
+    setSearching(true);
     (async () => {
       try {
         const loaded = await api('/api/search/defaults' + query(ref));
@@ -109,7 +113,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
         setError(t('error.title'));
       }
     })();
-  }, []);
+  }, [slug]);
 
   // A booking marked from the results changes them (the booked row), so search again.
   useEffect(() => {
@@ -123,6 +127,8 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
     ${criteria && html`
       <section class="criteria">
         <p class="lab">${t('search.criteria')}</p>
+        ${club.slug && clubs.length > 1 && html`<div class="field-row"><label for="s-club">${t('club')}</label>
+          <${Select} id="s-club" value=${slug} options=${clubs.map((entry) => ({ value: entry.slug, label: entry.name }))} onChange=${setSlug} /></div>`}
         <form onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
           <div class="crit-cards">
             <div class="group">
@@ -159,6 +165,6 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
         ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
         : html`<div class="results scroll">
           <div class="res res-head"><${WeatherHeads} units=${units} /><span class="res-action"></span></div>
-          ${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${onMark} />`)}</div>`}`}
+          ${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${(picked) => onMark({ ...picked, ref })} />`)}</div>`}`}
   <//>`;
 }

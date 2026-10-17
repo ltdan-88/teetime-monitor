@@ -508,6 +508,9 @@ def test_search_opens_with_your_availability_and_finds_slots_in_your_window(worl
     assert match["players"][0]["name"] == "Erika Musterfrau" and match["players"][0]["gender"] == "female"
     assert match["weather"]["temp"] == 18 and match["flags"] == []
     assert tools_api.run_search("nope", None, COURSE, defaults) == {"error": "unknown_club"}
+    # a club other than the open one has no course of the page to go by: its own default is searched
+    assert tools_api.run_search(SLUG, None, "", defaults)["matches"] == result["matches"]
+    assert tools_api.run_search(SLUG, None, "Not A Course", defaults)["matches"] == result["matches"]
 
 
 def test_search_answers_without_the_ai_first_and_says_when_the_ai_would_reorder(world, monkeypatch):

@@ -26,6 +26,16 @@ def _club(slug: str | None, club_id: str | None):
     return club, data.db_path_for(club["id"]), config
 
 
+def _course_of(club: dict, config: dict, course: str | None) -> str | None:
+    """`course` if the club has it, else the club's default course, else its first: a search or heatmap for a club
+    other than the one open on the page has no course of the page to go by."""
+    courses = data.courses_for(club["id"])
+    if course in courses:
+        return course
+    default = config.get("default_course")
+    return default if default in courses else (courses[0] if courses else course)
+
+
 def _time_window(window) -> dict:
     return {"after": (window.after if window else None) or "", "before": (window.before if window else None) or ""}
 
@@ -82,6 +92,7 @@ def run_search(slug: str | None, club_id: str | None, course: str, criteria: dic
     club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
+    course = _course_of(club, config, course)
     payload = {
         "min_open_spots": int(criteria.get("min_open_spots") or 1),
         "weekday_window": _clean_window(criteria.get("weekday_window")),
@@ -213,9 +224,7 @@ def heatmap(slug: str | None, club_id: str | None, course: str | None) -> dict:
     if club is None:
         return {"error": "unknown_club"}
     courses = data.courses_for(club["id"])
-    if course not in courses:
-        default = config.get("default_course")
-        course = default if default in courses else (courses[0] if courses else None)
+    course = _course_of(club, config, course) if courses else None
     if course is None or not db.exists():
         return {"course": course, "by_weekday": {}, "special_days": {}, "has_country": False, "hours": []}
     holidays = pipeline._holidays_for_club(config, fetch=True)

@@ -1773,3 +1773,45 @@ def test_a_sheet_keeps_its_size_between_tabs_and_months(ui):
         ui.wait("document.querySelectorAll('.tn-cell').length > 0")
         assert ui.js(box) == first
     _close_sheet(ui)
+
+
+def test_the_week_starts_on_sunday_with_imperial_units_else_on_monday(ui):
+    first_days = "[...document.querySelectorAll('.tn-wd')].map((e) => e.textContent).slice(0, 2).join()"
+    heat_days = "[...document.querySelectorAll('.hm-head .hd')].map((e) => e.textContent).slice(0, 2).join()"
+    for units, tournament_days, heatmap_days in (("metric", "Mon,Tue", "Mon,Tue"), ("imperial", "Sun,Mon", "Sun,Mon")):
+        _open_display(ui)
+        ui.set("#v-units", units)
+        _close_display(ui)
+        _open_sheet(ui, "t", "Tournaments")
+        ui.wait("document.querySelectorAll('.tn-cell').length > 0")
+        assert ui.js(first_days) == tournament_days
+        _close_sheet(ui)
+        _open_sheet(ui, "s", "Search")
+        ui.click(".sheet-tab", "Heatmap")
+        ui.wait("document.querySelectorAll('.hm-cell').length > 20")
+        assert ui.js(heat_days) == heatmap_days
+        _close_sheet(ui)
+    _open_display(ui)
+    ui.set("#v-units", "metric")
+    _close_display(ui)
+
+
+def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui):
+    ui = two_clubs_ui
+    ui.js("(() => { const club = document.querySelector('#club'); if (club.value !== 'golfclub-beispiel') { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(club, 'golfclub-beispiel'); club.dispatchEvent(new Event('change', { bubbles: true })); } })()")
+    ui.wait("document.querySelector('#club').value === 'golfclub-beispiel' && document.querySelectorAll('.card').length > 0")  # (an earlier test may have jumped to the other club)
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('#s-club') && document.querySelectorAll('.res').length > 0")
+    assert ui.js("document.querySelector('#s-club').value") == "golfclub-beispiel"
+    ui.set("#s-club", "golfclub-nachbar")
+    ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
+    assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
+    ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
+    ui.wait("document.body.innerText.includes('9 Loch Platz')")
+    ui.key("Escape")  # leave the dialog (and whatever else Escape closes)
+    ui.wait("!document.querySelector('.scrim')")
+    _open_sheet(ui, "t", "Tournaments")
+    ui.wait("document.querySelector('#tn-club') && document.querySelectorAll('.tn-item').length > 0")
+    ui.set("#tn-club", "golfclub-nachbar")
+    ui.wait("document.querySelector('#tn-club').value === 'golfclub-nachbar' && document.querySelectorAll('.tn-item').length > 0")
+    _close_sheet(ui)

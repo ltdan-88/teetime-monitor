@@ -908,6 +908,7 @@ button, select, input { touch-action: manipulation; }
   .tn-actions { grid-row: 1 / span 3; grid-column: 2; align-self: center; flex-direction: column; gap: 0.25rem; }
 }
 .tn-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin-top: 0.75rem; }
+.tn-filters .select select { width: auto; max-width: 14rem; min-width: 0; height: 2.25rem; }  /* the club */
 .tn-choice { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
 .tn-choice-label { color: var(--dim); font-size: 0.8125rem; margin-right: 0.125rem; }
 .tn-pick { border: 0; cursor: pointer; font-family: inherit; min-height: 1.75rem; }
