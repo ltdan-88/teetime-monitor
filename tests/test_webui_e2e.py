@@ -1815,3 +1815,15 @@ def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui)
     ui.set("#tn-club", "golfclub-nachbar")
     ui.wait("document.querySelector('#tn-club').value === 'golfclub-nachbar' && document.querySelectorAll('.tn-item').length > 0")
     _close_sheet(ui)
+
+
+def test_a_page_reloads_by_itself_when_the_server_was_restarted(ui):
+    """After an update the server is a new process: the open page (whose scripts are the old ones) loads again at once."""
+    ui.js("window.__oldPage = true")
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = (url, options) => String(url).includes('/api/ping')
+          ? real(url, options).then((r) => r.json()).then((body) => new Response(JSON.stringify({ ...body, boot: 'another-process' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+          : real(url, options); })()"""
+    )  # (the next ping names a process the page was not loaded from)
+    ui.wait("window.__oldPage === undefined && document.querySelectorAll('.card').length > 0", timeout=30)

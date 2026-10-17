@@ -381,14 +381,30 @@ function App() {
 
   // Keep-alive for the server, a gentle re-read of the data, and a relative-time tick.
   useEffect(() => {
-    const ping = setInterval(() => post('/api/ping', {}).catch(handleError), 5000);
-    post('/api/ping', {}).catch(() => {});
+    // The ping also says which server process answered: once it is another one (an update restarted the server)
+    // this page's scripts are the old ones, so it loads again by itself. Only a new process counts, not a new version
+    // number: a server that has been updated in place but not restarted still serves the old code.
+    let boot = null;
+    const ping = async () => {
+      try {
+        const answer = await post('/api/ping', {});
+        if (boot === null) boot = answer.boot;
+        else if (answer.boot && answer.boot !== boot) location.reload();
+      } catch (error) {
+        if (boot !== null) handleError(error);
+      }
+    };
+    const pinger = setInterval(ping, 5000);
+    const wake = () => { if (document.visibilityState === 'visible') ping(); };  // a tab that slept through the update
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('online', wake);
+    ping();
     const reload = setInterval(() => {
       const { view: v, course: c } = current.current;
       if (v) loadOverview(v, c);
     }, 30000);
     const clock = setInterval(() => tick((n) => n + 1), 30000);
-    return () => [ping, reload, clock].forEach(clearInterval);
+    return () => { [pinger, reload, clock].forEach(clearInterval); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake); };
   }, []);
 
   // While a refresh runs, poll it; when it ends, read the overview again.

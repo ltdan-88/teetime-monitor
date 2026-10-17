@@ -537,6 +537,9 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .crit-cards .group { margin: 0; padding: 0.875rem 1.25rem 0.375rem; }
 .crit-cards .field-row { grid-template-columns: minmax(7rem, 1fr) minmax(0, 19rem); min-height: 3.125rem; }
 .crit-cards .field-row > :last-child { justify-self: start; }
+.criteria .field-row.crit-club { grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; min-height: 0; padding: 0.375rem 0 0.5rem; }  /* the club: label above, select at the left, like every row below it */
+.criteria .field-row.crit-club > label { text-align: left; }
+.criteria .field-row.crit-club > :last-child { justify-self: start; }
 /* wide: one shared grid per card, so every label is one line and every control starts at the same x */
 @media (min-width: 601px) {
   .crit-cards .group { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 0.75rem; row-gap: 0.5rem; align-content: start; }
