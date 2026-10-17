@@ -174,6 +174,22 @@ def _open_sheet(ui, key, title_contains):
     ui.wait(SHEET_READY)  # the sheet's own key handling and focus are set up after it is drawn
 
 
+def _chip(ui, text, scope=".sf"):
+    """Click the filter chip or button whose text is exactly `text` (a plain "4" must not match "14–17")."""
+    ui.js(
+        f"""(() => {{ const el = [...document.querySelectorAll({json.dumps(scope + ' .chip, ' + scope + ' .btn, .rhead .btn, .results .btn')})].find((e) => e.textContent.trim() === {json.dumps(text)});
+        if (!el) throw new Error('no chip ' + {json.dumps(text)}); el.click(); }})()"""
+    )
+
+
+def _chip_on(ui, text):
+    return ui.js(f"[...document.querySelectorAll('.sf .chip')].find((e) => e.textContent.trim() === {json.dumps(text)})?.getAttribute('aria-pressed')")
+
+
+def _search_rows(ui):
+    return ui.count(".results .res:not(.res-head)")
+
+
 def _close_sheet(ui):
     ui.click(".sheet-head .icon-btn")
     ui.wait("!document.querySelector('.scrim')")
@@ -374,9 +390,9 @@ def test_a_booking_pc_caddie_refuses_says_why_and_the_dialog_stays_open(ui):
 
 def test_search_lists_matches_and_offers_to_book_one(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.res').length > 3")
+    ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     ui.shot("search")
-    # the column headings sit exactly over their values (every row shares the results' columns)
+    # the column headings sit exactly over their values (every row has the same columns)
     edges = ui.js(
         """(() => { const right = (e) => Math.round(e.getBoundingClientRect().right);
         const head = [...document.querySelectorAll('.res-head .cell')].map(right);
@@ -388,21 +404,41 @@ def test_search_lists_matches_and_offers_to_book_one(ui):
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     ui.click(".sheet.small .btn", "Not now")
     ui.wait("document.querySelectorAll('.sheet').length === 1")
-    ui.set("#s-spots", "4")  # nothing has four open seats and a friend... a narrower search still answers
-    ui.click(".criteria .actions .btn.pri")
-    ui.wait("document.querySelector('.results-head')")
+    _close_sheet(ui)
+
+
+def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    start = _search_rows(ui)
+    assert _chip_on(ui, "My times") == "true"  # your Preferences are on when Search opens
+    assert ui.js("document.querySelectorAll('.dayhead').length") >= 1
+    shown = int(ui.js("[...document.querySelectorAll('.rhead .lab')][0].textContent.match(/\\d+/)[0]"))
+    assert shown == start  # the line above the results counts the same rows
+    counted = ui.js("[...document.querySelectorAll('.strip .sday .c')].map((e) => Number(e.textContent) || 0).reduce((a, b) => a + b, 0)")
+    assert counted == start  # and so do the days of the strip, together
+    ui.js("document.querySelector('.strip .sday:not(.off):not(.zero):not(.empty)').click()")  # one day: its rows only, no day heading needed
+    ui.wait("document.querySelectorAll('.dayhead').length === 0 && document.querySelectorAll('.strip .sday[aria-pressed=true]').length === 1")
+    assert 0 < _search_rows(ui) <= start
+    ui.js("document.querySelector('.strip .sday[aria-pressed=true]').click()")  # and back
+    ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
+    _chip(ui, "Weekend")  # weekdays dim in the strip, the list keeps weekend days only
+    ui.wait("document.querySelectorAll('.strip .sday.off').length > 0")
+    assert ui.js("[...document.querySelectorAll('.dayhead')].every((e) => /Sat|Sun/.test(e.textContent))") is True
+    _chip(ui, "Weekend")
+    _chip(ui, "My times")  # turning your rules off shows more
+    ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length > {start}")
     _close_sheet(ui)
 
 
 def test_search_weather_stays_under_its_headings_in_every_window_width(ui):
-    """A hit nobody has booked yet has no players, so no chip: its temperature, rain and wind must still sit under
-    their headings (they once slid one column to the left and the button landed on top of the wind)."""
+    """A hit nobody has booked yet has no players: its temperature, rain and wind must still sit under their
+    headings, and the button never lands on the weather."""
     try:
         _open_sheet(ui, "s", "Search")
-        ui.wait("document.querySelector('#s-spots') && document.querySelectorAll('.res').length > 3")  # the form and the first answer are in
-        ui.set("#s-spots", "4")  # four open seats: only slots with nobody booked
-        ui.click(".criteria .actions .btn.pri")
-        ui.wait("(() => { const rows = [...document.querySelectorAll('.res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => !r.querySelector('.who-chip')); })()")  # the new answer is in
+        ui.wait("document.querySelector('.sf') && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        _chip(ui, "4")  # four open seats: only slots with nobody booked
+        ui.wait("(() => { const rows = [...document.querySelectorAll('.results .res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => r.querySelector('.res-open').textContent.includes('4')); })()")
         for width in (1280, 1000, 860, 744):
             ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=False)
             ui.wait(f"innerWidth === {width}")
@@ -412,51 +448,25 @@ def test_search_weather_stays_under_its_headings_in_every_window_width(ui):
                 const button = (r) => r.querySelector('.res-action .btn').getBoundingClientRect();
                 return {head: [...document.querySelectorAll('.res-head .cell')].map(right),
                         rows: rows.map((r) => [...r.querySelectorAll('.cell')].map(right)),
-                        chips: rows.filter((r) => r.querySelector('.who-chip')).length,
                         overlap: rows.some((r) => [...r.querySelectorAll('.cell')].some((c) => c.getBoundingClientRect().right > button(r).left + 1))}; })()"""
             )
-            assert edges["chips"] == 0, edges  # the case under test: no players
             assert all(row == edges["head"] for row in edges["rows"]), (width, edges)
-            assert not edges["overlap"], (width, edges)  # the button never sits on the weather
+            assert not edges["overlap"], (width, edges)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
         _close_sheet(ui)
 
 
-def test_search_rows_keep_their_dates_on_one_line(ui):
+def test_search_rows_are_one_height_and_keep_their_times_on_one_line(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.res').length > 3")
+    ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     shape = ui.js(
         """(() => { const rows = [...document.querySelectorAll('.res:not(.res-head)')];
         return [new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height))).size,
-                rows.every((r) => getComputedStyle(r.querySelector('.res-date')).whiteSpace === 'nowrap')]; })()"""
+                rows.every((r) => getComputedStyle(r.querySelector('.res-time')).whiteSpace === 'nowrap')]; })()"""
     )
-    assert shape == [1, True], shape  # every row is as tall as the others: no date wraps onto a second line
+    assert shape == [1, True], shape  # every row is as tall as the others: no time wraps onto a second line
     _close_sheet(ui)
-
-
-def test_search_shows_its_matches_before_the_ai_has_ranked_them(ui):
-    """With AI ranking on, the AI's answer takes seconds: the plain matches must be on screen at once, with a
-    note that the AI is still ranking. Here the quick answer claims the AI is pending and the second request
-    is held back to see the in-between state."""
-    ui.js(
-        """(() => { const real = window.fetch.bind(window);
-        window.fetch = async (url, options) => {
-          if (!/api\\/search$/.test(String(url)) || !options || !options.body) return real(url, options);
-          const quick = JSON.parse(options.body).ai === false;
-          if (!quick) await new Promise((done) => setTimeout(done, 2500));
-          const data = await (await real(url, options)).json();
-          if (quick) data.ai_pending = true;
-          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
-    )
-    _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.res').length > 3")  # the matches are there ...
-    ui.wait("document.querySelector('.results-head .ranking')")  # ... while the AI is still ranking
-    assert not ui.js("document.querySelector('.criteria .btn.pri').disabled")  # and you can search again
-    ui.wait("!document.querySelector('.results-head .ranking')", 30)
-    _close_sheet(ui)
-    ui.js("window.__beforeReload = true; location.reload()")  # drop the delay again
-    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
 def test_heatmap_shows_the_history(ui):
@@ -651,18 +661,17 @@ def test_the_language_switches_to_german_in_settings_and_back(ui):
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Search'", 30)
 
 
-def test_reset_filters_clears_everything_without_searching_again(ui):
+def test_clear_filters_shows_everything_and_is_in_reach(ui):
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelectorAll('.res').length > 3")
-    rows = ui.count(".res")
-    ui.set("#s-spots", "3")
-    ui.set("#s-wd-after", "10")
-    ui.click(".criteria .actions .btn", "Reset")
-    ui.wait("document.querySelector('#s-spots').value === '1' && document.querySelector('#s-wd-after').value === ''")
-    assert ui.js("document.querySelector('#s-before').value") == "0"
-    assert ui.count(".res") == rows  # the results stay until you search again
-    ui.click(".criteria .actions .btn.pri")  # no window at all means any time: more matches than with your Preferences
-    ui.wait(f"document.querySelectorAll('.res').length > {rows}")
+    ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    start = _search_rows(ui)
+    assert ui.count(".rhead .btn") == 1  # on the count line while anything is on
+    _chip(ui, "Weekend")
+    _chip(ui, "3+")
+    ui.click(".rhead .btn", "Clear filters")
+    ui.wait("document.querySelectorAll('.sf .chip[aria-pressed=true]').length === 1")  # only "1+" is left on: nothing narrows
+    assert _search_rows(ui) > start  # your own rules are off too: more than when Search opened
+    assert ui.count(".rhead .btn") == 0  # nothing left to clear
     _close_sheet(ui)
 
 
@@ -854,7 +863,7 @@ def test_form_fields_have_air_between_them_and_the_last_row_clears_the_window_ed
         for width, height, touch in ((1280, 800, False), (1000, 617, False), (1180, 820, True), (390, 800, True)):
             ui.call("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=1, mobile=touch)
             ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}] if touch else [])
-            for key in (",", "e", "s"):
+            for key in (",", "e"):
                 ui.js("window.scrollTo(0, 0)")
                 _open_sheet(ui, key, "")
                 ui.wait("document.querySelector('.sheet .field-row')")
@@ -869,8 +878,7 @@ def test_form_fields_have_air_between_them_and_the_last_row_clears_the_window_ed
                     return {fields: fields.length, tightest, clearance: Math.round(body.getBoundingClientRect().bottom - bottom)}; })()"""
                 )
                 assert shape["fields"] >= 2 and shape["tightest"] >= 10, (key, width, height, touch, shape)
-                if key != "s":  # (Search scrolls its results inside the window instead)
-                    assert shape["clearance"] >= 8, (key, width, height, touch, shape)
+                assert shape["clearance"] >= 8, (key, width, height, touch, shape)
                 _close_sheet(ui)
     finally:
         ui.call("Emulation.setEmulatedMedia", features=[])
@@ -1092,11 +1100,11 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
         assert ui.js("getComputedStyle(document.querySelector('.footer .about')).display") == "none"
-        # Search scrolls as a whole, and its results fit the screen
+        # Search keeps its filters on screen and only the results scroll
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelectorAll('.res').length > 3")
-        scroll = ui.js("(() => { const b = document.querySelector('.sheet-body'); b.scrollTop = 400; return [b.scrollHeight > b.clientHeight, b.scrollTop > 0, getComputedStyle(b).overflowY, document.documentElement.scrollWidth <= innerWidth]; })()")
-        assert scroll == [True, True, "auto", True], scroll
+        scroll = ui.js("(() => { const r = document.querySelector('.results'); r.scrollTop = 400; return [r.scrollHeight > r.clientHeight, r.scrollTop > 0, getComputedStyle(document.querySelector('.sheet-body')).overflowY, document.documentElement.scrollWidth <= innerWidth]; })()")
+        assert scroll == [True, True, "hidden", True], scroll
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setEmulatedMedia", features=[])
@@ -1125,7 +1133,7 @@ def test_a_narrow_computer_window_and_a_phone_on_its_side_use_the_chip_and_scrol
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelectorAll('.res').length > 3")
         scroll = ui.js("(() => { const b = document.querySelector('.sheet-body'); b.scrollTop = 300; return [b.scrollHeight > b.clientHeight, b.scrollTop > 0, getComputedStyle(b).overflowY]; })()")
-        assert scroll == [True, True, "auto"], scroll
+        assert scroll == [True, True, "auto"], scroll  # short and wide: the whole of Search scrolls
         _close_sheet(ui)
         _open_sheet(ui, "p", "Player")  # the intro is dropped on a short screen, so the list gets the room
         ui.wait("document.querySelectorAll('.player-list li').length > 3")
@@ -1342,18 +1350,32 @@ def test_the_history_switch_shows_the_past_days_and_goes_back(ui):
     ui.key("Escape")
 
 
-def test_search_puts_the_criteria_beside_the_results_on_a_large_landscape_screen(ui):
+def test_search_keeps_its_filters_above_the_results_and_gives_the_results_the_room(ui):
     try:
-        ui.call("Emulation.setDeviceMetricsOverride", width=1400, height=800, deviceScaleFactor=1, mobile=False)
-        _open_sheet(ui, "s", "")
-        ui.wait("document.querySelectorAll('.res').length > 3")
-        side = ui.js("(() => { const c = document.querySelector('.criteria').getBoundingClientRect(), r = document.querySelector('.results').getBoundingClientRect(); return [c.right <= r.left, r.width, r.height]; })()")
-        assert side[0] is True and side[1] > 700 and side[2] > 400  # criteria left, results right, both with room
-        _close_sheet(ui)
-        ui.call("Emulation.setDeviceMetricsOverride", width=820, height=1100, deviceScaleFactor=1, mobile=False)  # upright: one column again
-        _open_sheet(ui, "s", "")
-        ui.wait("document.querySelectorAll('.res').length > 3")
-        assert ui.js("document.querySelector('.criteria').getBoundingClientRect().bottom <= document.querySelector('.results-head').getBoundingClientRect().top + 1")
+        for width, height in ((1400, 800), (820, 1100)):
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=1, mobile=False)
+            _open_sheet(ui, "s", "")
+            ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+            geometry = ui.js("(() => { const f = document.querySelector('.sf').getBoundingClientRect(), r = document.querySelector('.results').getBoundingClientRect(); return [f.bottom <= r.top + 1, Math.round(r.height)]; })()")
+            assert geometry[0] is True and geometry[1] > 300, geometry
+            _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_on_a_phone_search_hides_most_filters_behind_one_button_and_the_results_get_the_room(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        assert ui.js("getComputedStyle(document.querySelector('.sf-panel')).display") == "none"  # closed to begin with
+        assert ui.js("document.querySelector('.results').getBoundingClientRect().height") > 350
+        ui.click(".sf-more")
+        ui.wait("getComputedStyle(document.querySelector('.sf-panel')).display !== 'none'")
+        assert ui.js("document.querySelector('.sf-foot .btn.pri').textContent").startswith("Show ")  # and a button to close it again
+        ui.click(".sf-foot .btn.pri")
+        ui.wait("getComputedStyle(document.querySelector('.sf-panel')).display === 'none'")
+        assert ui.js("document.documentElement.scrollWidth <= innerWidth")  # nothing pushes the page wider
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
@@ -1569,7 +1591,7 @@ def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_he
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('.sheet-tab[aria-selected=true]').textContent.trim() === 'Heatmap'")
     ui.wait("document.querySelector('.hm-wrap, .sheet .empty')")
     ui.click(".sheet-tab", text="Open times")
-    ui.wait("document.querySelector('.sheet .criteria')")
+    ui.wait("document.querySelector('.sheet .sf')")
     _close_sheet(ui)
 
 
@@ -1585,7 +1607,7 @@ def test_every_screen_fits_the_window_at_three_widths(ui):
             return out; })()"""
         )
         assert problems == [], (width, "overview", problems)
-        for key, ready in (("s", ".results-head"), ("h", ".hm-wrap, .empty"), ("p", ".player-list"), ("e", "#f-field-availability-min_open_spots"), (",", "#login-user"), ("a", ".search-box input"), ("?", ".legend")):
+        for key, ready in (("s", ".sf"), ("h", ".hm-wrap, .empty"), ("p", ".player-list"), ("e", "#f-field-availability-min_open_spots"), (",", "#login-user"), ("a", ".search-box input"), ("?", ".legend")):
             _open_sheet(ui, key, "")
             ui.wait(f"document.querySelector({json.dumps(ready)})")
             problems = ui.js(
@@ -1801,11 +1823,19 @@ def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui)
     ui.js("(() => { const club = document.querySelector('#club'); if (club.value !== 'golfclub-beispiel') { const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(club, 'golfclub-beispiel'); club.dispatchEvent(new Event('change', { bubbles: true })); } })()")
     ui.wait("document.querySelector('#club').value === 'golfclub-beispiel' && document.querySelectorAll('.card').length > 0")  # (an earlier test may have jumped to the other club)
     _open_sheet(ui, "s", "Search")
-    ui.wait("document.querySelector('#s-club') && document.querySelectorAll('.res').length > 0")
-    assert ui.js("document.querySelector('#s-club').value") == "golfclub-beispiel"
-    ui.set("#s-club", "golfclub-nachbar")
+    ui.wait("document.querySelector('#tool-club') && document.querySelectorAll('.strip .sday').length === 14")
+    assert ui.js("document.querySelector('#tool-club').value") == "golfclub-beispiel"
+    ui.set("#tool-club", "golfclub-nachbar")
+    ui.wait("document.querySelector('#tool-club').value === 'golfclub-nachbar' && document.querySelectorAll('.strip .sday').length === 14")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.rhead .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
     ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
     assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
+    ui.click(".sheet-tab", text="Heatmap")  # the heatmap looks at the same club
+    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('#tool-club')?.value === 'golfclub-nachbar'")
+    ui.click(".sheet-tab", text="Open times")
+    ui.wait("[...document.querySelectorAll('.strip .sday')].length === 14 && document.querySelector('#tool-club').value === 'golfclub-nachbar'")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.rhead .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.wait("document.querySelector('.res .mark')")
     ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
     ui.wait("document.body.innerText.includes('9 Loch Platz')")
     ui.key("Escape")  # leave the dialog (and whatever else Escape closes)
@@ -1843,4 +1873,14 @@ def test_a_tournament_in_the_loaded_days_shows_its_forecast(ui):
     ui.wait("document.querySelector('.tn-item .chip.wx')")
     assert "°" in ui.text(".tn-item .chip.wx") and "%" in ui.text(".tn-item .chip.wx")
     assert ui.js("[...document.querySelectorAll('.tn-item')].some((li) => !li.querySelector('.chip.wx'))")  # the far ones have none
+    _close_sheet(ui)
+
+
+def test_the_gear_in_search_opens_preferences_and_brings_you_back(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('.sf-gear')")
+    ui.click(".sf-gear")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('preferences')")
+    _close_sheet(ui)
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday').length === 14")  # and Search is open again
     _close_sheet(ui)

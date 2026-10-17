@@ -504,11 +504,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(clubs_api.refresh_directory())
 
         # search, heatmap, players
-        if route == ("GET", "/api/search/defaults"):
-            return reply(tools_api.search_defaults(**ref()))
-        if route == ("POST", "/api/search"):
-            criteria = body.get("criteria") if isinstance(body.get("criteria"), dict) else {}
-            return reply(tools_api.run_search(**ref(), course=arg("course") or "", criteria=criteria, ai=body.get("ai") is not False))
+        if route == ("GET", "/api/search/slots"):
+            return reply(tools_api.search_slots(**ref()))
         if route == ("GET", "/api/heatmap"):
             return reply(tools_api.heatmap(**ref(), course=arg("course")))
         if route == ("GET", "/api/players"):

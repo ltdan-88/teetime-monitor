@@ -1,7 +1,8 @@
 // Crowd heatmap: how full a course usually is at each hour, by weekday and for special days
 // (tournament, public holiday, vacation), from your own scrape history.
 
-import { html, t, useState, Sheet, Select, Status, useLoad, api, query, weekdayShort, occupancyColor, round } from '/lib.js';
+import { html, t, useState, useEffect, Sheet, Select, Status, useLoad, api, query, weekdayShort, occupancyColor, round } from '/lib.js';
+import { ClubPick } from '/search.js';
 
 const SUNDAY_FIRST = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONDAY_FIRST = [...SUNDAY_FIRST.slice(1), 'Sunday'];  // the week as imperial (US) units count it starts on Sunday, otherwise on Monday
@@ -41,14 +42,15 @@ function Grid({ title, keys, labels, group, hours, minSamples, onPick }) {
     </div>`;
 }
 
-export function HeatmapSheet({ club, course, units, onClose, tabs }) {
+export function HeatmapSheet({ club, clubs, course, units, onClose, onSlug, tabs }) {
   const weekdays = units === 'imperial' ? SUNDAY_FIRST : MONDAY_FIRST;
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [chosen, setChosen] = useState(course);
+  useEffect(() => { setChosen(course); }, [club.id]); // another club: its own course (the server falls back to the club's default)
   const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: chosen })), [club.id, chosen]);
   const [picked, setPicked] = useState(null); // the numbers of the cell last tapped (no hover on a touch screen)
   const swatch = (color, text, style) => html`<span><span class="sw" style=${{ background: color, ...style }}></span>${text}</span>`;
-  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide" tall tabs=${tabs}>
+  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide" tall tabs=${tabs} tabsExtra=${html`<${ClubPick} clubs=${clubs} slug=${club.slug} onSlug=${onSlug} />`}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('heatmap.loading')}</p>`}
     ${data && data.courses && data.courses.length > 1 && html`

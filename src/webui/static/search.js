@@ -1,170 +1,185 @@
-// Search: find the best open tee times in the coming days for criteria you set (prefilled from your
-// Preferences), ranked by the same pipeline as the Overview's picks.
+// Search: every open tee time of the next two weeks at the club, narrowed down by chips. The page filters and counts
+// itself (src/webui/tools_api.py search_slots() sends everything that can still be played, with your own rules as flags),
+// so a tap on a chip answers at once. The day strip is the calendar: one chip per day with its number of matches.
 
 import {
-  html, t, useState, useEffect, useRef, shortClub, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
-  dayLabel, WeatherHeads, WeatherCells,
+  html, t, useState, useEffect, useMemo, useRef, shortClub, Sheet, Select, Status, Icon, useLoad, api, query,
+  dayLabel, weekdayShort, WeatherHeads, WeatherCells,
 } from '/lib.js';
-import { PlayerNames, WhoChip, WhoList } from '/overview.js';
+import { PlayerNames } from '/overview.js';
 
-const BUFFERS = [0, 5, 10, 15, 20, 30, 45, 60].map((n) => ({ value: String(n), label: n ? `${n} min` : '0' }));
-const SPOTS = [1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }));
+const minutes = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+const isWeekend = (iso) => [0, 6].includes(new Date(iso + 'T12:00:00').getDay());
+const inWindow = (time, window) => (!window.after || time >= window.after) && (!window.before || time <= window.before);
+const hasWindow = (window) => !!(window.after || window.before);
+/** The time-of-day chips: the hours they cover are their names, and one only appears when some tee time falls in it. */
+const BUCKETS = [
+  { key: 'b1', from: 0, to: 660, label: () => t('search.before_h', { h: 11 }) },
+  { key: 'b2', from: 660, to: 840, label: () => '11–14' },
+  { key: 'b3', from: 840, to: 1020, label: () => '14–17' },
+  { key: 'b4', from: 1020, to: 1440, label: () => t('search.after_h', { h: 17 }) },
+];
 
-/** "Reset filters": every field cleared to "no filter" (any time, one spot, no buffer, nobody in
- *  particular), deliberately not your saved Preferences, and it does not search again. */
-const CLEARED = {
-  min_open_spots: 1,
-  weekday_window: { after: '', before: '' },
-  weekend_window: { after: '', before: '' },
-  buffer_before_minutes: 0,
-  buffer_after_minutes: 0,
-  friends_only: false,
-  player: '',
-};
-
-/** "from [hh]:[mm] to [hh]:[mm]": one time window; a blank end is "no limit" on that side. */
-function WindowFields({ label, value, onChange, idPrefix }) {
-  const set = (key) => (time) => onChange({ ...value, [key]: time });
-  return html`
-    <div class="field-row">
-      <label for=${idPrefix + '-after'}>${label}</label>
-      <span class="time-pair">
-        <span class="dim">${t('search.from')}</span>
-        <${TimeSelect} id=${idPrefix + '-after'} label=${label + ' ' + t('search.after')} value=${value.after || ''} onChange=${set('after')} />
-        <span class="dim">${t('search.to')}</span>
-        <${TimeSelect} id=${idPrefix + '-before'} label=${label + ' ' + t('search.before')} value=${value.before || ''} onChange=${set('before')} />
-      </span>
-    </div>`;
+/** The chips as they stand when Search opens: the rules of your Preferences on, nothing else. */
+function defaults(data) {
+  const mine = data.mine;
+  return {
+    kind: '', days: [], tod: [], courses: [], friends: false, open: false,
+    mine: hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window),
+    dry: mine.weather.length > 0,
+    gap: mine.gap_before > 0 || mine.gap_after > 0,
+    spots: Math.min(4, Math.max(1, mine.min_open_spots || 1)),
+  };
 }
 
-function ResultRow({ match, units, showHandicaps, onMark }) {
-  const open = Math.max(0, match.capacity - match.booked);
-  const [whoOpen, setWhoOpen] = useState(false); // narrow windows: the players are a chip that opens a list
-  return html`
-    <div class="res">
-      <span class="res-date">${dayLabel(match.date)}</span>
-      <span class="num res-time">${match.time}</span>
-      <span class="res-open">${t('search.open_spots', { n: open })}</span>
-      <${WhoChip} slot=${match} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
-      <span class="res-people"><${PlayerNames} slot=${{ players: match.players, booked: match.booked }} showHandicaps=${showHandicaps} /></span>
-      <${WeatherCells} weather=${match.weather} units=${units} flags=${match.flags} />
-      <span class="res-action">
-        ${match.booked_by_you
-          ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
-          : html`<button class="btn small mark" onClick=${() => onMark(match)} title=${t('search.book')} aria-label=${t('search.book')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.book')}</span></button>`}
-      </span>
-      ${whoOpen && html`<${WhoList} slot=${match} showHandicaps=${showHandicaps} />`}
-    </div>`;
-}
-
-export function SearchSheet({ club, clubs, course, units, showHandicaps, onClose, onMark, refreshKey, tabs }) {
-  const [slug, setSlug] = useState(club.slug); // the club searched: the open one to begin with, any saved club after
-  const ref = slug ? { slug } : { club_id: club.id };
-  const here = slug === club.slug;
-  const [criteria, setCriteria] = useState(null);
-  const [players, setPlayers] = useState([]);
-  const [ranking, setRanking] = useState(false);
-  const [result, setResult] = useState(null);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState(null);
-  const first = useRef(true);
-
-  // The matches come back at once in the plain order; when AI ranking is on, a second request brings the AI's
-  // order (it can take many seconds) and replaces them, so a search never just sits there.
-  const searchSeq = useRef(0);
-  async function run(next) {
-    const mine = ++searchSeq.current;
-    setSearching(true);
-    setRanking(false);
-    setError(null);
-    try {
-      const quick = await post('/api/search', { ...ref, course: here ? course : '', criteria: next, ai: false });
-      if (mine !== searchSeq.current) return;
-      setResult(quick);
-      setSearching(false);
-      if (quick.ai_pending) {
-        setRanking(true);
-        try {
-          const ranked = await post('/api/search', { ...ref, course: here ? course : '', criteria: next });
-          if (mine === searchSeq.current) setResult(ranked);
-        } catch (failure) {
-          /* keep the plain order */
-        }
-        if (mine === searchSeq.current) setRanking(false);
-      }
-    } catch (failure) {
-      if (mine !== searchSeq.current) return;
-      setError(t('error.title'));
-      setSearching(false);
-    }
+function passes(slot, f, mine, ignoreDays) {
+  const weekend = isWeekend(slot.date);
+  if (f.kind === 'weekdays' && weekend) return false;
+  if (f.kind === 'weekend' && !weekend) return false;
+  if (!ignoreDays && f.days.length && !f.days.includes(slot.date)) return false;
+  if (f.courses.length && !f.courses.includes(slot.course)) return false;
+  if (slot.open < f.spots) return false;
+  if (f.friends && !slot.players.some((player) => player.friend)) return false;
+  if (f.dry && slot.wet) return false;
+  if (f.gap && !slot.gap_ok) return false;
+  if (f.mine && !inWindow(slot.time, weekend ? mine.weekend_window : mine.weekday_window)) return false;
+  if (f.tod.length) {
+    const at = minutes(slot.time);
+    if (!f.tod.some((key) => { const bucket = BUCKETS.find((b) => b.key === key); return at >= bucket.from && at < bucket.to; })) return false;
   }
+  return true;
+}
 
-  useEffect(() => {
-    setResult(null);
-    setSearching(true);
-    (async () => {
-      try {
-        const loaded = await api('/api/search/defaults' + query(ref));
-        setCriteria(loaded);
-        const list = await api('/api/players' + query(ref));
-        setPlayers(list.players.map((p) => p.name));
-        await run(loaded);
-      } catch (failure) {
-        setError(t('error.title'));
-      }
-    })();
-  }, [slug]);
+const anyOn = (f) => !!(f.kind || f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends || f.courses.length);
 
-  // A booking marked from the results changes them (the booked row), so search again.
+function Chip({ on, onClick, children, className = '', ...rest }) {
+  return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
+}
+
+/** The club choice that sits beside the tabs of Search and Heatmap: both look at the same club. */
+export function ClubPick({ clubs, slug, onSlug }) {
+  if (!slug || clubs.length < 2) return null;
+  return html`<${Select} id="tool-club" value=${slug} aria-label=${t('club')} onChange=${onSlug}
+    options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} />`;
+}
+
+function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
+  return html`
+    <div class="res" data-slot=${slot.date + ' ' + slot.time}>
+      <span class="num res-time">${slot.time}</span>
+      <span class="res-open">${t('search.open_spots', { n: slot.open })}</span>
+      <span class="res-people"><${PlayerNames} slot=${{ players: slot.players, booked: slot.booked }} showHandicaps=${showHandicaps} /></span>
+      <${WeatherCells} weather=${slot.weather} units=${units} flags=${slot.flags} />
+      <span class="res-course dim">${showCourse ? slot.course : ''}</span>
+      <span class="res-action">
+        ${slot.booked_by_you
+          ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
+          : html`<button class="btn small mark" onClick=${() => onMark(slot)} title=${t('search.book')} aria-label=${t('search.book')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.book')}</span></button>`}
+      </span>
+    </div>`;
+}
+
+export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark, onPreferences, onSlug, refreshKey, tabs }) {
+  const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
+  const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query(ref)), [club.id]);
+  const data = loading ? null : loaded;
+  const [f, setF] = useState(null);
+  const forClub = useRef(null);
   useEffect(() => {
+    if (data && forClub.current !== club.id) { forClub.current = club.id; setF(defaults(data)); }
+  }, [data]);
+  useEffect(() => { forClub.current = null; setF(null); }, [club.id]);
+  const first = useRef(true);
+  useEffect(() => {  // a booking made from the results (or in Preferences) changes them
     if (first.current) { first.current = false; return; }
-    if (criteria) run(criteria);
+    reload();
   }, [refreshKey]);
 
-  const set = (key) => (value) => setCriteria((current) => ({ ...current, [key]: value }));
-  const matches = (result && result.matches) || [];
-  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
-    ${criteria && html`
-      <section class="criteria">
-        <p class="lab">${t('search.criteria')}</p>
-        ${club.slug && clubs.length > 1 && html`<div class="field-row crit-club"><label for="s-club">${t('club')}</label>
-          <${Select} id="s-club" value=${slug} options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} onChange=${setSlug} /></div>`}
-        <form onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
-          <div class="crit-cards">
-            <div class="group">
-              <h3>${t('search.time')}</h3>
-              <${WindowFields} label=${t('search.weekday')} idPrefix="s-wd" value=${criteria.weekday_window} onChange=${set('weekday_window')} />
-              <${WindowFields} label=${t('search.weekend')} idPrefix="s-we" value=${criteria.weekend_window} onChange=${set('weekend_window')} />
-              <div class="field-row"><label for="s-before">${t('webui.buffer_before')}</label>
-                <${Select} id="s-before" value=${String(criteria.buffer_before_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_before_minutes')(Number(v))} /></div>
-              <div class="field-row"><label for="s-after">${t('webui.buffer_after')}</label>
-                <${Select} id="s-after" value=${String(criteria.buffer_after_minutes)} options=${BUFFERS} onChange=${(v) => set('buffer_after_minutes')(Number(v))} /></div>
-            </div>
-            <div class="group">
-              <h3>${t('search.group')}</h3>
-              <div class="field-row"><label for="s-spots">${t('webui.min_spots')}</label>
-                <${Select} id="s-spots" value=${String(criteria.min_open_spots)} options=${SPOTS} onChange=${(v) => set('min_open_spots')(Number(v))} /></div>
-              <div class="field-row"><label for="s-player">${t('search.field.player')}</label>
-                <${Select} id="s-player" value=${criteria.player || ''}
-                  options=${[{ value: '', label: t('search.field.player.any') }, ...players.map((name) => ({ value: name, label: name }))]} onChange=${set('player')} /></div>
-              <div class="field-row"><label for="s-friends">${t('search.friends_only_label')}</label>
-                <${Switch} id="s-friends" checked=${criteria.friends_only} onChange=${set('friends_only')} /></div>
-            </div>
-          </div>
-          <div class="actions">
-            <${Status} kind="error">${error}<//>
-            <span class="grow"></span>
-            <button class="btn" type="button" disabled=${searching} onClick=${() => setCriteria(CLEARED)}>${t('search.reset')}</button>
-            <button class="btn pri" type="submit" disabled=${searching}>${t(searching ? 'search.searching' : 'search.button')}</button>
-          </div>
-        </form>
-      </section>`}
-    ${result && html`
-      <p class="lab results-head">${t('search.results', { n: matches.length })}${ranking ? html` <span class="ranking">· ${t('search.ranking')}</span>` : ''}</p>
-      ${matches.length === 0
-        ? html`<div class="empty small"><h3>${t('search.no_matches_title')}</h3><p>${t('search.no_matches_desc')}</p></div>`
-        : html`<div class="results scroll">
-          <div class="res res-head"><${WeatherHeads} units=${units} /><span class="res-action"></span></div>
-          ${matches.map((match) => html`<${ResultRow} key=${match.date + match.time} match=${match} units=${units} showHandicaps=${showHandicaps} onMark=${(picked) => onMark({ ...picked, ref })} />`)}</div>`}`}
+  const set = (change) => setF((current) => ({ ...current, ...change })); // from the state as it is, so quick taps all count
+  const flip = (key, value) => setF((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((x) => x !== value) : [...current[key], value] }));
+  const view = useMemo(() => {
+    if (!data || !f) return null;
+    const counts = {};
+    for (const slot of data.slots) if (passes(slot, f, data.mine, true)) counts[slot.date] = (counts[slot.date] || 0) + 1;
+    const kept = data.slots.filter((slot) => passes(slot, f, data.mine, false));
+    const groups = [];
+    for (const slot of kept) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === slot.date) last.rows.push(slot);
+      else groups.push({ date: slot.date, rows: [slot] });
+    }
+    const buckets = BUCKETS.filter((b) => data.slots.some((slot) => minutes(slot.time) >= b.from && minutes(slot.time) < b.to));
+    const best = Math.max(1, ...data.dates.filter((d) => (f.kind === 'weekdays' ? !isWeekend(d.date) : f.kind === 'weekend' ? isWeekend(d.date) : true)).map((d) => counts[d.date] || 0));
+    return { counts, kept, groups, buckets, best };
+  }, [data, f]);
+
+  const mine = data && data.mine;
+  const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
+  const clear = () => set({ kind: '', days: [], tod: [], courses: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
+  const rules = f && ['mine', 'dry', 'gap'].filter((key) => (key === 'mine' ? hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) : key === 'dry' ? mine.weather.length > 0 : mine.gap_before > 0 || mine.gap_after > 0));
+  const allRules = f && rules.every((key) => f[key]);
+  const noRules = f && rules.every((key) => !f[key]);
+  const toggleRules = () => set(Object.fromEntries(rules.map((key) => [key, !allRules])));
+  const overrides = f && (f.tod.length || f.friends || f.courses.length || f.spots !== defaults(data).spots);
+  const showCourse = data && data.courses.length > 1 && f.courses.length !== 1;
+  const darkNote = data && f && f.mine && f.kind !== 'weekend' && data.last_start && mine.weekday_window.after > data.last_start;
+  const gapText = mine && t('search.tip.gap', { before: mine.gap_before, after: mine.gap_after });
+  const weatherLabel = mine && (mine.weather.length === 1 && mine.weather[0] === 'rain' ? t('search.dry') : t('search.weather_ok'));
+
+  const days = html`<span class="sf-grp"><span class="lab">${t('search.days')}</span>
+    <${Chip} on=${f && f.kind === 'weekdays'} onClick=${() => set({ kind: f.kind === 'weekdays' ? '' : 'weekdays' })}>${t('search.weekday')}<//>
+    <${Chip} on=${f && f.kind === 'weekend'} onClick=${() => set({ kind: f.kind === 'weekend' ? '' : 'weekend' })}>${t('search.weekend')}<//></span>`;
+
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}
+    tabsExtra=${html`<${ClubPick} clubs=${clubs} slug=${club.slug} onSlug=${onSlug} />`}>
+    ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
+    ${!data && !error && html`<${Status} kind="busy">${t('loading')}<//>`}
+    ${data && f && html`
+      <div class="sf">
+        <div class="sf-line">
+          ${days}
+          ${hasMine && html`<${Chip} className="sf-rules" on=${allRules ? true : noRules ? false : 'mixed'} onClick=${toggleRules} title=${t('search.tip.rules')}>${t('search.rules')}<//>`}
+          <button type="button" class="chip sf-chip sf-more" aria-expanded=${f.open} onClick=${() => set({ open: !f.open })}>${t('search.filters')}${overrides ? html`<i class="dot"></i>` : ''}<${Icon} name="down" size=${12} /></button>
+        </div>
+        <div class=${'sf-panel' + (f.open ? ' open' : '')}>
+          ${hasMine && html`<span class="sf-grp"><span class="lab">${t('search.mine')}</span>
+            ${(hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window)) && html`<${Chip} on=${f.mine} onClick=${() => set({ mine: !f.mine, tod: f.mine ? f.tod : [] })}
+              title=${t('search.tip.times', { weekday: hasWindow(mine.weekday_window) ? `${mine.weekday_window.after || '…'}–${mine.weekday_window.before || '…'}` : '–', weekend: hasWindow(mine.weekend_window) ? `${mine.weekend_window.after || '…'}–${mine.weekend_window.before || '…'}` : '–' })}>${t('search.mine_times')}<//>`}
+            ${mine.weather.length > 0 && html`<${Chip} on=${f.dry} onClick=${() => set({ dry: !f.dry })} title=${t('search.tip.dry')}>${weatherLabel}<//>`}
+            ${(mine.gap_before > 0 || mine.gap_after > 0) && html`<${Chip} on=${f.gap} onClick=${() => set({ gap: !f.gap })} title=${gapText}>${t('search.gap', { n: Math.max(mine.gap_before, mine.gap_after) })}<//>`}
+            <button type="button" class="icon-btn sf-gear" onClick=${onPreferences} aria-label=${t('search.prefs')} title=${t('search.prefs')}><${Icon} name="clock" size=${16} /></button></span>`}
+          ${view.buckets.length > 0 && html`<span class="sf-grp"><span class="lab">${t('search.time')}</span>
+            ${view.buckets.map((bucket) => html`<${Chip} key=${bucket.key} on=${f.tod.includes(bucket.key)} onClick=${() => { flip('tod', bucket.key); if (!f.tod.includes(bucket.key)) set({ mine: false }); }}>${bucket.label()}<//>`)}</span>`}
+          <span class="sf-grp"><span class="lab">${t('search.spots')}</span>
+            ${[1, 2, 3, 4].map((n) => html`<${Chip} key=${n} on=${f.spots === n} onClick=${() => set({ spots: n })}>${n === 4 ? '4' : n + '+'}<//>`)}
+            <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends })}>★ ${t('search.friends')}<//></span>
+          ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
+            ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}</span>`}
+          <div class="sf-foot"><button type="button" class="btn" onClick=${clear}>${t('search.clear_all')}</button>
+            <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
+        </div>
+      </div>
+      <div class="strip" role="group" aria-label=${t('search.days')}>
+        ${data.dates.map((day) => {
+          const count = view.counts[day.date] || 0;
+          const off = (f.kind === 'weekdays' && isWeekend(day.date)) || (f.kind === 'weekend' && !isWeekend(day.date));
+          const cls = 'sday' + (isWeekend(day.date) ? ' we' : '') + (!day.loaded ? ' noday' : count === 0 ? ' zero' : count * 2 < view.best ? ' mid' : '') + (off ? ' off' : '') + (day.date === data.today ? ' today' : '');
+          return html`<button type="button" key=${day.date} class=${cls} aria-pressed=${f.days.includes(day.date)} onClick=${() => flip('days', day.date)}
+            title=${day.loaded ? t('search.day_n', { n: count }) : t('search.no_sheet')} aria-label=${dayLabel(day.date) + ', ' + (day.loaded ? t('search.day_n', { n: count }) : t('search.no_sheet'))}>
+            <span class="wd">${weekdayShort(day.date)}</span><span class="n">${Number(day.date.slice(8))}</span><span class="c">${off || !day.loaded ? '–' : count}</span></button>`;
+        })}
+      </div>
+      ${darkNote && html`<p class="why">${t('search.dark', { after: mine.weekday_window.after, last: data.last_start })}</p>`}
+      <div class="rhead"><span class="lab">${t('search.count', { n: view.kept.length })}</span>
+        ${anyOn(f) && html`<button type="button" class="btn small" onClick=${clear}>${t('search.clear')}</button>`}</div>
+      <div class="results scroll">
+        ${view.groups.length === 0
+          ? html`<div class="none">${t('search.none')}${anyOn(f) && html`<div><button type="button" class="btn small" onClick=${clear}>${t('search.clear')}</button></div>`}</div>`
+          : html`<div class="res res-head"><${WeatherHeads} units=${units} /></div>
+            ${view.groups.map((group) => html`
+              ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}<small>${group.rows.length}</small></div>`}
+              ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps} showCourse=${showCourse}
+                onMark=${(picked) => onMark({ ...picked, ref })} />`)}`)}`}
+      </div>`}
   <//>`;
 }
