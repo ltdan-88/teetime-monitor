@@ -17,6 +17,7 @@ export function monthWeeks(year, month) {
   const days = new Date(year, month + 1, 0).getDate();
   const cells = [...Array(lead).fill(null), ...Array.from({ length: days }, (_, i) => iso(year, month, i + 1))];
   while (cells.length % 7) cells.push(null);
+  while (cells.length < 42) cells.push(null);  // always six rows: the calendar keeps its height from month to month
   return Array.from({ length: cells.length / 7 }, (_, row) => cells.slice(row * 7, row * 7 + 7));
 }
 
@@ -85,7 +86,7 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
   };
   // from the state as it is now, not as it was drawn: two quick taps both count
   const flip = (key, v) => setFilter((current) => ({ ...current, [key]: current[key].includes(v) ? current[key].filter((x) => x !== v) : [...current[key], v] }));
-  return html`<${Sheet} title=${t('tournaments.title')} onClose=${onClose} size="medium">
+  return html`<${Sheet} title=${t('tournaments.title')} onClose=${onClose} size="medium" tall>
     ${!data && !error && html`<${Status} kind="busy">${t('tournaments.loading')}<//>`}
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}

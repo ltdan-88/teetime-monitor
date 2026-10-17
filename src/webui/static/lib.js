@@ -282,7 +282,9 @@ export function useEscape(handler) {
 }
 
 /** A modal sheet over the page: Escape or a click on the dim area closes it. */
-export function Sheet({ title, onClose, size = 'medium', fixed = false, children, footer, tabs }) {
+/** `fixed`: a full-height sheet whose body is laid out by its screen (it scrolls inside). `tall`: a full-height sheet
+ *  whose body just scrolls. Both keep their size however the content changes (a month, a tab, a loading list). */
+export function Sheet({ title, onClose, size = 'medium', fixed = false, tall = false, children, footer, tabs }) {
   useEscape(onClose);
   const ref = useRef(null);
   useEffect(() => {
@@ -292,7 +294,7 @@ export function Sheet({ title, onClose, size = 'medium', fixed = false, children
   }, []);
   return html`
     <div class="scrim" onMouseDown=${(event) => event.target === event.currentTarget && onClose()}>
-      <div class=${'sheet ' + size + (fixed ? ' tall' : '')} role="dialog" aria-modal="true" aria-label=${title} tabindex="-1" ref=${ref}>
+      <div class=${'sheet ' + size + (fixed || tall ? ' tall' : '')} role="dialog" aria-modal="true" aria-label=${title} tabindex="-1" ref=${ref}>
         <header class="sheet-head">
           <h2>${title}</h2>
           <button class="icon-btn" onClick=${onClose} aria-label=${t('close')} title=${t('close')}><${Icon} name="close" size=${18} /></button>
