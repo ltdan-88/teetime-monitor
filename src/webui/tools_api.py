@@ -7,7 +7,18 @@ and the `known_players` table. Nothing here ranks, aggregates or classifies on i
 
 from datetime import date, datetime, timedelta
 
-from .. import analytics, calendar_context, clock, club_directory, pipeline, playability, recommend, search, storage
+from .. import (
+    analytics,
+    calendar_context,
+    clock,
+    club_config,
+    club_directory,
+    pipeline,
+    playability,
+    recommend,
+    search,
+    storage,
+)
 from . import data
 
 SEARCH_DAYS = 14  # how far ahead Search looks: what the club's scrapes keep (scrape_once.MAX_OVERVIEW_DAYS)
@@ -89,7 +100,8 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
         )
         if on
     ]
-    courses = data.courses_for(club["id"])
+    left_out = club_config.excluded_courses(config)
+    courses = [course for course in data.courses_for(club["id"]) if course not in left_out]  # the ones you cannot play never show
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
     handicaps = storage.load_known_handicaps(db)

@@ -193,6 +193,27 @@ def set_course_holes(slug: str, course: str, holes: int | None, clubs_dir: Path 
     save_club_config(slug, config, clubs_dir)
 
 
+def excluded_courses(config: dict | None) -> set[str]:
+    """The courses of a club you cannot play (a 9 hole membership leaves out the 18 hole course): `excluded_courses`
+    in the club's file. Search leaves them out. Nothing listed means every course counts."""
+    listed = (config or {}).get("excluded_courses")
+    return {str(name) for name in listed} if isinstance(listed, list) else set()
+
+
+def set_course_played(slug: str, course: str, play: bool, clubs_dir: Path | None = None) -> None:
+    """Mark one course of a club as one you can play (`play=True`) or not, keeping every other key. The list
+    disappears with its last entry. Same comment-loss caveat as `save_club_config()`."""
+    config = load_club_config(slug, clubs_dir)
+    left_out = excluded_courses(config) - {course}
+    if not play:
+        left_out.add(course)
+    if left_out:
+        config["excluded_courses"] = sorted(left_out)
+    else:
+        config.pop("excluded_courses", None)
+    save_club_config(slug, config, clubs_dir)
+
+
 def new_club_stub(club_id: str, name: str = "") -> dict:
     """A minimal starting config for a club just picked from `tui.py`'s
     `ClubBrowserScreen` directory search — only
