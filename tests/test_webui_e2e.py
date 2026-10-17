@@ -471,7 +471,7 @@ def test_the_player_directory_filters_by_club_and_gender_together_with_its_sorti
     ui.wait("document.querySelectorAll('.player-list li .player-name').length > 5")
     every = ui.count(".player-list li .player-name")
     clubs = ui.js("[...document.querySelectorAll('#p-club option')].map((o) => o.textContent)")
-    assert clubs == ["All clubs", "Golfclub Beispiel", "Guests (club unknown)"], clubs  # the clubs the list knows, and guests
+    assert clubs == ["All clubs", "Beispiel", "Guests"], clubs  # the clubs the list knows (short, so the menu stays narrow), and guests
     ui.set("#p-gender", "female")
     ui.wait(f"document.querySelectorAll('.player-list li .player-name').length < {every}")
     assert ui.js("[...document.querySelectorAll('.player-list li .player-name')].every((e) => e.classList.contains('alt'))")  # only women
@@ -1731,9 +1731,27 @@ def test_a_players_tee_time_at_another_club_shows_that_club_and_jumps_there(two_
     _open_sheet(ui, "p", "Player")
     ui.wait("[...document.querySelectorAll('.player-list li')].some((li) => li.textContent.includes('Nina Nachbar'))")
     row = "[...document.querySelectorAll('.player-list li')].find((li) => li.textContent.includes('Nina Nachbar'))"
-    assert ui.js(f"{row}.querySelector('.tee-btn .tee-club').textContent.trim()") == "· Nachbar"  # the club, without "Golfclub … e.V."
+    assert ui.js(f"{row}.querySelector('.tee-btn .tee-club').textContent.trim()") == "Nachbar"  # the club, without "Golfclub … e.V."
     assert "Golfclub Nachbar e.V." in ui.js(f"{row}.textContent")  # her home club in the Club column
     ui.js(f"{row}.querySelector('.tee-btn').click()")
     ui.wait("!document.querySelector('.scrim') && document.querySelector('#club').value === 'golfclub-nachbar'")  # switched club
     ui.wait("document.querySelector('.card.open [data-slot$=\" 10:00\"]')")  # and opened her day at her time
+    ui.wait("document.querySelector('.card.open')?.innerText.includes('Nina Nachbar')")  # (the other club's day loads a moment after the switch)
     assert "Nina Nachbar" in ui.text(".card.open")
+
+
+def test_the_player_directory_filters_by_tee_time(two_clubs_ui):
+    ui = two_clubs_ui
+    _open_sheet(ui, "p", "Player")
+    nina = "[...document.querySelectorAll('.player-list li .player-name')].some((e) => e.textContent === 'Nina Nachbar')"
+    ui.wait(nina)
+    every = ui.count(".player-list li .player-name")
+    ui.set("#p-tee", "any")  # a tee time from now on, at any saved club: each row keeps its tee time button
+    ui.wait("document.querySelectorAll('.player-list li .player-name').length === document.querySelectorAll('.player-list li .tee-btn').length")
+    assert ui.js(nina)
+    ui.set("#p-tee", "today")  # Nina plays tomorrow only
+    ui.wait(f"!({nina})")
+    assert 0 < ui.count(".player-list li .player-name") < every
+    ui.set("#p-tee", "all")
+    ui.wait(f"document.querySelectorAll('.player-list li .player-name').length === {every}")
+    _close_sheet(ui)

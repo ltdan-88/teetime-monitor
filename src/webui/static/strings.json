@@ -365,11 +365,15 @@
   "players.sort.club": "By club",
   "players.filter.club": "Show players of",
   "players.filter.club_all": "All clubs",
-  "players.filter.guests": "Guests (club unknown)",
+  "players.filter.guests": "Guests",
   "players.filter.gender": "Show",
   "players.filter.gender_all": "Women & men",
   "players.filter.female": "Women only",
-  "players.filter.male": "Men only"
+  "players.filter.male": "Men only",
+  "players.filter.tee": "Tee time",
+  "players.filter.tee_all": "All players",
+  "players.filter.tee_any": "With tee time",
+  "players.filter.tee_today": "Tee time today"
  },
  "de": {
   "app.title": "Teetime Monitor",
@@ -737,10 +741,14 @@
   "players.sort.club": "Nach Club",
   "players.filter.club": "Spieler zeigen von",
   "players.filter.club_all": "Alle Clubs",
-  "players.filter.guests": "Gäste (Club unbekannt)",
+  "players.filter.guests": "Gäste",
   "players.filter.gender": "Zeigen",
   "players.filter.gender_all": "Damen & Herren",
   "players.filter.female": "Nur Damen",
-  "players.filter.male": "Nur Herren"
+  "players.filter.male": "Nur Herren",
+  "players.filter.tee": "Tee-Zeit",
+  "players.filter.tee_all": "Alle Spieler",
+  "players.filter.tee_any": "Mit Tee-Zeit",
+  "players.filter.tee_today": "Tee-Zeit heute"
  }
 }
