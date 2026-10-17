@@ -189,6 +189,7 @@ def players(slug: str | None, club_id: str | None) -> dict:
             for p in storage.load_known_players(db)
         ],
         "my_handicap": storage.load_my_handicap(db),
+        "today": clock.today(),  # what the "tee time today" filter compares with
     }
 
 

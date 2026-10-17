@@ -28,6 +28,7 @@ DYNAMIC = {
     "preview.": ["no_tee_sheet", "login_required", "course_fetch_failed", "missing_club_id"],
     "heatmap.": ["tournament", "public_holiday", "vacation"],
     "players.sort.": ["name", "friend", "gender", "handicap", "club"],
+    "players.filter.tee_": ["all", "any", "today"],
     "players.member_status.": ["member", "guest"],
     "booking.error.": ["no_login", "login", "taken", "not_bookable", "not_found", "not_cancelable", "unconfirmed", "network", "unknown_club", "bad_time", "other"],
     "search.flag.": ["rain", "wind", "temp"],

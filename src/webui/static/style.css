@@ -956,10 +956,12 @@ button, select, input { touch-action: manipulation; }
 .pill.word { font-family: var(--font); font-size: 0.875rem; color: var(--mid); }
 @media (max-width: 640px) { .dh .heat span { height: 0.4375rem; } }
 .tee-btn .tee-club { font-family: var(--font); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }  /* a tee time at another of your clubs */
+.tee-btn .tee-club::before { content: '· '; }
 
 /* ---- the player directory's sort and filters: one row; on a phone one line that swipes sideways */
 .players-filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.players-filters .select select { width: auto; }
+.players-tools .search-box { flex: 1 1 14rem; }  /* room for a name; the filters wrap below it first */
+.players-filters .select select { width: auto; max-width: 12rem; }
 @media (max-width: 640px) {
   .players-tools { gap: 0.5rem; }
   .players-tools .search-box { flex: 1 1 100%; }
@@ -972,4 +974,8 @@ button, select, input { touch-action: manipulation; }
 @media (max-width: 640px) {  /* a phone: the next tee time as weekday and time, so the names keep their room (a tap lists every time) */
   .player-list .tee-btn { gap: 0.3rem; padding: 0 0.5rem; }
   .player-list .tee-btn .tee-date, .player-list .tee-btn .more { display: none; }
+  /* another club's tee time: the club on a second line, so every name keeps its room */
+  .player-list .tee-btn:has(.tee-club) { display: inline-grid; grid-template-columns: auto auto; justify-content: center; height: auto; min-height: 1.875rem; padding-block: 0.25rem; row-gap: 0; border-radius: 0.75rem; line-height: 1.15; }
+  .player-list .tee-btn .tee-club { grid-column: 1 / -1; width: 0; min-width: 100%; text-align: center; font-size: 0.75rem; }  /* as wide as the time, never wider */
+  .player-list .tee-btn .tee-club::before { content: none; }
 }
