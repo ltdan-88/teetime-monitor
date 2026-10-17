@@ -74,7 +74,7 @@ function ResultRow({ slot, units, showHandicaps, onMark }) {
   const [whoOpen, setWhoOpen] = useState(false); // where the names do not fit, a chip with the count opens them (as in the days)
   const who = { players: slot.players, booked: slot.booked };
   return html`
-    <div class=${'res' + (slot.players.length || slot.booked ? '' : ' solo')} data-slot=${slot.date + ' ' + slot.time}>
+    <div class="res" data-slot=${slot.date + ' ' + slot.time}>
       <span class="num res-time">${slot.time}</span>
       <span class="res-open seats" role="img" title=${t('search.open_spots', { n: slot.open })} aria-label=${t('search.open_spots', { n: slot.open })}>${seatSquares(slot)}</span>
       <span class="res-people"><${PlayerNames} slot=${who} showHandicaps=${showHandicaps} /></span>

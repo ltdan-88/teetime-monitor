@@ -1,4 +1,4 @@
-// The Overview's day cards: header (weather, pick/booking/lock badge, occupancy), expandable slots.
+// The Overview's day cards: header (weather, match count, booking/lock/no-play badge, occupancy), expandable slots.
 
 import {
   html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, quietOccupancyColor, occupancyState,
@@ -16,7 +16,9 @@ function heatPart(ratio, i) {
   return `${hh(HEAT_FROM[i])}–${hh(HEAT_FROM[i] + 2)} ${t('heat.' + occupancyState(ratio))}`;
 }
 
-export function Badge({ day, onAlternative }) {
+/** A fact about the day the times alone do not show: your booking, when booking opens, or why nothing fits (rain, dark).
+ *  The recommended time and a time on another course are left to the opened day (its ★ and its note) and to Search. */
+export function Badge({ day }) {
   const pick = day.pick;
   if (day.booked_time) {
     return html`<span class="pill booked" title=${t('tip.booked')}><${Icon} name="flag" size=${16} style="fill:currentColor" />${day.booked_time}</span>`;
@@ -25,18 +27,7 @@ export function Badge({ day, onAlternative }) {
     const when = opensText(pick.locked);
     return html`<span class="pill quiet" title=${t('tip.locked', { when })}><${Icon} name="lock" size=${15} />${when}</span>`;
   }
-  if (pick && pick.time) {
-    return html`<span class="pill pick" title=${pickTooltip(pick)}><${Icon} name="star" size=${16} style="fill:currentColor" />${pick.time}</span>`;
-  }
-  if (pick && pick.alternative) {
-    const alt = pick.alternative;
-    const tip = t('tip.alt', { time: alt.time, course: alt.course, holes: alt.holes });
-    if (!onAlternative) return html`<span class="pill quiet" title=${tip}><${Icon} name="star" size=${15} />${alt.time} · ${t('holes.short', { n: alt.holes })}</span>`;
-    // Inside the header button, so a click must not also toggle the day.
-    const go = (event) => { event.stopPropagation(); onAlternative(day, alt); };
-    return html`<span class="pill quiet link" title=${tip + ' ' + t('tip.pick_alternative_click')} onClick=${go}><${Icon} name="star" size=${15} />${alt.time} · ${t('holes.short', { n: alt.holes })}</span>`;
-  }
-  if (pick && pick.unplayable && pick.unplayable.length) {
+  if (pick && !pick.time && !pick.alternative && pick.unplayable && pick.unplayable.length) {
     const reasons = [...pick.unplayable].sort();
     const dark = reasons.length === 1 && reasons[0] === 'daylight';
     const key = dark ? 'tip.no_pick_daylight' : reasons.length === 1 && reasons[0] === 'weather' ? 'tip.no_pick_weather' : 'tip.no_pick_both';
@@ -80,16 +71,16 @@ function dayNote(day) {
 }
 
 /** How many of the day's times pass your Preferences: a tap opens Search on this day. Inside the header button, so a
- *  tap must not also open the day. Green, amber below half of the best day, grey for none (as in Search's strip). */
+ *  tap must not also open the day. Green, amber below half of the best day; nothing for none. */
 function MatchCount({ day, best, onSearch }) {
-  if (day.matches == null || !onSearch) return null;
+  if (!day.matches || !onSearch) return null;
   const go = (event) => { event.stopPropagation(); onSearch(day.date); };
-  const tone = day.matches === 0 ? ' z' : day.matches * 2 < best ? ' a' : '';
+  const tone = day.matches * 2 < best ? ' a' : '';
   return html`<span class=${'hits-link' + tone} role="link" tabindex="0" title=${t('search.day_tip', { n: day.matches })} aria-label=${t('search.day_tip', { n: day.matches })}
     onClick=${go} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && go(event)}><${Icon} name="search" size=${13} />${day.matches}</span>`;
 }
 
-function DayHeader({ day, open, onToggle, units, onAlternative, best, onSearch }) {
+function DayHeader({ day, open, onToggle, units, best, onSearch }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -109,7 +100,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative, best, onSearch }
         ${w && w.wind_peak != null && html`<${Icon} name="wind" size=${15} />${windSpeed(w.wind_peak, units)}`}
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
-      <span class="badge-slot"><${MatchCount} day=${day} best=${best} onSearch=${onSearch} /><${Badge} day=${day} onAlternative=${onAlternative} /></span>
+      <span class="badge-slot"><${MatchCount} day=${day} best=${best} onSearch=${onSearch} /><${Badge} day=${day} /></span>
       <span class="heat" role="img" aria-label=${t('heat.title') + ': ' + day.heat.map((ratio, i) => heatPart(ratio, i)).join(', ')}>${day.heat.map((ratio, i) => html`<span class=${'o-' + occupancyState(ratio)} style=${{ backgroundColor: quietOccupancyColor(ratio) }} title=${heatPart(ratio, i)}></span>`)}</span>
       ${day.events.length > 0 && html`<span class="events" title=${day.events.join(' · ')}>${day.events.join(' · ')}</span>`}
     </button>
@@ -181,7 +172,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
       onClick=${activate} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), activate())}>
       <span class="time">
         <span style="width:1rem;display:inline-flex">
-          ${slot.recommended ? html`<${Icon} name="star" size=${14} style="color:var(--accent);fill:var(--accent)" />` : slot.too_late ? html`<${Icon} name="moon" size=${14} class="dim" />` : null}
+          ${slot.recommended ? html`<${Icon} name="star" size=${14} class="rec" style="color:var(--accent);fill:var(--accent)" />` : slot.too_late ? html`<${Icon} name="moon" size=${14} class="dim" />` : null}
         </span>
         <span style=${slot.booked_by_you ? { fontWeight: 700 } : null}>${slot.time}</span>
       </span>
@@ -207,7 +198,7 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
 export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, best, onSearch }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} best=${best} onSearch=${onSearch} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} best=${best} onSearch=${onSearch} />
       ${open && html`<div class="slots">
         ${(() => {
           const note = dayNote(day);

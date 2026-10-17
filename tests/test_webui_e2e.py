@@ -697,7 +697,8 @@ def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
     ui.js("window.scrollTo(0, 0)")
     ui.click("button.dh", index=3)  # opens the fourth day (the accordion closes the others)
     ui.wait("document.querySelectorAll('.card')[3].classList.contains('open')")
-    pick = ui.text(".card.open .pill.pick").strip()
+    ui.wait("document.querySelector('.card.open .slot .rec')")
+    pick = ui.js("document.querySelector('.card.open .slot .rec').closest('.slot').dataset.slot.split(' ')[1]")  # its ★ time
     ui.wait(f"(() => {{ const r = document.querySelector('.card.open [data-slot$=\" {pick}\"]'); if (!r) return false; const b = r.getBoundingClientRect(); return b.top > 100 && b.bottom < window.innerHeight; }})()")
     ui.js("window.scrollBy(0, 400)")
     ui.wait("(() => { const h = document.querySelector('.card.open .dh-wrap').getBoundingClientRect().top; const bar = document.querySelector('.toolbar').getBoundingClientRect().bottom; return Math.abs(h - bar) < 3; })()")
@@ -786,7 +787,7 @@ def test_the_window_hint_and_the_shorter_round_badge(ui):
           if (/course=Other/.test(String(url))) data.course = 'Other';
           data.hint = {window_after: '17:00', latest_start: '15:40', sunset: '19:08', round_minutes: 240, days: 3, alternative_courses: ['Other']};
           const slot = data.days[1].slots.find((s) => !s.past && s.block_reason == null && s.time > '12:00');
-          data.days[1].pick = {alternative: {time: slot.time, course: 'Other', holes: 9}};
+          data.days[1].pick = {alternative: {time: slot.time, course: 'Other', holes: 9}}; window.__alt = slot.time;
           return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
     )
     _open_sheet(ui, "e", "Preferences")  # saving reloads the overview, now through the rewritten fetch
@@ -801,9 +802,14 @@ def test_the_window_hint_and_the_shorter_round_badge(ui):
     ui.click(".hint-bar .icon-btn", index=0)  # the gear: the way straight to the setting
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Preferences')")
     _close_sheet(ui)
-    badge = ".pill.link"
-    time_text = ui.text(badge).split("·")[0].strip()
-    ui.click(badge)
+    assert ui.count(".card .badge-slot .pill") == ui.count(".card .badge-slot .pill:not(.link)")  # no other-course pill on the header
+    while ui.count(".card.open"):
+        ui.click(".card.open button.dh")
+        ui.wait("document.querySelectorAll('.card.open').length === 0")
+    ui.click("button.dh", index=1)  # the opened day says it, with the switch
+    ui.wait("document.querySelector('.card.open .day-why .link-btn')")
+    time_text = ui.js("window.__alt")
+    ui.click(".card.open .day-why .link-btn")
     ui.wait("document.querySelector('.toolbar select#course')?.value === 'Other' || document.querySelector('#course')?.value === 'Other'")
     ui.wait(f"document.querySelector('.card.open [data-slot$=\" {time_text}\"].flash')")  # the slot is open, in view and flashing
     assert ui.js("document.querySelectorAll('.card.open').length") == 1
@@ -1280,7 +1286,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     while ui.count(".card.open"):
         ui.click(".card.open button.dh")
         ui.wait("document.querySelectorAll('.card.open').length === 0")
-    ui.js("document.querySelector('.card:has(.pill.pick) button.dh').click()")  # a day that has a recommended pick
+    ui.click("button.dh", index=3)  # a day that has a recommended pick (its ★ is inside, not on the header)
     ui.wait("document.querySelector('.card.open .slots')")
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
@@ -1393,7 +1399,7 @@ def test_on_a_phone_search_hides_most_filters_behind_one_button_and_the_results_
 def test_a_pill_in_the_day_header_fits_inside_its_card_on_a_phone(ui):
     try:
         ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
-        ui.js("document.querySelector('.badge-slot').innerHTML = '<span class=\"pill quiet link\"><svg width=15 height=15></svg>16:00 · 9H</span>'")
+        ui.js("document.querySelector('.badge-slot').innerHTML = '<span class=\"pill quiet\"><svg width=15 height=15></svg>Wed 21:00</span>'")
         ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
         fits = ui.js("(() => { const pill = document.querySelector('.badge-slot .pill'), card = document.querySelector('.card'); return [pill.scrollWidth <= pill.clientWidth, pill.getBoundingClientRect().right <= card.getBoundingClientRect().right]; })()")
         assert fits == [True, True]  # the text sits inside the pill and the pill inside the card
@@ -2086,12 +2092,14 @@ def test_on_a_phone_clear_and_back_to_mine_sit_beside_the_filter_button(ui):
 
 def test_each_day_counts_the_times_for_you_and_a_tap_opens_search_on_that_day(ui):
     ui.js("window.scrollTo(0, 0)")
-    ui.wait("document.querySelectorAll('.dh .hits-link').length === document.querySelectorAll('.card').length")
-    first = ui.js("[...document.querySelectorAll('.dh .hits-link')].findIndex((e) => Number(e.textContent) > 0)")
+    ui.wait("document.querySelector('.dh .hits-link')")
+    assert ui.js("[...document.querySelectorAll('.dh .hits-link')].every((e) => Number(e.textContent) > 0)")  # a day with none shows no count
+    assert ui.count(".dh .pill.pick") == 0  # nor a ★ time: the count says it
+    first = ui.js("[...document.querySelectorAll('.card')].findIndex((c) => c.querySelector('.dh .hits-link'))")
     assert first >= 0
-    count = int(ui.js(f"document.querySelectorAll('.dh .hits-link')[{first}].textContent"))
+    count = int(ui.js(f"document.querySelectorAll('.card')[{first}].querySelector('.dh .hits-link').textContent"))
     opened = ui.count(".card.open")
-    ui.js(f"document.querySelectorAll('.dh .hits-link')[{first}].click()")
+    ui.js(f"document.querySelectorAll('.card')[{first}].querySelector('.dh .hits-link').click()")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday[aria-pressed=true]').length === 1")
     assert ui.js("document.querySelectorAll('.strip .sday')[" + str(first) + "].getAttribute('aria-pressed')") == "true"  # that day, and only it
     assert _search_rows(ui) == count  # the same times the header counted
@@ -2119,9 +2127,10 @@ def test_on_a_phone_the_player_chip_sits_right_of_the_seat_squares_in_search(ui)
         shape = ui.js(
             """(() => { const row = [...document.querySelectorAll('.results .res')].find((r) => r.querySelector('.who-chip'));
             const seats = [...row.querySelectorAll('.seats .seat')].pop().getBoundingClientRect(), chip = row.querySelector('.who-chip').getBoundingClientRect();
-            return {right: chip.left >= seats.right + 2, level: Math.abs((chip.top + chip.bottom) / 2 - (seats.top + seats.bottom) / 2) < 4}; })()"""
+            const time = row.querySelector('.res-time').getBoundingClientRect(), mid = (b) => (b.top + b.bottom) / 2;
+            return {right: chip.left >= seats.right + 2, level: Math.abs(mid(chip) - mid(seats)) < 4, withTime: Math.abs(mid(seats) - mid(time)) < 4}; })()"""
         )
-        assert shape == {"right": True, "level": True}, shape
+        assert shape == {"right": True, "level": True, "withTime": True}, shape  # squares and chip level with the time
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)

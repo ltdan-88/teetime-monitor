@@ -102,12 +102,10 @@ function Legend({ onClose }) {
       <dt>${swatch('var(--faint)', 'none')}</dt><dd>${t('legend.occ.none')}</dd>
     </dl>
     <dl class="legend">
-      <dt><span class="pill pick"><${Icon} name="star" size=${14} style="fill:currentColor" />09:10</span></dt><dd>${t('legend.pick')}</dd>
       <dt><span class="pill booked"><${Icon} name="flag" size=${14} style="fill:currentColor" />11:00</span></dt><dd>${t('legend.booked')}</dd>
       <dt><span class="pill quiet"><${Icon} name="lock" size=${14} />Wed 21:00</span></dt><dd>${t('legend.locked')}</dd>
       <dt><${Icon} name="star" size=${16} style="color:var(--accent);fill:var(--accent)" /></dt><dd>${t('legend.recommended')}</dd>
       <dt><${Icon} name="moon" size=${16} class="dim" /></dt><dd>${t('legend.too_late')}</dd>
-      <dt><span class="pill quiet"><${Icon} name="star" size=${14} />12:10 · ${t('holes.short', { n: 9 })}</span></dt><dd>${t('legend.alternative')}</dd>
       <dt><span class="chipdemo"><${Icon} name="users" size=${14} />3</span></dt><dd>${t('legend.chip')}</dd>
       <dt><span class="cell warn">13°</span></dt><dd>${t('legend.warn')}</dd>
     </dl>
@@ -259,7 +257,14 @@ function App() {
     setTimeout(() => row.classList.remove('flash'), 2400);
   }, [openDate, overview, jumpTick]);
 
-  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') { forgetSearch(); setTabCourse(null); setSearchDay(null); } }, [sheet]);
+  // Leaving Search and the Heatmap forgets their filters, course and day. A count tapped right after a sheet closed must not
+  // be undone by that sheet's reset, which can still be on its way: `toSearch` holds it off until Search is up.
+  const toSearch = useRef(false);
+  useEffect(() => {
+    if (sheet === 'search' || sheet === 'heatmap') toSearch.current = false;
+    else if (!toSearch.current) { forgetSearch(); setTabCourse(null); setSearchDay(null); }
+  }, [sheet]);
+  const searchOn = (date) => { toSearch.current = true; forgetSearch(); setTabCourse(null); setSearchDay(date); setSheet('search'); };
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
   }, [openDate]);
@@ -591,7 +596,7 @@ function App() {
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
           <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
-            best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${(date) => { setSearchDay(date); setSheet('search'); }}
+            best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${searchOn}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}

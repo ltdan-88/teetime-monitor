@@ -150,7 +150,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   border-radius: 62.4375rem; font-family: var(--mono); font-size: 0.875rem; white-space: nowrap; max-width: 100%;
 }
 .pill.booked { background: var(--pill-blue-bg); color: var(--accent-text, var(--accent)); }
-.pill.pick { background: var(--pill-yellow-bg); color: var(--yellow); }
 .pill.quiet { background: var(--pill-grey-bg); color: var(--dim); font-family: var(--font); }
 .pill.link { cursor: pointer; }
 .pill.link:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--pill-grey-bg)); }
@@ -957,7 +956,6 @@ button, select, input { touch-action: manipulation; }
 .res .who-chip, .res .who-list { display: none; }
 .hits-link { display: inline-flex; align-items: center; gap: 0.1875rem; height: 1.625rem; padding: 0 0.5rem; border-radius: 62.4375rem; font-family: var(--mono); font-size: 0.8125rem; font-weight: 700; color: color-mix(in srgb, var(--green) 55%, var(--text)); background: color-mix(in srgb, var(--green) 14%, transparent); cursor: pointer; white-space: nowrap; }  /* a day's matches: opens Search on it */
 .hits-link.a { color: color-mix(in srgb, var(--orange) 55%, var(--text)); background: color-mix(in srgb, var(--orange) 14%, transparent); }
-.hits-link.z { color: var(--dim); background: transparent; font-weight: 500; }
 .hits-link:hover { filter: brightness(1.15); }
 .res .res-people { grid-column: 3; grid-row: 1; }  /* placed, so the player chip can share its cell without pushing the rest along */
 .res-people { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1013,12 +1011,11 @@ button, select, input { touch-action: manipulation; }
   .res-head { display: none; }
   .dayhead { top: 0; }
   .res-time { grid-row: 1 / span 2; align-self: center; }
-  .res-open { grid-column: 2; grid-row: 1; font-size: 0.8125rem; }
-  .res .res-people { grid-column: 2; grid-row: 2; font-size: 0.8125rem; }
-  .res .who-chip { grid-column: 2; grid-row: 1; align-self: center; justify-self: start; margin-left: 5.25rem; height: 1.625rem; }  /* on the squares' line, right of them */
+  /* the names never fit here (the chip stands in for them), so the squares and the chip sit level with the time */
+  .res-open { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 0.8125rem; }
+  .res .who-chip { grid-column: 2; grid-row: 1 / span 2; align-self: center; justify-self: start; margin-left: 5.25rem; height: 1.625rem; }  /* right of the squares */
   .res .who-list { grid-column: 2 / -1; grid-row: 3; }
-  .res.solo .res-open, .res.solo .res-course { grid-row: 1 / span 2; align-self: center; }  /* nobody booked: the free seats sit level with the time */
-  .res-course { grid-column: 2; grid-row: 1; justify-self: end; font-size: 0.75rem; max-width: 7rem; }
+  .res-course { grid-column: 2; grid-row: 1 / span 2; align-self: center; justify-self: end; font-size: 0.75rem; max-width: 7rem; }
   .res .temp { grid-column: 3; grid-row: 1; font-size: 0.8125rem; }
   .res .rain { grid-column: 3; grid-row: 2; font-size: 0.75rem; }
   .res .wind { display: none; }
