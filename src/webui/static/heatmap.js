@@ -3,12 +3,13 @@
 
 import { html, t, useState, Sheet, Select, Status, useLoad, api, query, weekdayShort, occupancyColor, round } from '/lib.js';
 
-const WEEKDAY_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SUNDAY_FIRST = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONDAY_FIRST = [...SUNDAY_FIRST.slice(1), 'Sunday'];  // the week as imperial (US) units count it starts on Sunday, otherwise on Monday
 // Any Sunday: only to get the localized short weekday name.
 const SUNDAY = '2026-10-04';
 
 function weekdayLabel(name) {
-  const index = WEEKDAY_ORDER.indexOf(name);
+  const index = SUNDAY_FIRST.indexOf(name);
   const date = new Date(2026, 9, 4 + index);
   return weekdayShort(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`) || SUNDAY;
 }
@@ -40,7 +41,8 @@ function Grid({ title, keys, labels, group, hours, minSamples, onPick }) {
     </div>`;
 }
 
-export function HeatmapSheet({ club, course, onClose, tabs }) {
+export function HeatmapSheet({ club, course, units, onClose, tabs }) {
+  const weekdays = units === 'imperial' ? SUNDAY_FIRST : MONDAY_FIRST;
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const [chosen, setChosen] = useState(course);
   const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: chosen })), [club.id, chosen]);
@@ -56,7 +58,7 @@ export function HeatmapSheet({ club, course, onClose, tabs }) {
     ${data && data.hours.length > 0 && html`
       <p class="hint">${t('heatmap.intro', { n: data.history_days })}</p>
       <div class="hm-wrap">
-        <${Grid} title=${t('heatmap.by_weekday')} keys=${WEEKDAY_ORDER} labels=${WEEKDAY_ORDER.map(weekdayLabel)}
+        <${Grid} title=${t('heatmap.by_weekday')} keys=${weekdays} labels=${weekdays.map(weekdayLabel)}
           group=${data.by_weekday} hours=${data.hours} minSamples=${data.min_samples} onPick=${setPicked} />
         <${Grid} title=${t('heatmap.special_days')} keys=${data.special_day_types} labels=${data.special_day_types.map((key) => t('heatmap.' + key))}
           group=${data.special_days} hours=${data.hours} minSamples=${data.min_samples} onPick=${setPicked} />

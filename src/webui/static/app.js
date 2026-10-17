@@ -449,7 +449,7 @@ function App() {
   const openTournaments = (date) => { setTournamentDate(date); setSheet('tournaments'); };
   /** `slug`: another saved club to switch to first (a player's tee time there, from the shared directory). */
   const jumpTo = (date, time, courseName, slug = null) => {
-    const target = courseName || (overview && overview.course);
+    const target = courseName || (slug ? null : overview && overview.course);  // another club: its own course, once it is open
     focusOnOpen.current = null;
     jumpTarget.current = { date, time, course: target, slug };
     if (slug && !(view && view.kind === 'saved' && view.slug === slug)) {
@@ -459,7 +459,7 @@ function App() {
     setOpenDate(date);
     setJumpTick((n) => n + 1);
   };
-  const markFromSearch = (match) => askBooking(match.date, match.time, match.course, refOf(view), false);
+  const markFromSearch = (match) => askBooking(match.date, match.time, match.course, match.ref || refOf(view), false);
   const bookingDone = () => {
     setBooking(null);
     setSearchTick((n) => n + 1);
@@ -596,11 +596,11 @@ function App() {
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
-      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
+      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} clubs=${boot.clubs} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
-      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
+      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
-      ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
+      ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} clubs=${boot.clubs} units=${units} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date, slug) => { setSheet(null); jumpTo(date, undefined, undefined, slug !== club.slug ? slug : null); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
