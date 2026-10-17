@@ -424,10 +424,10 @@ def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
     assert 0 < _search_rows(ui) <= start
     ui.js("document.querySelector('.strip .sday[aria-pressed=true]').click()")  # and back
     ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
-    _chip(ui, "Weekend")  # weekdays dim in the strip, the list keeps weekend days only
-    ui.wait("document.querySelectorAll('.strip .sday.off').length > 0")
-    assert ui.js("[...document.querySelectorAll('.dayhead')].every((e) => /Sat|Sun/.test(e.textContent))") is True
-    _chip(ui, "Weekend")
+    ui.js("[...document.querySelectorAll('.strip .sday')].filter((e) => e.classList.contains('we')).forEach((e) => e.click())")  # the weekend: its days in the strip
+    ui.wait("document.querySelectorAll('.dayhead').length === 0 || [...document.querySelectorAll('.dayhead')].every((e) => /Sat|Sun/.test(e.textContent))")
+    ui.js("[...document.querySelectorAll('.strip .sday[aria-pressed=true]')].forEach((e) => e.click())")
+    ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
     _chip(ui, "My times")  # turning your rules off shows more
     ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length > {start}")
     _close_sheet(ui)
@@ -668,7 +668,7 @@ def test_clear_filters_shows_everything_and_is_in_reach(ui):
     ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     start = _search_rows(ui)
     assert ui.count(".sf-actions .sf-clear") == 1  # right after the filters while anything is on
-    _chip(ui, "Weekend")
+    _chip(ui, "Before 11")
     _chip(ui, "3+")
     ui.click(".sf-actions .sf-clear")
     ui.wait("document.querySelectorAll('.sf .chip[aria-pressed=true]').length === 1")  # only "1+" is left on: nothing narrows
@@ -1906,18 +1906,17 @@ def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
 def test_search_keeps_its_filters_while_you_look_at_the_heatmap_and_forgets_them_when_closed(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
-    _chip(ui, "Weekend")
+    _chip(ui, "Before 11")
     _chip(ui, "3+")
-    ui.js("document.querySelector('.sf-more')?.getAttribute('aria-expanded')")  # (a phone's panel is not under test here)
     ui.click(".sheet-tab", text="Heatmap")
     ui.wait("document.querySelector('.hm-wrap, .sheet .empty')")
     ui.click(".sheet-tab", text="Open times")
     ui.wait("document.querySelectorAll('.strip .sday').length === 5")
-    assert _chip_on(ui, "Weekend") == "true" and _chip_on(ui, "3+") == "true"  # as you left them
+    assert _chip_on(ui, "Before 11") == "true" and _chip_on(ui, "3+") == "true"  # as you left them
     _close_sheet(ui)
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.strip .sday').length === 5")
-    assert _chip_on(ui, "Weekend") == "false" and _chip_on(ui, "3+") == "false"  # a new visit starts from your Preferences again
+    assert _chip_on(ui, "Before 11") == "false" and _chip_on(ui, "3+") == "false"  # a new visit starts from your Preferences again
     _close_sheet(ui)
 
 
@@ -2016,7 +2015,7 @@ def test_on_a_phone_one_filter_button_counts_what_it_holds(ui):
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelectorAll('.strip .sday').length === 5")
         line = ui.js("[...document.querySelectorAll('.sf-line .chip')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.textContent.trim())")
-        assert len(line) == 3 and line[0] == "Weekdays" and line[1] == "Weekend" and line[2].startswith("Filters"), line  # no "My rules" any more
+        assert len(line) == 1 and line[0].startswith("Filters"), line  # the days are picked in the strip below
         start = int(ui.js("document.querySelector('.sf-more .sf-count')?.textContent || '0'"))
         assert start >= 2  # your times and 2+ free seats, from the demo's Preferences
         ui.click(".sf-more")

@@ -29,7 +29,7 @@ export const forgetSearch = () => { kept = null; };
 function defaults(data) {
   const mine = data.mine;
   return {
-    kind: '', days: [], tod: [], courses: [...(mine.courses || [])], friends: false, open: false,
+    days: [], tod: [], courses: [...(mine.courses || [])], friends: false, open: false,
     mine: hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window),
     dry: mine.weather.length > 0,
     gap: mine.gap_before > 0 || mine.gap_after > 0,
@@ -39,8 +39,6 @@ function defaults(data) {
 
 function passes(slot, f, mine, ignoreDays) {
   const weekend = isWeekend(slot.date);
-  if (f.kind === 'weekdays' && weekend) return false;
-  if (f.kind === 'weekend' && !weekend) return false;
   if (!ignoreDays && f.days.length && !f.days.includes(slot.date)) return false;
   if (f.courses.length && !f.courses.includes(slot.course)) return false;
   if (slot.open < f.spots) return false;
@@ -55,9 +53,9 @@ function passes(slot, f, mine, ignoreDays) {
   return true;
 }
 
-const sameChips = (a, b) => ['kind', 'mine', 'dry', 'gap', 'spots', 'friends'].every((key) => a[key] === b[key])
+const sameChips = (a, b) => ['mine', 'dry', 'gap', 'spots', 'friends'].every((key) => a[key] === b[key])
   && ['days', 'tod', 'courses'].every((key) => a[key].length === b[key].length && a[key].every((x) => b[key].includes(x)));
-const anyOn = (f) => !!(f.kind || f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends || f.courses.length);
+const anyOn = (f) => !!(f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends || f.courses.length);
 
 function Chip({ on, onClick, children, className = '', ...rest }) {
   return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
@@ -133,13 +131,13 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
       else groups.push({ date: slot.date, rows: [slot] });
     }
     const buckets = BUCKETS.filter((b) => data.slots.some((slot) => minutes(slot.time) >= b.from && minutes(slot.time) < b.to));
-    const best = Math.max(1, ...data.dates.filter((d) => (f.kind === 'weekdays' ? !isWeekend(d.date) : f.kind === 'weekend' ? isWeekend(d.date) : true)).map((d) => counts[d.date] || 0));
+    const best = Math.max(1, ...data.dates.map((d) => counts[d.date] || 0));
     return { counts, kept, groups, buckets, best };
   }, [data, f]);
 
   const mine = data && data.mine;
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
-  const clear = () => set({ kind: '', days: [], tod: [], courses: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
+  const clear = () => set({ days: [], tod: [], courses: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
   const atMine = !!(f && sameChips(f, defaults(data)));
   const clearButton = f && anyOn(f) && html`<button type="button" class="icon-btn danger sf-clear" onClick=${clear} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
@@ -148,13 +146,9 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
   // how many of the filters behind the phone's Filter button are narrowing the list (days and weekdays are on the line itself)
   const hidden = f ? f.tod.length + f.courses.length + [f.spots > 1, f.friends, f.mine, f.dry, f.gap].filter(Boolean).length : 0;
   const showCourse = !!(data && f && data.courses.length > 1 && f.courses.length !== 1); // (f is set one render after the data arrives)
-  const darkNote = data && f && f.mine && f.kind !== 'weekend' && data.last_start && mine.weekday_window.after > data.last_start;
+  const darkNote = data && f && f.mine && data.dates.some((d) => !isWeekend(d.date)) && data.last_start && mine.weekday_window.after > data.last_start;
   const gapText = mine && t('search.tip.gap', { before: mine.gap_before, after: mine.gap_after });
   const weatherLabel = mine && (mine.weather.length === 1 && mine.weather[0] === 'rain' ? t('search.dry') : t('search.weather_ok'));
-
-  const days = html`<span class="sf-grp"><span class="lab">${t('search.days')}</span>
-    <${Chip} on=${f && f.kind === 'weekdays'} onClick=${() => set({ kind: f.kind === 'weekdays' ? '' : 'weekdays' })}>${t('search.weekday')}<//>
-    <${Chip} on=${f && f.kind === 'weekend'} onClick=${() => set({ kind: f.kind === 'weekend' ? '' : 'weekend' })}>${t('search.weekend')}<//></span>`;
 
   return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
@@ -162,7 +156,6 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
     ${data && f && html`
       <div class="sf">
         <div class="sf-line">
-          ${days}
           <button type="button" class="chip sf-chip sf-more" aria-expanded=${f.open} onClick=${() => set({ open: !f.open })}>${t('search.filters')}${hidden > 0 && html`<span class="sf-count">${hidden}</span>`}<${Icon} name="down" size=${12} /></button>
           <span class="sf-line-actions">${clearButton}${resetButton}</span>
         </div>
@@ -188,11 +181,10 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
       <div class=${'strip' + (data.dates.length > 7 ? ' many' : '')} role="group" aria-label=${t('search.days')} style=${{ '--n': data.dates.length }}>
         ${data.dates.map((day) => {
           const count = view.counts[day.date] || 0;
-          const off = (f.kind === 'weekdays' && isWeekend(day.date)) || (f.kind === 'weekend' && !isWeekend(day.date));
-          const cls = 'sday' + (isWeekend(day.date) ? ' we' : '') + (!day.loaded ? ' noday' : count === 0 ? ' zero' : count * 2 < view.best ? ' mid' : '') + (off ? ' off' : '') + (day.date === data.today ? ' today' : '');
+          const cls = 'sday' + (isWeekend(day.date) ? ' we' : '') + (!day.loaded ? ' noday' : count === 0 ? ' zero' : count * 2 < view.best ? ' mid' : '') + (day.date === data.today ? ' today' : '');
           return html`<button type="button" key=${day.date} class=${cls} aria-pressed=${f.days.includes(day.date)} onClick=${() => flip('days', day.date)}
             title=${day.loaded ? t('search.day_n', { n: count }) : t('search.no_sheet')} aria-label=${dayLabel(day.date) + ', ' + (day.loaded ? t('search.day_n', { n: count }) : t('search.no_sheet'))}>
-            <span class="wd">${weekdayShort(day.date)}</span><span class="n">${Number(day.date.slice(8))}</span><span class="c">${off || !day.loaded ? '–' : count}</span></button>`;
+            <span class="wd">${weekdayShort(day.date)}</span><span class="n">${Number(day.date.slice(8))}</span><span class="c">${!day.loaded ? '–' : count}</span></button>`;
         })}
       </div>
       ${darkNote && html`<p class="why">${t('search.dark', { after: mine.weekday_window.after, last: data.last_start })}</p>`}
