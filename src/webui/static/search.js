@@ -29,7 +29,7 @@ export const forgetSearch = () => { kept = null; };
 function defaults(data) {
   const mine = data.mine;
   return {
-    kind: '', days: [], tod: [], courses: [], friends: false, open: false,
+    kind: '', days: [], tod: [], courses: [...(mine.courses || [])], friends: false, open: false,
     mine: hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window),
     dry: mine.weather.length > 0,
     gap: mine.gap_before > 0 || mine.gap_after > 0,
@@ -164,6 +164,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
         <div class="sf-line">
           ${days}
           <button type="button" class="chip sf-chip sf-more" aria-expanded=${f.open} onClick=${() => set({ open: !f.open })}>${t('search.filters')}${hidden > 0 && html`<span class="sf-count">${hidden}</span>`}<${Icon} name="down" size=${12} /></button>
+          <span class="sf-line-actions">${clearButton}${resetButton}</span>
         </div>
         <div class=${'sf-panel' + (f.open ? ' open' : '')}>
           ${hasMine && html`<span class="sf-grp"><span class="lab">${t('action.preferences')}</span>
@@ -180,7 +181,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
             ${data.courses.length <= 1 && actions}</span>
           ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
             ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}${actions}</span>`}
-          <div class="sf-foot">${clearButton}${resetButton}
+          <div class="sf-foot">
             <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
         </div>
       </div>

@@ -63,21 +63,22 @@ function useForm(groups) {
 
 // ---------------------------------------------------------------- Preferences
 
-/** The club's courses with a switch for each: the ones you cannot play (a 9 hole membership) are left out of Search.
- *  A switch saves at once. Nothing to choose from with one course, so then there is no card. */
+/** The club's courses, each one you cannot play (a 9 hole membership), can play, or want Search to start with (the 9 hole
+ *  course when the 6 hole one is only for a quick round). A choice saves at once. One course: nothing to choose, no card. */
 function useCoursesCard({ clubId, onSaved }) {
   const { data } = useLoad(() => (clubId ? api('/api/club/courses' + query({ club_id: clubId })) : Promise.resolve(null)), [clubId]);
   const [local, setLocal] = useState({});
   if (!data || data.error || data.courses.length < 2) return null;
-  const toggle = async (course, play) => {
-    setLocal((current) => ({ ...current, [course.name]: play }));
+  const choose = async (course, state) => {
+    setLocal((current) => ({ ...current, [course.name]: state }));
     try {
-      await post('/api/club/course-played', { slug: data.slug, course: course.name, play });
+      await post('/api/club/course-state', { slug: data.slug, course: course.name, state });
       onSaved();
     } catch (failure) {
-      setLocal((current) => ({ ...current, [course.name]: course.play }));
+      setLocal((current) => ({ ...current, [course.name]: course.state }));
     }
   };
+  const options = ['default', 'on', 'off'].map((state) => ({ value: state, label: t('preferences.course.' + state) }));
   return {
     weight: data.courses.length + 1,
     node: html`<section class="group">
@@ -85,7 +86,7 @@ function useCoursesCard({ clubId, onSaved }) {
       ${data.courses.map((course, index) => html`
         <div class="field-row">
           <label for=${'c-play-' + index}>${course.name}</label>
-          <${Switch} id=${'c-play-' + index} checked=${course.name in local ? local[course.name] : course.play} onChange=${(play) => toggle(course, play)} />
+          <${Select} id=${'c-play-' + index} value=${course.name in local ? local[course.name] : course.state} options=${options} onChange=${(state) => choose(course, state)} />
         </div>`)}
     </section>`,
   };

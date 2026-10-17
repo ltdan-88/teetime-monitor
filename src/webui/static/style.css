@@ -910,7 +910,7 @@ button, select, input { touch-action: manipulation; }
 /* ---- Search: chips, the day strip, results grouped by day ---- */
 .sf { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.875rem; margin-top: 0.5rem; }
 .sf-line, .sf-panel { display: contents; }
-.sf-more, .sf-foot { display: none; }
+.sf-more, .sf-foot, .sf-line-actions { display: none; }
 .sf-grp { display: inline-flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
 .sf-grp .lab { margin: 0 0.125rem 0 0; text-transform: none; letter-spacing: 0; font-size: 0.8125rem; color: var(--dim); }
 .sf-chip { border: 0; cursor: pointer; font-family: inherit; min-height: 1.75rem; white-space: nowrap; }
@@ -986,6 +986,7 @@ button, select, input { touch-action: manipulation; }
   .sf-line .sf-grp { flex-wrap: nowrap; }
   .sf-line .sf-grp .lab { display: none; }
   .sf-more { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .sf-line-actions { display: inline-flex; align-items: center; gap: 0.125rem; }  /* clear and back-to-mine, beside the Filter button */
   .sf-panel { display: none; flex-direction: column; gap: 0.5rem; padding-top: 0.5rem; margin-top: 0.375rem; border-top: 1px solid var(--line); }
   .sf-panel.open { display: flex; }
   .sf-panel .sf-grp { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding: 0.125rem 1rem; }

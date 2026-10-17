@@ -201,21 +201,28 @@ def set_default_course(slug: str, course: str) -> dict:
 
 
 def club_courses(slug: str | None, club_id: str | None) -> dict:
-    """The courses of a club and whether you play each (Preferences > Courses). Courses you left out stay in the
-    list even when the club's tee sheets no longer show them, so they can be switched back on."""
+    """The courses of a club and what each is to you (Preferences > Courses): `off` (you cannot play it, Search leaves it
+    out), `on`, or `default` (Search starts with it chosen). Courses left out stay in the list even when the club's tee
+    sheets no longer show them, so they can be switched back on."""
     club = data.resolve_club(slug, club_id)
     if club is None or not club["slug"]:
         return {"error": "unknown_club"}
-    left_out = club_config.excluded_courses(pipeline._load_club_config_safely(club["slug"]))
+    config = pipeline._load_club_config_safely(club["slug"])
+    left_out, chosen = club_config.excluded_courses(config), club_config.search_courses(config)
     names = data.courses_for(club["id"])
     names += sorted(left_out - set(names))
-    return {"slug": club["slug"], "courses": [{"name": name, "play": name not in left_out} for name in names]}
+    return {
+        "slug": club["slug"],
+        "courses": [{"name": name, "state": "off" if name in left_out else "default" if name in chosen else "on"} for name in names],
+    }
 
 
-def set_course_played(slug: str, course: str, play: bool) -> dict:
+def set_course_state(slug: str, course: str, state: str) -> dict:
     if data.club_by_slug(slug) is None or not course:
         return {"error": "unknown_club"}
-    club_config.set_course_played(slug, course, play)
+    if state not in club_config.COURSE_STATES:
+        return {"error": "bad_request"}
+    club_config.set_course_state(slug, course, state)
     return {"ok": True}
 
 

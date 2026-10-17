@@ -200,17 +200,31 @@ def excluded_courses(config: dict | None) -> set[str]:
     return {str(name) for name in listed} if isinstance(listed, list) else set()
 
 
-def set_course_played(slug: str, course: str, play: bool, clubs_dir: Path | None = None) -> None:
-    """Mark one course of a club as one you can play (`play=True`) or not, keeping every other key. The list
-    disappears with its last entry. Same comment-loss caveat as `save_club_config()`."""
+def search_courses(config: dict | None) -> set[str]:
+    """The courses Search starts with chosen (`search_courses` in the club's file): of the ones you can play, the ones you
+    usually want (the 9 hole course when the 6 hole one is only for a quick round). Nothing listed: no course chosen."""
+    listed = (config or {}).get("search_courses")
+    return {str(name) for name in listed} if isinstance(listed, list) else set()
+
+
+COURSE_STATES = ("off", "on", "default")
+
+
+def set_course_state(slug: str, course: str, state: str, clubs_dir: Path | None = None) -> None:
+    """One course of a club as one you cannot play (`off`), can play (`on`), or want Search to start with (`default`),
+    keeping every other key. Each list disappears with its last entry. Same comment-loss caveat as `save_club_config()`."""
     config = load_club_config(slug, clubs_dir)
     left_out = excluded_courses(config) - {course}
-    if not play:
+    chosen = search_courses(config) - {course}
+    if state == "off":
         left_out.add(course)
-    if left_out:
-        config["excluded_courses"] = sorted(left_out)
-    else:
-        config.pop("excluded_courses", None)
+    elif state == "default":
+        chosen.add(course)
+    for key, names in (("excluded_courses", left_out), ("search_courses", chosen)):
+        if names:
+            config[key] = sorted(names)
+        else:
+            config.pop(key, None)
     save_club_config(slug, config, clubs_dir)
 
 
