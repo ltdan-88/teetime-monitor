@@ -161,7 +161,7 @@ function ClubsSection({ clubs, onChanged, onAddClub }) {
               ? html`<span class="inline-confirm">${t('club.remove_confirm', { name: club.name })}
                   <button class="btn danger" onClick=${() => remove(club)}>${t('club.remove')}</button>
                   <button class="btn" onClick=${() => setConfirmRemove(null)}>${t('cancel')}</button></span>`
-              : html`<button class="btn" onClick=${() => setConfirmRemove(club.id)}><${Icon} name="trash" size=${16} />${t('club.remove')}</button>`}
+              : html`<button class="icon-btn danger" onClick=${() => setConfirmRemove(club.id)} aria-label=${t('club.remove')} title=${t('club.remove')}><${Icon} name="trash" size=${18} /></button>`}
           </div>
           ${club.course_holes.length > 0 && html`<p class="hint">${t('settings.course_holes.hint')}</p>`}
           ${club.course_holes.map((row) => html`

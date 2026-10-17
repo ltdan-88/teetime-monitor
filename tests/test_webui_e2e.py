@@ -260,7 +260,7 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     shown = ui.text(".resv-list li")
     assert "11:00" in shown and "Golfclub Beispiel" in shown, shown
     ui.shot("reservations")
-    ui.click(".resv-list .btn")
+    ui.click(".resv-list .icon-btn.danger")
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     assert "Cancel your" in ui.text(".sheet.small h2")
     ui.click(".sheet.small .btn.danger")
@@ -334,7 +334,7 @@ def test_the_tournament_filters_are_on_off_chips_that_narrow_the_list_and_the_do
     ui.wait(f"document.querySelectorAll('.tn-item').length >= {count() + 1} || [...document.querySelectorAll('.tn-item')].some((i) => i.textContent.includes('Guests welcome'))")
     ui.click(".tn-filters .tn-pick", text="9")  # off again
     ui.wait("![...document.querySelectorAll('.tn-item')].some((i) => i.textContent.includes('9 holes'))")
-    ui.click(".tn-filters .link-btn")  # Clear filters
+    ui.click(".tn-filters .icon-btn.danger")  # Clear filters
     ui.wait(f"document.querySelectorAll('.tn-item').length === {everything} && document.querySelectorAll('.tn-filters .tn-pick[aria-pressed=true]').length === 0")
     ui.click(".tn-filters > .tn-pick", text="Registration open")
     ui.wait("[...document.querySelectorAll('.tn-item')].every((i) => !i.textContent.includes('closed') && !i.textContent.includes('not open yet'))")
@@ -667,13 +667,17 @@ def test_clear_filters_shows_everything_and_is_in_reach(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     start = _search_rows(ui)
-    assert ui.count(".sf .sf-clear") == 1  # right after the filters while anything is on
+    assert ui.count(".sf-actions .sf-clear") == 1  # right after the filters while anything is on
     _chip(ui, "Weekend")
     _chip(ui, "3+")
-    ui.click(".sf .sf-clear")
+    ui.click(".sf-actions .sf-clear")
     ui.wait("document.querySelectorAll('.sf .chip[aria-pressed=true]').length === 1")  # only "1+" is left on: nothing narrows
     assert _search_rows(ui) > start  # your own rules are off too: more than when Search opened
-    assert ui.count(".sf .sf-clear") == 0  # nothing left to clear
+    assert ui.count(".sf-actions .sf-clear") == 0  # nothing left to clear
+    ui.click(".sf-actions .sf-reset")  # one tap back to your Preferences
+    ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start} && document.querySelectorAll('.sf-actions .sf-reset').length === 0")
+    assert _chip_on(ui, "My times") == "true" and _chip_on(ui, "2+") == "true"
+    assert ui.js("getComputedStyle(document.querySelector('.sf-actions .sf-clear')).color") != ui.js("getComputedStyle(document.querySelector('.sf-chip')).color")  # (the trash can is red)
     _close_sheet(ui)
 
 
@@ -683,7 +687,7 @@ def test_the_default_course_sits_on_the_club_row(ui):
     heads = ui.js(
         """(() => { const r = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
         const head = [...document.querySelectorAll('.club-head')].find((h) => h.querySelector('.select'));
-        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.btn'))]; })()"""
+        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.icon-btn.danger'))]; })()"""
     )
     assert max(heads) - min(heads) < 4, heads  # name, course and Remove on one line
     _close_sheet(ui)
@@ -1829,14 +1833,14 @@ def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui)
     assert ui.js("document.querySelector('#tool-club').value") == "golfclub-beispiel"
     ui.set("#tool-club", "golfclub-nachbar")
     ui.wait("document.querySelector('#tool-club').value === 'golfclub-nachbar' && document.querySelectorAll('.strip .sday').length === 14")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.sf .sf-clear, .none .btn, .sf-foot .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.sf-clear')][0]; if (clear) clear.click(); })()")
     ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
     assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
     ui.click(".sheet-tab", text="Heatmap")  # the heatmap looks at the same club
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('#tool-club')?.value === 'golfclub-nachbar'")
     ui.click(".sheet-tab", text="Open times")
     ui.wait("[...document.querySelectorAll('.strip .sday')].length === 14 && document.querySelector('#tool-club').value === 'golfclub-nachbar'")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.sf .sf-clear, .none .btn, .sf-foot .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.sf-clear')][0]; if (clear) clear.click(); })()")
     ui.wait("document.querySelector('.res .mark')")
     ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
     ui.wait("document.body.innerText.includes('9 Loch Platz')")
@@ -1937,7 +1941,7 @@ def test_search_keeps_the_units_in_a_row_pinned_above_the_scrolling_results_and_
     shape = ui.js(
         """(() => { const r = document.querySelector('.results'); r.scrollTop = 300;
         const head = document.querySelector('.res-head').getBoundingClientRect(), box = r.getBoundingClientRect();
-        const clear = document.querySelector('.sf .sf-clear').getBoundingClientRect(), filters = document.querySelector('.sf').getBoundingClientRect();
+        const clear = document.querySelector('.sf-actions .sf-clear').getBoundingClientRect(), filters = document.querySelector('.sf').getBoundingClientRect();
         return {pinned: Math.abs(head.top - box.top) < 2, scrolled: r.scrollTop > 0, units: document.querySelectorAll('.res-head .cell').length,
                 clearInHeader: !!document.querySelector('.res-head .btn'), clearWithFilters: clear.top >= filters.top - 1 && clear.bottom <= filters.bottom + 1}; })()"""
     )
@@ -1966,3 +1970,20 @@ def test_the_courses_you_can_play_are_a_card_in_preferences_that_saves_at_once(u
     finally:
         ui.js("window.__beforeReload = true; location.reload()")  # drop the override
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_on_a_phone_the_club_choice_has_a_row_of_its_own_below_the_tabs(two_clubs_ui):
+    ui = two_clubs_ui
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelector('#tool-club') && document.querySelectorAll('.strip .sday').length === 14")
+        shape = ui.js(
+            """(() => { const club = document.querySelector('#tool-club').getBoundingClientRect(), tabs = document.querySelector('.tab-list').getBoundingClientRect(),
+            sheet = document.querySelector('.sheet').getBoundingClientRect();
+            return {below: club.top >= tabs.bottom - 1, wide: club.width > sheet.width - 60, inside: club.right <= sheet.right}; })()"""
+        )
+        assert shape == {"below": True, "wide": True, "inside": True}, shape
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
