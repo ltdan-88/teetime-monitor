@@ -29,7 +29,7 @@ export const forgetSearch = () => { kept = null; };
 function defaults(data) {
   const mine = data.mine;
   return {
-    days: [], tod: [], courses: [...(mine.courses || [])], friends: false, open: false,
+    days: [], tod: [], friends: false, open: false,
     mine: hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window),
     dry: mine.weather.length > 0,
     gap: mine.gap_before > 0 || mine.gap_after > 0,
@@ -40,7 +40,6 @@ function defaults(data) {
 function passes(slot, f, mine, ignoreDays) {
   const weekend = isWeekend(slot.date);
   if (!ignoreDays && f.days.length && !f.days.includes(slot.date)) return false;
-  if (f.courses.length && !f.courses.includes(slot.course)) return false;
   if (slot.open < f.spots) return false;
   if (f.friends && !slot.players.some((player) => player.friend)) return false;
   if (f.dry && slot.wet) return false;
@@ -54,14 +53,14 @@ function passes(slot, f, mine, ignoreDays) {
 }
 
 const sameChips = (a, b) => ['mine', 'dry', 'gap', 'spots', 'friends'].every((key) => a[key] === b[key])
-  && ['days', 'tod', 'courses'].every((key) => a[key].length === b[key].length && a[key].every((x) => b[key].includes(x)));
-const anyOn = (f) => !!(f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends || f.courses.length);
+  && ['days', 'tod'].every((key) => a[key].length === b[key].length && a[key].every((x) => b[key].includes(x)));
+const anyOn = (f) => !!(f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends);
 
 function Chip({ on, onClick, children, className = '', ...rest }) {
   return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
 }
 
-function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
+function ResultRow({ slot, units, showHandicaps, onMark }) {
   const [whoOpen, setWhoOpen] = useState(false); // where the names do not fit, a chip with the count opens them (as in the days)
   const who = { players: slot.players, booked: slot.booked };
   return html`
@@ -72,7 +71,6 @@ function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
       <${WhoChip} slot=${who} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
       ${whoOpen && html`<${WhoList} slot=${who} showHandicaps=${showHandicaps} />`}
       <${WeatherCells} weather=${slot.weather} units=${units} flags=${slot.flags} />
-      <span class="res-course dim">${showCourse ? slot.course : ''}</span>
       <span class="res-action">
         ${slot.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
@@ -81,9 +79,11 @@ function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
+export function SearchSheet({ club, course: tabCourse, pageCourse, onCourse, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
-  const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query(ref)), [club.id]);
+  const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query({ ...ref, page_course: pageCourse || '' })), [club.id]);
+  // one course at a time, the one of the course tab: the tab you chose, else where Search starts (Preferences)
+  const course = loaded && (loaded.courses.includes(tabCourse) ? tabCourse : loaded.start_course);
   const data = loading ? null : loaded;
   const [f, setF] = useState(null);
   const fRef = useRef(null); // the filters as they are this instant: a tap, then straight to the Heatmap tab, must not lose it
@@ -122,35 +122,36 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
   const view = useMemo(() => {
     if (!data || !f) return null;
     const counts = {};
-    for (const slot of data.slots) if (passes(slot, f, data.mine, true)) counts[slot.date] = (counts[slot.date] || 0) + 1;
-    const kept = data.slots.filter((slot) => passes(slot, f, data.mine, false));
+    const here = data.slots.filter((slot) => !course || slot.course === course);
+    for (const slot of here) if (passes(slot, f, data.mine, true)) counts[slot.date] = (counts[slot.date] || 0) + 1;
+    const kept = here.filter((slot) => passes(slot, f, data.mine, false));
     const groups = [];
     for (const slot of kept) {
       const last = groups[groups.length - 1];
       if (last && last.date === slot.date) last.rows.push(slot);
       else groups.push({ date: slot.date, rows: [slot] });
     }
-    const buckets = BUCKETS.filter((b) => data.slots.some((slot) => minutes(slot.time) >= b.from && minutes(slot.time) < b.to));
+    const buckets = BUCKETS.filter((b) => here.some((slot) => minutes(slot.time) >= b.from && minutes(slot.time) < b.to));
     const best = Math.max(1, ...data.dates.map((d) => counts[d.date] || 0));
     return { counts, kept, groups, buckets, best };
-  }, [data, f]);
+  }, [data, f, course]);
 
   const mine = data && data.mine;
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
-  const clear = () => set({ days: [], tod: [], courses: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
+  const clear = () => set({ days: [], tod: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
   const atMine = !!(f && sameChips(f, defaults(data)));
   const clearButton = f && anyOn(f) && html`<button type="button" class="icon-btn danger sf-clear" onClick=${clear} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
   const resetButton = f && !atMine && html`<button type="button" class="icon-btn sf-reset" onClick=${reset} aria-label=${t('search.reset')} title=${t('search.reset')}><${Icon} name="reset" size=${18} /></button>`;
   const actions = html`<span class="sf-actions">${clearButton}${resetButton}</span>`; // after the last of the filters, wherever that is
   // how many of the filters behind the phone's Filter button are narrowing the list (days and weekdays are on the line itself)
-  const hidden = f ? f.tod.length + f.courses.length + [f.spots > 1, f.friends, f.mine, f.dry, f.gap].filter(Boolean).length : 0;
-  const showCourse = !!(data && f && data.courses.length > 1 && f.courses.length !== 1); // (f is set one render after the data arrives)
+  const hidden = f ? f.tod.length + [f.spots > 1, f.friends, f.mine, f.dry, f.gap].filter(Boolean).length : 0;
   const darkNote = data && f && f.mine && data.dates.some((d) => !isWeekend(d.date)) && data.last_start && mine.weekday_window.after > data.last_start;
   const gapText = mine && t('search.tip.gap', { before: mine.gap_before, after: mine.gap_after });
   const weatherLabel = mine && (mine.weather.length === 1 && mine.weather[0] === 'rain' ? t('search.dry') : t('search.weather_ok'));
 
-  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
+  return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}
+    courseTabs=${loaded && loaded.courses.map((name) => ({ key: name, label: name, on: name === course, onSelect: () => onCourse(name) }))}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<${Status} kind="busy">${t('loading')}<//>`}
     ${data && f && html`
@@ -171,9 +172,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
           <span class="sf-grp"><span class="lab">${t('search.spots')}</span>
             ${[1, 2, 3, 4].map((n) => html`<${Chip} key=${n} on=${f.spots === n} disabled=${n === 4 && f.friends} onClick=${() => set({ spots: n })}>${n === 4 ? '4' : n + '+'}<//>`)}
             <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends, ...(!fRef.current.friends && fRef.current.spots === 4 ? { spots: 1 } : {}) })}>★ ${t('search.friends')}<//>
-            ${data.courses.length <= 1 && actions}</span>
-          ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
-            ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}${actions}</span>`}
+            ${actions}</span>
           <div class="sf-foot">
             <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
         </div>
@@ -195,7 +194,7 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
           ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
           : html`${view.groups.map((group) => html`<section class="daygroup" key=${group.date}>
               ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}<small>${group.rows.length}</small></div>`}
-              ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps} showCourse=${showCourse}
+              ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps}
                 onMark=${(picked) => onMark({ ...picked, ref })} />`)}</section>`)}`}
       </div>`}
   <//>`;

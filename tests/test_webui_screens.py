@@ -577,13 +577,23 @@ def test_courses_are_off_on_or_where_search_starts_and_off_ones_are_left_out(wor
     assert "excluded_courses" not in club_config.load_club_config(SLUG)  # nothing left over
     # both playable, the 9 hole one the one Search starts with
     assert settings_api.set_course_state(SLUG, "9 Loch", "default") == {"ok": True}
-    assert state() == {COURSE: "on", "9 Loch": "default"} and tools_api.search_slots(SLUG, None)["mine"]["courses"] == ["9 Loch"]
+    assert state() == {COURSE: "on", "9 Loch": "default"} and tools_api.search_slots(SLUG, None)["start_course"] == "9 Loch"
     assert {s["course"] for s in tools_api.search_slots(SLUG, None)["slots"]} == {COURSE, "9 Loch"}  # the other is still there to pick
+    assert tools_api.heatmap(SLUG, None, None)["course"] == "9 Loch"  # the Heatmap opens on the same tab
     assert settings_api.set_course_state(SLUG, "9 Loch", "on") == {"ok": True}
     assert "search_courses" not in club_config.load_club_config(SLUG)
     assert settings_api.set_course_state(SLUG, COURSE, "sometimes") == {"error": "bad_request"}
     assert settings_api.set_course_state("nope", COURSE, "off") == {"error": "unknown_club"}
     assert settings_api.club_courses("nope", None) == {"error": "unknown_club"}
+
+
+def test_course_tabs_come_in_a_natural_order():
+    names = ["18 Loch Tee 1", "Kurzplatz", "6 Loch Platz", "9 Loch Tee 1", "18-Loch Schleife"]
+    assert sorted(names, key=tools_api._natural) == ["6 Loch Platz", "9 Loch Tee 1", "18 Loch Tee 1", "18-Loch Schleife", "Kurzplatz"]
+    assert tools_api._start_course(["6 Loch Platz", "9 Loch Tee 1"], {"search_courses": ["9 Loch Tee 1"]}) == "9 Loch Tee 1"
+    assert tools_api._start_course(["6 Loch Platz", "9 Loch Tee 1"], {"default_course": "18 Loch Tee 1"}, "9 Loch Tee 1") == "9 Loch Tee 1"  # the page's
+    assert tools_api._start_course(["6 Loch Platz", "9 Loch Tee 1"], {}) == "6 Loch Platz"
+    assert tools_api._start_course([], {}) is None
 
 
 def test_the_player_directory_lists_and_marks_friends(world):

@@ -1,7 +1,7 @@
 // Crowd heatmap: how full a course usually is at each hour, by weekday and for special days
 // (tournament, public holiday, vacation), from your own scrape history.
 
-import { html, t, useState, Sheet, Select, Status, useLoad, api, query, weekdayShort, occupancyColor, round } from '/lib.js';
+import { html, t, useState, Sheet, Status, useLoad, api, query, weekdayShort, occupancyColor, round } from '/lib.js';
 
 const SUNDAY_FIRST = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONDAY_FIRST = [...SUNDAY_FIRST.slice(1), 'Sunday'];  // the week as imperial (US) units count it starts on Sunday, otherwise on Monday
@@ -41,19 +41,18 @@ function Grid({ title, keys, labels, group, hours, minSamples, onPick }) {
     </div>`;
 }
 
-export function HeatmapSheet({ club, course, units, onClose, tabs }) {
+export function HeatmapSheet({ club, course: tabCourse, pageCourse, onCourse, units, onClose, tabs }) {
   const weekdays = units === 'imperial' ? SUNDAY_FIRST : MONDAY_FIRST;
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
-  const [chosen, setChosen] = useState(course);
-  const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: chosen })), [club.id, chosen]);
+  // the course of the course tab (shared with Search); none chosen yet: the server opens on where Search starts
+  const { data, error } = useLoad(() => api('/api/heatmap' + query({ ...ref, course: tabCourse || '', page_course: pageCourse || '' })), [club.id, tabCourse]);
+  const chosen = tabCourse || (data && data.course);
   const [picked, setPicked] = useState(null); // the numbers of the cell last tapped (no hover on a touch screen)
   const swatch = (color, text, style) => html`<span><span class="sw" style=${{ background: color, ...style }}></span>${text}</span>`;
-  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide" tall tabs=${tabs}>
+  return html`<${Sheet} title=${t('heatmap.title', { course: chosen || '' })} onClose=${onClose} size="wide" tall tabs=${tabs}
+    courseTabs=${data && data.courses && data.courses.map((name) => ({ key: name, label: name, on: name === chosen, onSelect: () => onCourse(name) }))}>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('heatmap.loading')}</p>`}
-    ${data && data.courses && data.courses.length > 1 && html`
-      <div class="field-row inline"><label for="hm-course">${t('course')}</label>
-        <${Select} id="hm-course" value=${data.course} options=${data.courses.map((name) => ({ value: name, label: name }))} onChange=${setChosen} /></div>`}
     ${data && data.hours.length === 0 && html`<div class="empty small"><h3>${t('heatmap.no_data_yet')}</h3><p>${t('heatmap.no_data_hint')}</p></div>`}
     ${data && data.hours.length > 0 && html`
       <p class="hint">${t('heatmap.intro', { n: data.history_days })}</p>

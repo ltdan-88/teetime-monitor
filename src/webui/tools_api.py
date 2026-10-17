@@ -5,6 +5,7 @@ gap check of `search`, `pipeline._cached_crowd_heatmap()` with the club's holida
 and the `known_players` table. Nothing here ranks, aggregates or classifies on its own.
 """
 
+import re
 from datetime import date, datetime, timedelta
 
 from .. import (
@@ -36,14 +37,24 @@ def _club(slug: str | None, club_id: str | None):
     return club, data.db_path_for(club["id"]), config
 
 
-def _course_of(club: dict, config: dict, course: str | None) -> str | None:
-    """`course` if the club has it, else the club's default course, else its first: a search or heatmap for a club
-    other than the one open on the page has no course of the page to go by."""
-    courses = data.courses_for(club["id"])
-    if course in courses:
-        return course
-    default = config.get("default_course")
-    return default if default in courses else (courses[0] if courses else course)
+def _natural(name: str) -> list:
+    """A course name's sort key with its numbers as numbers: 6 holes, 9 holes, 18 holes (not 18, 6, 9)."""
+    return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
+
+
+def _playable_courses(club: dict, config: dict) -> list[str]:
+    """The club's courses you can play (Preferences > Courses), in a natural order: the tabs of Search and the Heatmap."""
+    left_out = club_config.excluded_courses(config)
+    return sorted((course for course in data.courses_for(club["id"]) if course not in left_out), key=_natural)
+
+
+def _start_course(courses: list[str], config: dict, page_course: str | None = None) -> str | None:
+    """The tab Search and the Heatmap open on: the course you set as where Search starts, else the course open on the
+    page, else the club's default course, else the first."""
+    for candidate in [*sorted(club_config.search_courses(config), key=_natural), page_course, config.get("default_course")]:
+        if candidate in courses:
+            return candidate
+    return courses[0] if courses else None
 
 
 def _time_window(window) -> dict:
@@ -78,7 +89,7 @@ def _weather_flags(config: dict, weather: dict | None) -> list[str]:
     return flags
 
 
-def search_slots(slug: str | None, club_id: str | None) -> dict:
+def search_slots(slug: str | None, club_id: str | None, page_course: str | None = None) -> dict:
     """Every open tee time of the days the overview shows (`overview_days`, five unless set) on every course of the club that can still be played
     (not started, finished before dark), each with what the page needs to filter by your own rules: whether its
     weather crosses your limits (`wet`) and whether another flight is too close (`gap_ok`). The page narrows these
@@ -99,8 +110,7 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
         )
         if on
     ]
-    left_out = club_config.excluded_courses(config)
-    courses = [course for course in data.courses_for(club["id"]) if course not in left_out]  # the ones you cannot play never show
+    courses = _playable_courses(club, config)  # the ones you cannot play never show
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
     handicaps = storage.load_known_handicaps(db)
@@ -154,6 +164,7 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
         "today": today,
         "dates": dates,
         "courses": courses,
+        "start_course": _start_course(courses, config, page_course),
         "slots": slots,
         "units": config.get("units"),
         "last_start": last_start,
@@ -164,7 +175,6 @@ def search_slots(slug: str | None, club_id: str | None) -> dict:
             "gap_before": criteria.buffer_before_minutes,
             "gap_after": criteria.buffer_after_minutes,
             "weather": weather_rules,
-            "courses": sorted(club_config.search_courses(config) & set(courses)),  # the ones Search starts with chosen
         },
     }
 
@@ -254,17 +264,17 @@ def set_friend(slug: str | None, club_id: str | None, name: str, is_friend: bool
 # ---- heatmap -----------------------------------------------------------------------------
 
 
-def heatmap(slug: str | None, club_id: str | None, course: str | None) -> dict:
+def heatmap(slug: str | None, club_id: str | None, course: str | None, page_course: str | None = None) -> dict:
     """Average occupancy and sample count per weekday and hour, and per special day type, from the
     club's scrape history (`analytics.crowd_heatmap()`), with the club's public holidays (if its
     country is set) and vacation ranges telling the special days apart."""
     club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
-    courses = data.courses_for(club["id"])
-    course = _course_of(club, config, course) if courses else None
+    courses = _playable_courses(club, config)
+    course = course if course in courses else _start_course(courses, config, page_course)
     if course is None or not db.exists():
-        return {"course": course, "by_weekday": {}, "special_days": {}, "has_country": False, "hours": []}
+        return {"course": course, "courses": courses, "by_weekday": {}, "special_days": {}, "has_country": False, "hours": []}
     holidays = pipeline._holidays_for_club(config, fetch=True)
     vacations = pipeline._vacation_ranges_for_club(config)
     result = pipeline._cached_crowd_heatmap(course, holidays, vacations, db)

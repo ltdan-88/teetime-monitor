@@ -538,9 +538,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # search, heatmap, players
         if route == ("GET", "/api/search/slots"):
-            return reply(tools_api.search_slots(**ref()))
+            return reply(tools_api.search_slots(**ref(), page_course=arg("page_course")))
         if route == ("GET", "/api/heatmap"):
-            return reply(tools_api.heatmap(**ref(), course=arg("course")))
+            return reply(tools_api.heatmap(**ref(), course=arg("course"), page_course=arg("page_course")))
         if route == ("GET", "/api/players"):
             return reply(tools_api.players(**ref()))
         if route == ("POST", "/api/players/friend"):
