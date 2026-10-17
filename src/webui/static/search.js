@@ -79,7 +79,7 @@ function ResultRow({ slot, units, showHandicaps, showCourse, onMark }) {
       <span class="res-action">
         ${slot.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
-          : html`<button class="btn small mark" onClick=${() => onMark(slot)} title=${t('search.book')} aria-label=${t('search.book')}><${Icon} name="flag" size=${14} /><span class="mark-text">${t('search.book')}</span></button>`}
+          : html`<button class="btn small mark" onClick=${() => onMark(slot)} title=${t('search.book')} aria-label=${t('search.book')}><${Icon} name="flag" size=${16} /></button>`}
       </span>
     </div>`;
 }
@@ -162,6 +162,7 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
             <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends })}>★ ${t('search.friends')}<//></span>
           ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
             ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}</span>`}
+          ${anyOn(f) && html`<button type="button" class="btn small sf-clear" onClick=${clear}>${t('search.clear')}</button>`}
           <div class="sf-foot"><button type="button" class="btn" onClick=${clear}>${t('search.clear_all')}</button>
             <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
         </div>
@@ -179,7 +180,7 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
       ${darkNote && html`<p class="why">${t('search.dark', { after: mine.weekday_window.after, last: data.last_start })}</p>`}
       <div class="results scroll">
         <div class="res res-head"><span class="lab rcount">${t('search.count', { n: view.kept.length })}</span><${WeatherHeads} units=${units} />
-          <span class="rclear">${anyOn(f) && html`<button type="button" class="btn small" onClick=${clear}>${t('search.clear')}</button>`}</span></div>
+          </div>
         ${view.groups.length === 0
           ? html`<div class="none">${t('search.none')}${anyOn(f) && html`<div><button type="button" class="btn small" onClick=${clear}>${t('search.clear')}</button></div>`}</div>`
           : html`${view.groups.map((group) => html`

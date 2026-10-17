@@ -177,7 +177,7 @@ def _open_sheet(ui, key, title_contains):
 def _chip(ui, text, scope=".sf"):
     """Click the filter chip or button whose text is exactly `text` (a plain "4" must not match "14–17")."""
     ui.js(
-        f"""(() => {{ const el = [...document.querySelectorAll({json.dumps(scope + ' .chip, ' + scope + ' .btn, .res-head .btn, .results .btn')})].find((e) => e.textContent.trim() === {json.dumps(text)});
+        f"""(() => {{ const el = [...document.querySelectorAll({json.dumps(scope + ' .chip, ' + scope + ' .btn, .results .btn')})].find((e) => e.textContent.trim() === {json.dumps(text)});
         if (!el) throw new Error('no chip ' + {json.dumps(text)}); el.click(); }})()"""
     )
 
@@ -400,7 +400,9 @@ def test_search_lists_matches_and_offers_to_book_one(ui):
         return [head, row]; })()"""
     )
     assert edges[0] == edges[1], edges
-    ui.click(".res .btn", "Book")
+    assert ui.js("document.querySelector('.res .mark').textContent.trim()") == ""  # the booking button is only its flag
+    assert ui.js("document.querySelector('.res .mark').getAttribute('aria-label')") == "Book"
+    ui.click(".res .mark")
     ui.wait("document.querySelectorAll('.sheet').length === 2")
     ui.click(".sheet.small .btn", "Not now")
     ui.wait("document.querySelectorAll('.sheet').length === 1")
@@ -665,13 +667,13 @@ def test_clear_filters_shows_everything_and_is_in_reach(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     start = _search_rows(ui)
-    assert ui.count(".res-head .btn") == 1  # on the count line while anything is on
+    assert ui.count(".sf .sf-clear") == 1  # right after the filters while anything is on
     _chip(ui, "Weekend")
     _chip(ui, "3+")
-    ui.click(".res-head .btn", "Clear filters")
+    ui.click(".sf .sf-clear")
     ui.wait("document.querySelectorAll('.sf .chip[aria-pressed=true]').length === 1")  # only "1+" is left on: nothing narrows
     assert _search_rows(ui) > start  # your own rules are off too: more than when Search opened
-    assert ui.count(".res-head .btn") == 0  # nothing left to clear
+    assert ui.count(".sf .sf-clear") == 0  # nothing left to clear
     _close_sheet(ui)
 
 
@@ -1827,14 +1829,14 @@ def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui)
     assert ui.js("document.querySelector('#tool-club').value") == "golfclub-beispiel"
     ui.set("#tool-club", "golfclub-nachbar")
     ui.wait("document.querySelector('#tool-club').value === 'golfclub-nachbar' && document.querySelectorAll('.strip .sday').length === 14")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.res-head .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.sf .sf-clear, .none .btn, .sf-foot .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
     ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
     assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
     ui.click(".sheet-tab", text="Heatmap")  # the heatmap looks at the same club
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('#tool-club')?.value === 'golfclub-nachbar'")
     ui.click(".sheet-tab", text="Open times")
     ui.wait("[...document.querySelectorAll('.strip .sday')].length === 14 && document.querySelector('#tool-club').value === 'golfclub-nachbar'")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.res-head .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.sf .sf-clear, .none .btn, .sf-foot .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
     ui.wait("document.querySelector('.res .mark')")
     ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
     ui.wait("document.body.innerText.includes('9 Loch Platz')")
@@ -1929,29 +1931,38 @@ def test_search_keeps_its_filters_while_you_look_at_the_heatmap_and_forgets_them
     _close_sheet(ui)
 
 
-def test_search_keeps_the_units_and_the_clear_button_in_one_row_above_the_scrolling_results(ui):
+def test_search_keeps_the_units_in_a_row_pinned_above_the_scrolling_results_and_the_clear_button_beside_the_filters(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 8")
     shape = ui.js(
         """(() => { const r = document.querySelector('.results'); r.scrollTop = 300;
         const head = document.querySelector('.res-head').getBoundingClientRect(), box = r.getBoundingClientRect();
+        const clear = document.querySelector('.sf .sf-clear').getBoundingClientRect(), filters = document.querySelector('.sf').getBoundingClientRect();
         return {pinned: Math.abs(head.top - box.top) < 2, scrolled: r.scrollTop > 0, units: document.querySelectorAll('.res-head .cell').length,
-                clear: !!document.querySelector('.res-head .btn')}; })()"""
+                clearInHeader: !!document.querySelector('.res-head .btn'), clearWithFilters: clear.top >= filters.top - 1 && clear.bottom <= filters.bottom + 1}; })()"""
     )
-    assert shape == {"pinned": True, "scrolled": True, "units": 3, "clear": True}, shape  # the headings stay at the top while the rows move
+    assert shape == {"pinned": True, "scrolled": True, "units": 3, "clearInHeader": False, "clearWithFilters": True}, shape
     _close_sheet(ui)
 
 
-def test_on_a_phone_a_row_without_names_keeps_its_free_seats_level_with_its_time(ui):
+def test_the_courses_you_can_play_are_a_card_in_preferences_that_saves_at_once(ui):
+    """A 9 hole membership: the 18 hole course is switched off and Search never shows it. The demo club has one course,
+    so the list of courses is given a second one here."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!String(url).includes('/api/club/courses')) return response;
+          const data = await response.json();
+          return new Response(JSON.stringify({ ...data, courses: [...data.courses.filter((c) => c.name !== '9 Loch Platz'), { name: '9 Loch Platz', play: true }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
+    )
     try:
-        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
-        _open_sheet(ui, "s", "Search")
-        ui.wait("document.querySelectorAll('.results .res.solo').length > 0")
-        offset = ui.js(
-            """(() => { const row = document.querySelector('.results .res.solo'); const mid = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
-            return Math.abs(mid(row.querySelector('.res-time')) - mid(row.querySelector('.res-open'))); })()"""
-        )
-        assert offset < 2, offset
+        _open_sheet(ui, "e", "")
+        ui.wait("document.querySelector('#c-play-1')")
+        ui.js("document.querySelector('#c-play-1').click()")  # switch the second course off
+        ui.wait("document.querySelector('#c-play-1').checked === false")
+        ui.js("document.querySelector('#c-play-1').click()")  # and back on: leave the demo as it was
+        ui.wait("document.querySelector('#c-play-1').checked === true")
         _close_sheet(ui)
     finally:
-        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        ui.js("window.__beforeReload = true; location.reload()")  # drop the override
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")

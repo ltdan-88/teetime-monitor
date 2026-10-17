@@ -63,17 +63,46 @@ function useForm(groups) {
 
 // ---------------------------------------------------------------- Preferences
 
+/** The club's courses with a switch for each: the ones you cannot play (a 9 hole membership) are left out of Search.
+ *  A switch saves at once. Nothing to choose from with one course, so then there is no card. */
+function useCoursesCard({ clubId, onSaved }) {
+  const { data } = useLoad(() => (clubId ? api('/api/club/courses' + query({ club_id: clubId })) : Promise.resolve(null)), [clubId]);
+  const [local, setLocal] = useState({});
+  if (!data || data.error || data.courses.length < 2) return null;
+  const toggle = async (course, play) => {
+    setLocal((current) => ({ ...current, [course.name]: play }));
+    try {
+      await post('/api/club/course-played', { slug: data.slug, course: course.name, play });
+      onSaved();
+    } catch (failure) {
+      setLocal((current) => ({ ...current, [course.name]: course.play }));
+    }
+  };
+  return {
+    weight: data.courses.length + 1,
+    node: html`<section class="group">
+      <h3>${t('preferences.courses')}</h3>
+      ${data.courses.map((course, index) => html`
+        <div class="field-row">
+          <label for=${'c-play-' + index}>${course.name}</label>
+          <${Switch} id=${'c-play-' + index} checked=${course.name in local ? local[course.name] : course.play} onChange=${(play) => toggle(course, play)} />
+        </div>`)}
+    </section>`,
+  };
+}
+
 export function PreferencesSheet({ clubId, onClose, onSaved }) {
   const { data, error } = useLoad(() => api('/api/preferences' + query({ club_id: clubId })), [clubId]);
   return html`<${Sheet} title=${t('preferences.title')} onClose=${onClose} size="wide">
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${!data && !error && html`<p class="dim">${t('loading')}</p>`}
-    ${data && html`<${PreferencesForm} groups=${data.groups} onClose=${onClose} onSaved=${onSaved} />`}
+    ${data && html`<${PreferencesForm} groups=${data.groups} clubId=${clubId} onClose=${onClose} onSaved=${onSaved} />`}
   <//>`;
 }
 
-function PreferencesForm({ groups, onClose, onSaved }) {
+function PreferencesForm({ groups, clubId, onClose, onSaved }) {
   const [values, setValue] = useForm(groups);
+  const courses = useCoursesCard({ clubId, onSaved });
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
   async function save() {
@@ -89,7 +118,7 @@ function PreferencesForm({ groups, onClose, onSaved }) {
     setSaving(false);
   }
   return html`
-    <${Columns} items=${groupItems(groups, values, setValue)} />
+    <${Columns} items=${[...groupItems(groups, values, setValue), ...(courses ? [courses] : [])]} />
     <div class="actions">
       <${Status} kind=${message && message.kind}>${message && message.text}<//>
       <span class="grow"></span>

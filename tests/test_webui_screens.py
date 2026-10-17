@@ -553,6 +553,30 @@ def test_search_marks_the_slots_that_cross_your_weather_limits_and_the_ones_with
     assert by_time["10:00"]["gap_ok"] is False and by_time["10:10"]["gap_ok"] is True  # 10:10 is booked, 10:00 sits right before it
 
 
+def test_courses_you_cannot_play_are_left_out_of_search_and_can_be_switched_back_on(world, monkeypatch):
+    """A 9 hole membership: the 18 hole course is switched off in Preferences and Search never shows its tee times."""
+    from src import clock, club_config, scraper  # noqa: F401
+    from src.webui import settings_api
+
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "05:00")
+    other = _schedule(date.today().isoformat())
+    other.course = "9 Loch"
+    storage.save_schedule(other, path=world, authenticated=True)
+    data._OVERVIEW_CACHE.clear()
+    assert {s["course"] for s in tools_api.search_slots(SLUG, None)["slots"]} == {COURSE, "9 Loch"}
+    listed = settings_api.club_courses(SLUG, None)
+    assert listed["slug"] == SLUG and {c["name"]: c["play"] for c in listed["courses"]} == {COURSE: True, "9 Loch": True}
+    assert settings_api.set_course_played(SLUG, COURSE, False) == {"ok": True}
+    assert club_config.load_club_config(SLUG)["excluded_courses"] == [COURSE]  # the club's own file keeps the choice
+    result = tools_api.search_slots(SLUG, None)
+    assert result["courses"] == ["9 Loch"] and {s["course"] for s in result["slots"]} == {"9 Loch"}
+    assert {c["name"]: c["play"] for c in settings_api.club_courses(SLUG, None)["courses"]} == {COURSE: False, "9 Loch": True}  # still listed
+    assert settings_api.set_course_played(SLUG, COURSE, True) == {"ok": True}
+    assert "excluded_courses" not in club_config.load_club_config(SLUG)  # nothing left over
+    assert settings_api.set_course_played("nope", COURSE, False) == {"error": "unknown_club"}
+    assert settings_api.club_courses("nope", None) == {"error": "unknown_club"}
+
+
 def test_the_player_directory_lists_and_marks_friends(world):
     listed = tools_api.players(SLUG, None)
     by_name = {p["name"]: p for p in listed["players"]}

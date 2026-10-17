@@ -491,6 +491,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(settings_api.ai_key(arg("provider") or "", body.get("api_key") or ""))
         if route == ("POST", "/api/club/default-course"):
             return reply(settings_api.set_default_course(arg("slug") or "", arg("course") or ""))
+        if route == ("GET", "/api/club/courses"):
+            return reply(settings_api.club_courses(**ref()))
+        if route == ("POST", "/api/club/course-played"):
+            return reply(settings_api.set_course_played(arg("slug") or "", arg("course") or "", body.get("play") is not False))
         if route == ("POST", "/api/club/holes"):
             holes = body.get("holes")
             return reply(settings_api.set_course_holes(arg("slug") or "", arg("course") or "", holes if isinstance(holes, int) else None))

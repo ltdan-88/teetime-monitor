@@ -187,6 +187,7 @@ function App() {
   const [refresh, setRefresh] = useState({ running: false, error: null });
   const [tournamentDate, setTournamentDate] = useState(null); // the day the Tournaments window opens on (a tournament slot in the tee sheet), else this month
   const [toolSlug, setToolSlug] = useState(null); // the club Search and Heatmap look at, when it is not the one on the page
+  const [prefsClubId, setPrefsClubId] = useState(null); // the club Preferences is about when it was opened from Search
   const [prefsBack, setPrefsBack] = useState(null); // the sheet Preferences was opened from (Search): it comes back when they close
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
@@ -613,14 +614,14 @@ function App() {
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
-      ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
+      ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${prefsClubId || (club && club.id)} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); setPrefsClubId(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
         display=${{ boot, units, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked }}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${toolClub || clubForSheets} clubs=${boot.clubs} units=${units} showHandicaps=${showHandicaps} onSlug=${setToolSlug}
-        onPreferences=${() => { setPrefsBack('search'); setSheet('preferences'); }}
+        onPreferences=${() => { setPrefsBack('search'); setPrefsClubId((toolClub || clubForSheets).id); setSheet('preferences'); }}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${toolClub || clubForSheets} clubs=${boot.clubs} course=${toolClub ? '' : overview.course} units=${units} onSlug=${setToolSlug} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
