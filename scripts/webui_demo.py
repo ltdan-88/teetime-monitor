@@ -20,7 +20,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
-def seed(directory: Path) -> None:
+def seed(directory: Path, second_club: bool = False) -> None:
     config_dir, data_dir = directory / "config", directory / "data"
     os.environ["TEETIME_MONITOR_CONFIG_DIR"] = str(config_dir)
     os.environ["TEETIME_MONITOR_DATA_DIR"] = str(data_dir)
@@ -109,6 +109,18 @@ def seed(directory: Path) -> None:
     storage.record_scrape_run(
         started_at=finished, finished_at=finished, source="agent", attempted=5, saved=5, failed=0, authenticated=True, path=db
     )
+    if second_club:  # a neighbouring club, with a member of it booked there tomorrow (the shared player directory)
+        other_id, other_course = "0000002", "9 Loch Platz"
+        club_config.save_club_config("golfclub-nachbar", {"club_id": other_id, "name": "Golfclub Nachbar e.V.", "default_course": other_course, "overview_days": 5, "location": {"lat": 49.8, "lon": 9.9}})
+        other_db = data_dir / f"{other_id}.db"
+        storage.init_db(other_db)
+        storage.record_seen_players([PlayerSighting(name="Nina Nachbar", gender="female", member_status="member", handicap=15.2)], now.isoformat(), path=other_db)
+        for offset in range(0, 3):
+            date = (today + timedelta(days=offset)).isoformat()
+            slots = [Slot(time=f"{h:02d}:{m:02d}", booked=1 if (h, m) == (10, 0) and offset == 1 else 0, capacity=4,
+                          players=["Nina Nachbar"] if (h, m) == (10, 0) and offset == 1 else []) for h in range(8, 18) for m in (0, 30)]
+            storage.save_schedule(Schedule(date=date, course=other_course, slots=slots, weather=[], sun_times=SunTimes("07:12", "19:08"), events=[]), path=other_db, authenticated=True)
+        storage.record_scrape_run(started_at=finished, finished_at=finished, source="agent", attempted=3, saved=3, failed=0, authenticated=True, path=other_db)
 
 
 def main() -> None:
@@ -118,10 +130,11 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--at", metavar="HH:MM", help="pretend it is this time of day (the demo's slots are all by day: late in the evening today's card would be gone)")
     parser.add_argument("--offline", action="store_true", help="never touch the network: scrapes and previews do nothing")
+    parser.add_argument("--second-club", action="store_true", help="add a second saved club with a member booked there")
     parser.add_argument("--password", help="run it as `teetime-monitor-web --serve` (on the loopback address) with this password")
     args = parser.parse_args()
     os.environ["TEETIME_MONITOR_NO_UPDATE_CHECK"] = "1"  # a demo never calls out
-    seed(args.directory.resolve())
+    seed(args.directory.resolve(), second_club=args.second_club)
     if args.at:
         from src import clock
 

@@ -271,7 +271,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .sheet.small { max-width: 32.5rem; }
 .sheet.medium { max-width: 47.5rem; }
 .sheet.wide { max-width: 67.5rem; }
-.sheet.directory { max-width: 60rem; }
+.sheet.directory { max-width: 64rem; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 1.125rem 1.5rem 0.5rem; flex: none; }
 .sheet-head h2 { margin: 0; font-size: 1.3125rem; font-weight: 600; text-wrap: balance; }
 .sheet-head:has(.sheet-tabs) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: 0.25rem; }  /* the title may wrap, the close button stays beside it */
@@ -332,12 +332,12 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .saved-mark { display: inline-flex; align-items: center; gap: 0.375rem; color: var(--green); }
 .players-tools { display: flex; align-items: center; gap: 0.875rem; flex-wrap: wrap; margin: 0.375rem 0 0.25rem; }
 .players-tools .select select { height: 2.375rem; }
-.player-list { --player-cols: 2.375rem minmax(10rem, 1fr) 6.5rem minmax(9rem, 13rem) 4rem 9.5rem; }  /* one set of columns for the heading and every row */
+.player-list { --player-cols: 2.375rem minmax(10rem, 1fr) 6.5rem minmax(9rem, 13rem) 4rem 13rem; }  /* one set of columns for the heading and every row */
 .player-list li { display: grid; grid-template-columns: var(--player-cols); column-gap: 0.625rem; align-items: center; min-height: 2.5rem; border-top: 1px solid var(--line); }
 .star-btn { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--dim); }
 .star-btn:hover { background: var(--surface-hover); }
 .star-btn.on { color: var(--yellow); }
-.tee-btn { display: inline-flex; align-items: center; gap: 0.375rem; height: 1.875rem; padding: 0 0.625rem; border-radius: 62.4375rem; font-family: var(--mono); font-size: 0.8125rem; white-space: nowrap; background: var(--pill-blue-bg); color: var(--accent-text, var(--accent)); justify-self: start; }
+.tee-btn { display: inline-flex; align-items: center; gap: 0.375rem; height: 1.875rem; padding: 0 0.625rem; border-radius: 62.4375rem; font-family: var(--mono); font-size: 0.8125rem; white-space: nowrap; background: var(--pill-blue-bg); color: var(--accent-text, var(--accent)); justify-self: start; max-width: 100%; }
 .tee-btn:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 .tee-btn .more { font-family: var(--font); color: var(--dim); }
 /* "Jump to which tee time?": the question on its own line, then the choices as equally wide buttons (as many per row as fit) */
@@ -955,3 +955,4 @@ button, select, input { touch-action: manipulation; }
 /* the day header, calmer: the no-pick badge is a word, and on a phone the occupancy bars are slim */
 .pill.word { font-family: var(--font); font-size: 0.875rem; color: var(--mid); }
 @media (max-width: 640px) { .dh .heat span { height: 0.4375rem; } }
+.tee-btn .tee-club { font-family: var(--font); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }  /* a tee time at another of your clubs */

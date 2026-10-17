@@ -1698,3 +1698,42 @@ def test_the_server_password_is_changed_in_settings(served_ui):
     page.set("#password", "a brand new secret")  # ... the new one works
     page.click("#submit")
     page.wait("document.querySelectorAll('.card').length > 0")
+
+
+@pytest.fixture(scope="module")
+def two_clubs_ui(tmp_path_factory):
+    """The demo with a second saved club, where a member of that club is booked tomorrow."""
+    executable = _chrome()
+    if executable is None:
+        pytest.skip("no Chrome, Chromium or Edge found (set CHROME)")
+    server = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "webui_demo.py"), str(tmp_path_factory.mktemp("demo-two")), "--serve", "--offline", "--at", "09:30", "--second-club"],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env={**os.environ, "PYTHONUNBUFFERED": "1", "TEETIME_MONITOR_LANG": "en"},
+    )  # fmt: skip
+    url = None
+    for line in server.stdout:
+        match = re.search(r"http://127\.0\.0\.1:\d+/\?t=[\w-]+", line)
+        if match:
+            url = match.group(0)
+            break
+    assert url, "the demo server did not start"
+    page = Page(executable)
+    page.go(url)
+    page.wait("document.querySelectorAll('.card').length > 0")
+    yield page
+    page.close()
+    server.kill()
+
+
+def test_a_players_tee_time_at_another_club_shows_that_club_and_jumps_there(two_clubs_ui):
+    ui = two_clubs_ui
+    assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"
+    _open_sheet(ui, "p", "Player")
+    ui.wait("[...document.querySelectorAll('.player-list li')].some((li) => li.textContent.includes('Nina Nachbar'))")
+    row = "[...document.querySelectorAll('.player-list li')].find((li) => li.textContent.includes('Nina Nachbar'))"
+    assert ui.js(f"{row}.querySelector('.tee-btn .tee-club').textContent.trim()") == "· Nachbar"  # the club, without "Golfclub … e.V."
+    assert "Golfclub Nachbar e.V." in ui.js(f"{row}.textContent")  # her home club in the Club column
+    ui.js(f"{row}.querySelector('.tee-btn').click()")
+    ui.wait("!document.querySelector('.scrim') && document.querySelector('#club').value === 'golfclub-nachbar'")  # switched club
+    ui.wait("document.querySelector('.card.open [data-slot$=\" 10:00\"]')")  # and opened her day at her time
+    assert "Nina Nachbar" in ui.text(".card.open")
