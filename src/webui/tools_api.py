@@ -179,6 +179,42 @@ def search_slots(slug: str | None, club_id: str | None, page_course: str | None 
     }
 
 
+_COUNTS_CACHE: dict[tuple, tuple] = {}
+
+
+def default_counts(slug: str | None, club_id: str | None, course: str | None) -> dict[str, int]:
+    """How many open times of each day pass your Preferences on `course`: what Search shows when it opens on that course,
+    and the count in the overview's day headers (a tap opens Search on that day). The same rules as the page's own
+    filter when Search opens: your times, your weather limits, your gap and your free seats. Nothing for a course you
+    cannot play. Kept until the club's data, the clock's minute or your settings change."""
+    club, db, config = _club(slug, club_id)
+    if club is None or not course or not db.exists():
+        return {}
+    stamp = (db.stat().st_mtime, clock.today(), clock.now_hhmm(), repr(config))
+    hit = _COUNTS_CACHE.get((str(db), course))
+    if hit and hit[0] == stamp:
+        return hit[1]
+    result = search_slots(slug, club_id, page_course=course)
+    if course not in result["courses"]:
+        return {}
+    mine = result["mine"]
+    windows = (mine["weekday_window"], mine["weekend_window"])
+    timed = any(window["after"] or window["before"] for window in windows)
+    spots = min(4, max(1, mine["min_open_spots"] or 1))
+    counts = {day["date"]: 0 for day in result["dates"] if day["loaded"]}
+    for slot in result["slots"]:
+        if slot["course"] != course or slot["open"] < spots:
+            continue
+        if (mine["weather"] and slot["wet"]) or ((mine["gap_before"] or mine["gap_after"]) and not slot["gap_ok"]):
+            continue
+        window = windows[1] if date.fromisoformat(slot["date"]).weekday() >= 5 else windows[0]
+        if timed and ((window["after"] and slot["time"] < window["after"]) or (window["before"] and slot["time"] > window["before"])):
+            continue
+        counts[slot["date"]] = counts.get(slot["date"], 0) + 1
+    _COUNTS_CACHE[(str(db), course)] = (stamp, counts)
+    return counts
+
+
 # ---- players -----------------------------------------------------------------------------
 
 

@@ -79,7 +79,17 @@ function dayNote(day) {
   return null;
 }
 
-function DayHeader({ day, open, onToggle, units, onAlternative }) {
+/** How many of the day's times pass your Preferences: a tap opens Search on this day. Inside the header button, so a
+ *  tap must not also open the day. Green, amber below half of the best day, grey for none (as in Search's strip). */
+function MatchCount({ day, best, onSearch }) {
+  if (day.matches == null || !onSearch) return null;
+  const go = (event) => { event.stopPropagation(); onSearch(day.date); };
+  const tone = day.matches === 0 ? ' z' : day.matches * 2 < best ? ' a' : '';
+  return html`<span class=${'hits-link' + tone} role="link" tabindex="0" title=${t('search.day_tip', { n: day.matches })} aria-label=${t('search.day_tip', { n: day.matches })}
+    onClick=${go} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && go(event)}><${Icon} name="search" size=${13} />${day.matches}</span>`;
+}
+
+function DayHeader({ day, open, onToggle, units, onAlternative, best, onSearch }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -99,7 +109,7 @@ function DayHeader({ day, open, onToggle, units, onAlternative }) {
         ${w && w.wind_peak != null && html`<${Icon} name="wind" size=${15} />${windSpeed(w.wind_peak, units)}`}
       </span>
       <span class="sun" title=${t('tip.sun')}>${day.sunrise && day.sunset ? `↑${day.sunrise} ↓${day.sunset}` : ''}</span>
-      <span class="badge-slot"><${Badge} day=${day} onAlternative=${onAlternative} /></span>
+      <span class="badge-slot"><${MatchCount} day=${day} best=${best} onSearch=${onSearch} /><${Badge} day=${day} onAlternative=${onAlternative} /></span>
       <span class="heat" role="img" aria-label=${t('heat.title') + ': ' + day.heat.map((ratio, i) => heatPart(ratio, i)).join(', ')}>${day.heat.map((ratio, i) => html`<span class=${'o-' + occupancyState(ratio)} style=${{ backgroundColor: quietOccupancyColor(ratio) }} title=${heatPart(ratio, i)}></span>`)}</span>
       ${day.events.length > 0 && html`<span class="events" title=${day.events.join(' · ')}>${day.events.join(' · ')}</span>`}
     </button>
@@ -195,10 +205,10 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, best, onSearch }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} onAlternative=${onAlternative} best=${best} onSearch=${onSearch} />
       ${open && html`<div class="slots">
         ${(() => {
           const note = dayNote(day);

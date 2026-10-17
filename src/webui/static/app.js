@@ -187,6 +187,7 @@ function App() {
   const [refresh, setRefresh] = useState({ running: false, error: null });
   const [tournamentDate, setTournamentDate] = useState(null); // the day the Tournaments window opens on (a tournament slot in the tee sheet), else this month
   const [prefsBack, setPrefsBack] = useState(null);
+  const [searchDay, setSearchDay] = useState(null); // the day whose count was tapped: Search opens on it
   const [tabCourse, setTabCourse] = useState(null); // the course tab of Search and the Heatmap (one course at a time) // the sheet Preferences was opened from (Search): it comes back when they close
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
@@ -258,7 +259,7 @@ function App() {
     setTimeout(() => row.classList.remove('flash'), 2400);
   }, [openDate, overview, jumpTick]);
 
-  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') { forgetSearch(); setTabCourse(null); } }, [sheet]);
+  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') { forgetSearch(); setTabCourse(null); setSearchDay(null); } }, [sheet]);
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
   }, [openDate]);
@@ -590,6 +591,7 @@ function App() {
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
           <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
+            best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${(date) => { setSearchDay(date); setSheet('search'); }}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}
@@ -618,7 +620,7 @@ function App() {
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
-      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} showHandicaps=${showHandicaps}
+      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} startDay=${searchDay} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} showHandicaps=${showHandicaps}
         onPreferences=${() => { setPrefsBack('search'); setSheet('preferences'); }}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}

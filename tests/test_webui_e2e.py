@@ -2056,6 +2056,8 @@ def test_a_row_too_narrow_for_its_names_shows_the_player_chip_even_on_a_large_sc
         ui.wait("document.querySelector('.results .res.tight')")
         assert ui.js("getComputedStyle(document.querySelector('.results .res.tight .who-chip')).display") != "none"
         assert ui.count(".results .res:not(.res-head):not(.tight) .res-people .name") > 0  # the others still show their names
+        level = ui.js("(() => { const row = document.querySelector('.results .res.tight'), mid = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; }; return [mid(row.querySelector('.res-time')), mid(row.querySelector('.res-action')), mid(row.querySelector('.temp'))]; })()")
+        assert max(level) - min(level) < 4, level  # the chip shares the names' place: the weather and the button stay on the row
         _close_sheet(ui)
     finally:
         ui.js("window.__beforeReload = true; location.reload()")
@@ -2080,3 +2082,18 @@ def test_on_a_phone_clear_and_back_to_mine_sit_beside_the_filter_button(ui):
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_each_day_counts_the_times_for_you_and_a_tap_opens_search_on_that_day(ui):
+    ui.js("window.scrollTo(0, 0)")
+    ui.wait("document.querySelectorAll('.dh .hits-link').length === document.querySelectorAll('.card').length")
+    first = ui.js("[...document.querySelectorAll('.dh .hits-link')].findIndex((e) => Number(e.textContent) > 0)")
+    assert first >= 0
+    count = int(ui.js(f"document.querySelectorAll('.dh .hits-link')[{first}].textContent"))
+    opened = ui.count(".card.open")
+    ui.js(f"document.querySelectorAll('.dh .hits-link')[{first}].click()")
+    ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday[aria-pressed=true]').length === 1")
+    assert ui.js("document.querySelectorAll('.strip .sday')[" + str(first) + "].getAttribute('aria-pressed')") == "true"  # that day, and only it
+    assert _search_rows(ui) == count  # the same times the header counted
+    _close_sheet(ui)
+    assert ui.count(".card.open") == opened  # the tap did not also open or close the day
