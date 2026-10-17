@@ -3,7 +3,7 @@
 // so a tap on a chip answers at once. The day strip is the calendar: one chip per day with its number of matches.
 
 import {
-  html, t, useState, useEffect, useLayoutEffect, useMemo, useRef, Sheet, Status, Icon, useLoad, api, query,
+  html, t, useState, useEffect, useLayoutEffect, useMemo, useRef, Sheet, Status, Condition, Icon, useLoad, api, query,
   dayLabel, weekdayShort, WeatherHeads, WeatherCells,
 } from '/lib.js';
 import { PlayerNames, WhoChip, WhoList } from '/overview.js';
@@ -60,13 +60,23 @@ function Chip({ on, onClick, children, className = '', ...rest }) {
   return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
 }
 
+/** The seats as squares, as on the tee sheet: taken grey, a friend's yellow, yours in the accent, free ones empty. */
+function seatSquares(slot) {
+  const friend = slot.players.some((player) => player.friend);
+  return Array.from({ length: slot.capacity > 0 ? slot.capacity : 4 }, (_, i) => {
+    const taken = i < slot.booked;
+    const cls = 'seat' + (taken ? (slot.booked_by_you && i === 0 ? ' mine' : friend && i === 0 ? ' friend' : ' taken') : '');
+    return html`<span class=${cls}></span>`;
+  });
+}
+
 function ResultRow({ slot, units, showHandicaps, onMark }) {
   const [whoOpen, setWhoOpen] = useState(false); // where the names do not fit, a chip with the count opens them (as in the days)
   const who = { players: slot.players, booked: slot.booked };
   return html`
     <div class=${'res' + (slot.players.length || slot.booked ? '' : ' solo')} data-slot=${slot.date + ' ' + slot.time}>
       <span class="num res-time">${slot.time}</span>
-      <span class="res-open">${t('search.open_spots', { n: slot.open })}</span>
+      <span class="res-open seats" role="img" title=${t('search.open_spots', { n: slot.open })} aria-label=${t('search.open_spots', { n: slot.open })}>${seatSquares(slot)}</span>
       <span class="res-people"><${PlayerNames} slot=${who} showHandicaps=${showHandicaps} /></span>
       <${WhoChip} slot=${who} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
       ${whoOpen && html`<${WhoList} slot=${who} showHandicaps=${showHandicaps} />`}
@@ -137,6 +147,7 @@ export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onC
   }, [data, f, course]);
 
   const mine = data && data.mine;
+  const codes = data ? Object.fromEntries(data.dates.map((day) => [day.date, day.code])) : {};
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
   const clear = () => set({ days: [], tod: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
@@ -193,7 +204,7 @@ export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onC
         ${view.groups.length === 0
           ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
           : html`${view.groups.map((group) => html`<section class="daygroup" key=${group.date}>
-              ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}<small>${group.rows.length}</small></div>`}
+              ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}${codes[group.date] != null && html`<${Condition} code=${codes[group.date]} size=${18} />`}<small>${group.rows.length}</small></div>`}
               ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps}
                 onMark=${(picked) => onMark({ ...picked, ref })} />`)}</section>`)}`}
       </div>`}

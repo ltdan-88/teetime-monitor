@@ -440,7 +440,7 @@ def test_search_weather_stays_under_its_headings_in_every_window_width(ui):
         _open_sheet(ui, "s", "Search")
         ui.wait("document.querySelector('.sf') && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
         _chip(ui, "4")  # four open seats: only slots with nobody booked
-        ui.wait("(() => { const rows = [...document.querySelectorAll('.results .res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => r.querySelector('.res-open').textContent.includes('4')); })()")
+        ui.wait("(() => { const rows = [...document.querySelectorAll('.results .res:not(.res-head)')]; return rows.length > 0 && rows.every((r) => r.querySelectorAll('.res-open .seat.taken, .res-open .seat.friend, .res-open .seat.mine').length === 0); })()")
         for width in (1280, 1000, 860, 744):
             ui.call("Emulation.setDeviceMetricsOverride", width=width, height=900, deviceScaleFactor=1, mobile=False)
             ui.wait(f"innerWidth === {width}")
@@ -2097,3 +2097,15 @@ def test_each_day_counts_the_times_for_you_and_a_tap_opens_search_on_that_day(ui
     assert _search_rows(ui) == count  # the same times the header counted
     _close_sheet(ui)
     assert ui.count(".card.open") == opened  # the tap did not also open or close the day
+
+
+def test_search_rows_show_the_seats_as_squares_and_each_day_its_weather(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3 && document.querySelectorAll('.dayhead').length > 1")
+    rows = ui.js(
+        """[...document.querySelectorAll('.results .res:not(.res-head)')].map((r) => [r.querySelectorAll('.seats .seat').length,
+            r.querySelectorAll('.seats .seat:not(.taken):not(.friend):not(.mine)').length, Number(r.querySelector('.seats').getAttribute('title').match(/\\d+/)[0])])"""
+    )
+    assert all(total == 4 and free == said for total, free, said in rows), rows[:5]  # four squares, the free ones as many as the label says
+    assert ui.count(".dayhead .cond") == ui.count(".dayhead")  # each day heading with its weather
+    _close_sheet(ui)
