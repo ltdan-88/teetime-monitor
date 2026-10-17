@@ -89,20 +89,21 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
   const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query(ref)), [club.id]);
   const data = loading ? null : loaded;
   const [f, setF] = useState(null);
+  const fRef = useRef(null); // the filters as they are this instant: a tap, then straight to the Heatmap tab, must not lose it
+  const commit = (next) => { fRef.current = next; kept = { id: club.id, f: next }; setF(next); };
   const forClub = useRef(null);
   useEffect(() => {
-    if (data && forClub.current !== club.id) { forClub.current = club.id; setF(kept && kept.id === club.id ? kept.f : defaults(data)); }
+    if (data && forClub.current !== club.id) { forClub.current = club.id; commit(kept && kept.id === club.id ? kept.f : defaults(data)); }
   }, [data]);
-  useEffect(() => { forClub.current = null; setF(null); }, [club.id]);
-  useEffect(() => { if (f) kept = { id: club.id, f }; }, [f]);
+  useEffect(() => { forClub.current = null; fRef.current = null; setF(null); }, [club.id]);
   const first = useRef(true);
   useEffect(() => {  // a booking made from the results (or in Preferences) changes them
     if (first.current) { first.current = false; return; }
     reload();
   }, [refreshKey]);
 
-  const set = (change) => setF((current) => ({ ...current, ...change })); // from the state as it is, so quick taps all count
-  const flip = (key, value) => setF((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((x) => x !== value) : [...current[key], value] }));
+  const set = (change) => commit({ ...fRef.current, ...change }); // from the filters as they are, so quick taps all count
+  const flip = (key, value) => { const current = fRef.current; commit({ ...current, [key]: current[key].includes(value) ? current[key].filter((x) => x !== value) : [...current[key], value] }); };
   const view = useMemo(() => {
     if (!data || !f) return null;
     const counts = {};
