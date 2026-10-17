@@ -8,7 +8,7 @@ import {
 import { DayCard, Banners, focusTime } from '/overview.js';
 import { PreferencesSheet, SettingsSheet } from '/forms.js';
 import { AddClubSheet } from '/addclub.js';
-import { SearchSheet } from '/search.js';
+import { SearchSheet, forgetSearch } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
 import { TournamentsSheet } from '/tournaments.js';
@@ -258,7 +258,7 @@ function App() {
     setTimeout(() => row.classList.remove('flash'), 2400);
   }, [openDate, overview, jumpTick]);
 
-  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') setToolSlug(null); }, [sheet]);
+  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') { setToolSlug(null); forgetSearch(); } }, [sheet]);
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
   }, [openDate]);

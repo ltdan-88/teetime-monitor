@@ -177,7 +177,7 @@ def _open_sheet(ui, key, title_contains):
 def _chip(ui, text, scope=".sf"):
     """Click the filter chip or button whose text is exactly `text` (a plain "4" must not match "14–17")."""
     ui.js(
-        f"""(() => {{ const el = [...document.querySelectorAll({json.dumps(scope + ' .chip, ' + scope + ' .btn, .rhead .btn, .results .btn')})].find((e) => e.textContent.trim() === {json.dumps(text)});
+        f"""(() => {{ const el = [...document.querySelectorAll({json.dumps(scope + ' .chip, ' + scope + ' .btn, .res-head .btn, .results .btn')})].find((e) => e.textContent.trim() === {json.dumps(text)});
         if (!el) throw new Error('no chip ' + {json.dumps(text)}); el.click(); }})()"""
     )
 
@@ -413,7 +413,7 @@ def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
     start = _search_rows(ui)
     assert _chip_on(ui, "My times") == "true"  # your Preferences are on when Search opens
     assert ui.js("document.querySelectorAll('.dayhead').length") >= 1
-    shown = int(ui.js("[...document.querySelectorAll('.rhead .lab')][0].textContent.match(/\\d+/)[0]"))
+    shown = int(ui.js("[...document.querySelectorAll('.res-head .rcount')][0].textContent.match(/\\d+/)[0]"))
     assert shown == start  # the line above the results counts the same rows
     counted = ui.js("[...document.querySelectorAll('.strip .sday .c')].map((e) => Number(e.textContent) || 0).reduce((a, b) => a + b, 0)")
     assert counted == start  # and so do the days of the strip, together
@@ -665,13 +665,13 @@ def test_clear_filters_shows_everything_and_is_in_reach(ui):
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
     start = _search_rows(ui)
-    assert ui.count(".rhead .btn") == 1  # on the count line while anything is on
+    assert ui.count(".res-head .btn") == 1  # on the count line while anything is on
     _chip(ui, "Weekend")
     _chip(ui, "3+")
-    ui.click(".rhead .btn", "Clear filters")
+    ui.click(".res-head .btn", "Clear filters")
     ui.wait("document.querySelectorAll('.sf .chip[aria-pressed=true]').length === 1")  # only "1+" is left on: nothing narrows
     assert _search_rows(ui) > start  # your own rules are off too: more than when Search opened
-    assert ui.count(".rhead .btn") == 0  # nothing left to clear
+    assert ui.count(".res-head .btn") == 0  # nothing left to clear
     _close_sheet(ui)
 
 
@@ -1827,14 +1827,14 @@ def test_search_and_tournaments_pick_their_own_club_and_book_there(two_clubs_ui)
     assert ui.js("document.querySelector('#tool-club').value") == "golfclub-beispiel"
     ui.set("#tool-club", "golfclub-nachbar")
     ui.wait("document.querySelector('#tool-club').value === 'golfclub-nachbar' && document.querySelectorAll('.strip .sday').length === 14")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.rhead .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.res-head .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
     ui.wait("[...document.querySelectorAll('.res')].some((row) => row.textContent.includes('Nina Nachbar'))")  # the other club's tee sheet
     assert ui.js("document.querySelector('#club').value") == "golfclub-beispiel"  # the page itself stays where it was
     ui.click(".sheet-tab", text="Heatmap")  # the heatmap looks at the same club
     ui.wait("document.querySelector('.sheet h2')?.textContent.toLowerCase().includes('heatmap') && document.querySelector('#tool-club')?.value === 'golfclub-nachbar'")
     ui.click(".sheet-tab", text="Open times")
     ui.wait("[...document.querySelectorAll('.strip .sday')].length === 14 && document.querySelector('#tool-club').value === 'golfclub-nachbar'")
-    ui.js("(() => { const clear = [...document.querySelectorAll('.rhead .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
+    ui.js("(() => { const clear = [...document.querySelectorAll('.res-head .btn, .none .btn')].find((e) => e.textContent.trim() === 'Clear filters'); if (clear) clear.click(); })()")
     ui.wait("document.querySelector('.res .mark')")
     ui.click(".res .mark")  # booking from here asks for the club searched, not the one open on the page
     ui.wait("document.body.innerText.includes('9 Loch Platz')")
@@ -1909,3 +1909,49 @@ def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
     finally:
         ui.js("window.__beforeReload = true; location.reload()")  # drop the override
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_search_keeps_its_filters_while_you_look_at_the_heatmap_and_forgets_them_when_closed(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+    _chip(ui, "Weekend")
+    _chip(ui, "3+")
+    ui.js("document.querySelector('.sf-more')?.getAttribute('aria-expanded')")  # (a phone's panel is not under test here)
+    ui.click(".sheet-tab", text="Heatmap")
+    ui.wait("document.querySelector('.hm-wrap, .sheet .empty')")
+    ui.click(".sheet-tab", text="Open times")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    assert _chip_on(ui, "Weekend") == "true" and _chip_on(ui, "3+") == "true"  # as you left them
+    _close_sheet(ui)
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.strip .sday').length === 14")
+    assert _chip_on(ui, "Weekend") == "false" and _chip_on(ui, "3+") == "false"  # a new visit starts from your Preferences again
+    _close_sheet(ui)
+
+
+def test_search_keeps_the_units_and_the_clear_button_in_one_row_above_the_scrolling_results(ui):
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 8")
+    shape = ui.js(
+        """(() => { const r = document.querySelector('.results'); r.scrollTop = 300;
+        const head = document.querySelector('.res-head').getBoundingClientRect(), box = r.getBoundingClientRect();
+        return {pinned: Math.abs(head.top - box.top) < 2, scrolled: r.scrollTop > 0, units: document.querySelectorAll('.res-head .cell').length,
+                clear: !!document.querySelector('.res-head .btn')}; })()"""
+    )
+    assert shape == {"pinned": True, "scrolled": True, "units": 3, "clear": True}, shape  # the headings stay at the top while the rows move
+    _close_sheet(ui)
+
+
+def test_on_a_phone_a_row_without_names_keeps_its_free_seats_level_with_its_time(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.results .res.solo').length > 0")
+        offset = ui.js(
+            """(() => { const row = document.querySelector('.results .res.solo'); const mid = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
+            return Math.abs(mid(row.querySelector('.res-time')) - mid(row.querySelector('.res-open'))); })()"""
+        )
+        assert offset < 2, offset
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
