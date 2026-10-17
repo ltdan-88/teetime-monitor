@@ -1,10 +1,10 @@
-// Search: every open tee time of the next two weeks at the club, narrowed down by chips. The page filters and counts
+// Search: every open tee time of the overview's days at the club, narrowed down by chips. The page filters and counts
 // itself (src/webui/tools_api.py search_slots() sends everything that can still be played, with your own rules as flags),
 // so a tap on a chip answers at once. The day strip is the calendar: one chip per day with its number of matches.
 
 import {
   html, t, useState, useEffect, useLayoutEffect, useMemo, useRef, Sheet, Status, Condition, Icon, useLoad, api, query,
-  dayLabel, weekdayShort, WeatherHeads, WeatherCells,
+  dayLabel, weekdayShort, WeatherHeads, WeatherCells, tempTone, temperature,
 } from '/lib.js';
 import { PlayerNames, WhoChip, WhoList } from '/overview.js';
 
@@ -70,6 +70,13 @@ function seatSquares(slot) {
   });
 }
 
+/** A day's heading: its weather (icon, high and low, as in the days of the overview); its count is in the strip. */
+function DayHead({ day, units }) {
+  return html`<div class="dayhead">${dayLabel(day.date)}${day.code != null && html`<${Condition} code=${day.code} size=${18} />`}
+    ${day.high != null && html`<span class="dh-temp num" title=${t('tip.temp')}><span style=${tempTone(day.high)}>${temperature(day.high, units)}°</span> / <span style=${tempTone(day.low)}>${temperature(day.low, units)}°</span></span>`}
+</div>`;
+}
+
 function ResultRow({ slot, units, showHandicaps, onMark }) {
   const [whoOpen, setWhoOpen] = useState(false); // where the names do not fit, a chip with the count opens them (as in the days)
   const who = { players: slot.players, booked: slot.booked };
@@ -80,7 +87,7 @@ function ResultRow({ slot, units, showHandicaps, onMark }) {
       <span class="res-people"><${PlayerNames} slot=${who} showHandicaps=${showHandicaps} /></span>
       <${WhoChip} slot=${who} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
       ${whoOpen && html`<${WhoList} slot=${who} showHandicaps=${showHandicaps} />`}
-      <${WeatherCells} weather=${slot.weather} units=${units} flags=${slot.flags} />
+      <${WeatherCells} weather=${slot.weather} units=${units} flags=${slot.flags} wind=${false} />
       <span class="res-action">
         ${slot.booked_by_you
           ? html`<span class="chip mine"><${Icon} name="flag" size=${13} style="fill:currentColor" />${t('search.booked')}</span>`
@@ -147,7 +154,7 @@ export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onC
   }, [data, f, course]);
 
   const mine = data && data.mine;
-  const codes = data ? Object.fromEntries(data.dates.map((day) => [day.date, day.code])) : {};
+  const days = data ? Object.fromEntries(data.dates.map((day) => [day.date, day])) : {};
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
   const clear = () => set({ days: [], tod: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
@@ -199,12 +206,12 @@ export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onC
       </div>
       ${darkNote && html`<p class="why">${t('search.dark', { after: mine.weekday_window.after, last: data.last_start })}</p>`}
       <div class="results scroll" ref=${resultsRef}>
-        <div class="res res-head"><span class="lab rcount">${t('search.count', { n: view.kept.length })}</span><${WeatherHeads} units=${units} />
+        <div class="res res-head"><span class="lab rcount">${t('search.count', { n: view.kept.length })}</span><${WeatherHeads} units=${units} wind=${false} />
           </div>
         ${view.groups.length === 0
           ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
           : html`${view.groups.map((group) => html`<section class="daygroup" key=${group.date}>
-              ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}${codes[group.date] != null && html`<${Condition} code=${codes[group.date]} size=${18} />`}<small>${group.rows.length}</small></div>`}
+              <${DayHead} day=${days[group.date] || { date: group.date }} units=${units} />
               ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps}
                 onMark=${(picked) => onMark({ ...picked, ref })} />`)}</section>`)}`}
       </div>`}

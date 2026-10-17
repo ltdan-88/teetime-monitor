@@ -119,7 +119,6 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
       <span class="search-box"><${Icon} name="search" size=${18} />
         <input class="fld" type="search" value=${search} placeholder=${t('players.search_placeholder')} aria-label=${t('players.search_placeholder')} onInput=${(event) => setSearch(event.target.value)} /></span>
       <div class="players-filters">
-      <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
       ${clubs.length > 0 && html`<${Select} id="p-club" value=${clubFilter} onChange=${setClubFilter} aria-label=${t('players.filter.club')}
         options=${[{ value: 'all', label: t('players.filter.club_all') }, ...clubs.map((name) => ({ value: name, label: shortClub(name) })), { value: GUESTS, label: t('players.filter.guests') }]} />`}
       <${Select} id="p-gender" value=${genderFilter} onChange=${setGenderFilter} aria-label=${t('players.filter.gender')}
@@ -127,6 +126,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
       <${Select} id="p-tee" value=${teeFilter} onChange=${setTeeFilter} aria-label=${t('players.filter.tee')}
         options=${['all', 'any', 'today'].map((key) => ({ value: key, label: t('players.filter.tee_' + key) }))} />
       <button id="p-friends" class="chip tn-pick" aria-pressed=${friendsOnly} onClick=${() => setFriendsOnly(!friendsOnly)}>★ ${t('players.friends_only')}</button>
+      <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
       </div>
     </div>
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}

@@ -215,12 +215,12 @@ const UNIT_LABELS = {
 };
 
 /** The column headings for a slot's temperature, rain and wind cells (they have no label of their own). */
-export function WeatherHeads({ units }) {
+export function WeatherHeads({ units, wind = true }) {
   const u = UNIT_LABELS[units] || UNIT_LABELS.metric;
   return html`
     <span class="cell head" title=${t('tip.temp_slot', { unit: u.temp })}>${u.temp}</span>
     <span class="cell head" title=${t('tip.rain_slot')}>${u.rain}</span>
-    <span class="cell head" title=${t('tip.wind_slot', { unit: u.wind })}>${u.wind}</span>`;
+    ${wind && html`<span class="cell head" title=${t('tip.wind_slot', { unit: u.wind })}>${u.wind}</span>`}`;
 }
 
 // ---- weather in color: the numbers tell the same story at a glance. Temperature runs blue (cold) - teal - sand - orange - red (hot);
@@ -253,7 +253,7 @@ export function windTone(kph) {
 
 /** A slot's temperature, rain and wind as three cells, each with its tooltip; `flags` ('rain', 'wind', 'temp')
  *  marks the ones outside your limits. */
-export function WeatherCells({ weather, units, flags = [] }) {
+export function WeatherCells({ weather, units, flags = [], wind = true }) {
   const u = UNIT_LABELS[units] || UNIT_LABELS.metric;
   const w = weather;
   const flagged = (flag) => (flags.includes(flag) ? ' warn' : '');
@@ -261,7 +261,7 @@ export function WeatherCells({ weather, units, flags = [] }) {
   return html`
     <span class=${'cell temp' + flagged('temp')} style=${flags.includes('temp') || !w ? null : tempTone(w.temp)} title=${tip(t('tip.temp_slot', { unit: u.temp }), 'temp')}>${w && w.temp != null ? temperature(w.temp, units) + '°' : ''}</span>
     <span class=${'cell rain' + flagged('rain')} style=${flags.includes('rain') || !w ? null : rainTone(w.rain)} title=${tip(t('tip.rain_slot'), 'rain')}>${w && w.rain != null ? round(w.rain) + '%' : ''}${w && w.rain != null && w.rain_mm ? html`<span class="mm">/${amount(w.rain_mm, units)}</span>` : ''}</span>
-    <span class=${'cell wind' + flagged('wind')} style=${flags.includes('wind') || !w ? null : windTone(w.wind)} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`;
+    ${wind && html`<span class=${'cell wind' + flagged('wind')} style=${flags.includes('wind') || !w ? null : windTone(w.wind)} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`}`;
 }
 
 export function Condition({ code, size = 24 }) {
@@ -333,18 +333,13 @@ const MINUTES = ['00', '15', '30', '45'];
 
 /** A 24-hour time as two dropdowns (hour, minute); '' means "not set". Whatever the browser's own
  *  clock format is (12 or 24 hour), the app shows the same HH:MM everywhere. */
+const TIMES = HOURS.flatMap((h) => MINUTES.map((m) => `${h}:${m}`));
+
+/** A time of day as one choice (quarter hours, "--" for none); a saved time off the quarter hours stays choosable. */
 export function TimeSelect({ id, value, onChange, label }) {
-  const [hh = '', mm = ''] = (value || '').split(':');
-  const withCurrent = (list, current) => (current && !list.includes(current) ? [current, ...list] : list);
-  const choose = (hour, minute) => onChange(hour ? `${hour}:${minute || '00'}` : '');
-  return html`
-    <span class="time-select">
-      <${Select} id=${id} aria-label=${label ? label + ' (' + t('hour') + ')' : t('hour')} value=${hh}
-        options=${[{ value: '', label: '--' }, ...withCurrent(HOURS, hh).map((h) => ({ value: h, label: h }))]} onChange=${(h) => choose(h, mm)} />
-      <span class="dim">:</span>
-      <${Select} aria-label=${label ? label + ' (' + t('minute') + ')' : t('minute')} value=${hh ? mm || '00' : ''}
-        options=${[{ value: '', label: '--' }, ...withCurrent(MINUTES, mm).map((m) => ({ value: m, label: m }))]} onChange=${(m) => choose(hh, m)} />
-    </span>`;
+  const times = value && !TIMES.includes(value) ? [value, ...TIMES].sort() : TIMES;
+  return html`<span class="time-select"><${Select} id=${id} aria-label=${label} value=${value || ''}
+    options=${[{ value: '', label: '--' }, ...times.map((time) => ({ value: time, label: time }))]} onChange=${onChange} /></span>`;
 }
 
 export function Status({ kind, children }) {

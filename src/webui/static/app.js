@@ -16,7 +16,7 @@ import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
 import { BottomPanel } from '/panel.js';
 import { Welcome } from '/welcome.js';
-import { UpdateNotice, UpdateSheet, CheckButton } from '/update.js';
+import { UpdateNotice, UpdateSheet } from '/update.js';
 import { installTouchTips } from '/tips.js';
 
 const ADD_CLUB = '__add_club__';
@@ -83,14 +83,14 @@ function Legend({ onClose }) {
     <p class="hint">${t('legend.touch')}</p>
     <details class="legend-group" name="legend"><summary>${t('legend.group.tools')}</summary>
     <dl class="legend">
-      <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
       <dt>${toolIcon('search')}</dt><dd>${t('legend.tool.search')}</dd>
       <dt>${toolIcon('grid')}</dt><dd>${t('legend.tool.heatmap')}</dd>
-      <dt>${toolIcon('users')}</dt><dd>${t('legend.tool.players')}</dd>
       <dt>${toolIcon('calendarcheck')}</dt><dd>${t('legend.tool.reservations')}</dd>
       <dt>${toolIcon('trophy')}</dt><dd>${t('legend.tool.tournaments')}</dd>
+      <dt>${toolIcon('users')}</dt><dd>${t('legend.tool.players')}</dd>
       <dt>${toolIcon('clock')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
+      <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
       <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
     </dl>
     </details>
@@ -102,8 +102,11 @@ function Legend({ onClose }) {
       <dt>${swatch('var(--faint)', 'none')}</dt><dd>${t('legend.occ.none')}</dd>
     </dl>
     <dl class="legend">
+      <dt><span class="hits-link"><${Icon} name="search" size=${13} />12</span></dt><dd>${t('legend.count')}</dd>
+      <dt><span class="seats legend-seats"><span class="seat taken"></span><span class="seat friend"></span><span class="seat"></span><span class="seat"></span></span></dt><dd>${t('legend.seats')}</dd>
       <dt><span class="pill booked"><${Icon} name="flag" size=${14} style="fill:currentColor" />11:00</span></dt><dd>${t('legend.booked')}</dd>
       <dt><span class="pill quiet"><${Icon} name="lock" size=${14} />Wed 21:00</span></dt><dd>${t('legend.locked')}</dd>
+      <dt><span class="pill quiet word">${t('badge.rain')}</span></dt><dd>${t('legend.no_play')}</dd>
       <dt><${Icon} name="star" size=${16} style="color:var(--accent);fill:var(--accent)" /></dt><dd>${t('legend.recommended')}</dd>
       <dt><${Icon} name="moon" size=${16} class="dim" /></dt><dd>${t('legend.too_late')}</dd>
       <dt><span class="chipdemo"><${Icon} name="users" size=${14} />3</span></dt><dd>${t('legend.chip')}</dd>
@@ -131,9 +134,9 @@ function Legend({ onClose }) {
       <dt><span class="kbd">r</span></dt><dd>${t('action.refresh')}</dd>
       <dt><span class="kbd">s</span></dt><dd>${t('action.search')}</dd>
       <dt><span class="kbd">h</span></dt><dd>${t('action.heatmap')}</dd>
-      <dt><span class="kbd">p</span></dt><dd>${t('action.players')}</dd>
       <dt><span class="kbd">b</span></dt><dd>${t('action.reservations')}</dd>
       <dt><span class="kbd">t</span></dt><dd>${t('action.tournaments')}</dd>
+      <dt><span class="kbd">p</span></dt><dd>${t('action.players')}</dd>
       <dt><span class="kbd">e</span></dt><dd>${t('action.preferences')}</dd>
       <dt><span class="kbd">,</span></dt><dd>${t('action.settings')}</dd>
       <dt><span class="kbd">a</span></dt><dd>${t('addclub.title')}</dd>
@@ -568,10 +571,10 @@ function App() {
         </div>
         <div class="toolbar-tools">
         ${tool('search', 'search', t('action.search'), 's', () => setSheet('search'), noClub || !overview || !overview.course)}
-        ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
         ${tool('reservations', 'calendarcheck', t('action.reservations'), 'b', () => setSheet('reservations'), boot.clubs.length === 0)}
         ${tool('tournaments', 'trophy', t('action.tournaments'), 't', () => openTournaments(null), noClub || !(club && club.slug))}
-        ${tool('preferences', 'clock', t('action.preferences'), 'e', () => setSheet('preferences'), false)}
+        ${tool('players', 'users', t('action.players'), 'p', () => setSheet('players'), noClub)}
+        ${tool('preferences', 'clock', t('action.preferences'), 'e', () => setSheet('preferences'), false, ' setup')}
         ${tool('settings', 'sliders', t('action.settings'), ',', () => setSheet('settings'), false)}
         </div>
       </header>
@@ -612,7 +615,6 @@ function App() {
           ${refresh.error && overview && overview.days.length > 0 && html`<span class="warning">${refreshErrorText(refresh.error)}</span>`}
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
-        <span class="about"><span class="version dim" title=${t('app.title')}>v${boot.version}</span><${CheckButton} onResult=${checked} /></span>
         <${ViewMenu} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
           onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} />
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} /><span class="legend-text">${t('legend')}</span></button>

@@ -275,8 +275,11 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .sheet.directory { max-width: 64rem; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 1.125rem 1.5rem 0.5rem; flex: none; }
 .sheet-head h2 { margin: 0; font-size: 1.3125rem; font-weight: 600; text-wrap: balance; }
-.sheet-head:has(.sheet-tabs) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: 0.25rem; }  /* the title may wrap, the close button stays beside it */
-.sheet-tabs { grid-column: 1 / -1; display: flex; gap: 0.25rem; border-bottom: 1px solid var(--line); margin-top: 0.25rem; }
+/* a sheet with tabs (Search and the Heatmap): the tabs are its heading, beside the close button (the title stays for screen readers) */
+.sheet-head:has(.sheet-tabs) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding-top: 0.625rem; padding-bottom: 0; border-bottom: 1px solid var(--line); }
+.sheet-head:has(.sheet-tabs) h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sheet-head:has(.sheet-tabs) > .icon-btn { grid-column: 2; grid-row: 1; align-self: center; }
+.sheet-tabs { grid-column: 1; grid-row: 1; display: flex; gap: 0.25rem; }
 .sheet-tab { border: 0; background: transparent; color: var(--mid); font: inherit; font-weight: 500; padding: 0.5rem 0.875rem; min-height: 2.5rem; cursor: pointer;
   border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .sheet-tab:hover { color: var(--text); }
@@ -310,6 +313,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 /* ---- forms ---- */
 .columns { display: flex; flex-wrap: wrap; gap: 1.25rem; align-items: flex-start; }
 .col { flex: 1 1 28rem; min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; }
+@media (max-width: 900px) { .columns { flex-direction: column; flex-wrap: nowrap; align-items: stretch; } .col { display: contents; } }  /* one column: the cards in their own order again */
 .stack { display: flex; flex-direction: column; gap: 1.25rem; }
 .group { background: var(--surface); border-radius: 0.875rem; padding: 1.125rem 1.375rem 0.625rem; margin: 0; min-width: 0; }
 .group.wide-group { grid-column: 1 / -1; }
@@ -318,7 +322,9 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .field-row > label { text-align: right; color: var(--mid); }
 .field-row.inline { grid-template-columns: auto 13.75rem; justify-content: start; margin-bottom: 0.5rem; }
 .time-select { display: inline-flex; align-items: center; gap: 0.25rem; }
-.time-select .select select { min-width: 0; width: 4.125rem; padding: 0 1.375rem 0 0.625rem; }
+.time-select .select select { min-width: 0; width: 5.5rem; padding: 0 1.375rem 0 0.625rem; }
+.time-range { display: inline-flex; align-items: center; gap: 0.5rem; }
+.field-row.sub > label { font-size: 0.875rem; }  /* a limit under its switch */
 .time-select .select svg { right: 0.4375rem; }
 .club-row { padding: 0.375rem 0 0.625rem; border-top: 1px solid var(--line); }
 .club-row:first-of-type { border-top: 0; }
@@ -378,6 +384,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .slot.clickable { cursor: pointer; border-radius: 0.5rem; }
 .slot.clickable:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .tool.small { height: 2rem; font-size: 0.8125rem; }
+@media (min-width: 641px) { .toolbar-tools > .tool.setup { margin-left: 0.75rem; } }  /* the setup (Preferences, Settings) a step apart from what you use */
 
 /* ---- narrower windows ---- */
 @media (max-width: 1200px) {
@@ -508,8 +515,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .stepper { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-start; }
 .stepper-value { min-width: 3.4rem; text-align: center; }
 
-.time-pair { display: inline-flex; align-items: center; gap: 0.375rem; flex-wrap: nowrap; }
-.time-select .select select { width: 3.5rem; padding: 0 1.25rem 0 0.5rem; }
+.time-select .select select { width: 5.25rem; padding: 0 1.25rem 0 0.5rem; }
 
 .hm-none { color: var(--dim); margin: 0.5rem 0 0; font-size: 0.875rem; }
 
@@ -559,8 +565,7 @@ button, select, input { touch-action: manipulation; }
   .field-row > label { text-align: left; }
   .field-row > :last-child { justify-self: stretch; }
   .field-row .select select { width: 100%; max-width: none; }
-  .time-select .select select { width: 3.6rem; }
-  .time-pair { flex-wrap: wrap; row-gap: 0.375rem; }
+  .time-select .select select { width: 5.25rem; }
   .sheet { max-height: 94vh; max-height: 94dvh; }
   .sheet-head { padding: 0.9rem 1rem 0.5rem; }
   .sheet-body { padding: 0.5rem 1rem 1.25rem; }
@@ -582,8 +587,7 @@ button, select, input { touch-action: manipulation; }
 .update-banner a, .update-banner a:visited { color: var(--accent-text, var(--accent)); }
 .update-banner code { font-family: var(--mono); }
 .update-banner .btn { flex: none; }
-.footer .about { display: inline-flex; align-items: center; gap: 0.625rem; margin-left: auto; }
-.footer .version { font-family: var(--mono); font-size: 0.8125rem; }
+.footer .view-wrap { margin-left: auto; }  /* View and the Legend together on the right */
 .check-update { font-size: 0.8125rem; color: var(--mid); }
 .check-update.failed { color: var(--orange); }
 
@@ -592,7 +596,6 @@ button, select, input { touch-action: manipulation; }
 .view-about .version { font-family: var(--mono); font-size: 0.8125rem; color: var(--dim); }
 @media (max-width: 640px) {
   .footer { flex-wrap: nowrap; gap: 0.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
-  .footer .about { display: none; }
   .footer .status { flex: 1 1 auto; font-size: 0.8125rem; }
   .view-about { display: flex; }
   /* the View panel opens under the toolbar across the screen (centred on its far-right button it ran off the edge); after
@@ -620,6 +623,8 @@ button, select, input { touch-action: manipulation; }
 @media (pointer: coarse) { [title] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
 .day-why { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 0.25rem 0.5rem; margin: 0.375rem 0 0.125rem; padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--pill-grey-bg); color: var(--mid); font-size: 0.8125rem; line-height: 1.4; }
 .day-why svg { margin-top: 0.125rem; color: var(--accent-text, var(--accent)); }
+.legend-seats { gap: 0.25rem; }
+.legend-seats .seat { width: 1rem; height: 1rem; }
 .tool-ico, .chipdemo { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--mid); }
 .chipdemo { padding: 0 0.5rem; height: 1.5rem; border-radius: 62.4375rem; background: var(--pill-grey-bg); font-family: var(--mono); font-size: 0.8125rem; }
 .hm-picked { min-height: 1.4em; margin: 0.5rem 0 0; font-size: 0.875rem; color: var(--mid); }
@@ -938,14 +943,14 @@ button, select, input { touch-action: manipulation; }
 
 .why { color: var(--orange); font-size: 0.8125rem; margin: 0.5rem 0 0; }
 .results { margin-top: 0.25rem; border-top: 1px solid var(--line); }
-.res { display: grid; grid-template-columns: 3.4rem 4.75rem minmax(0, 1fr) 3.5rem 4.5rem 2.75rem 2.5rem; column-gap: 0.75rem; align-items: center; min-height: 2.75rem; border-top: 1px solid var(--line); }
+.res { display: grid; grid-template-columns: 3.4rem 4.75rem minmax(0, 1fr) 3.5rem 4.5rem 2.5rem; column-gap: 0.75rem; align-items: center; min-height: 2.75rem; border-top: 1px solid var(--line); }
 .res-head { position: sticky; top: 0; z-index: 2; background: var(--bg); min-height: 2.25rem; border-top: 0; border-bottom: 1px solid var(--line); }
 .res-head .rcount { grid-column: 1 / 4; margin: 0; }
 .res-head .cell:first-child { grid-column: 4; }
 .dayhead + .res { border-top: 0; }
 .daygroup { display: block; }  /* each day's heading sticks only while its own day is in view, then the next one takes over */
 .dayhead { position: sticky; top: 2.25rem; z-index: 1; background: var(--bg); padding: 0.5rem 0 0.25rem; font-weight: 600; display: flex; gap: 0.5rem; align-items: baseline; }
-.dayhead small { color: var(--dim); font-weight: 400; }
+.dayhead .dh-temp { font-size: 0.8125rem; font-weight: 500; color: var(--dim); }
 .res-time { font-weight: 600; white-space: nowrap; }
 .res-open { color: var(--green); font-weight: 500; white-space: nowrap; }
 .res .seats { gap: 0.25rem; align-items: center; }
@@ -959,7 +964,6 @@ button, select, input { touch-action: manipulation; }
 .hits-link:hover { filter: brightness(1.15); }
 .res .res-people { grid-column: 3; grid-row: 1; }  /* placed, so the player chip can share its cell without pushing the rest along */
 .res-people { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.res-course { font-size: 0.8125rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .res-action { display: flex; justify-content: flex-end; }
 .res .btn.mark { padding: 0; width: 2.25rem; height: 2.25rem; justify-content: center; }
 .sf-actions { display: inline-flex; align-items: center; gap: 0.125rem; }
@@ -983,12 +987,10 @@ button, select, input { touch-action: manipulation; }
 }
 
 @media (max-width: 640px) {
-  .sheet-head:has(.sheet-tabs) { grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; padding: 0.5rem 1rem 0; border-bottom: 1px solid var(--line); }
-  .sheet-head:has(.sheet-tabs) h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .sheet-head:has(.sheet-tabs) { padding: 0.5rem 1rem 0; }
   .sheet-head:has(.sheet-tabs) .sheet-tabs { display: contents; }
   .sheet-head:has(.sheet-tabs) .tab-list { grid-column: 1; grid-row: 1; }
   .sheet-head:has(.sheet-tabs) .course-tabs { grid-column: 1 / -1; grid-row: 2; margin: 0 -1rem; padding: 0 1rem; border-left: 0; border-top: 1px solid var(--line); }  /* a phone: the courses on a row of their own */
-  .sheet-head:has(.sheet-tabs) > .icon-btn { grid-column: 2; grid-row: 1; align-self: center; }
   .sf { display: block; margin-top: 0.375rem; }
   .sf-line { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.5rem; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding: 0.125rem 1rem; }
   .sf-line::-webkit-scrollbar, .sf-panel .sf-grp::-webkit-scrollbar { display: none; }
@@ -1015,10 +1017,8 @@ button, select, input { touch-action: manipulation; }
   .res-open { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 0.8125rem; }
   .res .who-chip { grid-column: 2; grid-row: 1 / span 2; align-self: center; justify-self: start; margin-left: 5.25rem; height: 1.625rem; }  /* right of the squares */
   .res .who-list { grid-column: 2 / -1; grid-row: 3; }
-  .res-course { grid-column: 2; grid-row: 1 / span 2; align-self: center; justify-self: end; font-size: 0.75rem; max-width: 7rem; }
   .res .temp { grid-column: 3; grid-row: 1; font-size: 0.8125rem; }
   .res .rain { grid-column: 3; grid-row: 2; font-size: 0.75rem; }
-  .res .wind { display: none; }
   .res-action { grid-column: 4; grid-row: 1 / span 2; }
 }
 @media (pointer: coarse), (max-width: 860px) { .res { min-height: 56px; } }
@@ -1032,8 +1032,8 @@ button, select, input { touch-action: manipulation; }
 @media (min-width: 1000px) and (min-height: 641px) and (orientation: landscape) {
   .sheet.wide:has(.sheet-tabs) { max-width: 96rem; }  /* Search and the Heatmap are two tabs of one sheet: the same size */
   .sheet-body.fixed:has(> .sf) { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); column-gap: 1.5rem; align-content: start; }
-  .sheet-body.fixed:has(> .sf) > .sf { grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0.625rem; margin-top: 0.25rem; }
-  .sheet-body.fixed:has(> .sf) > .strip { grid-column: 1; grid-row: 2; margin-top: 0.25rem; }
+  .sheet-body.fixed:has(> .sf) > .strip { grid-column: 1; grid-row: 1; margin-top: 0.25rem; }  /* the day first, then what narrows it */
+  .sheet-body.fixed:has(> .sf) > .sf { grid-column: 1; grid-row: 2; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0.625rem; margin-top: 0.75rem; }
   .sheet-body.fixed:has(> .sf) .sf-grp .lab { flex-basis: 100%; }  /* a narrow column: each label above its chips */
   .sheet-body.fixed:has(> .sf) > .why { grid-column: 1; grid-row: 3; }
   .sheet-body.fixed:has(> .sf) > .results { grid-column: 2; grid-row: 1 / span 4; margin-top: 0.25rem; min-height: 0; }
