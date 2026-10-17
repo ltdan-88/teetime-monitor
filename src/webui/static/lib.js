@@ -197,6 +197,7 @@ const ICONS = {
   teesheet: html`<rect x="4" y="4" width="16" height="16" rx="2.5" /><path d="M4 9.5h16M4 14.5h16M9 4v16" />`,
   clock: html`<circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" />`,
   trophy: html`<path d="M7.5 4h9v5.5a4.5 4.5 0 0 1-9 0zM7.5 6H4.5v1.2A3 3 0 0 0 7.6 10M16.5 6h3v1.2a3 3 0 0 1-3.1 2.8M12 14v4M8.5 20h7" />`,
+  reset: html`<path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" />`,
   trash: html`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />`,
   palette: html`<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7H17a4 4 0 0 0 4-4c0-4.4-4-8.3-9-8.3z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" />`,
   alert: html`<path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17v.1" />`,
@@ -302,8 +303,8 @@ export function Sheet({ title, onClose, size = 'medium', fixed = false, tall = f
         <header class="sheet-head">
           <h2>${title}</h2>
           <button class="icon-btn" onClick=${onClose} aria-label=${t('close')} title=${t('close')}><${Icon} name="close" size=${18} /></button>
-          ${tabs && html`<div class="sheet-tabs" role="tablist">${tabs.map((tab) => html`
-            <button key=${tab.key} role="tab" class="sheet-tab" aria-selected=${tab.on} onClick=${() => !tab.on && tab.onSelect()}>${tab.label}</button>`)}${tabsExtra && html`<span class="tabs-extra">${tabsExtra}</span>`}</div>`}
+          ${tabs && html`<div class="sheet-tabs"><div class="tab-list" role="tablist">${tabs.map((tab) => html`
+            <button key=${tab.key} role="tab" class="sheet-tab" aria-selected=${tab.on} onClick=${() => !tab.on && tab.onSelect()}>${tab.label}</button>`)}</div>${tabsExtra && html`<span class="tabs-extra">${tabsExtra}</span>`}</div>`}
         </header>
         <div class=${'sheet-body' + (fixed ? ' fixed' : '')}>${children}</div>
         ${footer && html`<footer class="sheet-foot">${footer}</footer>`}

@@ -1,6 +1,6 @@
 // "My reservations": your upcoming bookings at every saved club, each with a cancel button (src/webui/data.py reservations()).
 
-import { html, t, useState, useEffect, Sheet, Status, api, dayLabel } from '/lib.js';
+import { html, t, useState, useEffect, Sheet, Status, Icon, api, dayLabel } from '/lib.js';
 
 /** The list comes at once from what is known; pc caddie is then asked for the true state (bookings made on its
  *  own site appear, cancelled ones go) and the list is replaced. */
@@ -40,7 +40,7 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
         <li key=${item.club_id + item.course + item.date + item.time}>
           <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
           <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
-          <button class="btn small danger" onClick=${() => onCancel(item)}>${t('reservations.cancel')}</button>
+          <button class="icon-btn danger" onClick=${() => onCancel(item)} aria-label=${t('reservations.cancel')} title=${t('reservations.cancel')}><${Icon} name="trash" size=${18} /></button>
         </li>`)}
     </ul>
   <//>`;

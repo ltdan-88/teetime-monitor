@@ -55,6 +55,8 @@ function passes(slot, f, mine, ignoreDays) {
   return true;
 }
 
+const sameChips = (a, b) => ['kind', 'mine', 'dry', 'gap', 'spots', 'friends'].every((key) => a[key] === b[key])
+  && ['days', 'tod', 'courses'].every((key) => a[key].length === b[key].length && a[key].every((x) => b[key].includes(x)));
 const anyOn = (f) => !!(f.kind || f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends || f.courses.length);
 
 function Chip({ on, onClick, children, className = '', ...rest }) {
@@ -127,6 +129,11 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
   const allRules = f && rules.every((key) => f[key]);
   const noRules = f && rules.every((key) => !f[key]);
   const toggleRules = () => set(Object.fromEntries(rules.map((key) => [key, !allRules])));
+  const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
+  const atMine = !!(f && sameChips(f, defaults(data)));
+  const clearButton = f && anyOn(f) && html`<button type="button" class="icon-btn danger sf-clear" onClick=${clear} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
+  const resetButton = f && !atMine && html`<button type="button" class="icon-btn sf-reset" onClick=${reset} aria-label=${t('search.reset')} title=${t('search.reset')}><${Icon} name="reset" size=${18} /></button>`;
+  const actions = html`<span class="sf-actions">${clearButton}${resetButton}</span>`; // after the last of the filters, wherever that is
   const overrides = f && (f.tod.length || f.friends || f.courses.length || f.spots !== defaults(data).spots);
   const showCourse = !!(data && f && data.courses.length > 1 && f.courses.length !== 1); // (f is set one render after the data arrives)
   const darkNote = data && f && f.mine && f.kind !== 'weekend' && data.last_start && mine.weekday_window.after > data.last_start;
@@ -159,11 +166,11 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
             ${view.buckets.map((bucket) => html`<${Chip} key=${bucket.key} on=${f.tod.includes(bucket.key)} onClick=${() => { flip('tod', bucket.key); if (!f.tod.includes(bucket.key)) set({ mine: false }); }}>${bucket.label()}<//>`)}</span>`}
           <span class="sf-grp"><span class="lab">${t('search.spots')}</span>
             ${[1, 2, 3, 4].map((n) => html`<${Chip} key=${n} on=${f.spots === n} onClick=${() => set({ spots: n })}>${n === 4 ? '4' : n + '+'}<//>`)}
-            <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends })}>★ ${t('search.friends')}<//></span>
+            <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends })}>★ ${t('search.friends')}<//>
+            ${data.courses.length <= 1 && actions}</span>
           ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
-            ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}</span>`}
-          ${anyOn(f) && html`<button type="button" class="btn small sf-clear" onClick=${clear}>${t('search.clear')}</button>`}
-          <div class="sf-foot"><button type="button" class="btn" onClick=${clear}>${t('search.clear_all')}</button>
+            ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}${actions}</span>`}
+          <div class="sf-foot">${clearButton}${resetButton}
             <button type="button" class="btn pri" onClick=${() => set({ open: false })}>${t('search.show_n', { n: view.kept.length })}</button></div>
         </div>
       </div>
@@ -182,7 +189,7 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
         <div class="res res-head"><span class="lab rcount">${t('search.count', { n: view.kept.length })}</span><${WeatherHeads} units=${units} />
           </div>
         ${view.groups.length === 0
-          ? html`<div class="none">${t('search.none')}${anyOn(f) && html`<div><button type="button" class="btn small" onClick=${clear}>${t('search.clear')}</button></div>`}</div>`
+          ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
           : html`${view.groups.map((group) => html`
               ${view.groups.length > 1 && html`<div class="dayhead">${dayLabel(group.date)}<small>${group.rows.length}</small></div>`}
               ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps} showCourse=${showCourse}

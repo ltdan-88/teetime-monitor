@@ -107,7 +107,7 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
         ${data && mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}
           options=${[{ value: 'guests', label: t('tournaments.guests') }, { value: 'members', label: t('tournaments.members_only') }]} />`}
         ${data && html`<button class="chip tn-pick" aria-pressed=${filter.open} onClick=${() => setFilter((current) => ({ ...current, open: !current.open }))}>${t('tournaments.reg_open')}</button>`}
-        ${data && filtered && html`<button class="link-btn" onClick=${() => setFilter(NO_FILTER)}>${t('tournaments.clear_filters')}</button>`}
+        ${data && filtered && html`<button class="icon-btn danger" onClick=${() => setFilter(NO_FILTER)} aria-label=${t('tournaments.clear_filters')} title=${t('tournaments.clear_filters')}><${Icon} name="trash" size=${18} /></button>`}
     </div>
     ${data && html`
       <div class="tn-split">
