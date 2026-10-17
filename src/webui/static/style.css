@@ -695,7 +695,7 @@ button, select, input { touch-action: manipulation; }
 /* Search on a large screen held sideways: the criteria on the left, the results beside them (more room for the results than under the criteria).
    In the narrow left column every row is its label above its control, and a time window may wrap onto two lines. */
 @media (min-width: 1000px) and (min-height: 600px) and (orientation: landscape) {
-  .sheet.wide:has(.criteria) { max-width: 96rem; }
+  .sheet.wide:has(.criteria), .sheet.wide:has(.sheet-tabs) { max-width: 96rem; }  /* Search and Heatmap are two tabs of one sheet: the same size */
   .sheet-body.fixed:has(> .criteria) { display: grid; grid-template-columns: 25rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1.5rem; }
   .sheet-body.fixed:has(> .criteria) > .criteria { grid-column: 1; grid-row: 1 / span 2; overflow: hidden auto; min-height: 0; padding: 0.25rem; margin: -0.25rem; }
   .sheet-body.fixed:has(> .criteria) > .results-head { grid-column: 2; grid-row: 1; margin-top: 0.25rem; }

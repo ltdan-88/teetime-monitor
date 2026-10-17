@@ -1755,3 +1755,21 @@ def test_the_player_directory_filters_by_tee_time(two_clubs_ui):
     ui.set("#p-tee", "all")
     ui.wait(f"document.querySelectorAll('.player-list li .player-name').length === {every}")
     _close_sheet(ui)
+
+
+def test_a_sheet_keeps_its_size_between_tabs_and_months(ui):
+    box = "(() => { const r = document.querySelector('.sheet').getBoundingClientRect(); return [r.top, r.width, r.height].map(Math.round).join(); })()"
+    _open_sheet(ui, "s", "Search")
+    search = ui.js(box)
+    ui.click(".sheet-tab", "Heatmap")
+    ui.wait("document.querySelector('.sheet h2').textContent.includes('heatmap')")
+    assert ui.js(box) == search  # Search and Heatmap are tabs of one sheet: no jump when switching
+    _close_sheet(ui)
+    _open_sheet(ui, "t", "Tournaments")
+    ui.wait("document.querySelectorAll('.tn-cell').length > 0")
+    first = ui.js(box)
+    for _ in range(5):  # months of four, five and six weeks
+        ui.click(".tn-step", index=1)
+        ui.wait("document.querySelectorAll('.tn-cell').length > 0")
+        assert ui.js(box) == first
+    _close_sheet(ui)
