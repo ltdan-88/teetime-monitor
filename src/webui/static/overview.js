@@ -191,7 +191,6 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
           : html`<span class="dim blocked-text" title=${slot.block_reason || t('not_bookable')}>${slot.block_reason || t('not_bookable')}</span>`}</span>`
         : html`
           <span class="seats" title=${t('tip.seats', { booked: slot.booked, capacity })}>${seats}</span>
-          <span class="dim free">${t('free', { n: Math.max(0, capacity - slot.booked) })}</span>
           <${WhoChip} slot=${slot} open=${whoOpen} onToggle=${() => setWhoOpen((v) => !v)} />
           <span class="people">
             <${PlayerNames} slot=${slot} showHandicaps=${showHandicaps} />

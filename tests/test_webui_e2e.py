@@ -1060,11 +1060,11 @@ def test_a_tablet_gets_the_whole_table_with_even_rows_and_a_phone_two_lines(ui):
                 """(() => { const rows = [...document.querySelectorAll('.card.open .slot')].filter((r) => !r.querySelector('.names, .note'));
                 const visible = (sel) => { const e = document.querySelector('.card.open .slot ' + sel); return !!e && getComputedStyle(e).display !== 'none'; };
                 return {sameHeight: new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height))).size, tall: Math.min(...rows.map((r) => r.getBoundingClientRect().height)),
-                        free: visible('.free'), rain: visible('.rain'), wind: visible('.wind'), head: !!document.querySelector('.slots-head') && getComputedStyle(document.querySelector('.slots-head')).display !== 'none',
+                        seats: visible('.seats'), free: !!document.querySelector('.card.open .slot .free'), rain: visible('.rain'), wind: visible('.wind'), head: !!document.querySelector('.slots-head') && getComputedStyle(document.querySelector('.slots-head')).display !== 'none',
                         overflow: document.documentElement.scrollWidth > innerWidth}; })()"""
             )
             assert shape["sameHeight"] == 1 and shape["tall"] >= 43, (width, shape)  # rows without names are all one height, a finger tall
-            assert shape["free"] and not shape["overflow"], (width, shape)
+            assert shape["seats"] and not shape["free"] and not shape["overflow"], (width, shape)  # the squares say it: no "4 free" beside them
             chip = ui.js("(() => { const c = document.querySelector('.card.open .slot .who-chip'); return !!c && getComputedStyle(c).display !== 'none'; })()")
             assert chip is True, (width, chip)  # up to 860 px (phone, narrow window, portrait tablet) the names are behind a chip
             assert shape["rain"] and shape["wind"] and shape["head"], (width, shape)  # weather columns and their headings on every screen size
@@ -2109,3 +2109,19 @@ def test_search_rows_show_the_seats_as_squares_and_each_day_its_weather(ui):
     assert all(total == 4 and free == said for total, free, said in rows), rows[:5]  # four squares, the free ones as many as the label says
     assert ui.count(".dayhead .cond") == ui.count(".dayhead")  # each day heading with its weather
     _close_sheet(ui)
+
+
+def test_on_a_phone_the_player_chip_sits_right_of_the_seat_squares_in_search(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelector('.results .res .who-chip')")
+        shape = ui.js(
+            """(() => { const row = [...document.querySelectorAll('.results .res')].find((r) => r.querySelector('.who-chip'));
+            const seats = [...row.querySelectorAll('.seats .seat')].pop().getBoundingClientRect(), chip = row.querySelector('.who-chip').getBoundingClientRect();
+            return {right: chip.left >= seats.right + 2, level: Math.abs((chip.top + chip.bottom) / 2 - (seats.top + seats.bottom) / 2) < 4}; })()"""
+        )
+        assert shape == {"right": True, "level": True}, shape
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
