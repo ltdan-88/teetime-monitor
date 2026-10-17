@@ -1884,3 +1884,28 @@ def test_the_gear_in_search_opens_preferences_and_brings_you_back(ui):
     ui.click(".sheet-head .icon-btn")  # (closing it brings Search back, so the scrim stays)
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Search') && document.querySelectorAll('.strip .sday').length === 14")  # and Search is open again
     _close_sheet(ui)
+
+
+def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
+    """A club with more than one course once crashed Search on its first draw (it read the filters before they existed):
+    the page sat on "Loading" for ever. The demo club has one course, so the answer is given a second one here."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!String(url).includes('/api/search/slots')) return response;
+          const data = await response.json();
+          data.courses = [...data.courses, '9 Loch Platz'];
+          data.slots = data.slots.map((slot, i) => (i % 2 ? { ...slot, course: '9 Loch Platz' } : slot));
+          return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
+    )
+    try:
+        _open_sheet(ui, "s", "Search")
+        ui.wait("document.querySelectorAll('.strip .sday').length === 14 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        assert ui.count(".sf .chip") > 0 and "9 Loch Platz" in ui.text(".sf")  # a chip for each course
+        assert ui.js("document.querySelectorAll('.results .res-course').length") > 0 and "9 Loch Platz" in ui.text(".results")  # and the course named on each row
+        _chip(ui, "9 Loch Platz")
+        ui.wait("[...document.querySelectorAll('.results .res-course')].every((e) => !e.textContent.trim())")  # one course chosen: no need to name it
+        _close_sheet(ui)
+    finally:
+        ui.js("window.__beforeReload = true; location.reload()")  # drop the override
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
