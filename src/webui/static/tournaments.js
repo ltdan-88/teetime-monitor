@@ -1,7 +1,7 @@
 // The club's tournament calendar as a month grid: days with a tournament carry dots, a tap on a day lists what is on
 // (src/webui/data.py tournaments(), read from pc caddie's own calendar with the saved login).
 
-import { html, t, useState, useMemo, Sheet, Select, Status, Icon, useLoad, api, query, dayLabel, weekdayShort, language } from '/lib.js';
+import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, useLoad, api, query, dayLabel, weekdayShort, language } from '/lib.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (year, month, day) => `${year}-${pad(month + 1)}-${pad(day)}`; // month is 0-based, like Date
@@ -98,7 +98,7 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
     <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
-        ${clubs.length > 1 && html`<${Select} id="tn-club" value=${slug} aria-label=${t('club')} options=${clubs.map((entry) => ({ value: entry.slug, label: entry.name }))} onChange=${chooseClub} />`}
+        ${clubs.length > 1 && html`<${Select} id="tn-club" value=${slug} aria-label=${t('club')} options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} onChange=${chooseClub} />`}
         ${data && holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onFlip=${(v) => flip('holes', v)}
           options=${holeSizes.map((n) => ({ value: n, label: String(n) }))} />`}
         ${data && mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}

@@ -1,7 +1,7 @@
 // Player directory: every name seen at any of your clubs (only a logged-in scrape shows names), with search,
 // filters, sorting, each one's next tee time at any saved club, and the one thing you edit: who is a friend.
 
-import { html, t, useState, useMemo, Sheet, Select, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
+import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
 const SORTS = ['name', 'friend', 'gender', 'handicap', 'club'];
 const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
@@ -11,9 +11,6 @@ const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
 const memberText = (player) => !player.member_status ? '' : player.member_status === 'member' && player.home_clubs && player.home_clubs.length
   ? player.home_clubs.join(', ') : t('players.member_status.' + player.member_status);
 const familyName = (name) => name.trim().split(/\s+/).pop().toLowerCase();
-/** A club's name without the words every club has ("Golfclub Schloß Monrepos e.V." -> "Schloß Monrepos"). */
-export const shortClub = (name) => (name || '').replace(/^\s*(golf[\s-]?club|golf[\s-]?anlage|golf[\s-]?park|g\.?c\.?)\s+/i, '')
-  .replace(/\s+(e\.\s?v\.?|gmbh(\s.*)?|ag)\s*$/i, '').trim() || name;
 /** The club a player is listed under when sorting by club: the first of their home clubs, or none (a guest). */
 const homeClub = (player) => (player.home_clubs && player.home_clubs.length ? [...player.home_clubs].sort((a, b) => a.localeCompare(b))[0] : null);
 

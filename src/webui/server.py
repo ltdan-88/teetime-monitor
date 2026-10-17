@@ -149,6 +149,7 @@ class WebServer(ThreadingHTTPServer):
         self.keep_running = keep_running
         self.refresher = Refresher()
         self.started = time.monotonic()
+        self.boot_id = secrets.token_hex(6)  # tells an open page that this is not the process it was loaded from (an update restarted it)
         self.last_ping: float | None = None
 
     @property
@@ -458,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
             return reply(updates.apply(self.server.serve, self.server.restart), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/ping"):
             self.server.last_ping = time.monotonic()
-            return self._json({"ok": True})
+            return self._json({"ok": True, "boot": self.server.boot_id})
 
         # bookings and notices
         if route == ("GET", "/api/reservations"):

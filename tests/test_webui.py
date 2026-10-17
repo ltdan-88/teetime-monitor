@@ -260,6 +260,17 @@ def test_a_cross_origin_post_is_refused(running):
     assert running.last_ping is not None
 
 
+def test_the_ping_names_the_server_process_so_an_open_page_can_tell_it_was_restarted(running):
+    first = json.loads(_request(running, "POST", "/api/ping", body={})[1])["boot"]
+    again = json.loads(_request(running, "POST", "/api/ping", body={})[1])["boot"]
+    assert first == again and first  # the same process answers the same
+    other = server.WebServer(port=0, token="secret-token")
+    try:
+        assert other.boot_id != first  # a restarted server is a new one
+    finally:
+        other.server_close()
+
+
 def test_static_files_are_served_with_a_strict_csp_and_no_traversal(running):
     response, body = _request(running, "GET", "/")
     assert response.status == 200 and b"Teetime Monitor" in body

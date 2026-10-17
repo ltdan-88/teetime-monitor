@@ -64,6 +64,10 @@ export function t(key, vars) {
 // ---------------------------------------------------------------- formatting
 
 export const round = (n) => Math.round(n);
+/** A club's name without the words every club has ("Golfclub Schloß Monrepos e.V." -> "Schloß Monrepos"). */
+export const shortClub = (name) => (name || '').replace(/^\s*(golf[\s-]?club|golf[\s-]?anlage|golf[\s-]?park|g\.?c\.?)\s+/i, '')
+  .replace(/\s+(e\.\s?v\.?|gmbh(\s.*)?|ag)\s*$/i, '').trim() || name;
+
 export const temperature = (c, units) => round(units === 'imperial' ? (c * 9) / 5 + 32 : c);
 export const windSpeed = (kph, units) => round(units === 'imperial' ? kph / 1.609344 : kph);
 export const amount = (mm, units) => (units === 'imperial' ? (mm / 25.4).toFixed(2) + 'in' : mm.toFixed(1) + 'mm');

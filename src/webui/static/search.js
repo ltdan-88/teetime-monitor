@@ -2,7 +2,7 @@
 // Preferences), ranked by the same pipeline as the Overview's picks.
 
 import {
-  html, t, useState, useEffect, useRef, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
+  html, t, useState, useEffect, useRef, shortClub, Sheet, Select, Switch, TimeSelect, Status, Icon, api, post, query,
   dayLabel, WeatherHeads, WeatherCells,
 } from '/lib.js';
 import { PlayerNames, WhoChip, WhoList } from '/overview.js';
@@ -127,8 +127,8 @@ export function SearchSheet({ club, clubs, course, units, showHandicaps, onClose
     ${criteria && html`
       <section class="criteria">
         <p class="lab">${t('search.criteria')}</p>
-        ${club.slug && clubs.length > 1 && html`<div class="field-row"><label for="s-club">${t('club')}</label>
-          <${Select} id="s-club" value=${slug} options=${clubs.map((entry) => ({ value: entry.slug, label: entry.name }))} onChange=${setSlug} /></div>`}
+        ${club.slug && clubs.length > 1 && html`<div class="field-row crit-club"><label for="s-club">${t('club')}</label>
+          <${Select} id="s-club" value=${slug} options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} onChange=${setSlug} /></div>`}
         <form onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
           <div class="crit-cards">
             <div class="group">
