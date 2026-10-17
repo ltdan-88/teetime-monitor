@@ -1,7 +1,7 @@
 // The club's tournament calendar as a month grid: days with a tournament carry dots, a tap on a day lists what is on
 // (src/webui/data.py tournaments(), read from pc caddie's own calendar with the saved login).
 
-import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, useLoad, api, query, dayLabel, weekdayShort, language } from '/lib.js';
+import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, Condition, useLoad, api, query, dayLabel, weekdayShort, language, temperature, windSpeed, round } from '/lib.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (year, month, day) => `${year}-${pad(month + 1)}-${pad(day)}`; // month is 0-based, like Date
@@ -29,7 +29,8 @@ function registration(item, now) {
   return item.deadline && item.deadline < now ? t('tournaments.reg_closed') : t('tournaments.reg_later');
 }
 
-function Item({ item, now, canShow, onShow }) {
+function Item({ item, now, canShow, onShow, units }) {
+  const w = item.weather;
   return html`<li class="tn-item">
     <span class="tn-when"><b>${dayLabel(item.date)}</b>${item.time && html` <span class="num">${item.time}</span>`}</span>
     <span class="tn-name">${item.name}${item.subtitle && html`<span class="dim"> · ${item.subtitle}</span>`}</span>
@@ -38,6 +39,8 @@ function Item({ item, now, canShow, onShow }) {
       <a class="icon-btn tn-act" href=${item.url} target="_blank" rel="noopener noreferrer" aria-label=${t('tournaments.details')} title=${t('tournaments.details')}><${Icon} name="external" size=${20} /></a>
     </span>
     <span class="tn-chips">
+      ${w && w.temp != null && html`<span class="chip wx" title=${t('tournaments.weather_tip', { time: item.time || '10:00', wind: windSpeed(w.wind || 0, units), unit: units === 'imperial' ? 'mph' : 'km/h' })}>
+        <${Condition} code=${w.code} size=${14} />${temperature(w.temp, units)}°${w.rain != null && html` · ${round(w.rain)}%`}</span>`}
       ${item.holes && html`<span class="chip">${t('tournaments.holes', { n: item.holes })}</span>`}
       <span class="chip">${item.guests ? t('tournaments.guests') : t('tournaments.members_only')}</span>
       <span class=${'chip' + (item.register_open ? ' mine' : '')}>${registration(item, now)}</span>
@@ -131,7 +134,7 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
           <div class="tn-scroll">
             ${rows.length === 0 && html`<div class="empty small"><p>${filtered ? t('tournaments.none_filtered') : all.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: picked ? dayLabel(picked) : monthName })}</p></div>`}
             <ul class="tn-list">
-              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${shown_(item.date)} onShow=${(date) => onShowDay(date, slug)} />`)}
+              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${shown_(item.date)} onShow=${(date) => onShowDay(date, slug)} units=${units} />`)}
             </ul>
           </div>
         </div>

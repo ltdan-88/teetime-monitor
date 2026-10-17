@@ -757,6 +757,25 @@ def test_a_tournament_calendar_that_cannot_be_read_says_why_and_keeps_the_last_l
     assert again["problem"] == "network" and len(again["tournaments"]) == 1  # the old list stays on screen
 
 
+def test_a_tournament_carries_the_stored_forecast_for_its_start_time_when_the_day_was_loaded(world, monkeypatch):
+    from src import scraper
+    from src.models import Tournament
+
+    today = date.today()
+    soon, later = (today + timedelta(days=1)).isoformat(), (today + timedelta(days=40)).isoformat()
+    storage.save_schedule(_schedule(soon, rain=60), path=world)  # one loaded day; nothing is fetched for the other
+    data._TOURNAMENT_CACHE.clear()
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret"))
+    monkeypatch.setattr(
+        scraper, "scrape_tournaments",
+        lambda *args: [Tournament(id="1", date=soon, time="09:30", name="Near Cup"), Tournament(id="2", date=later, time="09:30", name="Far Cup"), Tournament(id="3", date=soon, time=None, name="No Time")],
+    )
+    near, far, no_time = data.tournaments(SLUG, None, refresh=True)["tournaments"]
+    assert near["weather"]["temp"] == 18 and near["weather"]["rain"] == 60 and near["weather"]["code"] == 1  # the 09:00 point
+    assert far["weather"] is None  # beyond the days that were loaded: no guess
+    assert no_time["weather"] is not None  # ten o'clock
+
+
 def test_a_day_with_a_tournament_block_says_so_and_a_routine_event_does_not(world):
     today = date.today()
     championship, group = _schedule(today.isoformat()), _schedule((today + timedelta(days=1)).isoformat())
