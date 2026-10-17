@@ -577,7 +577,7 @@ def test_the_view_menu_holds_three_switches_and_settings_the_rest(ui):
     ui.shot("view-menu")
     assert [ui.count(c) for c in ("#v-hcp", "#v-tips", "#v-history")] == [1, 1, 1]
     assert ui.count(".view-panel select, .view-panel .stepper") == 0  # language, theme, size and units moved out
-    assert "Settings" in ui.text(".view-panel .view-more")
+    assert ui.count(".view-panel .view-more") == 0  # no explaining line: the Legend says where things are
     ui.key("Escape")
     ui.wait("!document.querySelector('.view-panel')")
     _open_display(ui)  # Settings: a Display group that applies at once, and About with the version and the update check

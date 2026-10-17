@@ -69,6 +69,6 @@ export function HeatmapSheet({ club, course, onClose, tabs }) {
         ${swatch('var(--seat)', t('heatmap.legend.thin'), { opacity: 0.35 })}
         <span class="dim">— ${t('heatmap.legend.no_data')}</span>
       </div>
-      ${!data.has_country && html`<p class="hint">${t('heatmap.no_country')}</p>`}`}
+`}
   <//>`;
 }

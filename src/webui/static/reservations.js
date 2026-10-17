@@ -32,7 +32,6 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
   const problems = ((state && state.refresh_problems) || []).map((p) => p.club).filter(Boolean).join(', ');
   const failed = !!(state && state.refresh_problems && state.refresh_problems.length);
   return html`<${Sheet} title=${t('reservations.title')} onClose=${onClose} size="medium">
-    <p class="hint">${t('reservations.intro')}</p>
     ${checking && html`<${Status} kind="busy">${t('reservations.checking')}<//>`}
     ${!checking && failed && html`<${Status} kind="error">${t('reservations.check_failed', { clubs: problems || '…' })}<//>`}
     ${state && list.length === 0 && !checking && html`<div class="empty small"><h3>${t('reservations.empty_title')}</h3><p>${t('reservations.empty')}</p></div>`}

@@ -1,7 +1,7 @@
 // Player directory: every name seen at any of your clubs (only a logged-in scrape shows names), with search,
 // filters, sorting, each one's next tee time at any saved club, and the one thing you edit: who is a friend.
 
-import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
+import { html, t, useState, useMemo, Sheet, Select, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
 const SORTS = ['name', 'friend', 'gender', 'handicap', 'club'];
 const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
@@ -111,21 +111,22 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
           ${player.upcoming && player.upcoming.length > 0
             ? html`<button class="tee-btn" onClick=${() => focus(player)} title=${t('players.focus_title') + ': ' + player.name}>
-                ${dayLabel(player.upcoming[0].date).split(' ').slice(0, 2).join(' ')} ${player.upcoming[0].time}${!player.upcoming[0].here && html`<span class="tee-club" title=${player.upcoming[0].club}> · ${shortClub(player.upcoming[0].club)}</span>`}${player.upcoming.length > 1 && html`<span class="more" title=${t('players.tee_time_more', { n: player.upcoming.length - 1 })}>+${player.upcoming.length - 1}</span>`}</button>`
+                <span>${dayLabel(player.upcoming[0].date).split(' ')[0]}</span><span class="tee-date">${dayLabel(player.upcoming[0].date).split(' ')[1]}</span><span>${player.upcoming[0].time}</span>${!player.upcoming[0].here && html`<span class="tee-club" title=${player.upcoming[0].club}> · ${shortClub(player.upcoming[0].club)}</span>`}${player.upcoming.length > 1 && html`<span class="more" title=${t('players.tee_time_more', { n: player.upcoming.length - 1 })}>+${player.upcoming.length - 1}</span>`}</button>`
             : html`<span></span>`}
         </li>`;
   return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="directory" fixed>
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
-    <p class="hint">${t('players.intro')}</p>
     <div class="players-tools">
       <span class="search-box"><${Icon} name="search" size=${18} />
         <input class="fld" type="search" value=${search} placeholder=${t('players.search_placeholder')} aria-label=${t('players.search_placeholder')} onInput=${(event) => setSearch(event.target.value)} /></span>
+      <div class="players-filters">
       <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
       ${clubs.length > 0 && html`<${Select} id="p-club" value=${clubFilter} onChange=${setClubFilter} aria-label=${t('players.filter.club')}
         options=${[{ value: 'all', label: t('players.filter.club_all') }, ...clubs.map((name) => ({ value: name, label: name })), { value: GUESTS, label: t('players.filter.guests') }]} />`}
       <${Select} id="p-gender" value=${genderFilter} onChange=${setGenderFilter} aria-label=${t('players.filter.gender')}
         options=${[{ value: 'all', label: t('players.filter.gender_all') }, { value: 'female', label: t('players.filter.female') }, { value: 'male', label: t('players.filter.male') }]} />
-      <label class="check"><${Switch} id="p-friends" checked=${friendsOnly} onChange=${setFriendsOnly} /> ${t('players.friends_only')}</label>
+      <button id="p-friends" class="chip tn-pick" aria-pressed=${friendsOnly} onClick=${() => setFriendsOnly(!friendsOnly)}>★ ${t('players.friends_only')}</button>
+      </div>
     </div>
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}
     ${data && data.players.length === 0 && html`<div class="empty small"><h3>${t('players.empty_title')}</h3><p>${t('players.empty')}</p></div>`}

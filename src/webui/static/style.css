@@ -956,3 +956,20 @@ button, select, input { touch-action: manipulation; }
 .pill.word { font-family: var(--font); font-size: 0.875rem; color: var(--mid); }
 @media (max-width: 640px) { .dh .heat span { height: 0.4375rem; } }
 .tee-btn .tee-club { font-family: var(--font); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }  /* a tee time at another of your clubs */
+
+/* ---- the player directory's sort and filters: one row; on a phone one line that swipes sideways */
+.players-filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.players-filters .select select { width: auto; }
+@media (max-width: 640px) {
+  .players-tools { gap: 0.5rem; }
+  .players-tools .search-box { flex: 1 1 100%; }
+  .players-filters { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding: 0.125rem 1rem;
+    mask-image: linear-gradient(90deg, transparent 0, #000 1rem, #000 calc(100% - 1.5rem), transparent); }
+  .players-filters::-webkit-scrollbar { display: none; }
+  .players-filters > * { flex: none; }
+  .players-filters .tn-pick { white-space: nowrap; min-height: 2.375rem; }
+}
+@media (max-width: 640px) {  /* a phone: the next tee time as weekday and time, so the names keep their room (a tap lists every time) */
+  .player-list .tee-btn { gap: 0.3rem; padding: 0 0.5rem; }
+  .player-list .tee-btn .tee-date, .player-list .tee-btn .more { display: none; }
+}

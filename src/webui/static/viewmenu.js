@@ -50,7 +50,6 @@ export function ViewMenu({ showHandicaps, history, onHistory, tips, onTips, open
             <${Switch} id="v-tips" checked=${tips} onChange=${onTips} /></div>
           <div class="field-row"><label for="v-history">${t('history.toggle')}</label>
             <${Switch} id="v-history" checked=${history} onChange=${onHistory} /></div>
-          <p class="view-more">${t('view.more_in_settings')}</p>
         </div>`}
     </span>`;
 }
@@ -72,7 +71,6 @@ export function DisplaySection({ boot, units, onDisplay, onLanguage }) {
   };
   return html`<section class="group display-group">
     <h3>${t('settings.group.display')}</h3>
-    <p class="hint">${t('settings.display_hint')}</p>
     <div class="field-row"><label for="v-language">${t('settings.field.language')}</label>
       <${Select} id="v-language" value=${boot.language} options=${LANGUAGES} onChange=${(value) => saveSetting('field-__language__', value, onDisplay, onLanguage)} /></div>
     <div class="field-row"><label for="v-theme">${t('settings.field.theme')}</label>

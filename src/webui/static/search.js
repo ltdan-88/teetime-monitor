@@ -122,7 +122,7 @@ export function SearchSheet({ club, course, units, showHandicaps, onClose, onMar
   return html`<${Sheet} title=${t('search.title')} onClose=${onClose} size="wide" fixed tabs=${tabs}>
     ${criteria && html`
       <section class="criteria">
-        <p class="lab">${t('search.criteria')} <span class="lab-note">${t('search.prefill_note')}</span></p>
+        <p class="lab">${t('search.criteria')}</p>
         <form onSubmit=${(event) => { event.preventDefault(); run(criteria); }}>
           <div class="crit-cards">
             <div class="group">

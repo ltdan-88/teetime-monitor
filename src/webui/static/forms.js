@@ -89,7 +89,6 @@ function PreferencesForm({ groups, onClose, onSaved }) {
     setSaving(false);
   }
   return html`
-    <p class="intro">${t('preferences.intro')}</p>
     <${Columns} items=${groupItems(groups, values, setValue)} />
     <div class="actions">
       <${Status} kind=${message && message.kind}>${message && message.text}<//>
