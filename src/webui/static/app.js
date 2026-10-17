@@ -186,7 +186,8 @@ function App() {
   const [openDate, setOpenDate] = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(location.hash.slice(1)) ? location.hash.slice(1) : null));
   const [refresh, setRefresh] = useState({ running: false, error: null });
   const [tournamentDate, setTournamentDate] = useState(null); // the day the Tournaments window opens on (a tournament slot in the tee sheet), else this month
-  const [prefsBack, setPrefsBack] = useState(null); // the sheet Preferences was opened from (Search): it comes back when they close
+  const [prefsBack, setPrefsBack] = useState(null);
+  const [tabCourse, setTabCourse] = useState(null); // the course tab of Search and the Heatmap (one course at a time) // the sheet Preferences was opened from (Search): it comes back when they close
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
   const [viewOpen, setViewOpen] = useState(false);
@@ -257,7 +258,7 @@ function App() {
     setTimeout(() => row.classList.remove('flash'), 2400);
   }, [openDate, overview, jumpTick]);
 
-  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') forgetSearch(); }, [sheet]);
+  useEffect(() => { if (sheet !== 'search' && sheet !== 'heatmap') { forgetSearch(); setTabCourse(null); } }, [sheet]);
   useEffect(() => {
     history.replaceState(null, '', openDate ? '#' + openDate : location.pathname);
   }, [openDate]);
@@ -617,10 +618,10 @@ function App() {
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
-      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} units=${units} showHandicaps=${showHandicaps}
+      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} showHandicaps=${showHandicaps}
         onPreferences=${() => { setPrefsBack('search'); setSheet('preferences'); }}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
-      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
+      ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} units=${units} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}

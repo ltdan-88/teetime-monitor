@@ -1878,25 +1878,36 @@ def test_the_gear_in_search_opens_preferences_and_brings_you_back(ui):
     _close_sheet(ui)
 
 
-def test_search_draws_for_a_club_with_several_courses_with_a_chip_for_each(ui):
-    """A club with more than one course once crashed Search on its first draw (it read the filters before they existed):
-    the page sat on "Loading" for ever. The demo club has one course, so the answer is given a second one here."""
+def test_the_courses_are_tabs_in_a_natural_order_shared_by_search_and_the_heatmap(ui):
+    """One course at a time: the tabs sit beside Open times and Heatmap, 6 before 9 before 18, Search opens on the course
+    set in Preferences, and the Heatmap shows the tab chosen in Search. The demo club has one course, so the answers are
+    given two more here. (A club with several courses once crashed Search on its first draw: this draws one.)"""
     ui.js(
         """(() => { const real = window.fetch.bind(window);
         window.fetch = async (url, options) => { const response = await real(url, options);
-          if (!String(url).includes('/api/search/slots')) return response;
+          const u = String(url);
+          if (!u.includes('/api/search/slots') && !u.includes('/api/heatmap')) return response;
           const data = await response.json();
-          data.courses = [...data.courses, '9 Loch Platz'];
-          data.slots = data.slots.map((slot, i) => (i % 2 ? { ...slot, course: '9 Loch Platz' } : slot));
+          const names = ['18 Loch Tee 1', '6 Loch Platz', '9 Loch Platz'].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+          data.courses = names;
+          if (u.includes('/api/search/slots')) { data.start_course = '9 Loch Platz'; data.slots = data.slots.map((slot, i) => ({ ...slot, course: ['18 Loch Tee 1', '6 Loch Platz', '9 Loch Platz'][i % 3] })); }
+          else { data.course = new URL(u, location.href).searchParams.get('course') || '9 Loch Platz'; }
           return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
     )
+    tabs = "[...document.querySelectorAll('.course-tabs .sheet-tab')].map((e) => e.textContent.trim() + (e.getAttribute('aria-selected') === 'true' ? '*' : ''))"
     try:
         _open_sheet(ui, "s", "Search")
-        ui.wait("document.querySelectorAll('.strip .sday').length === 5 && document.querySelectorAll('.results .res:not(.res-head)').length > 3")
-        assert ui.count(".sf .chip") > 0 and "9 Loch Platz" in ui.text(".sf")  # a chip for each course
-        assert ui.js("document.querySelectorAll('.results .res-course').length") > 0 and "9 Loch Platz" in ui.text(".results")  # and the course named on each row
-        _chip(ui, "9 Loch Platz")
-        ui.wait("[...document.querySelectorAll('.results .res-course')].every((e) => !e.textContent.trim())")  # one course chosen: no need to name it
+        ui.wait("document.querySelectorAll('.course-tabs .sheet-tab').length === 3 && document.querySelectorAll('.results .res:not(.res-head)').length > 0")
+        assert ui.js(tabs) == ["6 Loch Platz", "9 Loch Platz*", "18 Loch Tee 1"]  # numbers in order, where Search starts chosen
+        assert ui.count(".sf .chip") > 0 and "9 Loch Platz" not in ui.text(".sf")  # no course chips among the filters any more
+        first = _search_rows(ui)
+        ui.click(".course-tabs .sheet-tab", "18 Loch Tee 1")
+        ui.wait("document.querySelector('.course-tabs .sheet-tab[aria-selected=true]').textContent.trim() === '18 Loch Tee 1'")
+        assert _search_rows(ui) > 0 and first > 0
+        ui.click(".sheet-tab", text="Heatmap")
+        ui.wait("document.querySelector('.sheet h2')?.textContent.includes('18 Loch Tee 1') && document.querySelectorAll('.course-tabs .sheet-tab').length === 3")  # the Heatmap shows the same course
+        assert ui.js(tabs) == ["6 Loch Platz", "9 Loch Platz", "18 Loch Tee 1*"]
+        assert ui.count("#hm-course") == 0  # no course dropdown of its own
         _close_sheet(ui)
     finally:
         ui.js("window.__beforeReload = true; location.reload()")  # drop the override
