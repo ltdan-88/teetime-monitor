@@ -71,8 +71,7 @@ Es öffnet sich ein Fenster mit deiner Woche. **Schließt du das Fenster, endet 
    bei pc caddie, und ab dann behält die App die Buchung für dich im Auge.
 
 Optional, schaltet mehr frei: ein **pc-caddie-Login** (Einstellungen) zeigt echte Spielernamen, deine eigenen Buchungen
-und das Spielerverzeichnis. Ein **KI-Schlüssel** (Einstellungen) lässt eine KI die Zeiten ordnen — standardmäßig aus,
-und jede Nutzung kostet ein wenig.
+und das Spielerverzeichnis.
 
 ## Ein Rundgang
 

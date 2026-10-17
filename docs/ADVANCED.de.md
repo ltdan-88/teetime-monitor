@@ -11,7 +11,7 @@ Zwei feste Ordner, damit es aus jedem Verzeichnis funktioniert:
 ```
 ~/.config/teetime-monitor/            deine Einstellungen
     clubs/<club-name>.yaml            eine Datei pro gespeichertem Club (Club-ID, Wetterort, Standardplatz, ...)
-    .env                              dein pc-caddie-Login und KI-Schlüssel (nur für dich lesbar)
+    .env                              dein pc-caddie-Login (nur für dich lesbar)
     preferences.yaml                  deine Vorgaben: Zeiten, Gruppengröße, Wettergrenzen, Tempo
     config                            Farbschema und Sprache
 
@@ -132,7 +132,7 @@ sonst `export SSL_CERT_FILE=/pfad/ca-bundle.pem`. `teetime-monitor --doctor` zei
 ## Gesundheitscheck
 
 `teetime-monitor --doctor` gibt einen Ein-Seiten-Bericht aus — Version, Ordner, Zertifikatsquelle, Verbindung zu pc caddie,
-der letzte Abruf jedes Clubs, Stand von Login und KI-Schlüssel (gesetzt / nicht gesetzt, nie die Werte) — bereit zum Einfügen
+der letzte Abruf jedes Clubs, Stand des Logins (gesetzt / nicht gesetzt, nie die Werte) — bereit zum Einfügen
 in eine Fehlermeldung. `--doctor --offline` überspringt die Netzwerkprüfung; `--doctor --login-check` meldet sich zusätzlich an
 und vergleicht, was eine angemeldete und eine anonyme Startliste zeigen (für „Login klappt, aber keine Spielernamen“).
 
@@ -140,8 +140,7 @@ und vergleicht, was eine angemeldete und eine anonyme Startliste zeigen (für �
 
 - Dein pc-caddie-Login geht nur an das Anmeldeformular von pc caddie selbst. Das Wetter kommt von Open-Meteo (ohne Schlüssel,
   nichts über dich), Club-Standorte von OpenStreetMap, die Update-Prüfung ist eine einfache Anfrage an GitHubs öffentliche
-  Release-Liste (abschalten mit `TEETIME_MONITOR_NO_UPDATE_CHECK=1`). Ein KI-Anbieter wird nur gefragt, wenn du die
-  KI-Sortierung einschaltest und einen Schlüssel angibst.
+  Release-Liste (abschalten mit `TEETIME_MONITOR_NO_UPDATE_CHECK=1`).
 - Die Browser-Version auf deinem eigenen Rechner hört **nur auf 127.0.0.1**, an einem zufälligen Port. Jede Anfrage braucht
   ein zufälliges Token, das nur der ausgegebene Link enthält (die Seite hält es in einem Cookie, das Skripte nicht lesen
   können); andere Hostnamen und andere Websites werden abgewiesen, und die Seite darf nichts aus dem Internet laden.

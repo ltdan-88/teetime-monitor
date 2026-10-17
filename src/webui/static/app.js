@@ -310,7 +310,7 @@ function App() {
       setFailure(null);
     };
     try {
-      // The days come straight from the database; the picks (which can take seconds, with AI ranking on)
+      // The days come straight from the database; the picks (which take a moment: every day is ranked)
       // follow in a second request, so switching a course or a club never waits for them.
       const quick = await api('/api/overview' + query({ ...refOf(forView), course: forCourse, picks: 0, history: current.current.showPast ? 1 : null }));
       if (stale()) return;

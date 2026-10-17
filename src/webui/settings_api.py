@@ -1,4 +1,4 @@
-"""Preferences, Settings, login and AI key for the web UI (2026-10-10).
+"""Preferences, Settings and login for the web UI (2026-10-10).
 
 The forms are generated from the very list the terminal app's screens are built from
 (`settings_screen.FIELDS`), and saved through the very same pure functions
@@ -17,8 +17,7 @@ import os
 import threading
 from typing import Any
 
-from .. import ai_assist, club_config, env_file, global_preferences, i18n, pipeline, units, user_config
-from ..ai_login_cli import save_ai_key
+from .. import club_config, env_file, global_preferences, i18n, pipeline, units, user_config
 from ..login_cli import save_login
 from . import data
 
@@ -164,30 +163,12 @@ def account() -> dict:
     }
 
 
-def ai() -> dict:
-    provider = (global_preferences.load_preferences().get("ai_assist") or {}).get("provider")
-    if provider not in ai_assist.PROVIDERS:
-        provider = "anthropic"
-    return {
-        "provider": provider,
-        "providers": [
-            {
-                "id": name,
-                "label": i18n.t(f"ai_credentials.provider_{name}"),
-                "has_key": bool(env_file.load_env_value(ai_assist.PROVIDER_ENV_VARS[name])),
-            }
-            for name in ai_assist.PROVIDERS
-        ],
-    }
-
-
 def settings_payload(club_id: str | None) -> dict:
     """Everything the Settings sheet shows."""
     return {
         **schema("settings", club_id),
         "clubs": clubs_overview(),
         "account": account(),
-        "ai": ai(),
         "theme": data.saved_theme(),
     }
 
@@ -256,11 +237,4 @@ def login(username: str, password: str, club_id: str | None) -> dict:
             value = env_file.load_env_value(name)
             if value:
                 os.environ[name] = value
-    return result
-
-
-def ai_key(provider: str, api_key: str) -> dict:
-    result = save_ai_key(provider, api_key)
-    if result["saved"]:
-        data._OVERVIEW_CACHE.clear()
     return result

@@ -1,6 +1,6 @@
 """Read/write `.env` KEY=value pairs without disturbing anything else in the file —
 comments, blank lines, unrelated keys (namespaced per-club credentials,
-`ANTHROPIC_API_KEY`, etc.). Added 2026-09-07 for `credentials_screen.py`, direct
+etc.). Added 2026-09-07 for `credentials_screen.py`, direct
 follow-up to the club picker: "I want to setup credentials from UI. It should be user
 friendly" — hand-editing `.env` in a text editor was the only path before this.
 
@@ -42,9 +42,6 @@ PCC_PASS=
 # id (the filename in clubs/, without ".yaml"); overrides the pair above for it:
 # PCC_USER__guest-club=
 # PCC_PASS__guest-club=
-
-# Powers ai_assist.py (AI ranking and summaries). One key covers every saved club.
-ANTHROPIC_API_KEY=
 """
 # None means ENV_TEMPLATE. Callers and tests can still point this at a real file.
 ENV_EXAMPLE_FILE: Path | None = None

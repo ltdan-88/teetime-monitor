@@ -394,18 +394,14 @@ def test_a_bad_number_is_refused_with_a_message_and_saves_nothing(world):
     assert global_preferences.load_preferences() == before
 
 
-def test_settings_cover_account_display_scraping_and_ai(world):
+def test_settings_cover_account_display_and_scraping_and_no_ai(world):
     payload = settings_api.settings_payload(CLUB_ID)
-    assert [g["key"] for g in payload["groups"]] == [
-        "settings.group.display",
-        "settings.group.scraping",
-        "settings.group.ai",
-    ]
+    assert [g["key"] for g in payload["groups"]] == ["settings.group.display", "settings.group.scraping"]
     ids = {f["id"] for g in payload["groups"] for f in g["fields"]}
     assert "field-units" in ids and "field-__language__" in ids and "field-__theme__" not in ids
     assert payload["clubs"][0]["slug"] == SLUG and payload["clubs"][0]["courses"] == [COURSE]
     assert payload["account"] == {"username": "", "has_password": False}
-    assert payload["ai"]["provider"] == "anthropic" and len(payload["ai"]["providers"]) == 4
+    assert "ai" not in payload
 
 
 def test_the_language_setting_applies_and_persists(world, monkeypatch):
@@ -445,12 +441,6 @@ def test_login_is_saved_verified_and_available_to_this_running_process(world, mo
     # a blank password later means: keep the saved one
     assert settings_api.login("me@example.com", "", None)["saved"] is True
     assert env_file.load_env_value("PCC_PASS") == "hunter2"
-
-
-def test_ai_key_validation(world):
-    assert settings_api.ai_key("", "k")["reason"] == "provider_required"
-    assert settings_api.ai_key("nope", "k")["reason"] == "unknown_provider"
-    assert settings_api.ai_key("openai", "")["reason"] == "api_key_required"
 
 
 # ---- themes ------------------------------------------------------------------------------------

@@ -891,19 +891,12 @@ button, select, input { touch-action: manipulation; }
 .tee-btn .tee-club { font-family: var(--font); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }  /* a tee time at another of your clubs */
 .tee-btn .tee-club::before { content: '· '; }
 
-/* ---- the player directory's sort and filters: one row; on a phone one line that swipes sideways */
-.players-filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.players-tools .search-box { flex: 1 1 14rem; }  /* room for a name; the filters wrap below it first */
-.players-filters .select select { width: auto; max-width: 12rem; }
-@media (max-width: 640px) {
-  .players-tools { gap: 0.5rem; }
-  .players-tools .search-box { flex: 1 1 100%; }
-  .players-filters { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding: 0.125rem 1rem;
-    mask-image: linear-gradient(90deg, transparent 0, #000 1rem, #000 calc(100% - 1.5rem), transparent); }
-  .players-filters::-webkit-scrollbar { display: none; }
-  .players-filters > * { flex: none; }
-  .players-filters .tn-pick { white-space: nowrap; min-height: 2.375rem; }
-}
+/* ---- the player directory: the name search and the order on one row, the filters as Search's chips below it */
+.players-tools { flex-wrap: nowrap; }
+.players-tools .search-box { flex: 1 1 auto; min-width: 0; }
+.players-tools .select select { width: auto; max-width: 12rem; }
+.players-sf { margin: 0.25rem 0 0.375rem; }
+@media (max-width: 640px) { .players-tools { gap: 0.5rem; } .players-tools .select select { max-width: 9.5rem; } }
 @media (max-width: 640px) {  /* a phone: the next tee time as weekday and time, so the names keep their room (a tap lists every time) */
   .player-list .tee-btn { gap: 0.3rem; padding: 0 0.5rem; }
   .player-list .tee-btn .tee-date, .player-list .tee-btn .more { display: none; }
@@ -1024,17 +1017,17 @@ button, select, input { touch-action: manipulation; }
 @media (pointer: coarse), (max-width: 860px) { .res { min-height: 56px; } }
 /* a phone on its side: the whole of Search scrolls */
 @media (max-height: 640px) {
-  .sheet-body.fixed:has(.sf) { display: block; overflow-y: auto; }
-  .sheet-body.fixed:has(.sf) > .results { overflow: visible; }
+  .sheet-body.fixed:has(> .strip) { display: block; overflow-y: auto; }
+  .sheet-body.fixed:has(> .strip) > .results { overflow: visible; }
 }
 
 /* A large screen held sideways: the filters and the days on the left, the results beside them with all the height */
 @media (min-width: 1000px) and (min-height: 641px) and (orientation: landscape) {
   .sheet.wide:has(.sheet-tabs) { max-width: 96rem; }  /* Search and the Heatmap are two tabs of one sheet: the same size */
-  .sheet-body.fixed:has(> .sf) { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); column-gap: 1.5rem; align-content: start; }
-  .sheet-body.fixed:has(> .sf) > .strip { grid-column: 1; grid-row: 1; margin-top: 0.25rem; }  /* the day first, then what narrows it */
-  .sheet-body.fixed:has(> .sf) > .sf { grid-column: 1; grid-row: 2; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0.625rem; margin-top: 0.75rem; }
-  .sheet-body.fixed:has(> .sf) .sf-grp .lab { flex-basis: 100%; }  /* a narrow column: each label above its chips */
-  .sheet-body.fixed:has(> .sf) > .why { grid-column: 1; grid-row: 3; }
-  .sheet-body.fixed:has(> .sf) > .results { grid-column: 2; grid-row: 1 / span 4; margin-top: 0.25rem; min-height: 0; }
+  .sheet-body.fixed:has(> .strip) { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr); column-gap: 1.5rem; align-content: start; }
+  .sheet-body.fixed:has(> .strip) > .strip { grid-column: 1; grid-row: 1; margin-top: 0.25rem; }  /* the day first, then what narrows it */
+  .sheet-body.fixed:has(> .strip) > .sf { grid-column: 1; grid-row: 2; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 0.625rem; margin-top: 0.75rem; }
+  .sheet-body.fixed:has(> .strip) .sf-grp .lab { flex-basis: 100%; }  /* a narrow column: each label above its chips */
+  .sheet-body.fixed:has(> .strip) > .why { grid-column: 1; grid-row: 3; }
+  .sheet-body.fixed:has(> .strip) > .results { grid-column: 2; grid-row: 1 / span 4; margin-top: 0.25rem; min-height: 0; }
 }

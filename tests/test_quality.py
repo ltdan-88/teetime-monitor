@@ -397,7 +397,6 @@ def test_ranked_matches_attaches_score_and_reason_keys():
     [match] = _ranked(schedule)
     assert match.score > 0
     assert match.quality_reasons and set(match.quality_reasons) <= set(REASON_KEYS)
-    assert match.reasons == []  # `reasons` stays the AI's, empty without it
 
 
 def test_the_crowd_factor_reaches_ranked_matches():
@@ -406,26 +405,6 @@ def test_the_crowd_factor_reaches_ranked_matches():
     assert [m.slot.time for m in _ranked(schedule, quality_crowd_estimates=crowd)] == ["17:00", "15:00"]
     assert [m.slot.time for m in _ranked(schedule, crowd_estimates=crowd)] == ["17:00", "15:00"]
     assert [m.slot.time for m in _ranked(schedule)] == ["15:00", "17:00"]
-
-
-def test_the_ai_receives_the_score_sorted_list_and_keeps_the_quality_reasons(monkeypatch):
-    weather = _hourly(overrides={"15:00": {"precipitation_probability": 40}, "16:00": {"precipitation_probability": 40}})
-    schedule = _schedule(["15:00", "17:00"], weather=weather)
-    config = {**_config(), "ai_assist": {"enabled": True}}
-    seen = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        seen.append([c.slot.time for c in candidates])
-        for c in candidates:
-            c.score, c.reasons = 90.0, ["emptier"]
-        return list(reversed(candidates))  # the AI disagrees
-
-    monkeypatch.setattr(recommend.ai_assist, "rank_slots", fake_rank_slots)
-    ranked = recommend.ranked_matches([schedule], recommend.default_criteria_from_config(config), config, rank_by_quality=True)
-    assert seen == [["17:00", "15:00"]]  # best score first, one call
-    assert [m.slot.time for m in ranked] == ["15:00", "17:00"]  # the AI had the last word
-    assert ranked[0].reasons == ["emptier"]
-    assert "dry" in ranked[1].quality_reasons  # the deterministic why survived the AI step
 
 
 # --- the pipeline the Pick comes from ----------------------------------------------------

@@ -71,8 +71,7 @@ A window opens with your week. **Closing the window ends the program**, unless y
    pc caddie, and from then on the app keeps watch over it for you.
 
 Optional, and it unlocks more: a **pc caddie login** (Settings) shows real player names, your own bookings and
-the player directory. An **AI key** (Settings) lets an AI rank the times — off by default, and it costs a little
-per use.
+the player directory.
 
 ## A tour
 

@@ -34,7 +34,7 @@ python scripts/make_screenshots.py               # retakes the README's screensh
   `auth.py` (the `--serve` password), `updates.py` (release check and the Pi's "Update now"). The page is plain
   JavaScript modules in `static/` (vendored Preact + htm, no build step); texts are in `static/strings.json`
   (English and German) plus the app's own catalog `src/i18n.py`.
-- The `*_cli.py` modules (`picks_cli`, `search_cli`, `login_cli`, `ai_login_cli`, `add_club_cli`, `directory_cli`,
+- The `*_cli.py` modules (`picks_cli`, `search_cli`, `login_cli`, `add_club_cli`, `directory_cli`,
   `preview_club_cli`) hold logic the browser version shares with the terminal app. They depend only on `pipeline.py`
   and the leaf modules, never on `tui.py` (`tests/test_import_hygiene.py` enforces this).
 
@@ -56,9 +56,8 @@ src/
 ├── scrape_once.py            # scheduled scrape + "My Reservations" sync
 ├── storage.py                # SQLite persistence
 ├── net.py / doctor.py        # OS certificate store; the `--doctor` report
-├── search.py / recommend.py  # hard filters, then weather/daylight + AI ranking
+├── search.py / recommend.py  # hard filters, then weather/daylight, then the order
 ├── quality.py                # the free, explainable score behind the ★ Pick
-├── ai_assist.py              # the three AI calls (classify, rank, summarize), multi-provider
 ├── weather.py                # Open-Meteo client
 ├── booking_watch.py          # did a confirmed booking's situation change?
 ├── playability.py            # does this round finish before sunset?

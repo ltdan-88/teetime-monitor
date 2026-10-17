@@ -68,17 +68,6 @@ def test_a_saved_club_reports_database_journal_mode_and_login_without_the_secret
     assert "super-secret-password" not in text and "demo-user" not in text
 
 
-def test_a_missing_ai_key_is_a_warning_and_never_printed(monkeypatch):
-    monkeypatch.setattr(
-        doctor.global_preferences, "load_preferences", lambda *a, **k: {"ai_assist": {"enabled": True, "provider": "gemini"}}
-    )
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    assert _statuses(doctor._ai_checks())["AI ranking"] == "WARN"
-    monkeypatch.setenv("GEMINI_API_KEY", "key-value-123")
-    status, _, detail = doctor._ai_checks()[0]
-    assert status == "OK" and "key-value-123" not in detail
-
-
 def test_exit_code_is_one_only_when_a_check_failed(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "collect", lambda offline=False, login_check=False: [("OK", "a", "fine"), ("WARN", "b", "meh")])
     assert doctor.main(["--offline"]) == 0

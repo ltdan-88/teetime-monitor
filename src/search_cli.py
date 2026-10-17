@@ -5,9 +5,9 @@ search: typed-in criteria run against whatever days are already scraped, via the
 exact same `recommend.ranked_matches()` pipeline `weekly_picks()` uses for your
 saved defaults. This is that same pipeline, exposed as a `teetime-monitor-search`
 console script so the Swift app can shell out to it instead of reimplementing
-`search()`/`exclude_unplayable()`/`ai_assist.rank_slots()` itself — those are real,
+`search()`/`exclude_unplayable()` itself — those are real,
 non-trivial business logic (buffer-clearance math, playability/sunset checks,
-per-club weather thresholds, an actual Anthropic API call when AI ranking is on),
+per-club weather thresholds),
 not the kind of small, stable aggregation formula this prototype has ported
 directly elsewhere (see `Day.swift`'s weather cells).
 
@@ -36,31 +36,17 @@ criteria in, matches out) rather than round-tripping a whole schedule list throu
 JSON on every search.
 
 `--club-slug` resolves the exact same merged config `pipeline._resolved_config()`
-builds for the TUI (club YAML `availability`/`preferences`/`ai_assist`/
+builds for the TUI (club YAML `availability`/`preferences`/
 `round_duration_minutes` shallow-merged with global preferences) — reused directly,
 not re-derived, so this can never drift from what the TUI itself would compute for
 the same club. (Since 2026-10-05 this script imports `pipeline.py`, not the Textual
 `tui.py`.)
 
-**`crowd_estimates` (real as of 2026-09-25, previously a flagged gap here):** this
-*is* a live network fetch (`analytics.crowd_heatmap()` needs a club's public
-holidays), but that's no obstacle for a script that's allowed to block — the
-"offline" framing that used to justify skipping it was really about not adding
-network I/O to a call site (`OverviewScreen`'s render path) that runs on every
-table redraw, not about this CLI specifically. `pipeline._crowd_estimates()` — the
-exact function `SearchScreen._run_search()` itself calls — is reused directly, so
-this can't drift from what the TUI computes for the same club; it already gates
-itself on `ai_assist.avoid_predicted_crowd`, same as there. Its `db_path` is
-passed through explicitly (rather than the default `_db_path(club_id)`, derived
-from `--db-path`'s own filename stem — this app's fixed `<club_id>.db` naming
-convention, see `paths.py`) so the heatmap scan always reads the exact same
-database `--db-path` itself points at, isolated test copies included.
-
 Result is a JSON array on stdout, one object per match, not translated text:
 
     [{"date": "2026-09-20", "course": "18 Loch Tee 1", "time": "09:10",
       "booked": 2, "capacity": 4, "players": [], "block_reason": null,
-      "score": 1.0, "reasons": ["dry", "calm"]}, ...]
+      "score": 1.0}, ...]
 
 An empty array is a normal, valid result ("no matches"), not an error. Exit code 0
 whenever the search actually ran, even with zero results; exit code 1 only for a
@@ -104,17 +90,11 @@ def _criteria_from_payload(payload: dict) -> SearchCriteria:
 
 
 def search_matches(
-    db_path: str, course: str, club_slug: str | None, from_date: str, days: int, payload: dict, use_ai: bool = True
+    db_path: str, course: str, club_slug: str | None, from_date: str, days: int, payload: dict
 ) -> list[dict]:
-    """The ranked matches `main()` prints, as a list of dicts (the web UI calls this
-    in-process, 2026-10-10). `use_ai=False` skips the AI ranking step -- the deterministic
-    order only, in milliseconds instead of the AI provider's seconds (the web UI shows that
-    first, then asks again with the AI)."""
+    """The ranked matches `main()` prints, as a list of dicts."""
     criteria = _criteria_from_payload(payload)
-    club_id = Path(db_path).stem
     config = pipeline._resolved_config(club_slug)
-    if not use_ai:
-        config = {**config, "ai_assist": {**(config.get("ai_assist") or {}), "enabled": False}}
 
     start = date.fromisoformat(from_date)
     schedules = []
@@ -125,7 +105,6 @@ def search_matches(
             schedules.append(schedule)
 
     schedules = pipeline.still_ahead(schedules)  # no tee times that have already started, and no today once daylight is over
-    crowd_estimates = pipeline._crowd_estimates(schedules, config, club_id, db_path=Path(db_path))
     friend_names = storage.load_friend_names(path=Path(db_path))
     known_handicaps = storage.load_known_handicaps(path=Path(db_path))
     my_handicap = storage.load_my_handicap(path=Path(db_path))
@@ -133,7 +112,6 @@ def search_matches(
         schedules,
         criteria,
         config,
-        crowd_estimates=crowd_estimates,
         friend_names=friend_names,
         known_handicaps=known_handicaps,
         my_handicap=my_handicap,
@@ -158,7 +136,6 @@ def search_matches(
             "players": match.slot.players,
             "block_reason": match.slot.block_reason,
             "score": match.score,
-            "reasons": match.reasons,
         }
         for match in matches
     ]

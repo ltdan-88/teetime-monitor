@@ -1,10 +1,13 @@
 // Player directory: every name seen at any of your clubs (only a logged-in scrape shows names), with search,
-// filters, sorting, each one's next tee time at any saved club, and the one thing you edit: who is a friend.
+// filter chips (as in Search), sorting, each one's next tee time at any saved club, and the one thing you edit: who is a friend.
 
 import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
+import { Chip } from '/search.js';
 
 const SORTS = ['name', 'friend', 'gender', 'handicap', 'club'];
 const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
+// the filter chips: none on in a group means all of it; clubs and genders add up, the tee time is one or the other
+const NONE = { clubs: [], genders: [], tee: null, friends: false };
 
 /** The Club column: the club(s) the name was seen at as a member, else "Guest" (the directory is shared by every
  *  club; pc caddie never names a guest's own club). */
@@ -56,10 +59,10 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
   const { data, error, reload } = useLoad(() => api('/api/players' + query(ref)), [club.id]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('name');
-  const [friendsOnly, setFriendsOnly] = useState(false);
-  const [clubFilter, setClubFilter] = useState('all'); // 'all', a club's name, or GUESTS
-  const [genderFilter, setGenderFilter] = useState('all'); // 'all', 'female', 'male'
-  const [teeFilter, setTeeFilter] = useState('all'); // 'all', 'any' (a tee time from now on), 'today'
+  const [f, setF] = useState(NONE);
+  const [open, setOpen] = useState(false); // a phone: the chips behind the Filter button
+  const flip = (key, value) => setF((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((v) => v !== value) : [...current[key], value] }));
+  const on = f.clubs.length + f.genders.length + (f.tee ? 1 : 0) + (f.friends ? 1 : 0);
   const clubs = useMemo(() => (data ? [...new Set(data.players.flatMap((p) => p.home_clubs || []))].sort((a, b) => a.localeCompare(b)) : []), [data]);
   const [local, setLocal] = useState({});
   const [choice, setChoice] = useState(null); // { name, hits }: a player with several tee times, asking which one
@@ -76,11 +79,11 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
     const needle = search.trim().toLowerCase();
     return sorted(data.players, sort)
       .map((p) => ({ ...p, friend: p.name in local ? local[p.name] : p.friend }))
-      .filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && (!friendsOnly || p.friend)
-        && (clubFilter === 'all' || (clubFilter === GUESTS ? !homeClub(p) : (p.home_clubs || []).includes(clubFilter)))
-        && (genderFilter === 'all' || p.gender === genderFilter)
-        && (teeFilter === 'all' || (p.upcoming || []).some((hit) => teeFilter === 'any' || hit.date === data.today)));
-  }, [data, search, sort, friendsOnly, local, clubFilter, genderFilter, teeFilter]);
+      .filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && (!f.friends || p.friend)
+        && (!f.clubs.length || f.clubs.some((name) => (name === GUESTS ? !homeClub(p) : (p.home_clubs || []).includes(name))))
+        && (!f.genders.length || f.genders.includes(p.gender))
+        && (!f.tee || (p.upcoming || []).some((hit) => f.tee === 'any' || hit.date === data.today)));
+  }, [data, search, sort, local, f]);
   async function toggle(player) {
     const next = !player.friend;
     setLocal((current) => ({ ...current, [player.name]: next }));
@@ -91,6 +94,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
       setLocal((current) => ({ ...current, [player.name]: player.friend }));
     }
   }
+  const clearButton = () => html`<button type="button" class="icon-btn danger sf-clear" onClick=${() => setF(NONE)} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
   const grouped = sort === 'name' ? byLetter(rows) : sort === 'club' ? byClub(rows) : null;
   const letters = sort === 'name' && grouped ? grouped.map((group) => group.letter).filter((letter, i, all) => all.indexOf(letter) === i) : [];
   const jump = (letter) => {
@@ -118,15 +122,25 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
     <div class="players-tools">
       <span class="search-box"><${Icon} name="search" size=${18} />
         <input class="fld" type="search" value=${search} placeholder=${t('players.search_placeholder')} aria-label=${t('players.search_placeholder')} onInput=${(event) => setSearch(event.target.value)} /></span>
-      <div class="players-filters">
-      ${clubs.length > 0 && html`<${Select} id="p-club" value=${clubFilter} onChange=${setClubFilter} aria-label=${t('players.filter.club')}
-        options=${[{ value: 'all', label: t('players.filter.club_all') }, ...clubs.map((name) => ({ value: name, label: shortClub(name) })), { value: GUESTS, label: t('players.filter.guests') }]} />`}
-      <${Select} id="p-gender" value=${genderFilter} onChange=${setGenderFilter} aria-label=${t('players.filter.gender')}
-        options=${[{ value: 'all', label: t('players.filter.gender_all') }, { value: 'female', label: t('players.filter.female') }, { value: 'male', label: t('players.filter.male') }]} />
-      <${Select} id="p-tee" value=${teeFilter} onChange=${setTeeFilter} aria-label=${t('players.filter.tee')}
-        options=${['all', 'any', 'today'].map((key) => ({ value: key, label: t('players.filter.tee_' + key) }))} />
-      <button id="p-friends" class="chip tn-pick" aria-pressed=${friendsOnly} onClick=${() => setFriendsOnly(!friendsOnly)}>★ ${t('players.friends_only')}</button>
       <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
+    </div>
+    <div class="sf players-sf">
+      <div class="sf-line">
+        <button type="button" class="chip sf-chip sf-more" aria-expanded=${open} onClick=${() => setOpen(!open)}>${t('search.filters')}${on > 0 && html`<span class="sf-count">${on}</span>`}<${Icon} name="down" size=${12} /></button>
+        <span class="sf-line-actions">${on > 0 && clearButton()}</span>
+      </div>
+      <div class=${'sf-panel' + (open ? ' open' : '')}>
+        ${clubs.length > 0 && html`<span class="sf-grp" id="p-club"><span class="lab">${t('players.grp.club')}</span>
+          ${[...clubs, GUESTS].map((name) => html`<${Chip} key=${name} on=${f.clubs.includes(name)} onClick=${() => flip('clubs', name)} title=${name === GUESTS ? '' : name}>${name === GUESTS ? t('players.filter.guests') : shortClub(name)}<//>`)}</span>`}
+        <span class="sf-grp" id="p-gender"><span class="lab">${t('players.grp.gender')}</span>
+          ${['female', 'male'].map((key) => html`<${Chip} key=${key} on=${f.genders.includes(key)} onClick=${() => flip('genders', key)}>${t('players.chip.' + key)}<//>`)}</span>
+        <span class="sf-grp" id="p-tee"><span class="lab">${t('players.filter.tee')}</span>
+          ${['any', 'today'].map((key) => html`<${Chip} key=${key} on=${f.tee === key} onClick=${() => setF((current) => ({ ...current, tee: current.tee === key ? null : key }))}>${t('players.chip.tee_' + key)}<//>`)}</span>
+        <span class="sf-grp">
+          <${Chip} className="star" id="p-friends" on=${f.friends} onClick=${() => setF((current) => ({ ...current, friends: !current.friends }))}>★ ${t('players.friends_only')}<//>
+          <span class="sf-actions">${on > 0 && clearButton()}</span></span>
+        <div class="sf-foot">
+          <button type="button" class="btn pri" onClick=${() => setOpen(false)}>${t('players.show_n', { n: rows.length })}</button></div>
       </div>
     </div>
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}

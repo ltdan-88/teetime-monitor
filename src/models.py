@@ -244,20 +244,13 @@ class TimeWindow:
 
 @dataclass
 class SlotMatch:
-    """One scored candidate slot, returned by recommend.py or search.py.
-
-    `reasons` is a short list of plain-language tags for why it scored the way it did
-    (e.g. "dry", "calm", "3 open spots", "20 min clear of other flights") — meant to be
-    shown next to the slot in the TUI, not just a bare number.
-    """
+    """One scored candidate slot, returned by recommend.py or search.py."""
 
     date: str  # YYYY-MM-DD
     course: str
     slot: Slot
     score: float
-    reasons: list[str] = field(default_factory=list)
     # `quality.py`'s own explanation (2026-10-05): reason KEYS ("dry", "room_around", ...),
-    # localised only at the edges, filled by `ranked_matches(rank_by_quality=True)`.
-    # Separate from `reasons`, which stays what it always was -- the AI's free-text
-    # sentences -- so neither can be mistaken for the other.
+    # localised only at the edges, filled by `ranked_matches(rank_by_quality=True)`. (The
+    # AI's free-text `reasons` beside it went with the AI ranking, 2026-10-18.)
     quality_reasons: list[str] = field(default_factory=list)

@@ -2,7 +2,7 @@
 
 Running on your own computer, the web UI trusts whoever holds the random link it prints (see
 server.py). Running as a server on the home network (a Raspberry Pi), anyone on the Wi-Fi can reach it,
-and what sits behind it -- your pc caddie login, the AI key, your bookings -- needs a real password.
+and what sits behind it -- your pc caddie login, your bookings -- needs a real password.
 
 - One password for the whole server, set with `teetime-monitor-web --set-password` and stored as a
   salted PBKDF2-SHA256 hash (600 000 rounds) in `web_auth.json` next to your other settings, readable

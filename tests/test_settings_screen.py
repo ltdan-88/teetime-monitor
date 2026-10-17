@@ -114,33 +114,6 @@ def test_widget_values_to_config_optional_float_blank_means_none():
     assert updated["preferences"]["avoid_temp_below_c"] is None
 
 
-# ai_assist.enabled -- moved here from clubs/*.yaml, 2026-09-08 direct request: "the
-# ai feature should be an option in the settings menu." No model field -- a dropdown
-# briefly existed here too, removed the same day (see settings_screen.py's own
-# docstring for "Are you sure haiku is not good enough for this to work?" and the
-# direct follow-up ruling out even offering the other models).
-
-
-def test_config_to_widget_values_ai_assist_enabled_defaults_to_false():
-    values = config_to_widget_values({})
-    assert values[_id("ai_assist", "enabled")] is False
-
-
-def test_config_to_widget_values_reflects_saved_ai_assist_enabled():
-    config = {"ai_assist": {"enabled": True}}
-    values = config_to_widget_values(config)
-    assert values[_id("ai_assist", "enabled")] is True
-
-
-def test_widget_values_to_config_parses_edited_ai_assist_enabled():
-    values = config_to_widget_values({})
-    values[_id("ai_assist", "enabled")] = True
-    updated = widget_values_to_config({}, values)
-    # avoid_predicted_crowd lives here too now (2026-09-10, "make avoid crowds a
-    # child of AI option") -- present at its own default (False) alongside enabled.
-    assert updated["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False}
-
-
 def test_widget_values_to_config_drops_the_old_single_buffer_key_once_saved():
     # A config saved before the 2026-09-08 before/after split -- once the new keys
     # are written (every save does, since they're ordinary "int" fields), the old
@@ -254,32 +227,6 @@ def test_settings_screen_save_calls_on_saved_callback(tmp_path):
 
     assert len(seen) == 1
     assert seen[0]["availability"]["min_open_spots"] == 1  # the default, since nothing was edited
-
-
-def test_settings_screen_ai_assist_enabled_renders_and_saves(tmp_path):
-    # Direct request, 2026-09-08: "the ai feature should be an option in the settings
-    # menu." Just the one Switch -- no model dropdown (see settings_screen.py's own
-    # docstring for why that was removed the same day).
-    from textual.widgets import Switch
-
-    preferences_file = tmp_path / "preferences.yaml"
-
-    async def scenario():
-        app = _HostApp(SettingsScreen(preferences_file))
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            enabled_widget = app.screen.query_one(f"#{_id('ai_assist', 'enabled')}")
-            assert isinstance(enabled_widget, Switch)
-            enabled_widget.value = True
-            await pilot.click("#save")
-            await pilot.pause()
-
-    asyncio.run(scenario())
-
-    saved = global_preferences.load_preferences(preferences_file)
-    # avoid_predicted_crowd lives here too now (2026-09-10, "make avoid crowds a
-    # child of AI option") -- present at its own default (False) alongside enabled.
-    assert saved["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False}
 
 
 # round_duration_minutes -- moved here from clubs/*.yaml, 2026-09-09 direct request:
@@ -600,7 +547,7 @@ def test_settings_screen_groups_fields_into_labeled_sections(tmp_path):
             # 2026-09-17 split further down.
             assert titles == {
                 "Availability", "Weather", "Pace & daylight", "Priorities",
-                "Account", "Display", "Scraping", "AI ranking",
+                "Account", "Display", "Scraping",
             }
             # Expanded by default -- these are settings you're here to look at.
             assert all(not c.collapsed for c in app.screen.query(Collapsible))
@@ -905,7 +852,7 @@ def test_app_settings_screen_shows_only_the_app_settings(tmp_path):
         app = _HostApp(AppSettingsScreen(tmp_path / "preferences.yaml"))
         async with app.run_test(size=(100, 60)) as pilot:
             await pilot.pause()
-            assert _groups(app.screen) == {"Account", "Display", "Scraping", "AI ranking"}
+            assert _groups(app.screen) == {"Account", "Display", "Scraping"}
             # Login, language, theme and units all live together now.
             assert app.screen.query("#field-__login__")
             assert app.screen.query("#field-__language__")
@@ -978,14 +925,12 @@ def test_language_and_theme_save_outside_the_preferences_file(tmp_path, monkeypa
 def test_action_fields_have_no_value_to_round_trip(tmp_path):
     # An "action" field has no value to round-trip -- it must be skipped by both
     # config_to_widget_values() and widget_values_to_config() rather than KeyError-ing.
-    # Two of these now (2026-09-26: login and the new AI credentials field), not just
-    # login -- checked generically rather than assuming there's exactly one.
+    # Just the login since the AI provider's went with the AI ranking (2026-10-18) --
+    # still checked generically rather than assuming there's exactly one.
     from src.settings_screen import config_to_widget_values, widget_values_to_config
 
     action_fields = [f for f in FIELDS if f.kind == "action"]
-    assert {f.label_key for f in action_fields} == {
-        "settings.field.login", "settings.field.ai_credentials",
-    }
+    assert {f.label_key for f in action_fields} == {"settings.field.login"}
     for field in action_fields:
         assert field.open_screen is not None
 
@@ -998,31 +943,31 @@ def test_action_fields_have_no_value_to_round_trip(tmp_path):
 
 
 def test_save_keeps_keys_written_to_the_file_after_the_screen_opened(tmp_path):
-    # The AI provider sub-screen (or the GUI) writes preferences.yaml while this
-    # screen is open -- Save must merge onto the file as it is now, not onto the copy
-    # loaded in __init__, or ai_assist.provider is silently dropped.
+    # The GUI writes preferences.yaml while this screen is open -- Save must merge onto
+    # the file as it is now, not onto the copy loaded in __init__, or that key is
+    # silently dropped.
     from textual.widgets import Switch
 
     preferences_file = tmp_path / "preferences.yaml"
-    global_preferences.save_preferences({"ai_assist": {"enabled": False}}, preferences_file)
+    global_preferences.save_preferences({"show_handicaps": True}, preferences_file)
 
     async def scenario():
         app = _HostApp(AppSettingsScreen(preferences_file))
         async with app.run_test(size=(120, 80)) as pilot:
             await pilot.pause()
-            # What AICredentialsScreen._save() does behind this screen's back.
+            # What the web UI does behind this screen's back.
             prefs = global_preferences.load_preferences(preferences_file)
-            prefs["ai_assist"]["provider"] = "openai"
+            prefs["availability"] = {"min_open_spots": 3}
             global_preferences.save_preferences(prefs, preferences_file)
 
-            app.screen.query_one(f"#{_id('ai_assist', 'enabled')}", Switch).value = True
+            app.screen.query_one(f"#{_id('show_handicaps')}", Switch).value = False
             await pilot.click("#save")
             await pilot.pause()
 
     asyncio.run(scenario())
 
     saved = global_preferences.load_preferences(preferences_file)
-    assert saved["ai_assist"] == {"enabled": True, "avoid_predicted_crowd": False, "provider": "openai"}
+    assert saved["show_handicaps"] is False and saved["availability"] == {"min_open_spots": 3}
 
 
 def test_config_to_widget_values_turns_an_unquoted_yaml_time_back_into_hh_mm():

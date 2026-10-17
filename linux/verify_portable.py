@@ -165,8 +165,7 @@ for name in modules:
         importlib.import_module("src." + name)
     except BaseException as exc:
         failed[name] = repr(exc)
-import textual, httpx, truststore, yaml, pydantic, bs4, dotenv, anthropic, openai
-from google import genai
+import textual, httpx, truststore, yaml, bs4, dotenv
 print(json.dumps({"exe": sys.executable, "path": sys.path, "modules": len(modules), "failed": failed,
                   "berlin": str(ZoneInfo("Europe/Berlin")), "ssl": ssl.OPENSSL_VERSION,
                   "sqlite": sqlite3.sqlite_version, "version": sys.version.split()[0]}))

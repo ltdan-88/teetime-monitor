@@ -56,7 +56,7 @@ const sameChips = (a, b) => ['mine', 'dry', 'gap', 'spots', 'friends'].every((ke
   && ['days', 'tod'].every((key) => a[key].length === b[key].length && a[key].every((x) => b[key].includes(x)));
 const anyOn = (f) => !!(f.days.length || f.mine || f.dry || f.gap || f.tod.length || f.spots > 1 || f.friends);
 
-function Chip({ on, onClick, children, className = '', ...rest }) {
+export function Chip({ on, onClick, children, className = '', ...rest }) {
   return html`<button type="button" class=${'chip sf-chip ' + className} aria-pressed=${on} onClick=${onClick} ...${rest}>${children}</button>`;
 }
 

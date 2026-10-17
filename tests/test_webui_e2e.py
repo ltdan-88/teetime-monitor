@@ -484,19 +484,20 @@ def test_the_player_directory_filters_by_club_and_gender_together_with_its_sorti
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li .player-name').length > 5")
     every = ui.count(".player-list li .player-name")
-    clubs = ui.js("[...document.querySelectorAll('#p-club option')].map((o) => o.textContent)")
-    assert clubs == ["All clubs", "Beispiel", "Guests"], clubs  # the clubs the list knows (short, so the menu stays narrow), and guests
-    ui.set("#p-gender", "female")
+    clubs = ui.js("[...document.querySelectorAll('#p-club .chip')].map((o) => o.textContent.trim())")
+    assert clubs == ["Beispiel", "Guests"], clubs  # chips as in Search: the clubs the list knows (short), and guests
+    assert ui.count(".players-tools select") == 1  # only the order is a menu
+    _chip(ui, "Women", ".players-sf")
     ui.wait(f"document.querySelectorAll('.player-list li .player-name').length < {every}")
     assert ui.js("[...document.querySelectorAll('.player-list li .player-name')].every((e) => e.classList.contains('alt'))")  # only women
     ui.set("#p-sort", "club")  # sorting keeps the filter, and heads the list with the club
     ui.wait("document.querySelector('.player-list li.letter')?.textContent === 'Golfclub Beispiel'")
     assert ui.js("[...document.querySelectorAll('.player-list li .player-name')].every((e) => e.classList.contains('alt'))")
     assert ui.count(".alpha") == 0  # the A-Z index belongs to the name order only
-    ui.set("#p-club", "__guests")  # every demo player is a member here
+    _chip(ui, "Guests", ".players-sf")  # every demo player is a member here
     ui.wait("document.querySelectorAll('.player-list li .player-name').length === 0")
-    ui.set("#p-club", "all")
-    ui.set("#p-gender", "all")
+    ui.click(".players-sf .sf-actions .sf-clear")  # the trash clears every chip at once
+    ui.wait("!document.querySelector('.players-sf .chip[aria-pressed=true]')")
     ui.set("#p-sort", "name")
     ui.wait(f"document.querySelectorAll('.player-list li .player-name').length === {every}")
     _close_sheet(ui)
@@ -538,9 +539,7 @@ def test_settings_save_the_login_and_report_what_pc_caddie_said(ui):
     ui.click("form .btn.pri", "Save and check")
     ui.wait("document.querySelector('.status-line.error')")
     assert "rejected" in ui.text(".status-line.error")  # the offline demo's login is always refused
-    ui.set("#ai-key", "sk-test")
-    ui.click("form .btn", "Save key")
-    ui.wait("document.querySelectorAll('.status-line.error').length >= 2")
+    assert ui.count("#ai-key, #ai-provider") == 0 and "AI" not in ui.text(".sheet")  # no AI ranking any more
     _close_sheet(ui)
 
 
@@ -753,7 +752,7 @@ def test_the_hover_highlight_covers_a_day_with_its_event_note(ui):
 
 
 def test_the_days_show_before_the_picks_are_ready(ui):
-    """With AI ranking on, the picks take seconds: the days must not wait for them. The page's second
+    """The picks can take a moment: the days must not wait for them. The page's second
     request (the one with picks) is held back here to see the in-between state."""
     ui.js(
         """(() => { const real = window.fetch.bind(window);
@@ -1784,19 +1783,42 @@ def test_a_players_tee_time_at_another_club_shows_that_club_and_jumps_there(two_
     assert "Nina Nachbar" in ui.text(".card.open")
 
 
+def test_on_a_phone_the_player_filters_sit_behind_one_filter_button_as_in_search(ui):
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=800, deviceScaleFactor=1, mobile=True)
+        _open_sheet(ui, "p", "Player")
+        ui.wait("document.querySelectorAll('.player-list li .player-name').length > 5")
+        assert ui.js("getComputedStyle(document.querySelector('.players-sf .sf-panel')).display") == "none"  # folded away
+        box = ui.js("(() => { const s = document.querySelector('.players-tools .search-box').getBoundingClientRect(), o = document.querySelector('#p-sort').getBoundingClientRect(); return Math.abs(s.top - o.top) < 6 && o.right <= innerWidth; })()")
+        assert box  # the name search and the order share a line
+        ui.click(".players-sf .sf-more")
+        ui.wait("getComputedStyle(document.querySelector('.players-sf .sf-panel')).display !== 'none'")
+        _chip(ui, "Women", ".players-sf")
+        ui.wait("document.querySelector('.players-sf .sf-more .sf-count')?.textContent === '1'")  # the button counts what is on
+        ui.click(".players-sf .sf-foot .btn.pri")  # "Show N players" folds the chips away again
+        ui.wait("getComputedStyle(document.querySelector('.players-sf .sf-panel')).display === 'none'")
+        ui.click(".players-sf .sf-line-actions .sf-clear")
+        ui.wait("!document.querySelector('.players-sf .sf-count')")
+        assert ui.js("document.documentElement.scrollWidth <= innerWidth")
+        _close_sheet(ui)
+    finally:
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
 def test_the_player_directory_filters_by_tee_time(two_clubs_ui):
     ui = two_clubs_ui
     _open_sheet(ui, "p", "Player")
     nina = "[...document.querySelectorAll('.player-list li .player-name')].some((e) => e.textContent === 'Nina Nachbar')"
     ui.wait(nina)
     every = ui.count(".player-list li .player-name")
-    ui.set("#p-tee", "any")  # a tee time from now on, at any saved club: each row keeps its tee time button
+    _chip(ui, "With tee time", ".players-sf")  # a tee time from now on, at any saved club: each row keeps its tee time button
     ui.wait("document.querySelectorAll('.player-list li .player-name').length === document.querySelectorAll('.player-list li .tee-btn').length")
     assert ui.js(nina)
-    ui.set("#p-tee", "today")  # Nina plays tomorrow only
+    _chip(ui, "Today", ".players-sf")  # one or the other: Nina plays tomorrow only
+    assert ui.count("#p-tee .chip[aria-pressed=true]") == 1
     ui.wait(f"!({nina})")
     assert 0 < ui.count(".player-list li .player-name") < every
-    ui.set("#p-tee", "all")
+    _chip(ui, "Today", ".players-sf")  # off again: all players
     ui.wait(f"document.querySelectorAll('.player-list li .player-name').length === {every}")
     _close_sheet(ui)
 

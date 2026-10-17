@@ -217,7 +217,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.group.availability": "Availability",
         "settings.group.weather": "Weather",
         "settings.group.priorities": "Priorities",
-        "settings.group.ai": "AI ranking",
         "settings.group.timing": "Timing & scraping",  # legacy key, group now split
         "settings.group.account": "Account",
         "settings.group.display": "Display",
@@ -252,7 +251,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.search": "Search",
         "command.language_title": "Language: switch to {other}",
         "command.language_description": "Currently {current} — switch the UI language",
-        "command.settings_description": "Display, login, scraping, AI",
+        "command.settings_description": "Display, login, scraping",
         "command.switch_description": "Search the club directory and open or save a club",
         "command.search_description": "Ad hoc search across the currently loaded days",
         "command.heatmap_description": "Crowd history by weekday and hour",
@@ -303,9 +302,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.hcp_preference.better": "Better handicap (faster pace)",
         "settings.field.my_handicap": "Your handicap",
         "settings.field.my_handicap.unsynced": "not yet synced",
-        "settings.field.avoid_predicted_crowd": "Avoid predicted crowds",
-        "settings.field.ai_assist_enabled": "AI-ranked recommendations",
-        "settings.field.ai_credentials": "AI provider",
         "settings.field.daylight_buffer": "Daylight safety buffer (minutes)",
         "settings.field.round_duration_nine": "Round duration — 9 holes (minutes)",
         "settings.field.round_duration_eighteen": "Round duration — 18 holes (minutes)",
@@ -340,24 +336,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "credentials.login_verified": "Saved and login verified — you're all set.",
         "credentials.login_failed": "Saved, but the login was rejected — double check your username/password.",
         "credentials.saved_unverified": "Saved, but couldn't verify the login right now ({error}) — it'll be checked again later.",
-        "ai_credentials.title": "AI provider",
-        "ai_credentials.intro": (
-            "Pick which AI provider powers AI-ranked recommendations and enter its API key. "
-            "Only one provider is active at a time."
-        ),
-        "ai_credentials.provider_label": "Provider",
-        "ai_credentials.provider_anthropic": "Anthropic (Claude)",
-        "ai_credentials.provider_openai": "OpenAI (ChatGPT)",
-        "ai_credentials.provider_gemini": "Google (Gemini)",
-        "ai_credentials.provider_grok": "xAI (Grok)",
-        "ai_credentials.api_key_label": "API key",
-        "ai_credentials.api_key_hint_unset": "(not set yet)",
-        "ai_credentials.api_key_hint_set": "(already set — leave blank to keep it)",
-        "ai_credentials.api_key_required": "Enter an API key first.",
-        "ai_credentials.verifying": "Saved — checking your key…",
-        "ai_credentials.verified": "Saved and key verified — you're all set.",
-        "ai_credentials.rejected": "Saved, but the key was rejected — double check it.",
-        "ai_credentials.unverified": "Saved, but couldn't verify the key right now ({error}) — it'll be used as-is.",
         "players.title": "Player directory",
         "players.intro": (
             "Select a row to mark or unmark a friend (a friend counts at every club)."
@@ -596,7 +574,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.group.availability": "Verfügbarkeit",
         "settings.group.weather": "Wetter",
         "settings.group.priorities": "Prioritäten",
-        "settings.group.ai": "KI-Bewertung",
         "settings.group.timing": "Timing & Abruf",  # Altschlüssel, Gruppe jetzt geteilt
         "settings.group.account": "Konto",
         "settings.group.display": "Darstellung",
@@ -631,7 +608,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "binding.players_short": "Spieler",
         "command.language_title": "Sprache: zu {other} wechseln",
         "command.language_description": "Aktuell {current} — Sprache der Oberfläche wechseln",
-        "command.settings_description": "Anzeige, Anmeldung, Scraping, KI",
+        "command.settings_description": "Anzeige, Anmeldung, Scraping",
         "command.switch_description": "Im Club-Verzeichnis suchen und einen Club öffnen oder speichern",
         "command.search_description": "Einmalige Suche in den bereits geladenen Tagen",
         "command.heatmap_description": "Auslastungsverlauf nach Wochentag und Stunde",
@@ -680,9 +657,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.hcp_preference.better": "Besseres Handicap (schnelleres Tempo)",
         "settings.field.my_handicap": "Dein Handicap",
         "settings.field.my_handicap.unsynced": "noch nicht synchronisiert",
-        "settings.field.avoid_predicted_crowd": "Vorhergesagten Andrang vermeiden",
-        "settings.field.ai_assist_enabled": "KI-bewertete Empfehlungen",
-        "settings.field.ai_credentials": "KI-Anbieter",
         "settings.field.daylight_buffer": "Sicherheitspuffer Tageslicht (Minuten)",
         "settings.field.round_duration_nine": "Rundendauer — 9 Loch (Minuten)",
         "settings.field.round_duration_eighteen": "Rundendauer — 18 Loch (Minuten)",
@@ -717,24 +691,6 @@ _STRINGS: dict[str, dict[str, str]] = {
         "credentials.login_verified": "Gespeichert und Login bestätigt — alles bereit.",
         "credentials.login_failed": "Gespeichert, aber der Login wurde abgelehnt — bitte Benutzername/Passwort prüfen.",
         "credentials.saved_unverified": "Gespeichert, aber Login konnte gerade nicht geprüft werden ({error}) — wird später erneut geprüft.",
-        "ai_credentials.title": "KI-Anbieter",
-        "ai_credentials.intro": (
-            "Wähle, welcher KI-Anbieter die KI-bewerteten Empfehlungen liefert, und gib dessen API-Schlüssel ein. "
-            "Es ist immer nur ein Anbieter aktiv."
-        ),
-        "ai_credentials.provider_label": "Anbieter",
-        "ai_credentials.provider_anthropic": "Anthropic (Claude)",
-        "ai_credentials.provider_openai": "OpenAI (ChatGPT)",
-        "ai_credentials.provider_gemini": "Google (Gemini)",
-        "ai_credentials.provider_grok": "xAI (Grok)",
-        "ai_credentials.api_key_label": "API-Schlüssel",
-        "ai_credentials.api_key_hint_unset": "(noch nicht gesetzt)",
-        "ai_credentials.api_key_hint_set": "(bereits gesetzt — leer lassen, um ihn zu behalten)",
-        "ai_credentials.api_key_required": "Bitte zuerst einen API-Schlüssel eingeben.",
-        "ai_credentials.verifying": "Gespeichert — Schlüssel wird geprüft…",
-        "ai_credentials.verified": "Gespeichert und Schlüssel bestätigt — alles bereit.",
-        "ai_credentials.rejected": "Gespeichert, aber der Schlüssel wurde abgelehnt — bitte prüfen.",
-        "ai_credentials.unverified": "Gespeichert, aber Schlüssel konnte gerade nicht geprüft werden ({error}) — wird trotzdem verwendet.",
         "players.title": "Spielerverzeichnis",
         "players.intro": (
             "Zeile auswählen, um Freund/in zu markieren oder zu entfernen (gilt in jedem Club)."

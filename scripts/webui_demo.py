@@ -146,7 +146,7 @@ def main() -> None:
     data.version = lambda: tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]  # not a stale installed copy's
     print(f"Demo data written to {args.directory.resolve()}")
     if args.serve:
-        from src import ai_assist, scrape_once, scraper
+        from src import scrape_once, scraper
         from src.webui import clubs_api, server
 
         if args.offline:
@@ -157,7 +157,6 @@ def main() -> None:
             scrape_once.scrape_due_for_club = lambda *a, **k: []
             clubs_api.preview = lambda club_id, name: {"ok": False, "reason": "no_tee_sheet"}
             scraper.login = rejected
-            ai_assist.verify_api_key = lambda provider: (False, None)
 
             # nothing reaches pc caddie: a booking or a cancellation just succeeds (the page then shows it)
             from src import booking, club_config

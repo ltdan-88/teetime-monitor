@@ -509,39 +509,7 @@ def test_ranked_matches_friends_take_priority_over_hcp_preference():
     assert [m.slot.time for m in matches] == ["10:00", "09:00"]
 
 
-def test_ranked_matches_feeds_avg_field_hcp_and_my_handicap_to_ai_never_names(monkeypatch):
-    schedule = Schedule(
-        date="2026-09-07",
-        course="18 Loch Tee 1",
-        slots=[Slot(time="09:00", booked=2, capacity=4, players=["Low Hcp", "High Hcp"])],  # avg 25.0
-    )
-    config = {
-        "availability": {"weekday_window": {"after": "08:00"}},
-        "ai_assist": {"enabled": True},
-    }
-    captured = {}
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        captured["description"] = recommend.ai_assist._describe_candidate(0, candidates[0], context)
-        captured["preferences"] = preferences
-        return candidates
-
-    monkeypatch.setattr(recommend.ai_assist, "rank_slots", fake_rank_slots)
-
-    ranked_matches(
-        [schedule], default_criteria_from_config(config), config,
-        known_handicaps={"Low Hcp": 10.0, "High Hcp": 40.0}, my_handicap=25.0,
-    )
-
-    assert "avg field HCP 25.0" in captured["description"]
-    assert "Low Hcp" not in captured["description"]
-    assert "High Hcp" not in captured["description"]
-    assert captured["preferences"]["my_handicap"] == 25.0
-
-
-def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
-    # No "ai_assist" block at all -- defaults to disabled, so this must never call
-    # ai_assist.rank_slots() (which would otherwise need a real API key).
+def test_weekly_picks_needs_nothing_but_the_availability_rules():
     schedule = Schedule(
         date="2026-09-07",  # Monday
         course="18 Loch Tee 1",
@@ -553,182 +521,6 @@ def test_weekly_picks_skips_ai_ranking_when_ai_assist_disabled():
 
     assert len(picks) == 1
     assert picks[0].slot.time == "18:00"
-
-
-def test_weekly_picks_uses_ai_assist_rank_slots_when_enabled(monkeypatch):
-    schedule = Schedule(
-        date="2026-09-07",
-        course="18 Loch Tee 1",
-        slots=[Slot(time="18:00", booked=0, capacity=4)],
-    )
-    config = {
-        "availability": {"weekday_window": {"after": "17:00"}},
-        "ai_assist": {"enabled": True, "model": "claude-haiku-4-5"},
-    }
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append({"candidates": candidates, "context": context, "provider": provider, "model": model})
-        for candidate in candidates:
-            candidate.score = 99.0
-            candidate.reasons = ["dry and empty"]
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    picks = weekly_picks([schedule], config)
-
-    assert len(calls) == 1
-    assert calls[0]["model"] == "claude-haiku-4-5"
-    assert calls[0]["provider"] == "anthropic"  # default when config["ai_assist"] sets no provider
-    assert ("2026-09-07", "18 Loch Tee 1") in calls[0]["context"]["schedules"]
-    assert picks[0].score == 99.0
-    assert picks[0].reasons == ["dry and empty"]
-
-
-def test_ranked_matches_threads_the_current_ui_language_through_to_rank_slots(monkeypatch):
-    from src import i18n
-
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
-    config = {"availability": {"weekday_window": {"after": "17:00"}}, "ai_assist": {"enabled": True}}
-    criteria = default_criteria_from_config(config)
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(language)
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    i18n.set_language("de")
-    try:
-        ranked_matches([schedule], criteria, config)
-    finally:
-        i18n.set_language("en")
-
-    assert calls == ["de"]
-
-
-def test_weekly_picks_threads_a_configured_provider_through_to_rank_slots(monkeypatch):
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
-    config = {
-        "availability": {"weekday_window": {"after": "17:00"}},
-        "ai_assist": {"enabled": True, "provider": "gemini"},
-    }
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(provider)
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    weekly_picks([schedule], config)
-
-    assert calls == ["gemini"]
-
-
-def test_ranked_matches_merges_avoid_predicted_crowd_into_preferences(monkeypatch):
-    # avoid_predicted_crowd moved from config["preferences"] to config["ai_assist"]
-    # 2026-09-10 ("make avoid crowds a child of AI option") -- ai_assist.rank_slots()
-    # still needs it in the `preferences` dict it hands to Claude's prompt, since
-    # that's the only place the model actually sees it.
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
-    config = {
-        "availability": {"weekday_window": {"after": "17:00"}},
-        "ai_assist": {"enabled": True, "avoid_predicted_crowd": True},
-        "preferences": {"prioritize_friends": True},
-    }
-    criteria = default_criteria_from_config(config)
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(preferences)
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    ranked_matches([schedule], criteria, config)
-
-    assert calls[0] == {"prioritize_friends": True, "avoid_predicted_crowd": True}
-
-
-def test_ranked_matches_threads_crowd_estimates_into_context(monkeypatch):
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
-    config = {"availability": {"weekday_window": {"after": "17:00"}}, "ai_assist": {"enabled": True}}
-    criteria = default_criteria_from_config(config)
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(context)
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    estimates = {("2026-09-07", "18 Loch Tee 1", "18:00"): 0.8}
-    ranked_matches([schedule], criteria, config, crowd_estimates=estimates)
-
-    assert calls[0]["crowd_estimates"] == estimates
-
-
-def test_ranked_matches_omits_crowd_estimates_from_context_when_none_given(monkeypatch):
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)])
-    config = {"availability": {"weekday_window": {"after": "17:00"}}, "ai_assist": {"enabled": True}}
-    criteria = default_criteria_from_config(config)
-
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(context)
-        return candidates
-
-    import src.recommend as recommend_module
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", fake_rank_slots)
-
-    ranked_matches([schedule], criteria, config)
-
-    assert "crowd_estimates" not in calls[0]
-
-
-def test_weekly_picks_falls_back_to_unranked_list_when_ai_assist_call_fails(monkeypatch):
-    schedule = Schedule(
-        date="2026-09-07",
-        course="18 Loch Tee 1",
-        slots=[Slot(time="18:00", booked=0, capacity=4)],
-    )
-    config = {
-        "availability": {"weekday_window": {"after": "17:00"}},
-        "ai_assist": {"enabled": True},
-    }
-
-    import src.recommend as recommend_module
-
-    def broken_rank_slots(*args, **kwargs):
-        raise RuntimeError("no API key configured")
-
-    monkeypatch.setattr(recommend_module.ai_assist, "rank_slots", broken_rank_slots)
-
-    picks = weekly_picks([schedule], config)
-
-    assert len(picks) == 1
-    assert picks[0].slot.time == "18:00"
-    assert picks[0].score == 0.0  # untouched -- never actually ranked
 
 
 # diversify_by_day() -- added 2026-09-08, direct feedback on a real overview
@@ -913,29 +705,6 @@ def test_default_criteria_from_config_reads_unquoted_yaml_times():
     assert criteria.weekend_window == TimeWindow(after="08:30", before="18:00")
 
 
-def test_ranked_matches_passes_each_courses_round_duration_to_the_ai(monkeypatch):
-    schedules = [
-        Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="18:00", booked=0, capacity=4)]),
-        Schedule(date="2026-09-07", course="Tee 10 (9 Loch)", slots=[Slot(time="18:00", booked=0, capacity=4)]),
-    ]
-    config = {
-        "availability": {"weekday_window": {"after": "17:00"}},
-        "ai_assist": {"enabled": True},
-        "round_duration_minutes": {"nine": 110, "eighteen": 250},
-    }
-    calls = []
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        calls.append(context)
-        return candidates
-
-    monkeypatch.setattr(recommend.ai_assist, "rank_slots", fake_rank_slots)
-
-    ranked_matches(schedules, default_criteria_from_config(config), config)
-
-    assert calls[0]["round_duration_minutes"] == {"18 Loch Tee 1": 250, "Tee 10 (9 Loch)": 110}
-
-
 # --- shorter_round_alternative (2026-10-05) ---------------------------------------
 
 
@@ -1095,16 +864,6 @@ def test_shorter_round_alternative_respects_party_size():
         _alt_schedule("9 Loch Tee 1", ["16:10"], booked=2),  # only 2 free
     )
     assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config) is None
-
-
-def test_shorter_round_alternative_never_calls_ai_ranking(monkeypatch):
-    def boom(*args, **kwargs):
-        raise AssertionError("no AI call for the alternative")
-
-    monkeypatch.setattr(recommend.ai_assist, "rank_slots", boom)
-    config = {**_ALT_CONFIG, "ai_assist": {"enabled": True}}
-    courses = _alt_courses(_alt_schedule("18 Loch Tee 1", ["16:00"]), _alt_schedule("9 Loch Tee 1", ["16:10"]))
-    assert recommend.shorter_round_alternative(_ALT_DAY, "18 Loch Tee 1", courses, config)["time"] == "16:10"
 
 
 def test_window_too_late_hint_names_the_alternative_courses():

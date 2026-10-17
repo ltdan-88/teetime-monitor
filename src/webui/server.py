@@ -516,8 +516,6 @@ class Handler(BaseHTTPRequestHandler):
             return reply(settings_api.set_theme(arg("name") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/login"):
             return self._json(settings_api.login(arg("username") or "", body.get("password") or "", arg("club_id")))
-        if route == ("POST", "/api/ai-key"):
-            return self._json(settings_api.ai_key(arg("provider") or "", body.get("api_key") or ""))
         if route == ("POST", "/api/club/default-course"):
             return reply(settings_api.set_default_course(arg("slug") or "", arg("course") or ""))
         if route == ("GET", "/api/club/courses"):
