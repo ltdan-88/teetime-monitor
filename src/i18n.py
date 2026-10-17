@@ -256,7 +256,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "command.switch_description": "Search the club directory and open or save a club",
         "command.search_description": "Ad hoc search across the currently loaded days",
         "command.heatmap_description": "Crowd history by weekday and hour",
-        "command.player_directory_description": "Every real name your scrapes have seen; mark friends",
+        "command.player_directory_description": "Every player seen; mark friends",
         "command.login_description": "Save or update your pc caddie username/password",
         "command.theme_description": "Change the current theme",
         "binding.keys": "Keys",
@@ -286,7 +286,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.course_holes.title": "Course lengths",
         "settings.course_holes.auto": "Auto",
         "settings.course_holes.option": "{n} holes",
-        "settings.course_holes.hint": "For courses whose name doesn't say how many holes they have. Used for the round length and the shorter-round suggestion.",
+        "settings.course_holes.hint": "Only needed when a course's name does not say how many holes it has.",
         "settings.units.metric": "Metric (°C, km/h, mm)",
         "settings.units.imperial": "Imperial (°F, mph, in)",
         "settings.field.avoid_rain": "Avoid rain",
@@ -360,8 +360,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.unverified": "Saved, but couldn't verify the key right now ({error}) — it'll be used as-is.",
         "players.title": "Player directory",
         "players.intro": (
-            "Every real name seen on the tee sheets of all your clubs (only possible once logged in — "
-            "see Settings). Select a row to mark or unmark a friend; a friend counts at every club."
+            "Select a row to mark or unmark a friend (a friend counts at every club)."
         ),
         "players.friends_only": "Friends only",
         "players.picker_title": "Choose a player",
@@ -636,7 +635,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "command.switch_description": "Im Club-Verzeichnis suchen und einen Club öffnen oder speichern",
         "command.search_description": "Einmalige Suche in den bereits geladenen Tagen",
         "command.heatmap_description": "Auslastungsverlauf nach Wochentag und Stunde",
-        "command.player_directory_description": "Jeder echte Name, den deine Scrapes gesehen haben; Freunde markieren",
+        "command.player_directory_description": "Alle gesehenen Spieler; Freunde markieren",
         "command.login_description": "Deinen pc-caddie-Benutzernamen/-Passwort speichern oder ändern",
         "command.theme_description": "Das aktuelle Design ändern",
         "binding.keys": "Tasten",
@@ -664,7 +663,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "settings.course_holes.title": "Platzlängen",
         "settings.course_holes.auto": "Auto",
         "settings.course_holes.option": "{n} Loch",
-        "settings.course_holes.hint": "Für Plätze, deren Name nicht verrät, wie viele Löcher sie haben. Wird für die Rundendauer und den Vorschlag einer kürzeren Runde verwendet.",
+        "settings.course_holes.hint": "Nur nötig, wenn der Name des Platzes die Löcher nicht verrät.",
         "settings.units.metric": "Metrisch (°C, km/h, mm)",
         "settings.units.imperial": "Imperial (°F, mph, in)",
         "settings.field.avoid_rain": "Regen vermeiden",
@@ -738,8 +737,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "ai_credentials.unverified": "Gespeichert, aber Schlüssel konnte gerade nicht geprüft werden ({error}) — wird trotzdem verwendet.",
         "players.title": "Spielerverzeichnis",
         "players.intro": (
-            "Jeder echte Name von den Tee-Sheets all deiner Clubs (nur eingeloggt möglich — "
-            "siehe Einstellungen). Zeile auswählen, um Freund/in zu markieren oder zu entfernen; Freunde gelten in jedem Club."
+            "Zeile auswählen, um Freund/in zu markieren oder zu entfernen (gilt in jedem Club)."
         ),
         "players.friends_only": "Nur Freunde",
         "players.picker_title": "Spieler auswählen",

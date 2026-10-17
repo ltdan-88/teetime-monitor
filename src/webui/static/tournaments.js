@@ -86,7 +86,6 @@ export function TournamentsSheet({ club, knownDays, focusDate, onShowDay, onClos
   // from the state as it is now, not as it was drawn: two quick taps both count
   const flip = (key, v) => setFilter((current) => ({ ...current, [key]: current[key].includes(v) ? current[key].filter((x) => x !== v) : [...current[key], v] }));
   return html`<${Sheet} title=${t('tournaments.title')} onClose=${onClose} size="medium">
-    <p class="hint">${t('tournaments.intro')}</p>
     ${!data && !error && html`<${Status} kind="busy">${t('tournaments.loading')}<//>`}
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
