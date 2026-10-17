@@ -122,11 +122,15 @@ def search_slots(slug: str | None, club_id: str | None, page_course: str | None 
     for offset in range(data._overview_window(config)):  # the days the overview shows: later ones have no tee sheet yet
         day = (start + timedelta(days=offset)).isoformat()
         loaded = False
+        code = None  # the day's weather, for the icon beside its heading
         for course in courses:
             schedule = storage.load_latest_schedule(course, day, path=db)
             if schedule is None:
                 continue
             loaded = True
+            if code is None and schedule.weather:
+                summary = data.day_weather_summary(schedule.weather)
+                code = summary["code"] if summary else None
             sunset = schedule.sun_times.sunset if schedule.sun_times else None
             if day == today and pipeline.today_is_over(sunset, now):
                 continue
@@ -159,7 +163,7 @@ def search_slots(slug: str | None, club_id: str | None, page_course: str | None 
                         "booked_by_you": bool(booking and booking.time == slot.time),
                     }
                 )
-        dates.append({"date": day, "loaded": loaded})
+        dates.append({"date": day, "loaded": loaded, "code": code})
     return {
         "today": today,
         "dates": dates,
