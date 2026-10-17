@@ -245,7 +245,7 @@ function App() {
 
   useEffect(() => {
     const target = jumpTarget.current;
-    if (!target || !overview || overview.course !== target.course) return;
+    if (!target || !overview || overview.course !== target.course || (target.slug && overview.club && overview.club.slug !== target.slug)) return;
     const row = document.querySelector(`[data-slot="${target.date} ${target.time}"]`);
     if (!row) return; // the days are still loading, or the slot is not on this course
     jumpTarget.current = null;
@@ -447,13 +447,17 @@ function App() {
   const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you);
   /** Open a day and bring one of its slots into view, switching to its course first when needed. */
   const openTournaments = (date) => { setTournamentDate(date); setSheet('tournaments'); };
-  const jumpTo = (date, time, courseName) => {
+  /** `slug`: another saved club to switch to first (a player's tee time there, from the shared directory). */
+  const jumpTo = (date, time, courseName, slug = null) => {
     const target = courseName || (overview && overview.course);
     focusOnOpen.current = null;
-    jumpTarget.current = { date, time, course: target };
+    jumpTarget.current = { date, time, course: target, slug };
+    if (slug && !(view && view.kind === 'saved' && view.slug === slug)) {
+      setCourse(target);
+      setView({ kind: 'saved', slug });
+    } else if (overview && target !== overview.course) setCourse(target);
     setOpenDate(date);
     setJumpTick((n) => n + 1);
-    if (overview && target !== overview.course) setCourse(target);
   };
   const markFromSearch = (match) => askBooking(match.date, match.time, match.course, refOf(view), false);
   const bookingDone = () => {
@@ -595,7 +599,7 @@ function App() {
       ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} course=${overview.course} units=${units} showHandicaps=${showHandicaps}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${overview.course} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
-      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
+      ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}

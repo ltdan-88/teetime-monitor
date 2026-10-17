@@ -146,11 +146,33 @@ def _upcoming_by_player(club: dict, db, config: dict) -> dict[str, list[dict]]:
     return found
 
 
+def _upcoming_everywhere(open_club: dict, open_db, open_config: dict) -> dict[str, list[dict]]:
+    """`_upcoming_by_player()` for every saved club (and the one open, if it is only being looked at), each hit
+    with its club -- the directory is shared, so a friend booked at another of your clubs shows too. Only reads
+    what the clubs' own background refreshes stored: nothing is fetched from pc caddie for this."""
+    clubs = [(open_club, open_db, open_config)]
+    for entry in data.club_entries():
+        if entry["id"] != open_club["id"]:
+            other, db, config = _club(entry["slug"], None)
+            if other is not None:
+                clubs.append((other, db, config))
+    found: dict[str, list[dict]] = {}
+    for club, db, config in clubs:
+        here = club["id"] == open_club["id"]
+        for name, hits in _upcoming_by_player(club, db, config).items():
+            found.setdefault(name, []).extend(
+                {**hit, "club": club["name"], "slug": club["slug"], "club_id": club["id"], "here": here} for hit in hits
+            )
+    for hits in found.values():
+        hits.sort(key=lambda hit: (hit["date"], hit["time"], not hit["here"], hit["club"], hit["course"]))
+    return found
+
+
 def players(slug: str | None, club_id: str | None) -> dict:
     club, db, config = _club(slug, club_id)
     if club is None:
         return {"error": "unknown_club"}
-    upcoming = _upcoming_by_player(club, db, config)
+    upcoming = _upcoming_everywhere(club, db, config)
     names = club_directory.names_by_id()  # the directory is shared by every club: say which one is home
     return {
         "players": [

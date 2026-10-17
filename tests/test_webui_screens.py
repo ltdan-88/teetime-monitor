@@ -606,7 +606,8 @@ def test_the_player_directory_says_where_each_player_is_booked_on_every_course(w
         (tomorrow, "08:00", "9 Loch"),
         ((date.today() + timedelta(days=2)).isoformat(), "07:10", COURSE),
     ]
-    assert by_name["Erika Musterfrau"][0] == {"date": tomorrow, "time": "10:10", "course": COURSE}
+    first = by_name["Erika Musterfrau"][0]
+    assert (first["date"], first["time"], first["course"], first["here"]) == (tomorrow, "10:10", COURSE, True)
 
 
 def test_the_heatmap_groups_history_by_weekday_and_special_day(world, monkeypatch):
@@ -801,3 +802,19 @@ def test_the_player_list_is_one_for_every_club_and_names_the_home_club(world):
     assert players["Lena Beispiel"]["friend"] is True and players["Lena Beispiel"]["home_clubs"] == []  # a guest: club unknown
     assert players["Max Mustermann"]["home_clubs"] == ["Golfclub Beispiel"]  # a member here, by the saved club's name
     assert "Lena Beispiel" in storage.load_friend_names(world)  # and a friend at this club too
+
+
+def test_a_players_next_tee_times_come_from_every_saved_club_each_with_its_club(world):
+    from src.webui import tools_api
+
+    club_config.save_club_config("golfclub-nachbar", {"club_id": "0000002", "name": "Golfclub Nachbar", "default_course": "9 Loch Platz"}, club_config.CLUBS_DIR)
+    other = world.parent / "0000002.db"
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    slots = [Slot(time="10:00", booked=1, capacity=4, players=["Erika Musterfrau"])]
+    storage.save_schedule(Schedule(date=tomorrow, course="9 Loch Platz", slots=slots, weather=[], sun_times=SunTimes("07:00", "19:00"), events=[]), path=other, authenticated=True)
+    hits = {p["name"]: p["upcoming"] for p in tools_api.players(SLUG, None)["players"]}
+    away = [hit for hit in hits["Erika Musterfrau"] if not hit["here"]]
+    assert away == [{"date": tomorrow, "time": "10:00", "course": "9 Loch Platz", "club": "Golfclub Nachbar", "slug": "golfclub-nachbar", "club_id": "0000002", "here": False}]
+    assert all(hit["here"] for hit in hits["Max Mustermann"])  # this club's own times stay "here"
+    seen_from_there = {p["name"]: p["upcoming"] for p in tools_api.players("golfclub-nachbar", None)["players"]}
+    assert any(hit["here"] and hit["club"] == "Golfclub Nachbar" for hit in seen_from_there["Erika Musterfrau"])

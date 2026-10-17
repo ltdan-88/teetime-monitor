@@ -1,5 +1,5 @@
-// Player directory: every name your scrapes have seen (only a logged-in scrape shows names), with
-// search, sorting, and the one thing you edit: who is a friend (friends get a ★ and a ranking boost).
+// Player directory: every name seen at any of your clubs (only a logged-in scrape shows names), with search,
+// filters, sorting, each one's next tee time at any saved club, and the one thing you edit: who is a friend.
 
 import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
@@ -11,6 +11,9 @@ const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
 const memberText = (player) => !player.member_status ? '' : player.member_status === 'member' && player.home_clubs && player.home_clubs.length
   ? player.home_clubs.join(', ') : t('players.member_status.' + player.member_status);
 const familyName = (name) => name.trim().split(/\s+/).pop().toLowerCase();
+/** A club's name without the words every club has ("Golfclub Schloß Monrepos e.V." -> "Schloß Monrepos"). */
+export const shortClub = (name) => (name || '').replace(/^\s*(golf[\s-]?club|golf[\s-]?anlage|golf[\s-]?park|g\.?c\.?)\s+/i, '')
+  .replace(/\s+(e\.\s?v\.?|gmbh(\s.*)?|ag)\s*$/i, '').trim() || name;
 /** The club a player is listed under when sorting by club: the first of their home clubs, or none (a guest). */
 const homeClub = (player) => (player.home_clubs && player.home_clubs.length ? [...player.home_clubs].sort((a, b) => a.localeCompare(b))[0] : null);
 
@@ -108,7 +111,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
           <span class="num dim player-hcp">${showHandicaps && player.handicap != null ? hcpText(player.handicap) : ''}</span>
           ${player.upcoming && player.upcoming.length > 0
             ? html`<button class="tee-btn" onClick=${() => focus(player)} title=${t('players.focus_title') + ': ' + player.name}>
-                ${dayLabel(player.upcoming[0].date).split(' ').slice(0, 2).join(' ')} ${player.upcoming[0].time}${player.upcoming.length > 1 && html`<span class="more" title=${t('players.tee_time_more', { n: player.upcoming.length - 1 })}>+${player.upcoming.length - 1}</span>`}</button>`
+                ${dayLabel(player.upcoming[0].date).split(' ').slice(0, 2).join(' ')} ${player.upcoming[0].time}${!player.upcoming[0].here && html`<span class="tee-club" title=${player.upcoming[0].club}> · ${shortClub(player.upcoming[0].club)}</span>`}${player.upcoming.length > 1 && html`<span class="more" title=${t('players.tee_time_more', { n: player.upcoming.length - 1 })}>+${player.upcoming.length - 1}</span>`}</button>`
             : html`<span></span>`}
         </li>`;
   return html`<${Sheet} title=${t('players.title')} onClose=${onClose} size="directory" fixed>
@@ -129,7 +132,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
     ${data && data.players.length > 0 && rows.length === 0 && html`<p class="dim">${t('players.no_matches')}</p>`}
     ${none && html`<div class="banner" role="status"><${Icon} name="info" size=${18} /><span>${t('players.focus_none')}</span></div>`}
     ${choice && html`<div class="banner jump-choice" role="group" aria-label=${t('players.focus_title')}><span>${t('players.focus_title')}: ${choice.name}</span>
-      ${choice.hits.map((hit) => html`<button class="btn" onClick=${() => onJump(hit)}>${dayLabel(hit.date)} ${hit.time}${courses > 1 ? ' · ' + hit.course : ''}</button>`)}
+      ${choice.hits.map((hit) => html`<button class="btn" onClick=${() => onJump(hit)}>${dayLabel(hit.date)} ${hit.time}${courses > 1 || !hit.here ? ' · ' + hit.course : ''}${!hit.here ? ' · ' + shortClub(hit.club) : ''}</button>`)}
       <button class="btn" onClick=${() => setChoice(null)}>${t('cancel')}</button></div>`}
     <div class="player-scroll">
       <ul class="player-list scroll">
