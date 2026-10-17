@@ -1,7 +1,7 @@
 // The club's tournament calendar as a month grid: days with a tournament carry dots, a tap on a day lists what is on
 // (src/webui/data.py tournaments(), read from pc caddie's own calendar with the saved login).
 
-import { html, t, useState, useMemo, shortClub, Sheet, Select, Status, Icon, Condition, useLoad, api, query, dayLabel, weekdayShort, language, temperature, windSpeed, round } from '/lib.js';
+import { html, t, useState, useMemo, Sheet, Status, Icon, Condition, useLoad, api, query, dayLabel, weekdayShort, language, temperature, windSpeed, round } from '/lib.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (year, month, day) => `${year}-${pad(month + 1)}-${pad(day)}`; // month is 0-based, like Date
@@ -59,11 +59,9 @@ function Choice({ label, value, options, onFlip }) {
 
 const NO_FILTER = { holes: [], who: [], open: false };
 
-export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onShowDay, onClose }) {
-  const [slug, setSlug] = useState(club.slug); // the club shown: the open one to begin with, any saved club after
-  const ref = { slug };
-  const { data: loaded, loading, error } = useLoad(() => api('/api/tournaments' + query(ref)), [slug]);
-  const data = loading ? null : loaded; // never the previous club's calendar under the new club's name
+export function TournamentsSheet({ club, units, knownDays, focusDate, onShowDay, onClose }) {
+  const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
+  const { data, error } = useLoad(() => api('/api/tournaments' + query(ref)), [club.id]);
   const today = new Date();
   const start = focusDate ? new Date(Number(focusDate.slice(0, 4)), Number(focusDate.slice(5, 7)) - 1, 1) : today;
   const [shown, setShown] = useState({ year: start.getFullYear(), month: start.getMonth() });
@@ -79,10 +77,6 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
     for (const item of list) (map[item.date] = map[item.date] || []).push(item);
     return map;
   }, [data, filter]);
-  // the days with a tee sheet: for the open club the ones it loaded, for another club the same stretch of days
-  const sheetDays = knownDays || [];
-  const shown_ = (date) => (slug === club.slug ? sheetDays.includes(date) : sheetDays.length > 0 && date >= sheetDays[0] && date <= sheetDays[sheetDays.length - 1]);
-  const chooseClub = (next) => { setSlug(next); setFilter(NO_FILTER); setPicked(null); };
   const now = stamp();
   const todayIso = now.slice(0, 10);
   const first = iso(shown.year, shown.month, 1);
@@ -101,7 +95,6 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
     ${error && html`<${Status} kind="error">${t('error.title')}<//>`}
     ${data && data.problem && html`<${Status} kind="error">${t('tournaments.' + data.problem)}<//>`}
     <div class="tn-filters" role="group" aria-label=${t('tournaments.filters')}>
-        ${clubs.length > 1 && html`<${Select} id="tn-club" value=${slug} aria-label=${t('club')} options=${clubs.map((entry) => ({ value: entry.slug, label: shortClub(entry.name) }))} onChange=${chooseClub} />`}
         ${data && holeSizes.length > 1 && html`<${Choice} label=${t('tournaments.holes_label')} value=${filter.holes} onFlip=${(v) => flip('holes', v)}
           options=${holeSizes.map((n) => ({ value: n, label: String(n) }))} />`}
         ${data && mixedWho && html`<${Choice} label=${t('tournaments.who_label')} value=${filter.who} onFlip=${(v) => flip('who', v)}
@@ -134,7 +127,7 @@ export function TournamentsSheet({ club, clubs, units, knownDays, focusDate, onS
           <div class="tn-scroll">
             ${rows.length === 0 && html`<div class="empty small"><p>${filtered ? t('tournaments.none_filtered') : all.length === 0 && !data.problem ? t('tournaments.none') : t('tournaments.none_month', { month: picked ? dayLabel(picked) : monthName })}</p></div>`}
             <ul class="tn-list">
-              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${shown_(item.date)} onShow=${(date) => onShowDay(date, slug)} units=${units} />`)}
+              ${rows.map((item) => html`<${Item} key=${item.id} item=${item} now=${now} canShow=${(knownDays || []).includes(item.date)} onShow=${onShowDay} units=${units} />`)}
             </ul>
           </div>
         </div>

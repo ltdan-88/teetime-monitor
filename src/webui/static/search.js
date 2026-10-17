@@ -161,8 +161,8 @@ export function SearchSheet({ club, units, showHandicaps, onClose, onMark, onPre
           ${view.buckets.length > 0 && html`<span class="sf-grp"><span class="lab">${t('search.time')}</span>
             ${view.buckets.map((bucket) => html`<${Chip} key=${bucket.key} on=${f.tod.includes(bucket.key)} onClick=${() => { flip('tod', bucket.key); if (!f.tod.includes(bucket.key)) set({ mine: false }); }}>${bucket.label()}<//>`)}</span>`}
           <span class="sf-grp"><span class="lab">${t('search.spots')}</span>
-            ${[1, 2, 3, 4].map((n) => html`<${Chip} key=${n} on=${f.spots === n} onClick=${() => set({ spots: n })}>${n === 4 ? '4' : n + '+'}<//>`)}
-            <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends })}>★ ${t('search.friends')}<//>
+            ${[1, 2, 3, 4].map((n) => html`<${Chip} key=${n} on=${f.spots === n} disabled=${n === 4 && f.friends} onClick=${() => set({ spots: n })}>${n === 4 ? '4' : n + '+'}<//>`)}
+            <${Chip} className="star" on=${f.friends} onClick=${() => set({ friends: !f.friends, ...(!fRef.current.friends && fRef.current.spots === 4 ? { spots: 1 } : {}) })}>★ ${t('search.friends')}<//>
             ${data.courses.length <= 1 && actions}</span>
           ${data.courses.length > 1 && html`<span class="sf-grp"><span class="lab">${t('course')}</span>
             ${data.courses.map((course) => html`<${Chip} key=${course} on=${f.courses.includes(course)} onClick=${() => flip('courses', course)}>${course}<//>`)}${actions}</span>`}
