@@ -4,9 +4,7 @@ history (ROADMAP.md Phase 5).
 Raw aggregation (`crowd_heatmap`, `best_times_by_weekday`, the fixed personal-stats
 numbers) is plain SQL/code, no AI involved — grouping rows by weekday/day-type and
 hour is an exact `GROUP BY`, not a judgment call, and it needs to produce real numbers
-to color a heatmap grid. Interpreting *sparse or noisy* results (open-ended
-personal-stats commentary, "say something interesting about my play history") goes
-through `ai_assist.summarize_history()` instead — see ROADMAP.md's "AI placement" note.
+to color a heatmap grid.
 
 `crowd_heatmap()` groups by actual weekday (Sun-Sat) plus a separate "special days"
 panel for tournament/public_holiday/vacation — reworked 2026-09-09 to match the
@@ -30,10 +28,7 @@ bookings) as its primary source rather than scanning scraped player names for
 `confirmed_bookings` existed as a reliable automatic source, and scanning for your own
 name may not even work (you likely can't be your own pc caddie "friend," so your own
 booking may show anonymized like anyone else's). `predict_crowding()` is a plain
-deterministic lookup with a minimum-sample-size floor, not an AI call — the original
-plan to hand "how much to trust a thin pattern" to `ai_assist.summarize_history()`
-doesn't actually fit: that function returns prose commentary, not a number
-`predict_crowding()` could use as a machine-checkable confidence score.
+deterministic lookup with a minimum-sample-size floor.
 
 Needs a few weeks of accumulated history to be useful — every function here degrades
 gracefully (empty dict/list, `None`) rather than erroring on a fresh database with no
@@ -130,10 +125,7 @@ def personal_stats(my_name: str, path: Path = DEFAULT_DB_PATH) -> dict:
     course at this club, not scraped-player-name matching (see module docstring for
     why). `my_name` is used for one secondary cross-check —
     `rounds_with_visible_name` — for the rarer case a club does show your own real
-    name rather than anonymizing it. Anything more open-ended ("say something
-    interesting about my play history") goes through `ai_assist.summarize_history()`
-    on these same raw rows, rather than growing this into an ever-longer list of
-    hand-written queries.
+    name rather than anonymizing it.
     """
     bookings = [b for b in load_all_confirmed_bookings(path) if b.time is not None]
 
@@ -266,10 +258,7 @@ def predict_crowding(key: str, time: str, heatmap: dict) -> float | None:
     rather than asking the caller to also say which group.
 
     A plain deterministic lookup with a minimum-sample-size floor
-    (MIN_SAMPLES_FOR_PREDICTION), not an AI call — see the module docstring for why
-    the original "hand confidence to ai_assist.summarize_history()" plan didn't
-    actually fit (that function returns prose, not a number this could use as a
-    machine-checkable confidence score). Returns None if the bucket has no data at all,
+    (MIN_SAMPLES_FOR_PREDICTION). Returns None if the bucket has no data at all,
     or too few samples to call it a pattern yet — a single "public_holiday" data point
     shouldn't drive a recommendation with the same weight as a well-sampled Monday.
     """

@@ -26,7 +26,7 @@ Start des Pi hochfährt und nach einem Absturz neu startet. Am Ende nennt es die
 `--no-password`. Zum Aktualisieren einfach noch einmal ausführen.
 
 Danach von einem beliebigen Gerät im Netz: Adresse öffnen, mit dem Passwort anmelden und wie auf jedem Computer
-einrichten: **Einstellungen > pc-caddie-Login**, Clubs hinzufügen (**Club hinzufügen**), optional den KI-Schlüssel.
+einrichten: **Einstellungen > pc-caddie-Login** und Clubs hinzufügen (**Club hinzufügen**).
 Der erste Abruf läuft innerhalb weniger Minuten; **Aktualisieren** startet ihn sofort. Einstellungen liegen auf
 dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-monitor`.
 
@@ -58,7 +58,7 @@ installierter Server bekommt den Knopf nach einem weiteren Lauf des Installation
 - Es ist **unverschlüsseltes HTTP im Heimnetz**. Jeder im WLAN erreicht die Anmeldeseite, und wer den
   WLAN-Verkehr mitlesen kann, könnte das Passwort sehen. Nimm ein Passwort, das du nirgends sonst benutzt, und
   lass Gäste im Gast-WLAN.
-- Hinter dem Passwort liegen dein pc-caddie-Login und der KI-Schlüssel (der Server braucht sie zum Abrufen).
+- Hinter dem Passwort liegt dein pc-caddie-Login (der Server braucht ihn zum Abrufen).
   Leite keinen Port am Router dorthin weiter.
 - **Von unterwegs** erreichst du ihn über ein VPN ins Heimnetz: [Tailscale](https://tailscale.com) ist der
   einfachste Weg (auf Pi und Handy installieren, keine Router-Einstellungen), oder WireGuard.

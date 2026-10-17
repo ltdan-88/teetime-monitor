@@ -51,11 +51,8 @@ tested code, verified against the live site:
   session set to EN). `KNOWN_ANONYMIZED_LABELS` below holds all four; anything else
   non-empty is treated as a real name (a friend), which held up across a full sweep of
   every date/course the live site currently offers (5 dates x 3 courses, 1092 slots,
-  zero false positives after the fixes above). `ai_assist.classify_booking_label()`
-  remains available as a fallback for a genuinely novel label (e.g. a language variant
-  not yet seen) — not called from the normal path, since nothing observed so far has
-  needed it, and gating a working scraper on an unimplemented AI call would be a bad
-  trade for a case that hasn't actually occurred yet.
+  zero false positives after the fixes above). A genuinely novel label (e.g. a
+  language variant not yet seen) gets added to that set when it shows up.
 - The "Overview Areas" page (`cat=tt_timetable_course_alias`) gives all 3 courses'
   aggregate occupied/free counts for one date in a single request — a better source for
   the Phase 4 multi-day overview than looping the per-course page 3x.
@@ -158,8 +155,7 @@ _SEATS_FREE_RE = re.compile(r"seats-free-(\d)")
 # else non-empty in a .tt-show-name span (on a non-blocked row) is treated as a real
 # name. "Belegt" was caught by an actual end-to-end run against the live site
 # (2026-09-06) showing up as a false-positive "player name" before being added here —
-# exactly the risk the module docstring already flagged; ai_assist.classify_booking_label()
-# is the intended fallback for the next variant that isn't in this set yet.
+# exactly the risk the module docstring already flagged; the next variant gets added here.
 KNOWN_ANONYMIZED_LABELS = {
     # German — the server's default locale
     "Namensanzeige nach dem Login",  # long form

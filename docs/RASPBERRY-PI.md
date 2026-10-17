@@ -24,7 +24,7 @@ finishes by printing the addresses, such as `http://raspberrypi.local:8765`. Opt
 `--version v0.78.0`, `--no-service` (start it yourself), `--no-password`. Run it again to update.
 
 Then, from any device on your network: open the address, log in with the password, and set up as on any
-computer: **Settings > pc caddie login**, add your clubs (**Add club**), and optionally the AI key. The first
+computer: **Settings > pc caddie login** and add your clubs (**Add club**). The first
 fetch happens within minutes; **Refresh** does it at once. Your settings live in `~/.config/teetime-monitor`
 and the data in `~/.local/share/teetime-monitor` on the Pi.
 
@@ -56,7 +56,7 @@ the install command.
 - It is **plain HTTP on your home network**. Everyone on your Wi-Fi can reach the login page, and someone who
   can watch the Wi-Fi traffic could read the password. Use a password you use nowhere else, and keep guests
   on a separate guest network.
-- Behind the password sit your pc caddie login and your AI key (the server needs them to fetch for you). Do
+- Behind the password sits your pc caddie login (the server needs it to fetch for you). Do
   not forward a port on your router to it.
 - To reach it **away from home**, use a VPN into your home network: [Tailscale](https://tailscale.com) is the
   easy route (install it on the Pi and on your phone; no router settings), or WireGuard.

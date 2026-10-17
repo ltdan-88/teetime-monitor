@@ -36,7 +36,7 @@ def test_load_env_value_blank_value_treated_as_unset(tmp_path):
 def test_set_env_values_creates_file_from_template(tmp_path):
     path = tmp_path / ".env"
     template = tmp_path / ".env.example"
-    template.write_text("# a helpful comment\nPCC_USER=\nPCC_PASS=\nANTHROPIC_API_KEY=\n")
+    template.write_text("# a helpful comment\nPCC_USER=\nPCC_PASS=\nOTHER_KEY=\n")
 
     set_env_values({"PCC_USER": "someone@example.com", "PCC_PASS": "hunter2"}, path, template)
 
@@ -44,12 +44,12 @@ def test_set_env_values_creates_file_from_template(tmp_path):
     assert "# a helpful comment" in content  # template comments survive
     assert "PCC_USER=someone@example.com" in content
     assert "PCC_PASS=hunter2" in content
-    assert "ANTHROPIC_API_KEY=" in content  # untouched key stays, still blank
+    assert "OTHER_KEY=" in content  # untouched key stays, still blank
 
 
 def test_set_env_values_updates_existing_file_in_place(tmp_path):
     path = tmp_path / ".env"
-    path.write_text("# my own note\nPCC_USER=old@example.com\nPCC_PASS=oldpass\nANTHROPIC_API_KEY=sk-real\n")
+    path.write_text("# my own note\nPCC_USER=old@example.com\nPCC_PASS=oldpass\nOTHER_KEY=sk-real\n")
 
     set_env_values({"PCC_USER": "new@example.com"}, path)
 
@@ -57,7 +57,7 @@ def test_set_env_values_updates_existing_file_in_place(tmp_path):
     assert "# my own note" in content  # unrelated comment untouched
     assert "PCC_USER=new@example.com" in content
     assert "PCC_PASS=oldpass" in content  # untouched key survives
-    assert "ANTHROPIC_API_KEY=sk-real" in content  # untouched key survives
+    assert "OTHER_KEY=sk-real" in content  # untouched key survives
 
 
 def test_set_env_values_appends_key_not_already_present(tmp_path):
@@ -145,4 +145,4 @@ def test_first_save_ignores_a_template_in_the_working_directory(tmp_path, monkey
     content = path.read_text()
     assert "HTTPS_PROXY" not in content
     assert "PCC_USER=me@example.com" in content
-    assert "ANTHROPIC_API_KEY=" in content  # the built-in template's own keys
+    assert "# PCC_USER__guest-club=" in content  # the built-in template's own lines

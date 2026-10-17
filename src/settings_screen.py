@@ -6,9 +6,7 @@ by hand-editing YAML.
 Deliberately narrow — a screen for exactly the settings that came up in that feedback:
 `availability` (min open spots, time windows, buffer), `preferences` (rain/wind/
 temperature thresholds, friend weighting), and the scrape interval added the
-same day. `avoid_predicted_crowd` lives under `ai_assist` instead (moved there
-2026-09-10 — see that Field's own comment for why), since it only ever does
-anything through the AI ranking step.
+same day.
 
 **Global, not per-club** (reworked 2026-09-08, direct follow-up: "i also want the
 settings/preferences to be global and not tied to a specific club"). These were
@@ -24,32 +22,8 @@ club's `course_holes`, see `course_holes_rows()`) —
 those are set-once-at-setup values, not day-to-day dials, and each one really does
 vary by club.
 
-`ai_assist` (whether recommendations get AI-ranked) joined the global side the same
-day, direct request right after discussing turning it on for the first time: "the ai
-feature should be an option in the settings menu." It was originally kept per-club
-deliberately ("which model to spend on which call is a cost/quality tradeoff that's
-yours to set" — see an earlier version of `global_preferences.py`'s own docstring),
-but nothing about wanting AI ranking on or off actually varies by club here, and the
-ask itself was for one switch, not a per-club dial — same shape of correction as the
-availability/weather move above. `_resolved_config()`'s existing shallow merge
-(global overrides a club's own YAML) means a club file that still has its own
-`ai_assist` block keeps working as a fallback; it just no longer wins once this
-screen has actually set one.
-
-**No model choice offered** (removed the same day, right after it briefly existed):
-this screen originally paired the on/off switch with a `Select` of Claude model
-families, defaulting to `ai_assist.DEFAULT_MODEL` (then `claude-opus-5`). Direct
-follow-up questioned that default itself — "Are you sure haiku is not good enough for
-this to work?" — and once the actual task was reconsidered honestly (ranking a
-handful of *already* hard-filtered candidates and writing one short reason each,
-nothing that calls for a slower/pricier model), the answer was to change
-`DEFAULT_MODEL` to Haiku rather than just re-defaulting this dropdown to it. The
-direct follow-up after that — "I would not even offer the other options, since they
-seem overkill" — is why the dropdown is gone entirely rather than kept with Haiku
-merely pre-selected: there's no real choice left worth surfacing as one. A club's own
-`ai_assist.model` (hand-edited YAML, predating this) still works if set — nothing
-here reads or writes it any more, but `recommend.ranked_matches()` still passes
-whatever `config.get("ai_assist", {}).get("model", ai_assist.DEFAULT_MODEL)` finds.
+An optional AI ranking (its on/off switch, provider key and "avoid predicted crowds")
+had its own group here from 2026-09-08 until it was removed 2026-10-18 as unused.
 
 **`escape`/`q` made consistent with every other screen** (2026-09-09, direct
 feedback: "exiting the settings you need to hit q, while returning to the overview
@@ -75,7 +49,7 @@ own docstring).
 weather-during-the-round check and the daylight/sunset cutoff) joined the global
 side too, same day, direct request right after its existing 120/240-minute defaults
 were explained: "make pace speed adjustable in settings." Same correction as
-`ai_assist` above — kept per-club on the theory that pace genuinely varies by
+availability above — kept per-club on the theory that pace genuinely varies by
 course, but the actual ask was for one adjustable pair of settings (nine-hole,
 eighteen-hole), not a per-club dial. Two new `Select` dropdowns under "Timing &
 scraping" (`ROUND_DURATION_NINE_CHOICES`/`ROUND_DURATION_EIGHTEEN_CHOICES`) —
@@ -182,7 +156,6 @@ from textual.widgets import Button, Collapsible, Input, Label, Select, Static, S
 
 from . import clock, club_config, global_preferences, i18n, storage, units
 from . import theme as theme_module
-from .ai_credentials_screen import AICredentialsScreen
 from .credentials_screen import CredentialsScreen
 from .recommend import (
     DEFAULT_AVOID_RAIN_MM,
@@ -458,7 +431,6 @@ SETTING_GROUP_ORDER = [
     "settings.group.account",
     "settings.group.display",
     "settings.group.scraping",
-    "settings.group.ai",
 ]
 GROUP_ORDER = [*PREFERENCE_GROUP_ORDER, *SETTING_GROUP_ORDER]
 
@@ -608,56 +580,6 @@ FIELDS: list[Field] = [
         "settings.group.priorities",
         getter=_friends_hint,
     ),
-    # Moved here from clubs/*.yaml, 2026-09-08 direct request: "the ai feature should
-    # be an option in the settings menu" -- ai_assist was originally kept per-club
-    # ("which model to spend on which call is a cost/quality tradeoff that's yours to
-    # set" -- see global_preferences.py's own docstring), but nothing about wanting AI
-    # ranking on or off actually varies by club for this developer, and the explicit
-    # ask was for one on/off switch, not a per-club dial. `_resolved_config()`'s
-    # existing shallow merge (global preferences override a club's own YAML) means a
-    # club file that still has its own `ai_assist` block keeps working as a fallback
-    # -- this only takes priority once actually set here. No separate model field --
-    # a model dropdown briefly existed here too, removed the same day once "Are you
-    # sure haiku is not good enough for this to work?" led to changing
-    # ai_assist.DEFAULT_MODEL itself, and the direct follow-up ("I would not even
-    # offer the other options, since they seem overkill") ruled out keeping a
-    # single-real-choice dropdown around at all.
-    Field(
-        "settings.field.ai_assist_enabled",
-        ("ai_assist", "enabled"),
-        "bool",
-        "settings.group.ai",
-        False,
-    ),
-    # Same "action" kind and open_screen mechanism as settings.field.login above --
-    # added 2026-09-26, direct request for a credentials screen for the AI provider
-    # itself (Anthropic/OpenAI/Gemini/Grok), since turning ai_assist_enabled on had no
-    # way at all to enter a key: ai_assist.py just read ANTHROPIC_API_KEY from the
-    # environment silently, and if it were ever missing the toggle would look on but
-    # do nothing (recommend.ranked_matches()'s own best-effort fallback swallows the
-    # failure). See ai_credentials_screen.py's own docstring.
-    Field(
-        "settings.field.ai_credentials",
-        ("__ai_credentials__",),
-        "action",
-        "settings.group.ai",
-        open_screen=lambda _club_id: AICredentialsScreen(),
-    ),
-    # Moved here from "Priorities" (2026-09-10, direct follow-up after finding it had
-    # zero actual effect: "make avoid crowds a child of AI option") -- it only ever
-    # does anything through ai_assist.rank_slots() (see that function's own docstring
-    # for why a hard deterministic filter never made sense for a *predicted* crowd
-    # level), so a spot in "Priorities" implying it works standalone was actively
-    # misleading. Path moved from ("preferences", "avoid_predicted_crowd") to
-    # ("ai_assist", "avoid_predicted_crowd") to match -- no migration needed for the
-    # old path, since this project is still in development, not production use.
-    Field(
-        "settings.field.avoid_predicted_crowd",
-        ("ai_assist", "avoid_predicted_crowd"),
-        "bool",
-        "settings.group.ai",
-        False,
-    ),
     Field(
         "settings.field.daylight_buffer",
         ("daylight_buffer_minutes",),
@@ -672,7 +594,7 @@ FIELDS: list[Field] = [
     # adjustable in settings") -- round_duration_minutes was kept per-club on the
     # theory that pace genuinely varies by course, but the actual ask was for one
     # adjustable setting, not a per-club dial, the same correction availability/
-    # preferences/ai_assist already went through. A club file that still sets its
+    # preferences already went through. A club file that still sets its
     # own round_duration_minutes keeps working as a fallback via
     # _resolved_config()'s existing shallow merge -- it just no longer wins once
     # this screen has actually set one.
@@ -1255,8 +1177,7 @@ class SettingsScreen(Screen[dict | None]):
             return
         if event.button.id == "save":
             # Re-read the file rather than reusing self.config from __init__: a
-            # sub-screen pushed from here (AI provider writes ai_assist.provider) or
-            # the GUI may have written keys this form doesn't show since it opened,
+            # sub-screen pushed from here or the GUI may have written keys this form doesn't show since it opened,
             # and saving the stale copy would silently drop them.
             base = global_preferences.load_preferences(self.preferences_file)
             try:
@@ -1291,12 +1212,7 @@ class PreferencesScreen(SettingsScreen):
     Split out of the single settings form 2026-09-17, direct request: "we should
     separate preferences from settings." The line is *preferences describe you,
     settings describe the app*: every field here feeds the ★ recommendation and the
-    per-day Pick column, while nothing here changes how the app itself behaves.
-
-    `avoid_predicted_crowd` deliberately stays on the settings side under "AI ranking"
-    despite reading like a preference — it only takes effect through the AI ranking
-    step, and it was moved there on purpose 2026-09-10 after being found to do nothing
-    where it was. Putting it back here would re-create exactly that problem."""
+    per-day Pick column, while nothing here changes how the app itself behaves."""
 
     GROUPS_SHOWN = PREFERENCE_GROUP_ORDER
 

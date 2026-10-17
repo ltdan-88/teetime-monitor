@@ -61,7 +61,7 @@ overview_days: 5
 # Estimated round duration, used to work out whether a tee time finishes before
 # sunset (Phase 2 playability highlight) and how long weather is checked across
 # (Phase 2's own round-length window). Also used to live here per club -- moved
-# 2026-09-09 into the same shared file as availability/preferences/ai_assist above
+# 2026-09-09 into the same shared file as availability/preferences above
 # (direct request: "make pace speed adjustable in settings"), same reasoning as
 # those earlier moves: nothing about your own typical pace actually varies by club
 # here. Press `,` (Preferences) in the running app to adjust it (under "Pace &
@@ -84,16 +84,3 @@ overview_days: 5
 # never actually right). See `global_preferences.py`'s module docstring for where that
 # file lives, or just press `,` (Preferences) in the running app — it edits that
 # shared file directly, no manual YAML needed.
-
-# Whether recommendations get AI-ranked (ai_assist.py — see ROADMAP.md "AI placement"
-# note) also used to live here per club — moved
-# 2026-09-08 into the same shared file as availability/preferences above (direct
-# request: "the ai feature should be an option in the settings menu"), same reasoning
-# as that earlier move: nothing about wanting AI ranking on or off actually varies by
-# club here. Press `s` (Settings) in the running app to turn it on under "AI ranking"
-# and to enter a provider's API key under "AI provider" (Anthropic, OpenAI, Gemini or
-# Grok; the key is stored in .env). A club file that still has its own `ai_assist`
-# block below keeps working as a fallback (see tui._resolved_config()'s shallow merge)
-# but no longer wins once the shared file has actually set one.
-# ai_assist:
-#   enabled: true

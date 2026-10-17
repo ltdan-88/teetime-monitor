@@ -163,8 +163,7 @@ Each of the (up to) 4 player cells that follow has a name span and a handicap sp
 ```
 
 Confirmed real label text seen in `.tt-show-name` spans that are **not** a person's
-name (feed these as negative examples when testing/prompting
-`ai_assist.classify_booking_label()`); `src/scraper.py`'s `KNOWN_ANONYMIZED_LABELS`
+name (use them as negative examples when testing); `src/scraper.py`'s `KNOWN_ANONYMIZED_LABELS`
 covers the first four (the real anonymized-placeholder variants) exactly:
 
 - `"Occupied"`, `"Belegt"`, `"Namensanzeige nach dem Login"`,

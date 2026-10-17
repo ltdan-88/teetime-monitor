@@ -11,11 +11,8 @@ used two ways:
   two entry points (typed-in vs saved-as-default).
 
 This module does the *hard* filtering only — party size and time windows are exact
-checks, not judgment calls, so plain code (not AI) is both simpler and more reliable
-here. Ranking the results (dry, calm, safely-before-sunset first, with plain-language
-reasons) is a separate step via `ai_assist.rank_slots()`, called by recommend.py for the
-saved-default path and by the TUI's ad hoc search handler for the typed-in path — see
-ROADMAP.md's "AI placement" note for why that split exists.
+checks, not judgment calls. Ordering the results is a separate step,
+`recommend.ranked_matches()` (quality score, friends, handicaps).
 
 Implemented and tested 2026-09-06, as the first of the two deterministic steps behind
 `recommend.py`'s `weekly_picks()` (the other being `exclude_unplayable()`) — together
@@ -128,7 +125,7 @@ def _has_buffer_clearance(
 
 def search(schedules: list[Schedule], criteria: SearchCriteria) -> list[SlotMatch]:
     """Return matching slots across all given days — filtered, not yet ranked
-    (`score`/`reasons` unset). Pass the result to `ai_assist.rank_slots()` for that."""
+    (`score` unset). `recommend.ranked_matches()` orders them."""
     matches: list[SlotMatch] = []
     for schedule in schedules:
         window = _window_for_date(schedule.date, criteria)

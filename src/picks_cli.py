@@ -2,12 +2,9 @@
 `search_cli.py`'s ad hoc search (2026-09-27).
 
 Direct follow-up: the TUI's Overview has shown a "★ HH:MM" recommended pick per
-day (best still-playable slot by `quality.py`'s score, AI-ranked once `ai_assist.enabled`,
-with reason keys in `reasons`)
+day (best still-playable slot by `quality.py`'s score, with reason keys in `reasons`)
 since 2026-09-08 (`tui.py`'s `_day_pick_text()`, `pipeline.py`'s `_availability_pipeline()`), but
-the GUI's Overview never had an equivalent — surfaced once AI ranking actually
-started working end to end and there was still nothing to see in the Overview
-itself (only the ad hoc Search sheet, which already goes through
+the GUI's Overview never had an equivalent (only the ad hoc Search sheet, which already goes through
 `recommend.ranked_matches()` via `search_cli.py`).
 
 Reuses `pipeline._availability_pipeline()` directly, the exact function
@@ -33,10 +30,7 @@ contribution first, from this fixed set (the GUI localises them via its own
 
     "dry"  "calm"  "mild"  "room_around"  "quiet"  "daylight_spare"
 
-`reasons` is `[]` when nothing about the slot is notably good. With AI ranking on
-(`ai_assist.enabled`) the AI chooses among the same candidates, `score` is then its
-own 0-100 score, and its free-text sentences arrive as the optional `"ai_reasons"`
-(absent when there are none); `reasons` stays the deterministic keys either way.
+`reasons` is `[]` when nothing about the slot is notably good.
 
 `null` covers every "nothing to show" case `_day_pick_text()` also collapses to
 a plain dash for (no `availability` rules configured yet, no schedule scraped
@@ -221,8 +215,6 @@ def compute_picks(db_path: str, course: str, club_slug: str | None, from_date: s
         if playable:
             top = playable[0]
             entry.update({"time": top.slot.time, "score": top.score, "reasons": top.quality_reasons})
-            if top.reasons:  # the AI's own sentences, see the module docstring
-                entry["ai_reasons"] = top.reasons
         elif candidates:
             entry["unplayable"] = sorted(recommend.unplayable_reasons(candidates, [schedule], config))
             # A shorter round on a sibling course that still finishes before dark

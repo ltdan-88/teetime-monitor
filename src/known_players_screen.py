@@ -10,8 +10,7 @@ it. This is a directory over that same data, not new collection — see
 from scraping and read-only. Marking a friend is what finally gives the long-standing
 `prioritize_friends` preference (previously a no-op — there was never a friends list to
 check against) something real to act on: see `recommend.ranked_matches()`'s own
-`friend_names` parameter for the deterministic sort, and `ai_assist._describe_candidate()`'s
-own docstring for why only a *count*, never a name, ever reaches an AI prompt.
+`friend_names` parameter for the deterministic sort.
 
 Sortable and searchable (2026-09-27, direct follow-up: "i need the player directory to
 be sorted alphabetically by family name. better: make the player directory sortable and

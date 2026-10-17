@@ -1,50 +1,33 @@
 """Turn your saved default availability into the week's recommended slots, automatically
 (ROADMAP.md Phase 3).
 
-Three-step wrapper — two deterministic, one AI, in that order:
+Two deterministic steps, in this order:
 1. Builds a SearchCriteria from the active club's `availability` block (your standing
    rules — e.g. "workdays after 17:00, weekends after 10:00, always alone") and runs it
-   via search.py across every day in the overview — exact, no AI involved.
+   via search.py across every day in the overview — exact.
 2. `exclude_unplayable()` drops candidates that fail a deterministic sanity check: not
    enough daylight left to finish (playability.py) or weather past the club's
    `preferences` thresholds (avoid_rain/avoid_wind/avoid_temp_*) *at any point during
    the round*, not just at tee-off — see weather.conditions_during_round(), added
    2026-09-05 after user feedback that weather checked only at the start time misses
    conditions changing mid-round (e.g. rain rolling in at hour 3 of a 4-hour round).
-   Revised the same day for a second reason: a recommendation that's raining or too
-   dark to finish isn't actually a good one, so this whole step has to happen before
-   anything gets called "recommended" — it's not an AI-ranking nicety, it's part of the
-   baseline. Still no AI needed; these are plain threshold checks against
-   already-fetched weather/playability data, aggregated across the round's duration.
-3. Hands what's left plus `prioritize_friends` and `avoid_predicted_crowd` (the
-   latter now genuinely wired to `analytics.crowd_heatmap()`/`predict_crowding()`,
-   2026-09-10 — see `ranked_matches()`'s own `crowd_estimates` parameter) to
-   `ai_assist.rank_slots()`, which weighs the remaining nuanced trade-offs (e.g.
-   "slightly more rain but much emptier") and writes plain-language `reasons`. This step
-   is a genuine improvement, not a prerequisite — steps 1+2 alone already turn "scan the
-   tee sheet by hand" into a short, sane list; this makes picking among that list easier
-   too, but the list is already useful without it. Gated on the club's
-   `ai_assist.enabled` flag (now that ai_assist.py is real and each call actually costs
-   money) and any failure of the call itself — `weekly_picks()` falls back to the
-   plain filtered list either way, rather than the whole recommendation failing over a
-   step that was always meant to be optional.
+   A recommendation that's raining or too dark to finish isn't actually a good one, so
+   this whole step happens before anything gets called "recommended": plain threshold
+   checks against already-fetched weather/playability data, aggregated across the round.
 
-The TUI's ad hoc search form (search.py + exclude_unplayable + ai_assist.rank_slots,
-same three steps) is for the one-off exceptions — e.g. a week you're playing with
-friends instead of alone — that don't match your usual defaults. Same engine, different
-criteria in.
+What's left is ordered by `quality.py`'s score and your friend/handicap preferences (see
+`ranked_matches()`). An optional AI re-ranking sat on top until 2026-10-18; it was
+removed as unused ("I haven't been using it and don't even know what the added value
+is"), and with it the AI-only `avoid_predicted_crowd` switch.
 
-Implemented 2026-09-06, steps 1+2 (the deterministic baseline) fully tested. Step 3
-(`ai_assist.rank_slots()`) is still a stub, so `weekly_picks()` catches that
-specifically and falls back to returning the filtered-but-unranked list — matching this
-module's own stated point: steps 1+2 alone are already a short, sane list, not a
-placeholder waiting on AI to be useful.
+The TUI's ad hoc search form (search.py + exclude_unplayable, same steps) is for the
+one-off exceptions — e.g. a week you're playing with friends instead of alone — that
+don't match your usual defaults. Same engine, different criteria in.
 
 One genuine design gap found while implementing exclude_unplayable(), not resolved
 before now: club.example.yaml's `preferences.avoid_rain`/`avoid_wind` are plain
 booleans ("do you care about this at all"), not numeric cutoffs — but a *hard* filter
-needs an actual number to compare against, unlike `ai_assist.rank_slots()`'s softer
-weighing. Resolved here with sensible, overridable defaults (see the
+needs an actual number to compare against. Resolved here with sensible, overridable defaults (see the
 `DEFAULT_AVOID_*` constants below) rather than blocking on it — a club can override
 them via new optional `avoid_rain_probability_percent`/`avoid_rain_mm`/`avoid_wind_kph`
 keys in its own YAML, but existing configs work unchanged. Worth the user's own
@@ -54,7 +37,7 @@ sign-off on the actual numbers later; flagged rather than silently assumed.
 import dataclasses
 from datetime import datetime
 
-from . import ai_assist, i18n, playability
+from . import playability
 from . import weather as weather_module
 from .models import Schedule, Slot, SlotMatch, TimeWindow
 from .scraper import _holes_from_course_label
@@ -303,9 +286,8 @@ def exclude_unplayable(
       avoid_rain/avoid_wind/avoid_temp_below_c/avoid_temp_above_c)
 
     Looks up each candidate's Schedule (by date/course) in `schedules` for its
-    sun_times/weather. Run this before ai_assist.rank_slots(), not after: a slot that
-    fails this check was never a good recommendation regardless of how it'd otherwise
-    rank. A candidate whose Schedule isn't in `schedules` at all passes through
+    sun_times/weather. Run this before any ordering: a slot that fails this check was
+    never a good recommendation regardless of how it'd otherwise rank. A candidate whose Schedule isn't in `schedules` at all passes through
     unfiltered — there's nothing to check it against, and silently dropping it would be
     a worse failure mode than showing an unverified slot.
     """
@@ -374,7 +356,7 @@ def _deterministic_order(
     """`ranked_matches()`'s deterministic re-ordering -- the HCP sort, then the
     friends sort, both stable -- factored out 2026-10-05 so
     `shorter_round_alternative()` ranks its picks exactly the way the main pick
-    is ranked before any AI step. See `ranked_matches()`'s own docstring for
+    is ranked. See `ranked_matches()`'s own docstring for
     what each sort means."""
     preferences_for_sort = config.get("preferences", {})
     hcp_preference = preferences_for_sort.get("hcp_preference", "off")
@@ -426,13 +408,11 @@ def shorter_round_alternative(
     (e.g. "Kurzplatz") is skipped, never guessed -- and with the *selected*
     course's own count unknown, there's nothing to compare against, so None.
 
-    Same pipeline as the main pick, minus the AI step: `search()` with your own
+    Same pipeline as the main pick: `search()` with your own
     `availability` criteria (window, party size, buffers), then
     `exclude_unplayable()` -- round length from each sibling's own hole count via
     `_round_duration_minutes()`, the same daylight buffer and weather limits --
-    then `_deterministic_order()`. Deliberately no `ai_assist.rank_slots()` call:
-    this is a fallback suggestion shown in place of a "too dark" note, not worth
-    a paid call per course per day. "Best" here is still earliest first (across
+    then `_deterministic_order()`. "Best" here is still earliest first (across
     all siblings; on a tie, the course with more holes -- closer to the round you
     wanted -- then by name), re-ordered only by the friends/HCP preferences: unlike
     the main pick (2026-10-05, `quality.py`) it is not quality-scored, since the
@@ -496,39 +476,23 @@ def ranked_matches(
     quality_crowd_estimates: dict[tuple[str, str, str], float] | None = None,
     quality_sun_times=None,
 ) -> list[SlotMatch]:
-    """Search + exclude_unplayable + (best-effort) AI ranking for a given
+    """Search + exclude_unplayable + the deterministic ordering for a given
     `SearchCriteria` -- the general form `weekly_picks()` below is built on
-    (factored out 2026-09-08, Phase 4's ad hoc search screen: same three-step
-    pipeline, just with typed-in criteria in place of your saved defaults).
-
-    Steps 1+2 (search + exclude_unplayable) are the deterministic baseline and always
-    run for real. Step 3 (ai_assist.rank_slots) is a genuine improvement, not a
-    prerequisite (see module docstring): skipped entirely if the club's
-    `ai_assist.enabled` is false (now that ai_assist.py is real and actually costs
-    money per call, this flag needs to actually be checked, not just documented), and
-    any failure calling it (no API key configured yet, a network hiccup, a rate limit)
-    falls back to returning the filtered list as-is (unranked, no `reasons`) rather
-    than raising — a short sane list beats no list at all.
+    (factored out 2026-09-08, Phase 4's ad hoc search screen: same pipeline, just
+    with typed-in criteria in place of your saved defaults).
 
     `crowd_estimates` -- {(date, course, time): predicted occupancy 0-1} -- is
     optional and deliberately *not* computed here: `analytics.crowd_heatmap()` needs
     a club's public holidays (a live fetch) and its own SQLite history, and this
     module stays a pure function over already-fetched inputs, same reasoning
-    `schedules` itself is handed in rather than scraped here. The caller (tui.py)
-    only bothers computing this at all once `ai_assist.avoid_predicted_crowd` is
-    actually on -- see that setting's own docstring in settings_screen.py for why it
-    moved under "AI ranking" rather than living in "Priorities": it only ever does
-    anything through this exact path.
+    `schedules` itself is handed in rather than scraped here. Only the quality score
+    reads it (see `rank_by_quality`).
 
     `friend_names` (2026-09-27, `storage.load_friend_names()`) is the same
     "caller already has it, hand it in" convention `crowd_estimates` already
     follows. When `preferences.prioritize_friends` is on and any names were given,
     a stable sort moves a match whose slot has a marked friend ahead of the rest,
-    preserving relative order otherwise -- this is the *deterministic* half, and it
-    runs whether or not `ai_assist.enabled` is on, unlike everything below this
-    point. When AI ranking also runs, the same names feed a friend *count* (never a
-    name -- see `ai_assist._describe_candidate()`'s own docstring) into its prompt
-    instead.
+    preserving relative order otherwise.
 
     `known_handicaps`/`my_handicap` (2026-09-27, direct follow-up: "would it make
     sense to have the option to choose to play with similar HCP or with better HCP
@@ -545,10 +509,7 @@ def ranked_matches(
     judge, rather than being scored as if it had one. This is a real, already-
     known per-slot fact, never an inferred pattern across scrape history -- see
     `_slot_avg_known_handicap()`'s own docstring for why that distinction
-    mattered here. When AI ranking also runs, the field's average handicap (never
-    names) feeds into the same per-candidate description `friend_count` already
-    does, and `my_handicap` itself joins the `preferences` JSON already sent
-    wholesale in the prompt, since it's a fact about the user, not a per-slot one.
+    mattered here.
 
     `rank_by_quality` (2026-10-05, off by default) orders the playable slots by
     `quality.score_matches()` -- weather margin, room around the group, predicted
@@ -556,17 +517,13 @@ def ranked_matches(
     just "the earliest". Equal scores keep chronological order (date, time, course).
     The friend and handicap sorts below it are stable, so they stay *above* the
     score: the score only orders within an equal friend/handicap tier. Each match's
-    `score` is then the quality score and `quality_reasons` its reason keys. With AI
-    ranking on, the AI receives this score-sorted list (same single call, same cache)
-    and still decides the final order; `quality_reasons` survive it (its own prose
-    lands in `reasons`). Off, `ranked_matches()` behaves exactly as before -- the ad hoc
+    `score` is then the quality score and `quality_reasons` its reason keys. Off,
+    `ranked_matches()` behaves exactly as before -- the ad hoc
     search keeps its chronological list, since its results span many days and a
     score-sort across them would shuffle the days. `now` is the club's wall clock for
     `quality.score_matches()`'s "slot already under way" rule. Its crowd factor reads
-    `quality_crowd_estimates`, falling back to `crowd_estimates` -- a separate argument
-    because `crowd_estimates` also reaches the AI prompt, and that must stay opt-in
-    (`avoid_predicted_crowd`) while the free score always wants the crowd (no history:
-    the factor is skipped, see there). `quality_sun_times` is the same kind of
+    `quality_crowd_estimates`, falling back to `crowd_estimates` (no history: the factor
+    is skipped, see there). `quality_sun_times` is the same kind of
     scoring-only extra: a sibling course's sun times for a schedule that has none of its
     own (see `quality.score_matches()`'s `fallback_sun_times`).
 
@@ -596,42 +553,7 @@ def ranked_matches(
     else:
         playable = _deterministic_order(playable, config, friend_names, known_handicaps, my_handicap)
 
-    ai_config = config.get("ai_assist", {})
-    if not ai_config.get("enabled", False):
-        return playable
-
-    context = {
-        "schedules": {(schedule.date, schedule.course): schedule for schedule in schedules},
-        "config": config,
-        # Per course, so the prompt describes weather over the same window
-        # `_fails_weather()` just checked (120 min for a 9-hole course, not 240).
-        "round_duration_minutes": {
-            schedule.course: _round_duration_minutes(schedule.course, config) for schedule in schedules
-        },
-    }
-    if crowd_estimates:
-        context["crowd_estimates"] = crowd_estimates
-    if friend_names:
-        context["friend_names"] = friend_names
-    if known_handicaps:
-        context["known_handicaps"] = known_handicaps
-    preferences = {
-        **config.get("preferences", {}),
-        "avoid_predicted_crowd": ai_config.get("avoid_predicted_crowd", False),
-    }
-    if my_handicap is not None:
-        preferences["my_handicap"] = my_handicap
-    try:
-        return ai_assist.rank_slots(
-            playable,
-            context=context,
-            preferences=preferences,
-            provider=ai_config.get("provider", "anthropic"),
-            model=ai_config.get("model"),
-            language=i18n.get_language(),
-        )
-    except Exception:
-        return playable
+    return playable
 
 
 def only_with_friend(matches: list[SlotMatch], friend_names: set[str]) -> list[SlotMatch]:
@@ -669,8 +591,7 @@ def weekly_picks(
 
 
 def diversify_by_day(picks: list[SlotMatch], max_count: int) -> list[SlotMatch]:
-    """At most one pick per date, in `picks`' own order (best-first once AI ranking is
-    on, otherwise `search()`'s natural chronological order) -- capped at `max_count`
+    """At most one pick per date, in `picks`' own order -- capped at `max_count`
     distinct days.
 
     Added 2026-09-08, direct feedback on a real overview screenshot: "This week's

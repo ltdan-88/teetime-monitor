@@ -6,7 +6,6 @@ import {
 
 function pickTooltip(pick) {
   const parts = (pick.reasons || []).map((key) => t('reason.' + key)).filter((text, i) => text !== 'reason.' + pick.reasons[i]);
-  if (pick.ai_reasons) parts.push(...pick.ai_reasons);
   return parts.length ? t('tip.pick_reasons', { reasons: parts.join(' · ') }) : t('tip.pick');
 }
 

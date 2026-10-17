@@ -19,7 +19,6 @@ HEADLESS_MODULES = [
     "search_cli",
     "preview_club_cli",
     "login_cli",
-    "ai_login_cli",
     "directory_cli",
     "add_club_cli",
     "pipeline",

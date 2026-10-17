@@ -19,7 +19,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import ai_assist, club_config, global_preferences, net, paths, scrape_health, scrape_once, scraper, storage
+from . import club_config, global_preferences, net, paths, scrape_health, scrape_once, scraper, storage
 
 CONNECTIVITY_URL = "https://www.pccaddie.net/"
 
@@ -227,17 +227,6 @@ def _club_checks(now: datetime) -> list[Check]:
     return checks
 
 
-def _ai_checks() -> list[Check]:
-    ai = global_preferences.load_preferences().get("ai_assist")
-    if not isinstance(ai, dict) or not ai.get("enabled"):
-        return [("INFO", "AI ranking", "off")]
-    provider = ai.get("provider") or "anthropic"
-    variable = ai_assist.PROVIDER_ENV_VARS.get(provider)
-    key_set = bool(variable and os.environ.get(variable))
-    status = "OK" if key_set else "WARN"
-    return [(status, "AI ranking", f"on ({provider}); API key {'set' if key_set else 'NOT set'}")]
-
-
 def _scheduler_check() -> Check:
     system = platform.system()
     try:
@@ -264,7 +253,7 @@ def _scheduler_check() -> Check:
 
 def collect(offline: bool = False, now: datetime | None = None, login_check: bool = False) -> list[Check]:
     now = now or datetime.now(UTC)
-    checks = _system_checks() + _folder_checks() + _network_checks(offline) + _club_checks(now) + _ai_checks()
+    checks = _system_checks() + _folder_checks() + _network_checks(offline) + _club_checks(now)
     if login_check and not offline:
         for slug in club_config.list_clubs():
             try:

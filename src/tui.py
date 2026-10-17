@@ -202,7 +202,6 @@ from .pipeline import (
     _availability_pipeline,
     _cached_crowd_heatmap,
     _compute_crowd_estimates,
-    _crowd_estimates,
     _holidays_for_club,
     _load_club_config_safely,
     _recommended_times_for,
@@ -1673,10 +1672,9 @@ def _pick_star_text(top) -> str:
     section only ever repeated this exact same ★ HH:MM per day, one column over — a
     strict, smaller subset of what this cell already covers, since it dropped
     confirmed bookings and unplayable days entirely). No reasons in the cell any more
-    (2026-10-05, direct report: with AI ranking on, its sentence made the cell ~150
-    characters and pushed the other columns off screen): both the deterministic *why*
-    (`quality_reasons`) and the AI's own text (`reasons`) live in #row-detail, see
-    `_pick_reasons_detail_text()`."""
+    (2026-10-05, direct report: its sentence made the cell ~150 characters and pushed
+    the other columns off screen): the *why* (`quality_reasons`) lives in #row-detail,
+    see `_pick_reasons_detail_text()`."""
     return f"[yellow]★[/]  {top.slot.time}"
 
 
@@ -1687,8 +1685,7 @@ def _pick_reasons_detail_text(
     around you · daylight to spare"), for #row-detail -- the GUI badge's tooltip, same
     i18n key and reason strings (2026-10-05, `quality.py`). "" unless `pick_cell` really is
     this day's ★ pick (a booking, a lock or an alternative wins the cell) or it has
-    nothing to say. With AI ranking on, the AI's own prose follows, since the row's
-    detail line replaces the Pick cell's text. Reuses `_availability_pipeline()`'s memo."""
+    nothing to say. Reuses `_availability_pipeline()`'s memo."""
     if schedule is None or not config.get("availability"):
         return ""
     _, playable = _availability_pipeline(schedule, config, club_id, cache)
@@ -1698,9 +1695,6 @@ def _pick_reasons_detail_text(
     sentence = quality.reasons_text(top.quality_reasons)
     if sentence:
         sentence = markup_escape(i18n.t("overview.pick_reasons", reasons=sentence))
-    if top.reasons:
-        sentence = f"{sentence} · " if sentence else ""
-        sentence += markup_escape(", ".join(top.reasons))  # AI-written text
     return sentence
 
 
@@ -1721,8 +1715,8 @@ def _day_pick_text(
     1b. A day that isn't bookable yet shows "🔒 Wed 21:00" -- when it opens (2026-10-05,
        see `_locked_day_texts()`) -- whether or not availability rules exist.
     2. Otherwise, if availability rules are configured and this day has a schedule to
-       check: a recommended "★ HH:MM" (the best still-playable match — AI-ranked once
-       `ai_assist.enabled`, otherwise the best-scoring by `quality.py`, see
+       check: a recommended "★ HH:MM" (the best still-playable match — the best-scoring
+       by `quality.py`, see
        `_availability_pipeline()`'s own docstring), or a specific "no dry picks"/"too dark to finish"/"nothing
        playable" message when
        candidates existed before the weather/daylight check but none survived it —
@@ -2624,10 +2618,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
     whether the recommendation area and recommendation column are redundant") that
     turned up a real answer: the section was a strict, smaller subset of the
     column (it silently dropped confirmed bookings and unplayable days that the
-    column always shows), never the other way around. `_day_pick_text()`'s own ★
-    cell now folds in AI-ranked `reasons` text directly (empty until `ai_assist.
-    enabled` is turned on) — the one genuine thing the removed section could show
-    that the column couldn't, now with nowhere else for it to live.
+    column always shows), never the other way around.
 
     A dim `#legend` line below the table (2026-09-09, direct question: "Would it
     make sense to implement a legend, since we already have so many icons?") spells
@@ -2665,8 +2656,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
     `action_search()` opens `SearchScreen` (Phase 4's ad hoc search, wired in
     2026-09-08 once its own backend -- `search.py`'s hard filters,
-    `recommend.exclude_unplayable()`, `ai_assist.rank_slots()` -- already existed
-    fully tested; `recommend.ranked_matches()` is the same three-step pipeline
+    `recommend.exclude_unplayable()` -- already existed
+    fully tested; `recommend.ranked_matches()` is the same pipeline
     `weekly_picks()` uses, just taking an explicit typed-in `SearchCriteria` instead
     of deriving one from your saved defaults), searching across whatever days are
     already loaded here (`self._schedules`), not a fresh scrape. `action_heatmap()`
@@ -2856,7 +2847,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # inside every _render_table() call (2026-09-27, direct follow-up report:
         # "the TUI is still very unresponsive... when changing window size") -- the
         # exact same lag class _cached_dates above was already fixed for once,
-        # left uncaught here: with ai_assist.enabled, this memo being thrown away
+        # left uncaught here: with the AI ranking of the time, this memo being thrown away
         # on every render meant every resize/expand/collapse re-ran a *live AI
         # ranking call per displayed day* (confirmed live: ~1.9s for a single
         # resize event on the real club, almost entirely genai/httpx I/O).
@@ -3171,8 +3162,8 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         """Fills `self._pick_cache` off-thread, for every date `_render_table()` is
         about to want a Pick column for, *before* that synchronous call reaches
         `_availability_pipeline()` itself. Added 2026-09-27, same report as
-        `_display_dates()`'s own docstring: with `ai_assist.enabled`,
-        `_availability_pipeline()` makes a real network round trip per day, and
+        `_display_dates()`'s own docstring: with the AI ranking of the time (removed
+        2026-10-18), `_availability_pipeline()` made a real network round trip per day, and
         `_render_table()` is a plain synchronous method (it builds `DataTable` rows
         directly) — a genuinely fresh `load_overview()` call still froze the event
         loop for that live AI work even after `self._pick_cache` started persisting
@@ -3317,7 +3308,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         # Memo for _availability_pipeline() -- self._pick_cache (see its own
         # docstring in __init__), not a fresh dict per call: a resize/expand/
         # collapse calls this method again for the exact same schedules, and
-        # with ai_assist.enabled a fresh cache meant a live AI call per day, every
+        # a fresh cache meant re-ranking every day (once a live AI call each), every
         # time. load_overview() clears self._pick_cache before reaching here on
         # any call that's a genuinely new dataset.
         pipeline_cache = self._pick_cache
@@ -3758,7 +3749,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         if stale():
             return
         # A fresh open paints from local data only (remembered open dates, local
-        # ranking) and finishes the slow network/AI work in `_finish_fresh_load()`.
+        # ranking) and finishes the slow network work in `_finish_fresh_load()`.
         fresh = not keep_cursor
         if fresh:
             dates = self._local_dates(config)
@@ -3772,22 +3763,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if stale():
                 return
         # Warms self._pick_cache off-thread *before* the synchronous _render_table()
-        # call below reaches it -- otherwise a genuinely fresh load (this call) still
-        # blocks the event loop on every day's own live AI ranking call, same "one
-        # more spot with the identical bug" reasoning _display_dates() already got
-        # fixed for. See this method's own docstring for the report.
-        #
-        # Paint-first (2026-10-01, direct request: "make launch under a second"):
-        # with AI ranking on, a fresh open first fills the cache from the plain,
-        # local-only ranking (`ai_assist.enabled` off -- the same candidates/order,
-        # just without the live per-day AI call) so the table appears immediately,
-        # then `_upgrade_picks_with_ai()` swaps in the AI-ranked picks in the
-        # background and re-renders. Background refreshes (`keep_cursor`) keep the
-        # old blocking behavior -- they don't gate anything the user is waiting on.
-        ai_on = bool(config.get("availability")) and config.get("ai_assist", {}).get("enabled", False)
-        local_config = {**config, "ai_assist": {**config.get("ai_assist", {}), "enabled": False}}
+        # call below reaches it, so the render never blocks the event loop on every
+        # day's ranking (it reads crowd history from SQLite).
         pick_cache: dict = {}
-        await self._prewarm_pick_cache(local_config if (fresh and ai_on) else config, dates, open_dates, pick_cache)
+        await self._prewarm_pick_cache(config, dates, open_dates, pick_cache)
         if stale():
             return
         # Captured only now, after every await, so a cursor moved while this load
@@ -3802,9 +3781,9 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         schedules = self._render_table(config, dates, open_dates)
         if fresh:
             self.run_worker(
-                self._finish_fresh_load(config, local_config, dates, open_dates, ai_on, generation),
+                self._finish_fresh_load(config, dates, open_dates, generation),
                 exclusive=True,
-                group="ai-picks",
+                group="fresh-load",
             )
         alternatives = {
             schedule.date: _shorter_round_alternative(schedule, config, self.club_id, self._pick_cache)
@@ -3839,14 +3818,11 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
 
         self._schedules = schedules
 
-    async def _finish_fresh_load(
-        self, config: dict, local_config: dict, dates: list[str], open_dates: set[str], ai_on: bool, generation: int
-    ) -> None:
-        """Second half of `load_overview()`'s paint-first path: the slow parts a
-        fresh open used to block on. (1) The real bookable-date fetch -- if it
+    async def _finish_fresh_load(self, config: dict, dates: list[str], open_dates: set[str], generation: int) -> None:
+        """Second half of `load_overview()`'s paint-first path: the slow part a
+        fresh open used to block on, the real bookable-date fetch -- if it
         disagrees with the remembered set the table was painted with, re-render with
-        the truth. (2) The live AI-ranked picks, computed into a fresh cache
-        off-thread, then swapped in with a cursor-preserving re-render. Each step is
+        the truth. It is
         dropped if a newer `load_overview()` started meanwhile (`generation` moved
         on) or the screen went away -- the newer load owns the state now."""
 
@@ -3875,18 +3851,10 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if real_open != open_dates or real_dates != dates:
                 dates, open_dates = real_dates, real_open
                 self._cached_dates, self._cached_open_dates = dates, open_dates
-                await self._prewarm_pick_cache(local_config if ai_on else config, dates, open_dates)
+                await self._prewarm_pick_cache(config, dates, open_dates)
                 if stale():
                     return
                 rerender()
-            if not ai_on:
-                return
-            fresh_cache: dict = {}
-            await self._prewarm_pick_cache(config, dates, open_dates, fresh_cache)
-            if stale():
-                return
-            self._pick_cache = fresh_cache
-            rerender()
         except Exception:  # noqa: BLE001 -- what's already on screen stays
             return
 
@@ -4088,7 +4056,7 @@ def _time_window_row(label_key: str, base_id: str, current_value: str | None) ->
 class SearchScreen(Screen[None]):
     """Ad hoc search (ROADMAP.md Phase 4) — "just this once" criteria that don't
     match your saved defaults, added 2026-09-08 once its own backend (`search.py`'s
-    hard filters, `recommend.exclude_unplayable()`, `ai_assist.rank_slots()` — all
+    hard filters, `recommend.exclude_unplayable()` — all
     already real and fully tested) just needed a screen wired up to it. Pushed
     from `OverviewScreen` via `/`.
 
@@ -4105,7 +4073,7 @@ class SearchScreen(Screen[None]):
     (`self.schedules`, handed in at construction), not a fresh scrape — opening
     this screen, and running a search from it, should both stay instant, same as
     everything else in this app. `recommend.ranked_matches()` is the exact
-    three-step pipeline `weekly_picks()` already uses for your saved defaults,
+    pipeline `weekly_picks()` already uses for your saved defaults,
     just handed this screen's own typed-in `SearchCriteria` instead.
 
     `escape`/`q` both dismiss back to the overview and quit the whole app
@@ -4276,9 +4244,8 @@ class SearchScreen(Screen[None]):
         self.title = title
         self._declare_result_columns([])
 
-    # Indices into _declare_result_columns()'s own fixed 9-column order.
+    # Index into _declare_result_columns()'s own fixed 8-column order.
     _PLAYERS_COLUMN_INDEX = 4
-    _NOTES_COLUMN_INDEX = 8
 
     def _declare_result_columns(self, pending_rows: list[tuple[str, ...]]) -> None:
         """(Re)declares `#search-results`'s columns, sized from `pending_rows`'
@@ -4304,31 +4271,21 @@ class SearchScreen(Screen[None]):
             _column_header("table.temperature", "temperature", units),
             _column_header("table.precipitation", "precipitation", units),
             _column_header("table.wind", "wind", units),
-            i18n.t("search.table.notes"),
         ]
         column_widths = [_cell_visible_width(header) for header in headers]
         for row in pending_rows:
             for index, cell in enumerate(row):
                 column_widths[index] = max(column_widths[index], _cell_visible_width(cell))
-        # See OverviewScreen._render_table()'s own comment on this same split --
-        # identical reasoning, just this table's own Players/Notes pair instead
-        # of Events/Pick.
+        # Players is the one open-ended column (the AI's Notes column beside it went with
+        # the AI ranking, 2026-10-18): it takes what the others leave, and never less than
+        # the room the two of them used to share.
         natural_total = sum(column_widths) + _table_overhead(len(headers))
         available = _table_width_budget(self.query_one("#search-results", DataTable), self.size.width)
         if natural_total > available:
-            other_columns_total = (
-                sum(column_widths)
-                - column_widths[self._PLAYERS_COLUMN_INDEX]
-                - column_widths[self._NOTES_COLUMN_INDEX]
-            )
-            budget = max(available - other_columns_total - _table_overhead(len(headers)), _WRAP_CAP_WIDTH * 2)
-            column_widths[self._PLAYERS_COLUMN_INDEX], column_widths[self._NOTES_COLUMN_INDEX] = (
-                _split_two_open_ended_columns(
-                    column_widths[self._PLAYERS_COLUMN_INDEX],
-                    column_widths[self._NOTES_COLUMN_INDEX],
-                    budget,
-                    _WRAP_CAP_WIDTH,
-                )
+            other_columns_total = sum(column_widths) - column_widths[self._PLAYERS_COLUMN_INDEX]
+            column_widths[self._PLAYERS_COLUMN_INDEX] = min(
+                column_widths[self._PLAYERS_COLUMN_INDEX],
+                max(available - other_columns_total - _table_overhead(len(headers)), _WRAP_CAP_WIDTH * 2),
             )
         table = self.query_one("#search-results", DataTable)
         table.clear(columns=True)
@@ -4362,9 +4319,7 @@ class SearchScreen(Screen[None]):
 
     async def _run_search(self) -> None:
         """Run from a worker (see on_button_pressed()). The matching itself runs in a
-        thread: with AI ranking on, `ranked_matches()` makes a live AI request (SDK
-        default timeout ~600 s, plus a retry), and the crowd estimates may fetch
-        holidays -- both used to freeze the whole TUI while they ran."""
+        thread, so reading the history databases never freezes the TUI."""
         criteria = self._build_criteria()
         friends_only = self.query_one("#search-friends-only", Switch).value
         player_filter = self._player_filter
@@ -4374,14 +4329,12 @@ class SearchScreen(Screen[None]):
         def find_matches() -> list[SlotMatch]:
             db_path = _db_path(self.club_id)
             schedules = pipeline_module.still_ahead(self.schedules)  # nothing that has already started, no today after daylight
-            crowd_estimates = _crowd_estimates(schedules, self.config, self.club_id)
             friend_names = storage.load_friend_names(path=db_path)
             matches = recommend.ranked_matches(
                 schedules,
                 criteria,
                 self.config,
-                crowd_estimates,
-                friend_names,
+                friend_names=friend_names,
                 known_handicaps=storage.load_known_handicaps(path=db_path),
                 my_handicap=storage.load_my_handicap(path=db_path),
             )
@@ -4417,11 +4370,10 @@ class SearchScreen(Screen[None]):
                 match.slot.time,
                 _slot_condition_cell(weather, match.slot.time),
                 occupancy,
-                markup_escape(players),  # scraped names / AI text, not markup
+                markup_escape(players),  # scraped names, not markup
                 _slot_temperature_cell(weather, match.slot.time, units, toned=True),
                 _slot_precipitation_cell(weather, match.slot.time, units, toned=True),
                 _slot_wind_cell(weather, match.slot.time, units, toned=True),
-                markup_escape(", ".join(match.reasons)),
             ))
         # Declared from these same rows' own real content -- see this method's
         # own docstring on _declare_result_columns() for why, not from the flat

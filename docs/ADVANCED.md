@@ -11,7 +11,7 @@ Two fixed folders, so it works from any directory:
 ```
 ~/.config/teetime-monitor/            your settings
     clubs/<club-name>.yaml            one file per saved club (club id, weather location, default course, ...)
-    .env                              your pc caddie login and AI key (readable by you only)
+    .env                              your pc caddie login (readable by you only)
     preferences.yaml                  your rules: hours, party size, weather limits, pace
     config                            theme and language
 
@@ -132,7 +132,7 @@ certificate source is in use.
 ## Health check
 
 `teetime-monitor --doctor` prints a one-page report — version, folders, certificate source, connection to
-pc caddie, each club's last fetch, login and AI-key status (set / not set, never the values) — ready to paste
+pc caddie, each club's last fetch, login status (set / not set, never the values) — ready to paste
 into a bug report. `--doctor --offline` skips the network check; `--doctor --login-check` also logs in and
 compares what a logged-in and an anonymous tee sheet show (for "login works but no player names").
 
@@ -140,8 +140,7 @@ compares what a logged-in and an anonymous tee sheet show (for "login works but 
 
 - Your pc caddie login only ever goes to pc caddie's own login form. Weather comes from Open-Meteo (no key,
   nothing about you), club locations from OpenStreetMap, the update check is one plain request to GitHub's
-  public release list (switch it off with `TEETIME_MONITOR_NO_UPDATE_CHECK=1`). An AI provider is only called
-  if you turn AI ranking on and give it a key.
+  public release list (switch it off with `TEETIME_MONITOR_NO_UPDATE_CHECK=1`).
 - The browser version on your own computer listens on **127.0.0.1 only**, on a random port. Every request needs
   a random token that only the printed link contains (the page keeps it in a cookie scripts cannot read),
   other host names and other websites are refused, and the page may load nothing from the internet.

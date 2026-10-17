@@ -17,7 +17,7 @@ following the XDG split the app already half-used — `global_preferences.py` an
 
     ~/.config/teetime-monitor/          configuration you'd hand-edit or back up
         clubs/<slug>.yaml               saved clubs
-        .env                            PCC_USER / PCC_PASS / ANTHROPIC_API_KEY
+        .env                            PCC_USER / PCC_PASS
         preferences.yaml                (already here)
         config                          theme + language (already here)
 

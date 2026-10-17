@@ -11,17 +11,11 @@ answer, typed in twice" for a second club, never a genuinely different one. `loc
 `calendar`, `overview_days`, `default_course`, and `identity` stay in `clubs/*.yaml` —
 each of those *is* a real per-club fact (coordinates, course lineup) — only the fields
 `settings_screen.py`'s own form edits move here: `availability`, `preferences`,
-`ai_assist`, `round_duration_minutes`, `daylight_buffer_minutes`,
+`round_duration_minutes`, `daylight_buffer_minutes`,
 `scrape_interval_minutes`, `scrape_interval_minutes_booked`.
 
-`ai_assist` joined this list the same day, direct follow-up right after discussing
-turning AI ranking on for the first time: "the ai feature should be an option in the
-settings menu." Originally kept per-club on the theory that model choice is a
-cost/quality tradeoff that varies by club — in practice nothing about wanting AI
-ranking on or off actually does, and the request itself was for one switch, not a
-per-club dial. A club's own `ai_assist` block in `clubs/*.yaml` (if one predates this)
-still works as a fallback via `_resolved_config()`'s shallow merge — it just no longer
-wins once this file has actually set one.
+An `ai_assist` block (AI ranking) lived here too until 2026-10-18; a saved one is now
+simply ignored.
 
 `round_duration_minutes` followed the next day, same shape of request ("make pace
 speed adjustable in settings") right after explaining its existing 120/240-minute

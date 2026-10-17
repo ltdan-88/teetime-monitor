@@ -20,10 +20,7 @@ and have it work right away."
 
 Fixed at import time, here, rather than lazily inside `resolve_credentials()` itself:
 every real entry point (`tui.py`, `scrape_once.py`, `settings_screen.py`,
-`credentials_screen.py`) already imports this module before doing anything else, including
-before `ai_assist.py` ever constructs an `anthropic.Anthropic()` client (which reads
-`ANTHROPIC_API_KEY` from the environment internally, on its own, with no call into
-this module at all) — an import-time call is what actually guarantees `.env` is
+`credentials_screen.py`) already imports this module before doing anything else — an import-time call is what actually guarantees `.env` is
 loaded before *any* of that runs, regardless of which function happens to be called
 first. `load_dotenv()`'s own default behavior of never overriding an already-set
 environment variable is exactly right here, so an env var set some other way still

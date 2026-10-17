@@ -1,5 +1,5 @@
 // Preferences and Settings: forms generated from the server's field list (settings_api.py), plus the
-// Settings sheet's own sections (clubs, login, AI key).
+// Settings sheet's own sections (clubs, login).
 
 import { html, t, useState, Sheet, Select, Switch, TimeSelect, Status, useLoad, api, post, query, Icon } from '/lib.js';
 import { DisplaySection, AboutSection } from '/viewmenu.js';
@@ -282,41 +282,6 @@ function AccountSection({ account, verifyClubId, onChanged }) {
     </section>`;
 }
 
-function AiSection({ ai, onChanged }) {
-  const [provider, setProvider] = useState(ai.provider);
-  const [key, setKey] = useState('');
-  const [message, setMessage] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const current = ai.providers.find((entry) => entry.id === provider);
-  async function save(event) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await post('/api/ai-key', { provider, api_key: key });
-      setKey('');
-      if (!result.saved) setMessage({ kind: 'error', text: t('ai.' + result.reason) });
-      else if (result.verified) setMessage({ kind: 'ok', text: t('ai.verified') });
-      else setMessage({ kind: 'error', text: t(result.reason === 'invalid_key' ? 'ai.invalid_key' : 'ai.network_error') });
-      onChanged();
-    } catch (error) {
-      setMessage({ kind: 'error', text: t('error.title') });
-    }
-    setBusy(false);
-  }
-  return html`
-    <form onSubmit=${save} autocomplete="off">
-      <div class="field-row"><label for="ai-provider">${t('settings.field.ai_credentials')}</label>
-        <${Select} id="ai-provider" value=${provider}
-          options=${ai.providers.map((entry) => ({ value: entry.id, label: entry.label + (entry.has_key ? ' ✓' : '') }))} onChange=${setProvider} /></div>
-      <div class="field-row"><label for="ai-key">${t('ai.key')}</label>
-        <input id="ai-key" class="fld" type="password" value=${key} placeholder=${current && current.has_key ? t('login.keep') : ''}
-          onInput=${(event) => setKey(event.target.value)} autocomplete="off" /></div>
-      <div class="actions"><${Status} kind=${message && message.kind}>${message && message.text}<//><span class="grow"></span>
-        <button class="btn" type="submit" disabled=${busy || (!key && !(current && current.has_key))}>${t(busy ? 'login.checking' : 'ai.save')}</button></div>
-    </form>`;
-}
-
 export function SettingsSheet({ clubId, serve, display, onClose, onSaved, onAddClub, onClubsChanged }) {
   const { data, error, reload } = useLoad(() => api('/api/settings' + query({ club_id: clubId })), [clubId]);
   return html`<${Sheet} title=${t('settings.title')} onClose=${onClose} size="wide">
@@ -335,7 +300,6 @@ function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, 
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
   const verifyClub = clubId || (data.clubs[0] && data.clubs[0].id) || null;
-  const aiGroup = visible.find((group) => group.key === 'settings.group.ai');
   async function save() {
     setSaving(true);
     setMessage(null);
@@ -348,7 +312,6 @@ function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, 
     }
     setSaving(false);
   }
-  const otherGroups = visible.filter((group) => group !== aiGroup);
   return html`
     <div class="stack">
       <${ClubsSection} clubs=${data.clubs} onChanged=${(listChanged) => { reload(); if (listChanged) onClubsChanged(); }} onAddClub=${onAddClub} />
@@ -356,13 +319,7 @@ function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, 
         { weight: 7, node: html`<${AccountSection} account=${data.account} verifyClubId=${verifyClub} onChanged=${reload} />` },
         ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(display ? [{ weight: 6, node: html`<${DisplaySection} ...${display} />` }] : []),
-        ...groupItems(otherGroups, values, setValue),
-        ...(aiGroup ? [{ weight: aiGroup.fields.length + 6, node: html`
-          <section class="group">
-            <h3>${aiGroup.label}</h3>
-            ${fieldRows(aiGroup, values, setValue)}
-            <${AiSection} ai=${data.ai} onChanged=${reload} />
-          </section>` }] : []),
+        ...groupItems(visible, values, setValue),
         ...(display ? [{ weight: 3, node: html`<${AboutSection} boot=${display.boot} onUpdate=${display.onUpdate} />` }] : []),
       ]} />
     </div>

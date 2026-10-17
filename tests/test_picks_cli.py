@@ -57,11 +57,10 @@ def test_picks_the_best_playable_slot_for_each_date(tmp_path, capsys):
 
     assert code == 0
     assert result["2026-09-27"]["time"] == "09:10"
-    # ai_assist.enabled defaults to off, so these are quality.py's reason keys (2026-10-05:
+    # These are quality.py's reason keys (2026-10-05:
     # reasons used to be [] here). No forecast/sunset/history: the only notably good thing is
     # the empty tee sheet around 09:10 (the full 18:00 slot is 8 hours away).
     assert result["2026-09-27"]["reasons"] == ["room_around"]
-    assert "ai_reasons" not in result["2026-09-27"]
 
 
 def test_null_for_a_date_with_no_schedule_scraped_yet(tmp_path, capsys):
@@ -193,39 +192,6 @@ def test_no_alternative_on_a_day_that_has_a_pick(tmp_path, capsys):
 
     assert result["2026-10-04"]["time"] == "09:00"
     assert "alternative" not in result["2026-10-04"]
-
-
-def test_ai_ranked_pick_includes_real_reasons_when_enabled(tmp_path, monkeypatch, capsys):
-    global_preferences.save_preferences({
-        "availability": {"weekend_window": {"after": None, "before": None}},
-        "ai_assist": {"enabled": True},
-    })
-    db = tmp_path / "club.db"
-    save_schedule(Schedule(date="2026-09-27", course="18 Loch Tee 1", slots=[
-        Slot(time="09:10", booked=0, capacity=4),
-    ]), path=db)
-
-    from src import tui as tui_module
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        for c in candidates:
-            c.score = 90.0
-            c.reasons = ["dry", "calm"]
-        return candidates
-
-    monkeypatch.setattr(tui_module.recommend.ai_assist, "rank_slots", fake_rank_slots)
-
-    result, code = _run(
-        capsys, ["--db-path", str(db), "--course", "18 Loch Tee 1", "--from", "2026-09-27", "--days", "1"]
-    )
-
-    assert code == 0
-    # 2026-10-05: `reasons` stays quality.py's deterministic keys; the AI's own sentences
-    # moved to `ai_reasons` (they used to be `reasons`).
-    assert result["2026-09-27"] == {
-        "time": "09:10", "score": 90.0, "reasons": ["room_around"], "ai_reasons": ["dry", "calm"],
-        "window": {"after": None, "before": None}, "recommended": ["09:10"],
-    }
 
 
 def test_club_slug_merges_that_clubs_own_yaml(tmp_path, capsys):
@@ -565,4 +531,3 @@ def test_the_pick_is_the_best_slot_not_the_earliest_and_carries_reason_keys(tmp_
     assert entry["reasons"] == ["dry", "room_around", "daylight_spare"]
     assert entry["score"] > 0
     assert entry["recommended"] == ["09:00", "13:00"]
-    assert "ai_reasons" not in entry

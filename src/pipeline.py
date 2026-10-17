@@ -128,7 +128,7 @@ def _location_for_club(club_id: str, club_name: str) -> dict | None:
 def _resolved_config(club_slug: str | None, club_id: str | None = None, club_name: str = "") -> dict:
     """This club's own settings (`location`, `overview_days`, `default_course`,
     `identity` — genuinely per-club facts), with your global `availability`/
-    `preferences`/`ai_assist`/`round_duration_minutes`/scrape-interval settings
+    `preferences`/`round_duration_minutes`/scrape-interval settings
     shallow-merged on top (added 2026-09-08, direct feedback: "i also want the
     settings/preferences to be global and not tied to a specific club" — those aren't
     per-club facts at all, so they overlay every club's own config rather than being
@@ -164,12 +164,7 @@ def _compute_crowd_estimates(
     factored out of `_crowd_estimates()` 2026-09-16 (direct follow-up: "Would it
     make sense to integrate heatmap data into the timeslots in overview screen?")
     so `OverviewScreen`'s own per-slot marker (`_slot_crowd_marker()`) can use this
-    unconditionally — `_crowd_estimates()` below still exists solely for the AI-
-    ranking use, gated behind `ai_assist.avoid_predicted_crowd` (see its own
-    docstring for why that gate has to stay there); *visibility* of a slot's usual
-    crowd level was never actually the same question as "should this bias the AI's
-    picks," and conflating them would have made the marker only ever show up for
-    the minority of users who also have AI ranking's crowd-avoidance switched on.
+    unconditionally (the AI ranking it was first written for was removed 2026-10-18).
 
     One `analytics.crowd_heatmap()` per distinct course across `schedules` (a real,
     if modest, SQLite scan — cheap enough at this app's actual scale not to bother
@@ -227,34 +222,9 @@ def _compute_crowd_estimates(
     return estimates
 
 
-def _crowd_estimates(
-    schedules: list[Schedule], config: dict, club_id: str, db_path: Path | None = None
-) -> dict[tuple[str, str, str], float]:
-    """{(date, course, time): predicted occupancy 0-1}, for biasing AI ranking only
-    — entirely skipped (empty dict, no analytics/DB work at all) unless
-    `ai_assist.avoid_predicted_crowd` is actually on, since nothing downstream does
-    anything with it otherwise. Added 2026-09-10, direct follow-up to finding
-    `avoid_predicted_crowd` had zero real effect despite reaching Claude's own
-    prompt verbatim: "make avoid crowds a child of AI option" — moving where it
-    lives in Settings only fixes the framing, not the underlying gap, so this is
-    the actual data behind it.
-
-    For the Overview's own visible per-slot marker, call
-    `_compute_crowd_estimates()` directly instead — see that function's own
-    docstring for why this gate doesn't apply there.
-
-    `db_path` just threads through to `_compute_crowd_estimates()` — see its own
-    docstring for the one caller (`search_cli.py`) that actually needs it."""
-    ai_config = config.get("ai_assist", {})
-    if not ai_config.get("avoid_predicted_crowd", False):
-        return {}
-    return _compute_crowd_estimates(schedules, config, club_id, db_path=db_path)
-
-
 def _quality_crowd_estimates(schedule: Schedule, config: dict, club_id: str) -> dict[tuple[str, str, str], float]:
     """The crowd estimates `quality.score_matches()` weighs for one day's Pick
-    (2026-10-05) -- always computed, unlike `_crowd_estimates()` (AI-gated), because
-    the score is no longer an AI-only nicety. Holiday-blind on purpose, see
+    (2026-10-05) -- always computed. Holiday-blind on purpose, see
     `_compute_crowd_estimates()`'s `use_holidays`. Best effort: the crowd is one factor
     of four, so an unreadable history database just means the factor is skipped, never
     that the day loses its Pick."""
@@ -313,13 +283,11 @@ def _availability_pipeline(
     responds to (2026-09-08): "why does it always recommend 16:00 on any other day?"
     — `_day_pick_text()` used to take the literal earliest playable time, which is
     exactly 16:00 every day once a saved window starts at 16:00 and that slot happens
-    to be open, regardless of how good the rest of the window is. Until 2026-10-05
-    only AI ranking could change that (`ai_assist.enabled`, paid); now `playable` is
+    to be open, regardless of how good the rest of the window is. Since 2026-10-05 `playable` is
     always ordered by `quality.py`'s free, deterministic score (`rank_by_quality=True`:
     dry/calm weather, room around the group, a quiet hour, daylight to spare), friend
     and handicap preferences above it and chronological order breaking ties, so
-    `playable[0]` is the best slot, and carries `quality_reasons` saying why. With AI
-    on, the AI still has the last word (it receives this list). The ★ markers
+    `playable[0]` is the best slot, and carries `quality_reasons` saying why. The ★ markers
     (`_recommended_times_for()`) are untouched: they are every slot in `playable`,
     whatever its order.
 
@@ -331,7 +299,7 @@ def _availability_pipeline(
 
     Was per-render (a fresh dict inside `_render_table()`, thrown away at the end)
     until 2026-09-27, direct follow-up: "the TUI is still very unresponsive...
-    when changing window size." With `ai_assist.enabled`, this call makes a real
+    when changing window size." With the AI ranking of the time (removed 2026-10-18), this call made a real
     network round trip (a live ranking call per day) — a fresh cache on every call
     meant a resize/expand/collapse (`_rerender_preserving_cursor()`, redrawing the
     exact *same* schedules) re-ran that live call for every displayed day, every
@@ -350,7 +318,6 @@ def _availability_pipeline(
         return [], []
     criteria = recommend.default_criteria_from_config(config)
     candidates = search_slots([schedule], criteria)
-    crowd_estimates = _crowd_estimates([schedule], config, club_id)
     quality_crowd = _quality_crowd_estimates(schedule, config, club_id)
     friend_names = storage.load_friend_names(path=_db_path(club_id))
     known_handicaps = storage.load_known_handicaps(path=_db_path(club_id))
@@ -359,8 +326,7 @@ def _availability_pipeline(
         [schedule],
         criteria,
         config,
-        crowd_estimates,
-        friend_names,
+        friend_names=friend_names,
         known_handicaps=known_handicaps,
         my_handicap=my_handicap,
         rank_by_quality=True,
@@ -466,7 +432,7 @@ def _recommended_times_for(
 # 2026-09-16 alongside _compute_crowd_estimates() (see that function's own
 # docstring): once the Overview's own per-slot crowd marker meant every table
 # render calls _holidays_for_club() once per expanded day -- not just the rare
-# ai_assist.avoid_predicted_crowd path this used to be gated behind -- an
+# AI-ranking path this used to be gated behind -- an
 # uncached version would mean one live Nager.Date fetch per expanded day on
 # every load/refresh/expand/collapse/resize. A year's public holidays for a
 # given country don't change mid-session, so caching them is exact, not an

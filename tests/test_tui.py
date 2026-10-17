@@ -31,8 +31,6 @@ def _no_background_scraping(monkeypatch):
     monkeypatch.setattr(scrape_once, "scrape_due_for_club", lambda slug, config, force=False, **_: [])
 
 
-
-
 @pytest.fixture(autouse=True)
 def _no_first_scrape_delay(monkeypatch):
     """The first background scrape / bookable-date fetch waits briefly past the
@@ -154,8 +152,6 @@ def _fake_available_dates_by_default(monkeypatch):
     fallback, so this mirrors the common case) rather than a fixed list, since tests
     seed schedules for whatever dates they need regardless."""
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
-
-
 
 
 class _HostApp(App):
@@ -1137,39 +1133,6 @@ def test_availability_pipeline_empty_without_availability_configured():
     assert tui._availability_pipeline(schedule, {}, "0000001") == ([], [])
 
 
-# _crowd_estimates() -- added 2026-09-10, the actual data behind `avoid_predicted_crowd`
-# (moved under "AI ranking" the same day, direct follow-up: "make avoid crowds a child
-# of AI option" -- see settings_screen.py's own comment on that Field for why it only
-# ever does anything through this exact path).
-
-
-def test_crowd_estimates_empty_when_the_setting_is_off(monkeypatch):
-    def fail(*a, **k):
-        raise AssertionError("should not touch analytics.crowd_heatmap() at all when off")
-
-    monkeypatch.setattr(tui.analytics, "crowd_heatmap", fail)
-    schedule = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
-
-    assert tui._crowd_estimates([schedule], {}, "0000001") == {}
-
-
-def test_crowd_estimates_returns_a_real_prediction_when_enabled(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
-    db_path = scrape_once._db_path("0000001")
-    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
-        storage.save_schedule(
-            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
-            path=db_path,
-        )
-
-    config = {"ai_assist": {"avoid_predicted_crowd": True}}
-    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
-
-    estimates = tui._crowd_estimates([candidate], config, "0000001")
-
-    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
-
-
 def test_crowd_estimates_omits_a_slot_with_too_few_samples(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     db_path = scrape_once._db_path("0000001")
@@ -1178,22 +1141,18 @@ def test_crowd_estimates_omits_a_slot_with_too_few_samples(tmp_path, monkeypatch
         path=db_path,
     )  # only 1 Monday -- below MIN_SAMPLES_FOR_PREDICTION
 
-    config = {"ai_assist": {"avoid_predicted_crowd": True}}
     candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
 
-    assert tui._crowd_estimates([candidate], config, "0000001") == {}
+    assert tui._compute_crowd_estimates([candidate], {}, "0000001") == {}
 
 
-# _compute_crowd_estimates() -- the same prediction work, factored out 2026-09-16
-# so OverviewScreen's own visible per-slot marker can use it independent of
-# ai_assist.avoid_predicted_crowd (direct request: "Would it make sense to
-# integrate heatmap data into the timeslots in overview screen?").
+# _compute_crowd_estimates() -- the prediction behind OverviewScreen's own visible
+# per-slot marker (2026-09-16, direct request: "Would it make sense to integrate
+# heatmap data into the timeslots in overview screen?").
 
 
-def test_compute_crowd_estimates_works_with_no_ai_assist_config_at_all(tmp_path, monkeypatch):
-    # The whole point of the split: unlike _crowd_estimates(), this must not be
-    # gated behind avoid_predicted_crowd -- a bare {} config (no ai_assist key
-    # whatsoever) still gets a real prediction.
+def test_compute_crowd_estimates_works_with_an_empty_config(tmp_path, monkeypatch):
+    # Never gated behind any setting: a bare {} config still gets a real prediction.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     db_path = scrape_once._db_path("0000001")
     for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
@@ -1223,22 +1182,6 @@ def test_compute_crowd_estimates_respects_an_explicit_db_path(tmp_path, monkeypa
     candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
 
     estimates = tui._compute_crowd_estimates([candidate], {}, "0000001", db_path=db_path)
-
-    assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
-
-
-def test_crowd_estimates_threads_db_path_through_to_compute(tmp_path, monkeypatch):
-    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path / "not_used")
-    db_path = tmp_path / "isolated_copy.db"
-    for date in ["2026-08-17", "2026-08-24", "2026-08-31"]:  # 3 Mondays
-        storage.save_schedule(
-            Schedule(date=date, course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=2, capacity=4)]),
-            path=db_path,
-        )
-    config = {"ai_assist": {"avoid_predicted_crowd": True}}
-    candidate = Schedule(date="2026-09-07", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=0, capacity=4)])
-
-    estimates = tui._crowd_estimates([candidate], config, "0000001", db_path=db_path)
 
     assert estimates[("2026-09-07", "18 Loch Tee 1", "09:00")] == 0.5
 
@@ -1464,8 +1407,8 @@ def test_day_pick_text_dash_without_availability_configured():
     assert tui._day_pick_text(schedule, {}, None, False, "0000001") == "[dim]—[/]"
 
 
-def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
-    # No ai_assist.enabled at all -- _availability_pipeline()'s playable still comes
+def test_day_pick_text_stars_the_earliest_playable_match():
+    # _availability_pipeline()'s playable comes
     # back in search()'s own natural (chronological, real slots are always ordered
     # this way) order, so "best" and "earliest" agree exactly as they did before
     # ranked_matches() was wired in here.
@@ -1476,57 +1419,6 @@ def test_day_pick_text_stars_the_earliest_playable_match_without_ai_ranking():
         slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
     )
     assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  09:00"
-
-
-def test_day_pick_text_stars_the_ai_ranked_slot_not_the_earliest(monkeypatch):
-    # Direct feedback, 2026-09-08: "why does it always recommend 16:00 on any other
-    # day?" -- once ai_assist.enabled is true, the star should reflect genuine
-    # judgment (here: a later, AI-preferred slot), not just the first chronological
-    # match, the same real ranking weekly_picks() already uses.
-    config = {
-        "availability": {"weekday_window": {"after": "08:00"}},
-        "ai_assist": {"enabled": True},
-    }
-    schedule = Schedule(
-        date="2026-09-07",  # a Monday
-        course="18 Loch Tee 1",
-        slots=[Slot(time="09:00", booked=0, capacity=4), Slot(time="10:00", booked=0, capacity=4)],
-    )
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        # Reverse the order -- the later slot ranks first.
-        return list(reversed(candidates))
-
-    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
-
-    assert tui._day_pick_text(schedule, config, None, False, "0000001") == "[yellow]★[/]  10:00"
-
-
-def test_ai_reasons_stay_out_of_the_starred_cell_and_go_to_the_row_detail(monkeypatch):
-    """The AI's plain-language reasons used to be appended to the Pick cell (2026-09-14);
-    with AI ranking on that made the cell ~150 characters and pushed the other columns
-    off screen (direct report, 2026-10-05). The cell is now just "★  HH:MM" and the AI
-    text is part of the row detail line."""
-    config = {
-        "availability": {"weekday_window": {"after": "08:00"}},
-        "ai_assist": {"enabled": True},
-    }
-    schedule = Schedule(
-        date="2026-09-07",
-        course="18 Loch Tee 1",
-        slots=[Slot(time="09:00", booked=0, capacity=4)],
-    )
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        candidates[0].reasons = ["dry", "calm"]
-        return candidates
-
-    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
-
-    cell = tui._day_pick_text(schedule, config, None, False, "0000001")
-    assert cell == "[yellow]★[/]  09:00"
-    detail = tui._pick_reasons_detail_text(schedule, config, "0000001", None, cell)
-    assert "dry, calm" in detail
 
 
 def test_day_pick_text_no_dry_picks_when_weather_excludes_everything():
@@ -2212,26 +2104,6 @@ def test_pick_reasons_detail_text_only_for_a_real_pick(tmp_path, monkeypatch):
     assert tui._pick_reasons_detail_text(schedule, {}, "0000001", cache, cell) == ""
 
 
-def test_pick_reasons_detail_text_appends_the_ais_own_sentences(tmp_path, monkeypatch):
-    schedule = _showery_then_dry_monday(tmp_path, monkeypatch)
-    config = {
-        "availability": {"weekday_window": {"after": "16:00"}},
-        "preferences": {"avoid_rain": True, "avoid_rain_probability_percent": 50},
-        "ai_assist": {"enabled": True},
-    }
-
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
-        for c in candidates:
-            c.score, c.reasons = 90.0, ["emptier [later]"]
-        return candidates
-
-    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
-    cache: dict = {}
-    cell = tui._day_pick_text(schedule, config, None, False, "0000001", cache)
-    detail = tui._pick_reasons_detail_text(schedule, config, "0000001", cache, cell)
-    assert Text.from_markup(detail).plain == "Picked for: dry · room around you · daylight to spare · emptier [later]"
-
-
 def test_expanding_a_day_jumps_to_your_window(tmp_path, monkeypatch):
     """2026-09-27, bundle C: straight to the first slot you'd actually book, not
     left on the summary row with the whole early day in between."""
@@ -2605,12 +2477,10 @@ def test_sticky_header_matches_the_column_widths_overview_table_itself_uses(tmp_
     _run(scenario())
 
 
-def test_overview_screen_expanded_row_shows_the_crowd_marker_with_no_ai_assist_config(tmp_path, monkeypatch):
+def test_overview_screen_expanded_row_shows_the_crowd_marker_with_a_bare_config(tmp_path, monkeypatch):
     # Direct request 2026-09-16: "Would it make sense to integrate heatmap data
     # into the timeslots in overview screen?" -- end-to-end through the real
-    # screen, with a bare config (no ai_assist section at all), proving the
-    # marker doesn't depend on ai_assist.enabled/avoid_predicted_crowd the way
-    # the AI-ranking use of the same prediction still does.
+    # screen, with a bare config, proving the marker depends on no setting.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
     monkeypatch.setattr(clock, "today", lambda: "2026-09-07")  # a Monday
@@ -3344,7 +3214,7 @@ def test_search_screen_runs_search_and_shows_results():
             # added after Time, matching the since-retired day-detail screen's placement.
             assert [str(col.label) for col in table.columns.values()] == [
                 "Date", "Time", "Cond", "Free", "Players", "Temp\n(°C)", "Precip\n(%/mm)",
-                "Wind\n(km/h)", "Notes",
+                "Wind\n(km/h)",
             ]
             assert table.row_count == 1
             row = table.get_row_at(0)
@@ -3480,9 +3350,9 @@ def test_known_players_screen_pick_mode_enter_returns_the_name_without_toggling_
     assert storage.load_friend_names(path=db) == set()
 
 
-def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_path, monkeypatch):
+def test_search_screen_players_column_gets_free_space(tmp_path, monkeypatch):
     """Same fix as OverviewScreen's identical test, applied to Search's own
-    Players/Notes pair -- these two columns share the exact same
+    Players column (a Notes column shared its room until 2026-10-18) -- it shares the exact same
     `_WRAP_CAP_WIDTH` constant and used to be chopped to it unconditionally at
     `on_mount()`, before any real result (or real window width) was even
     known. 2026-09-27, direct report with a screenshot: "why do names wrap
@@ -3509,9 +3379,7 @@ def test_search_screen_players_column_gets_free_space_notes_does_not_need(tmp_pa
             table = app.screen.query_one("#search-results", DataTable)
             players_column = list(table.columns.values())[tui.SearchScreen._PLAYERS_COLUMN_INDEX]
             natural_width = tui._cell_visible_width(", ".join(many_players))
-            # No reasons/notes configured for this match, so Notes needs almost
-            # nothing -- the old flat cap would still have chopped Players to
-            # exactly 18 regardless.
+            # The old flat cap would have chopped Players to exactly 18 regardless.
             assert players_column.width > tui._WRAP_CAP_WIDTH
             assert players_column.width <= natural_width
 
@@ -6505,7 +6373,6 @@ def test_overview_screen_r_forces_a_refresh_bypassing_the_throttle(tmp_path, mon
     _run(scenario())
 
 
-
 # --- A background refresh must not throw away where you were (2026-09-17). Direct
 # question: "wouldn't it be better if navigation was disabled until refresh has
 # completed?" -- the answer was no (a real pass measures ~19s, and up to minutes on
@@ -6601,8 +6468,8 @@ def test_background_refresh_falls_back_gracefully_when_the_cursor_row_disappears
 
 def test_resize_reuses_the_pick_cache_instead_of_re_ranking(tmp_path, monkeypatch):
     """Direct follow-up report, 2026-09-27: "the TUI is still very
-    unresponsive... when changing window size." Root cause: with
-    ai_assist.enabled, _availability_pipeline() makes a real network call per
+    unresponsive... when changing window size." Root cause: with the AI ranking
+    of the time, _availability_pipeline() made a real network call per
     day, and _render_table() used to be handed a throwaway dict, fresh on
     every single call -- including the one on_resize() makes for a pure
     re-layout, not a new dataset. self._pick_cache (see its own __init__
@@ -6611,26 +6478,24 @@ def test_resize_reuses_the_pick_cache_instead_of_re_ranking(tmp_path, monkeypatc
     _overview_with_days(tmp_path, monkeypatch, ["2026-09-17", "2026-09-18"])
 
     calls = []
+    real_ranked_matches = tui.recommend.ranked_matches
 
-    def fake_rank_slots(candidates, context, preferences, provider, model, language):
+    def counting_ranked_matches(*args, **kwargs):
         calls.append(1)
-        return candidates
+        return real_ranked_matches(*args, **kwargs)
 
-    monkeypatch.setattr(tui.recommend.ai_assist, "rank_slots", fake_rank_slots)
+    monkeypatch.setattr(tui.recommend, "ranked_matches", counting_ranked_matches)
     monkeypatch.setattr(
         tui.OverviewScreen,
         "_config",
-        lambda self: {
-            "availability": {"weekday_window": {"after": "08:00"}},
-            "ai_assist": {"enabled": True},
-        },
+        lambda self: {"availability": {"weekday_window": {"after": "08:00"}}},
     )
 
     async def scenario():
         app = _HostApp(tui.OverviewScreen("0000001", None, "18 Loch Tee 1"))
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.screen
-            for _ in range(40):  # AI picks are computed after the first paint
+            for _ in range(40):  # the picks are ranked as the overview loads
                 if calls:
                     break
                 await pilot.pause(0.05)

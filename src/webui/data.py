@@ -286,7 +286,7 @@ def build_day(
 # ---- the Overview ----------------------------------------------------------------------
 
 # {(db path, course): (db mtime, date, response)} -- `picks_cli.compute_picks()` ranks every
-# day (and may call an AI provider), so an unchanged database is not worth ranking twice.
+# day (reading each day's crowd history), so an unchanged database is not worth ranking twice.
 _OVERVIEW_CACHE: dict[tuple[str, str], tuple[float, str, dict]] = {}
 
 
@@ -384,8 +384,8 @@ def overview(
     `{"error": ...}` for an unknown club.
 
     The days come straight from the database; the recommended picks and the star/moon markers on slots
-    come from `picks_cli.compute_picks()`, which can take seconds (it ranks every day, and calls an AI
-    provider when AI ranking is on). With `picks=False` the days are returned at once without them and
+    come from `picks_cli.compute_picks()`, which can take a moment (it ranks every day against its
+    crowd history). With `picks=False` the days are returned at once without them and
     marked `"picks_pending": true` (unless the picks are already cached); the page then asks again with
     picks -- the way the Mac app fills its picks in after the list is up."""
     club = resolve_club(slug, club_id, name)
