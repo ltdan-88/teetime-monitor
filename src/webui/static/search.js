@@ -121,7 +121,7 @@ export function SearchSheet({ club, clubs, units, showHandicaps, onClose, onMark
   const noRules = f && rules.every((key) => !f[key]);
   const toggleRules = () => set(Object.fromEntries(rules.map((key) => [key, !allRules])));
   const overrides = f && (f.tod.length || f.friends || f.courses.length || f.spots !== defaults(data).spots);
-  const showCourse = data && data.courses.length > 1 && f.courses.length !== 1;
+  const showCourse = !!(data && f && data.courses.length > 1 && f.courses.length !== 1); // (f is set one render after the data arrives)
   const darkNote = data && f && f.mine && f.kind !== 'weekend' && data.last_start && mine.weekday_window.after > data.last_start;
   const gapText = mine && t('search.tip.gap', { before: mine.gap_before, after: mine.gap_after });
   const weatherLabel = mine && (mine.weather.length === 1 && mine.weather[0] === 'rain' ? t('search.dry') : t('search.weather_ok'));
