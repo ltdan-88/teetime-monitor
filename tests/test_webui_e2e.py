@@ -466,6 +466,28 @@ def test_heatmap_shows_the_history(ui):
     _close_sheet(ui)
 
 
+def test_the_player_directory_filters_by_club_and_gender_together_with_its_sorting(ui):
+    _open_sheet(ui, "p", "Player")
+    ui.wait("document.querySelectorAll('.player-list li .player-name').length > 5")
+    every = ui.count(".player-list li .player-name")
+    clubs = ui.js("[...document.querySelectorAll('#p-club option')].map((o) => o.textContent)")
+    assert clubs == ["All clubs", "Golfclub Beispiel", "Guests (club unknown)"], clubs  # the clubs the list knows, and guests
+    ui.set("#p-gender", "female")
+    ui.wait(f"document.querySelectorAll('.player-list li .player-name').length < {every}")
+    assert ui.js("[...document.querySelectorAll('.player-list li .player-name')].every((e) => e.classList.contains('alt'))")  # only women
+    ui.set("#p-sort", "club")  # sorting keeps the filter, and heads the list with the club
+    ui.wait("document.querySelector('.player-list li.letter')?.textContent === 'Golfclub Beispiel'")
+    assert ui.js("[...document.querySelectorAll('.player-list li .player-name')].every((e) => e.classList.contains('alt'))")
+    assert ui.count(".alpha") == 0  # the A-Z index belongs to the name order only
+    ui.set("#p-club", "__guests")  # every demo player is a member here
+    ui.wait("document.querySelectorAll('.player-list li .player-name').length === 0")
+    ui.set("#p-club", "all")
+    ui.set("#p-gender", "all")
+    ui.set("#p-sort", "name")
+    ui.wait(f"document.querySelectorAll('.player-list li .player-name').length === {every}")
+    _close_sheet(ui)
+
+
 def test_players_can_be_marked_as_friends(ui):
     _open_sheet(ui, "p", "Player")
     ui.wait("document.querySelectorAll('.player-list li').length > 3")

@@ -3,23 +3,38 @@
 
 import { html, t, useState, useMemo, Sheet, Select, Switch, Status, Icon, useLoad, api, post, query, hcpText, dayLabel } from '/lib.js';
 
-const SORTS = ['name', 'friend', 'gender', 'handicap', 'member'];
+const SORTS = ['name', 'friend', 'gender', 'handicap', 'club'];
+const GUESTS = '__guests'; // the Club filter's "guests (club unknown)"
 
 /** The Club column: the club(s) the name was seen at as a member, else "Guest" (the directory is shared by every
  *  club; pc caddie never names a guest's own club). */
 const memberText = (player) => !player.member_status ? '' : player.member_status === 'member' && player.home_clubs && player.home_clubs.length
   ? player.home_clubs.join(', ') : t('players.member_status.' + player.member_status);
 const familyName = (name) => name.trim().split(/\s+/).pop().toLowerCase();
+/** The club a player is listed under when sorting by club: the first of their home clubs, or none (a guest). */
+const homeClub = (player) => (player.home_clubs && player.home_clubs.length ? [...player.home_clubs].sort((a, b) => a.localeCompare(b))[0] : null);
 
 function sorted(players, key) {
   const base = [...players].sort((a, b) => familyName(a.name).localeCompare(familyName(b.name)) || a.name.localeCompare(b.name));
   const rank = {
     friend: (p) => (p.friend ? 0 : 1),
     gender: (p) => (p.gender === 'female' ? 0 : p.gender === 'male' ? 1 : 2),
-    member: (p) => (p.member_status === 'member' ? 0 : p.member_status === 'guest' ? 1 : 2),
     handicap: (p) => (p.handicap == null ? 999 : p.handicap),
   }[key];
+  if (key === 'club') return base.sort((a, b) => (homeClub(a) === null) - (homeClub(b) === null) || (homeClub(a) || '').localeCompare(homeClub(b) || ''));
   return rank ? base.sort((a, b) => rank(a) - rank(b)) : base;
+}
+
+/** Runs of players under one heading: the club (or "Guests") when sorted by club. */
+function byClub(players) {
+  const groups = [];
+  for (const player of players) {
+    const label = homeClub(player) || t('players.filter.guests');
+    const last = groups[groups.length - 1];
+    if (last && last.letter === label) last.players.push(player);
+    else groups.push({ letter: label, players: [player] });
+  }
+  return groups;
 }
 
 /** Groups of players by the first letter of their family name, '#' for anything else (only
@@ -42,6 +57,9 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('name');
   const [friendsOnly, setFriendsOnly] = useState(false);
+  const [clubFilter, setClubFilter] = useState('all'); // 'all', a club's name, or GUESTS
+  const [genderFilter, setGenderFilter] = useState('all'); // 'all', 'female', 'male'
+  const clubs = useMemo(() => (data ? [...new Set(data.players.flatMap((p) => p.home_clubs || []))].sort((a, b) => a.localeCompare(b)) : []), [data]);
   const [local, setLocal] = useState({});
   const [choice, setChoice] = useState(null); // { name, hits }: a player with several tee times, asking which one
   const [none, setNone] = useState(false);
@@ -57,8 +75,10 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
     const needle = search.trim().toLowerCase();
     return sorted(data.players, sort)
       .map((p) => ({ ...p, friend: p.name in local ? local[p.name] : p.friend }))
-      .filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && (!friendsOnly || p.friend));
-  }, [data, search, sort, friendsOnly, local]);
+      .filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && (!friendsOnly || p.friend)
+        && (clubFilter === 'all' || (clubFilter === GUESTS ? !homeClub(p) : (p.home_clubs || []).includes(clubFilter)))
+        && (genderFilter === 'all' || p.gender === genderFilter));
+  }, [data, search, sort, friendsOnly, local, clubFilter, genderFilter]);
   async function toggle(player) {
     const next = !player.friend;
     setLocal((current) => ({ ...current, [player.name]: next }));
@@ -69,8 +89,8 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
       setLocal((current) => ({ ...current, [player.name]: player.friend }));
     }
   }
-  const grouped = sort === 'name' ? byLetter(rows) : null;
-  const letters = grouped ? grouped.map((group) => group.letter).filter((letter, i, all) => all.indexOf(letter) === i) : [];
+  const grouped = sort === 'name' ? byLetter(rows) : sort === 'club' ? byClub(rows) : null;
+  const letters = sort === 'name' && grouped ? grouped.map((group) => group.letter).filter((letter, i, all) => all.indexOf(letter) === i) : [];
   const jump = (letter) => {
     // scrollTo on the list itself: scrollIntoView would also move every scrollable parent
     const list = document.querySelector('.player-list');
@@ -98,6 +118,10 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
       <span class="search-box"><${Icon} name="search" size=${18} />
         <input class="fld" type="search" value=${search} placeholder=${t('players.search_placeholder')} aria-label=${t('players.search_placeholder')} onInput=${(event) => setSearch(event.target.value)} /></span>
       <${Select} id="p-sort" value=${sort} options=${SORTS.map((key) => ({ value: key, label: t('players.sort.' + key) }))} onChange=${setSort} aria-label=${t('players.sort')} />
+      ${clubs.length > 0 && html`<${Select} id="p-club" value=${clubFilter} onChange=${setClubFilter} aria-label=${t('players.filter.club')}
+        options=${[{ value: 'all', label: t('players.filter.club_all') }, ...clubs.map((name) => ({ value: name, label: name })), { value: GUESTS, label: t('players.filter.guests') }]} />`}
+      <${Select} id="p-gender" value=${genderFilter} onChange=${setGenderFilter} aria-label=${t('players.filter.gender')}
+        options=${[{ value: 'all', label: t('players.filter.gender_all') }, { value: 'female', label: t('players.filter.female') }, { value: 'male', label: t('players.filter.male') }]} />
       <label class="check"><${Switch} id="p-friends" checked=${friendsOnly} onChange=${setFriendsOnly} /> ${t('players.friends_only')}</label>
     </div>
     ${data && data.players.length > 0 && html`<p class="hint count">${t('players.count', { n: rows.length, total: data.players.length })}</p>`}
@@ -116,7 +140,7 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
           </li>`}
         ${grouped
           ? grouped.map((group, index) => html`
-              <li class="letter" id=${index === grouped.findIndex((g) => g.letter === group.letter) ? 'letter-' + group.letter : null}>${group.letter}</li>
+              <li class="letter" id=${sort === 'name' && index === grouped.findIndex((g) => g.letter === group.letter) ? 'letter-' + group.letter : null}>${group.letter}</li>
               ${group.players.map(row)}`)
           : rows.map(row)}
       </ul>
