@@ -48,6 +48,10 @@ def test_versions_compare_by_number_not_by_text():
     assert updates.is_newer("v0.79.0", "0.78.0") and updates.is_newer("0.100.0", "0.99.9")
     assert not updates.is_newer("0.78.0", "0.78.0") and not updates.is_newer("0.77.9", "0.78.0")
     assert not updates.is_newer("garbage", "0.78.0") and not updates.is_newer("0.79.0", "dev")
+    # release candidates (2026-10-18): after the last 0.x, before their release, in order
+    assert updates.is_newer("v1.0.0rc1", "0.99.36") and updates.is_newer("v1.0.0rc2", "1.0.0rc1")
+    assert updates.is_newer("v1.0.0", "1.0.0rc2") and not updates.is_newer("v1.0.0rc3", "1.0.0")
+    assert updates.TAG.match("v1.0.0rc1") and updates.TAG.match("v1.0.0") and not updates.TAG.match("v1.0.0-beta")
 
 
 def test_a_newer_release_is_found_and_reported(monkeypatch):

@@ -39,7 +39,7 @@ CHECK_EVERY_SECONDS = 6 * 3600
 STALE_AFTER_SECONDS = 900  # a page that asks while the last look is older than this makes the server look again
 FIRST_CHECK_AFTER_SECONDS = 60
 RESTART_EXIT_CODE = 75  # EX_TEMPFAIL: a "failure" to systemd's Restart=on-failure, so it starts the new version
-TAG = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}$")
+TAG = re.compile(r"^v\d{1,4}\.\d{1,4}\.\d{1,4}(rc\d{1,3})?$")  # v1.0.0, or a release candidate before it: v1.0.0rc1
 SERVER_DIR_NAME = "teetime-monitor-server"  # install.sh puts the environment in ~/.local/share/<this>/venv
 
 _lock = threading.Lock()
@@ -58,8 +58,12 @@ SELF_TEST_SECONDS = 120
 
 
 def _numbers(version: str) -> tuple[int, ...] | None:
-    match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", version or "")
-    return tuple(int(part) for part in match.groups()) if match else None
+    """A version as numbers to compare: a release candidate comes before its release (1.0.0rc1 < 1.0.0rc2 < 1.0.0)."""
+    match = re.match(r"^v?(\d+)\.(\d+)\.(\d+)(?:-?rc(\d+))?", version or "")
+    if not match:
+        return None
+    major, minor, patch, candidate = match.groups()
+    return (int(major), int(minor), int(patch), int(candidate) if candidate else 10**6)
 
 
 def is_newer(latest: str, current: str) -> bool:
