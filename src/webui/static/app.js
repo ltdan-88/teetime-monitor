@@ -13,7 +13,7 @@ import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
 import { TournamentsSheet } from '/tournaments.js';
 import { PlayersSheet } from '/players.js';
-import { ViewMenu } from '/viewmenu.js';
+import { ScaleControl } from '/viewmenu.js';
 import { BottomPanel } from '/panel.js';
 import { Welcome } from '/welcome.js';
 import { UpdateNotice, UpdateSheet, AutoUpdateNote } from '/update.js';
@@ -91,7 +91,7 @@ function Legend({ onClose }) {
       <dt>${toolIcon('clock')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
       <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
-      <dt>${toolIcon('palette')}</dt><dd>${t('legend.tool.view')}</dd>
+      <dt><span class="chipdemo">A− A+</span></dt><dd>${t('legend.tool.scale')}</dd>
     </dl>
     </details>
     <details class="legend-group" name="legend" open><summary>${t('legend.group.times')}</summary>
@@ -140,7 +140,7 @@ function Legend({ onClose }) {
       <dt><span class="kbd">e</span></dt><dd>${t('action.preferences')}</dd>
       <dt><span class="kbd">,</span></dt><dd>${t('action.settings')}</dd>
       <dt><span class="kbd">a</span></dt><dd>${t('addclub.title')}</dd>
-      <dt><span class="kbd">v</span></dt><dd>${t('action.view')}</dd>
+      <dt><span class="kbd">v</span></dt><dd>${t('history.toggle')}</dd>
     </dl>
     </details>
   <//>`;
@@ -192,7 +192,6 @@ function App() {
   const [tabCourse, setTabCourse] = useState(null); // the course tab of Search and the Heatmap (one course at a time) // the sheet Preferences was opened from (Search): it comes back when they close
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
-  const [viewOpen, setViewOpen] = useState(false);
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
@@ -458,7 +457,7 @@ function App() {
       else if (event.key === 'e') open('preferences');
       else if (event.key === ',') open('settings');
       else if (event.key === 'a') open('addclub');
-      else if (event.key === 'v') { event.preventDefault(); setViewOpen((o) => !o); }
+      else if (event.key === 'v' && v) { event.preventDefault(); setShowPast((past) => !past); }
       else if (event.key === '?') open('legend');
     };
     window.addEventListener('keydown', onKey);
@@ -605,6 +604,7 @@ function App() {
           <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} weatherUrl=${weatherUrl} weatherSite=${weatherSite} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
             best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${searchOn}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
+        ${overview && !showPast && overview.days.length > 0 && html`<div class="past-link"><button class="link-btn" onClick=${() => setShowPast(true)} title=${t('history.toggle') + ' (v)'}>${t('history.show')}</button></div>`}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}
           onOpen=${(card) => jumpTo(card.date, card.time, card.course)} />`}
@@ -619,15 +619,14 @@ function App() {
           ${refresh.error && overview && overview.days.length > 0 && html`<span class="warning">${refreshErrorText(refresh.error)}</span>`}
           ${freshness && freshness.warning && html`<span class="warning">${freshness.warning}</span>`}
         </div>
-        <${ViewMenu} showHandicaps=${showHandicaps} history=${showPast} onHistory=${setShowPast} tips=${tips} onTips=${chooseTips} open=${viewOpen} onToggle=${() => setViewOpen((o) => !o)} onClose=${() => setViewOpen(false)}
-          onDisplay=${(change) => setDisplay((current) => ({ ...current, ...change }))} />
+        <${ScaleControl} />
         <button class="tool small" onClick=${() => setSheet('legend')} title=${t('legend') + ' (?)'}><${Icon} name="info" size=${16} /><span class="legend-text">${t('legend')}</span></button>
       </footer>
       ${sheet === 'legend' && html`<${Legend} onClose=${() => setSheet(null)} />`}
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
-        display=${{ boot, units, weatherSite, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
+        display=${{ boot, units, weatherSite, showHandicaps, tips, onTips: chooseTips, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}

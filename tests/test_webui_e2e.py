@@ -566,14 +566,8 @@ def test_add_club_finds_clubs_adds_one_and_opens_another(ui):
 BACKGROUND = "getComputedStyle(document.body).backgroundColor"
 
 
-def _open_view(ui):
-    ui.key("v")
-    ui.wait("document.querySelector('.view-panel #v-hcp')")
-    ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")  # let the page finish drawing
-
-
 def _open_display(ui):
-    """Settings, where language, theme, size and units live (set once, so not in the View menu)."""
+    """Settings, where language, theme, units, the weather site, handicaps and the tip cards live (set once)."""
     ui.key(",")
     ui.wait("document.querySelector('.sheet .display-group #v-theme')")
     ui.wait(SHEET_READY)
@@ -585,18 +579,13 @@ def _close_display(ui):
     ui.wait("!document.querySelector('.scrim')")
 
 
-def test_the_view_menu_holds_three_switches_and_settings_the_rest(ui):
-    _open_view(ui)
-    ui.shot("view-menu")
-    assert [ui.count(c) for c in ("#v-hcp", "#v-tips", "#v-history")] == [1, 1, 1]
-    assert ui.count(".view-panel select, .view-panel .stepper") == 0  # language, theme, size and units moved out
-    assert ui.count(".view-panel .view-more") == 0  # no explaining line: the Legend says where things are
-    ui.key("Escape")
-    ui.wait("!document.querySelector('.view-panel')")
+def test_no_view_menu_display_is_in_settings_and_the_text_size_at_the_bottom(ui):
+    assert ui.count("[data-view-button], .view-panel") == 0  # no View menu any more
+    assert ui.count(".footer .scale-ctl button") == 2  # the text size, changed often, a tap away
     _open_display(ui)  # Settings: a Display group that applies at once, and About with the version and the update check
-    for control in ("#v-language", "#v-theme", "#v-units"):
+    for control in ("#v-language", "#v-theme", "#v-units", "#v-weather", "#v-hcp", "#v-tips"):
         assert ui.count(".display-group " + control) == 1, control
-    assert ui.count(".display-group .stepper button") == 2
+    assert ui.count(".display-group .stepper") == 0  # the size is not here twice
     assert ui.count("#f-field-__language__") == 0 and ui.count("#f-field-units") == 0  # not twice
     assert re.search(r"v\d", ui.text(".about-group")) and ui.count(".about-group .check-update") == 1
     ui.shot("settings-display")
@@ -617,16 +606,14 @@ def test_a_theme_is_chosen_in_settings_and_survives_a_reload(ui):
     _close_display(ui)
 
 
-def test_the_scale_is_stepped_in_settings_and_remembered(ui):
+def test_the_text_size_is_stepped_at_the_bottom_and_remembered(ui):
     assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
-    _open_display(ui)
-    ui.click(".display-group .stepper button", "A+")
+    ui.click(".footer .scale-ctl button", "A+")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '14.4px'")
-    assert "90" in ui.text(".stepper-value")
+    assert "90" in ui.text(".footer .stepper-value")
     ui.js("localStorage.getItem('tm_scale') === '90' || (() => { throw new Error('not saved'); })()")
-    ui.click(".display-group .stepper button", "A−")
+    ui.click(".footer .scale-ctl button", "A−")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
-    _close_display(ui)
 
 
 def test_units_switch_in_settings_and_handicaps_in_the_view_menu(ui):
@@ -641,13 +628,11 @@ def test_units_switch_in_settings_and_handicaps_in_the_view_menu(ui):
     ui.wait(f"document.querySelector('.dh .temp').textContent !== {json.dumps(before)}")
     ui.set("#v-units", "metric")
     ui.wait(f"document.querySelector('.dh .temp').textContent === {json.dumps(before)}")
-    _close_display(ui)
-    _open_view(ui)
-    ui.js("document.querySelector('#v-hcp').click()")
+    ui.js("document.querySelector('#v-hcp').click()")  # handicaps: in Settings too now
     ui.wait(f"!/\\(\\d+\\.\\d\\)/.test({names})")
     ui.js("document.querySelector('#v-hcp').click()")  # and back to how it was
     ui.wait(f"/\\(\\d+\\.\\d\\)/.test({names})")
-    ui.key("Escape")
+    _close_display(ui)
 
 
 def test_the_language_switches_to_german_in_settings_and_back(ui):
@@ -656,9 +641,7 @@ def test_the_language_switches_to_german_in_settings_and_back(ui):
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Suchen'", 30)
     ui.shot("overview-de")
     assert ui.js("document.documentElement.lang") == "de"  # screen readers pronounce German as German
-    _open_view(ui)
-    assert ui.js("document.querySelector('.tool.on .tool-label').textContent") == "Ansicht"
-    ui.key("Escape")
+    ui.wait("document.querySelector('.past-link .link-btn')?.textContent === 'Vergangene Tage ansehen'")
     _open_display(ui)
     ui.set("#v-language", "en")
     ui.wait("document.querySelector('.tool-label')?.textContent === 'Search'", 30)
@@ -1127,14 +1110,9 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         assert ui.js("document.querySelector('.card.open .who-list').innerText.length") > 3
         ui.js("document.querySelector('.card.open .slot .who-chip').click()")
         ui.wait("!document.querySelector('.card.open .who-list')")
-        # the View menu stays inside the screen (the version and the update check are in Settings)
-        ui.js("document.querySelector('[data-view-button]').click()")
-        ui.wait("document.querySelector('.view-panel')")
-        box = ui.js("(() => { const r = document.querySelector('.view-panel').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth, r.top]; })()")
+        # the text size sits inside the screen, in the footer
+        box = ui.js("(() => { const r = document.querySelector('.footer .scale-ctl').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
         assert box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2] + 1, box
-        toolbar = ui.js("document.querySelector('.toolbar').getBoundingClientRect().bottom")
-        assert box[4] >= toolbar - 1, (box, toolbar)  # all of it below the toolbar, nothing hidden under it
-        ui.key("Escape")
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
         assert ui.count(".footer .version") == 0
@@ -1317,7 +1295,7 @@ def test_what_a_badge_means_is_written_out_and_the_legend_explains_the_toolbar(u
     assert ui.js("(document.querySelector('.card.open .day-why')?.textContent || '').trim().length") > 5  # the pick, in words
     ui.key("?")
     ui.wait("document.querySelector('.sheet h2')?.textContent.includes('Legend')")
-    assert ui.count(".legend .tool-ico") == 9  # every tool is named, View and Heatmap included
+    assert ui.count(".legend .tool-ico") == 8 and "Text size" in ui.js("document.querySelector('.legend').textContent")  # every tool is named, Heatmap and the text size included
     assert ui.count(".legend-group") == 5 and ui.count(".legend-group[open]") == 1  # accordion: the tee times first, the rest folded
     assert "Tee times" in ui.js("document.querySelector('.legend-group[open] summary').textContent")
     assert ui.js("document.querySelector('.legend-group:not([open]) .tool-ico').checkVisibility({contentVisibilityAuto: true})") is False  # folded away
@@ -1370,10 +1348,11 @@ def test_the_page_can_be_added_to_a_home_screen_with_the_app_icon(ui):
     assert ui.js("document.querySelector('.brand.in-bar img').naturalWidth") > 0  # the name in the toolbar carries the same icon
 
 
-def test_the_history_switch_shows_the_past_days_and_goes_back(ui):
-    ui.key("v")
-    ui.wait("document.querySelector('.view-panel')")
-    ui.click("#v-history")
+def test_the_past_days_link_under_the_days_shows_them_and_goes_back(ui):
+    ui.js("window.scrollTo(0, 0)")
+    ui.wait("document.querySelector('.past-link .link-btn')")
+    assert ui.js("document.querySelector('.past-link').getBoundingClientRect().top > [...document.querySelectorAll('.card')].pop().getBoundingClientRect().bottom")  # under the days
+    ui.click(".past-link .link-btn")
     ui.wait("document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 10")
     assert "Past days" in ui.text(".preview-bar")
     first, second = ui.js("[...document.querySelectorAll('.card .day')].slice(0, 2).map(e => e.textContent)")
@@ -1440,13 +1419,10 @@ def test_the_window_hint_can_be_dismissed_and_stays_away(ui):
       const body = await response.json(); body.hint = { window_after: '16:00', round_minutes: 240, sunset: '18:32', latest_start: '14:02', alternative_courses: [] };
       return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()""")
     for _ in range(2):  # the past days and back: the overview is read again
+        ui.key("v")  # the past days, and v again: back
+        ui.wait("document.querySelector('.preview-bar')")
         ui.key("v")
-        ui.wait("document.querySelector('.view-panel')")
-        ui.click("#v-history")
-        ui.wait("document.querySelector('#v-history')?.checked || document.querySelector('.preview-bar')")
-        ui.click("#v-history")
         ui.wait("!document.querySelector('.preview-bar')")
-        ui.key("Escape")
         if _ == 0:
             ui.wait("document.querySelector('.hint-bar')")
             ui.click(".hint-bar .icon-btn", index=1)  # the cross
@@ -1473,13 +1449,12 @@ def test_the_tip_cards_sit_at_the_bottom_swipe_on_a_phone_and_can_be_switched_of
         ui.wait("document.querySelectorAll('.tp-dots span')[1].classList.contains('on')")  # the dots follow the swipe
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
-    ui.key("v")
-    ui.wait("document.querySelector('.view-panel')")
+    _open_display(ui)
     ui.click("#v-tips")
-    ui.wait("document.querySelectorAll('.tp-card').length === 0")  # the switch hides them
+    ui.wait("document.querySelectorAll('.tp-card').length === 0")  # the switch (Settings > Display) hides them
     ui.click("#v-tips")
     ui.wait("document.querySelectorAll('.tp-card').length >= 3")
-    ui.key("Escape")
+    _close_display(ui)
 
 
 def test_the_flag_and_the_clouds_move_faster_the_harder_the_wind_blows(ui):
@@ -1596,7 +1571,7 @@ def test_the_legend_and_escape(ui):
     ui.wait("!document.querySelector('.scrim')")
 
 
-def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_heatmap_is_a_search_tab(ui):
+def test_six_tools_fit_a_phone_at_every_text_size_the_size_sits_in_the_footer_and_heatmap_is_a_search_tab(ui):
     ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
     try:
         for scale in (90, 110, 125):
@@ -1612,20 +1587,14 @@ def test_six_tools_fit_a_phone_at_every_text_size_view_sits_in_the_footer_and_he
                 one_line = ui.js("[...document.querySelectorAll('.dh .day')].every((e) => e.getBoundingClientRect().height < parseFloat(getComputedStyle(e).fontSize) * 1.8)")
                 assert one_line, (scale, width)  # "Sa 17 Okt" stays on one line; the low (then the high) gives way instead
         assert ui.count(".more-wrap, .more-panel") == 0  # no More menu any more
-        ui.js("document.querySelector('.footer [data-view-button]').click()")  # View sits in the footer and opens upwards
-        ui.wait("document.querySelector('.view-panel #v-hcp')")
-        box = ui.js("""(() => { const p = document.querySelector('.view-panel').getBoundingClientRect(), f = document.querySelector('.footer').getBoundingClientRect();
-          return {bottom: p.bottom, footer: f.top, left: p.left, right: p.right, w: innerWidth, top: p.top}; })()""")
-        assert box["bottom"] <= box["footer"] + 1 and box["top"] >= 0 and box["left"] >= 0 and box["right"] <= box["w"] + 1, box
-        ui.key("Escape")
-        ui.wait("!document.querySelector('.view-panel')")
+        assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60  # the text size keeps the footer one row
     finally:
         ui.js("localStorage.removeItem('tm_scale'); window.__beforeReload = true; location.reload()")
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
     assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Reservations", "Tournaments", "Players", "Preferences", "Settings"]
-    assert ui.js("[...document.querySelectorAll('.footer .tool')].map((e) => e.textContent.trim())")[-2:] == ["View", "Legend"]  # beside each other at the bottom
+    assert ui.js("[...document.querySelector('.footer').children].slice(-2).map((e) => e.className)") == ["stepper scale-ctl", "tool small"]  # the size, then the Legend
     _open_sheet(ui, "s", "Search")  # Search and the Heatmap: one window, two tabs
     assert ui.js("[...document.querySelectorAll('.sheet-tab')].map((e) => e.textContent.trim() + (e.getAttribute('aria-selected') === 'true' ? '*' : ''))") == ["Open times*", "Heatmap"]
     ui.click(".sheet-tab", text="Heatmap")

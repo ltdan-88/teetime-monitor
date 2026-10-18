@@ -1,10 +1,10 @@
-// The View menu at the bottom, beside the Legend: the three switches that change what the Overview shows right now
-// (handicaps, tip cards, past days). How the page looks and reads -- language, theme, scale, units -- is set once,
-// so it lives in Settings (DisplaySection below), together with the version and the update check (AboutSection).
+// Settings' Display and About groups, and the text size at the bottom of the page. The View menu that sat beside the
+// Legend went 2026-10-18: its handicaps and tip-card switches are set once (Display, here), past days is a link under
+// the days, and the text size -- the one thing changed often -- stays a tap away in the footer.
 
 import { CheckButton } from '/update.js';
 import {
-  html, t, useState, useLayoutEffect, useRef, Select, Switch, Icon, post, SCALES, DEFAULT_SCALE, getScale, setScale,
+  html, t, useState, Select, Switch, post, SCALES, DEFAULT_SCALE, getScale, setScale,
   themeNames, themeLabel, applyTheme, systemTheme, WEATHER_SITE_NAMES,
 } from '/lib.js';
 
@@ -22,49 +22,26 @@ async function saveSetting(field, value, onDisplay, onLanguage, shown, previous)
   }
 }
 
-export function ViewMenu({ showHandicaps, history, onHistory, tips, onTips, open, onToggle, onClose, onDisplay }) {
-  const panel = useRef(null);
-
-  // closes on a click elsewhere or Escape (set up as the panel is drawn, not a frame later)
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    const outside = (event) => panel.current && !panel.current.contains(event.target) && !event.target.closest('[data-view-button]') && onClose();
-    const escape = (event) => event.key === 'Escape' && (event.stopPropagation(), onClose());
-    document.addEventListener('mousedown', outside);
-    window.addEventListener('keydown', escape, true);
-    return () => {
-      document.removeEventListener('mousedown', outside);
-      window.removeEventListener('keydown', escape, true);
-    };
-  }, [open]);
-
-  return html`
-    <span class="view-wrap">
-      <button class=${'tool small' + (open ? ' on' : '')} data-view-button onClick=${onToggle} aria-expanded=${open} aria-haspopup="true"
-        title=${t('action.view') + ' (v)'} aria-label=${t('action.view')} aria-keyshortcuts="v"><${Icon} name="palette" size=${16} /><span class="tool-label">${t('action.view')}</span></button>
-      ${open && html`
-        <div class="view-panel slim" ref=${panel} role="dialog" aria-label=${t('action.view')}>
-          <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
-            <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, onDisplay, null, { showHandicaps: value }, { showHandicaps })} /></div>
-          <div class="field-row"><label for="v-tips">${t('panel.toggle')}</label>
-            <${Switch} id="v-tips" checked=${tips} onChange=${onTips} /></div>
-          <div class="field-row"><label for="v-history">${t('history.toggle')}</label>
-            <${Switch} id="v-history" checked=${history} onChange=${onHistory} /></div>
-        </div>`}
-    </span>`;
-}
-
-/** Settings' Display group: language, theme, scale (this device), units and the weather site a day's icon opens, each
- *  applied at once. */
-export function DisplaySection({ boot, units, weatherSite, onDisplay, onLanguage }) {
+/** The text size, a step at a time (this device only): at the bottom of the page, where it is changed often. */
+export function ScaleControl() {
   const [scale, setScaleState] = useState(getScale());
-  const [theme, setThemeState] = useState(boot.theme || systemTheme());
-  const stepScale = (direction) => {
+  const step = (direction) => {
     const index = SCALES.indexOf(scale);
     const next = SCALES[Math.min(SCALES.length - 1, Math.max(0, index + direction))];
     setScaleState(next);
     setScale(next);
   };
+  return html`<span class="stepper scale-ctl" role="group" aria-label=${t('settings.scale')}>
+    <button class="btn small" onClick=${() => step(-1)} disabled=${scale === SCALES[0]} aria-label=${t('view.smaller')} title=${t('view.smaller')}>A−</button>
+    <span class="num stepper-value" title=${scale === DEFAULT_SCALE ? t('settings.scale.default') : ''}>${scale} %</span>
+    <button class="btn small" onClick=${() => step(1)} disabled=${scale === SCALES[SCALES.length - 1]} aria-label=${t('view.larger')} title=${t('view.larger')}>A+</button>
+  </span>`;
+}
+
+/** Settings' Display group: language, theme, units, the weather site a day's icon opens, players' handicaps and the
+ *  tip cards, each applied at once. (The text size is at the bottom of the page.) */
+export function DisplaySection({ boot, units, weatherSite, showHandicaps, tips, onTips, onDisplay, onLanguage }) {
+  const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const chooseTheme = (name) => {
     setThemeState(name);
     applyTheme(name);
@@ -76,12 +53,6 @@ export function DisplaySection({ boot, units, weatherSite, onDisplay, onLanguage
       <${Select} id="v-language" value=${boot.language} options=${LANGUAGES} onChange=${(value) => saveSetting('field-__language__', value, onDisplay, onLanguage)} /></div>
     <div class="field-row"><label for="v-theme">${t('settings.field.theme')}</label>
       <${Select} id="v-theme" value=${theme} options=${themeNames().map((name) => ({ value: name, label: themeLabel(name) }))} onChange=${chooseTheme} /></div>
-    <div class="field-row"><label id="v-scale-label">${t('settings.scale')}</label>
-      <span class="stepper" role="group" aria-labelledby="v-scale-label">
-        <button class="btn small" onClick=${() => stepScale(-1)} disabled=${scale === SCALES[0]} aria-label=${t('view.smaller')} title=${t('view.smaller')}>A−</button>
-        <span class="num stepper-value" title=${scale === DEFAULT_SCALE ? t('settings.scale.default') : ''}>${scale} %</span>
-        <button class="btn small" onClick=${() => stepScale(1)} disabled=${scale === SCALES[SCALES.length - 1]} aria-label=${t('view.larger')} title=${t('view.larger')}>A+</button>
-      </span></div>
     <div class="field-row"><label for="v-units">${t('settings.field.units')}</label>
       <${Select} id="v-units" value=${units} options=${[{ value: 'metric', label: t('settings.units.metric') }, { value: 'imperial', label: t('settings.units.imperial') }]}
         onChange=${(value) => saveSetting('field-units', value, onDisplay, onLanguage, { units: value }, { units })} /></div>
@@ -89,6 +60,10 @@ export function DisplaySection({ boot, units, weatherSite, onDisplay, onLanguage
       <${Select} id="v-weather" value=${weatherSite || ''}
         options=${[{ value: '', label: t('settings.weather_site.none') }, ...Object.entries(WEATHER_SITE_NAMES).map(([value, label]) => ({ value, label: value === 'openmeteo' ? t('settings.weather_site.source', { name: label }) : label }))]}
         onChange=${(value) => { const previous = weatherSite; onDisplay({ weatherSite: value || null }); post('/api/weather-site', { name: value }).catch(() => onDisplay({ weatherSite: previous })); }} /></div>
+    <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
+      <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, onDisplay, null, { showHandicaps: value }, { showHandicaps })} /></div>
+    <div class="field-row"><label for="v-tips">${t('panel.toggle')}</label>
+      <${Switch} id="v-tips" checked=${tips} onChange=${onTips} /></div>
   </section>`;
 }
 
