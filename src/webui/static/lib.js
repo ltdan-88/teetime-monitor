@@ -264,6 +264,21 @@ export function WeatherCells({ weather, units, flags = [], wind = true }) {
     ${wind && html`<span class=${'cell wind' + flagged('wind')} style=${flags.includes('wind') || !w ? null : windTone(w.wind)} title=${tip(t('tip.wind_slot', { unit: u.wind }), 'wind')}>${w && w.wind != null ? windSpeed(w.wind, units) : ''}</span>`}`;
 }
 
+// The sites a day's weather icon can open (Settings > Display), each at the club's own coordinates. Open-Meteo shows the
+// very numbers the app uses; meteoblue, Windy (with rain radar) and Yr are made for people and differ a little.
+export const WEATHER_SITES = {
+  openmeteo: (lat, lon) => `https://open-meteo.com/en/docs?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m,weather_code&timezone=auto&forecast_days=7`,
+  meteoblue: (lat, lon) => `https://www.meteoblue.com/${LANG === 'de' ? 'de/wetter/woche' : 'en/weather/week'}/${lat}N${lon}E`,  // signed: -33.87N is south
+  windy: (lat, lon) => `https://www.windy.com/${lat}/${lon}?rain,${lat},${lon},10`,
+  yr: (lat, lon) => `https://www.yr.no/en/forecast/daily-table/${lat},${lon}`,
+};
+export const WEATHER_SITE_NAMES = { openmeteo: 'Open-Meteo', meteoblue: 'meteoblue', windy: 'Windy', yr: 'Yr' };
+
+/** The page a day's weather icon opens: the chosen site at the club's coordinates; null without either. */
+export function weatherLink(site, location) {
+  return site && WEATHER_SITES[site] && location ? WEATHER_SITES[site](location.lat, location.lon) : null;
+}
+
 export function Condition({ code, size = 24 }) {
   const kind = conditionKind(code);
   if (!kind) return null;

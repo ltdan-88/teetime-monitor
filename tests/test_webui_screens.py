@@ -15,6 +15,7 @@ from src import (
     env_file,
     global_preferences,
     i18n,
+    pipeline,
     scrape_once,
     storage,
     theme,
@@ -399,7 +400,7 @@ def test_settings_cover_account_display_and_scraping_and_no_ai(world):
     assert [g["key"] for g in payload["groups"]] == ["settings.group.display", "settings.group.scraping"]
     ids = {f["id"] for g in payload["groups"] for f in g["fields"]}
     assert "field-units" in ids and "field-__language__" in ids and "field-__theme__" not in ids
-    assert payload["clubs"][0]["slug"] == SLUG and payload["clubs"][0]["courses"] == [COURSE]
+    assert payload["clubs"] == [{"slug": SLUG, "id": CLUB_ID, "name": payload["clubs"][0]["name"]}]  # add and remove only
     assert payload["account"] == {"username": "", "has_password": False}
     assert "ai" not in payload
 
@@ -411,14 +412,12 @@ def test_the_language_setting_applies_and_persists(world, monkeypatch):
     assert saved == ["de"] and i18n.get_language() == "de"
 
 
-def test_club_settings_default_course_holes_remove_and_add(world):
-    assert settings_api.set_default_course(SLUG, "Other Course") == {"ok": True}
-    assert club_config.load_club_config(SLUG)["default_course"] == "Other Course"
+def test_club_settings_holes_remove_and_add(world):
     assert settings_api.set_course_holes(SLUG, "Kurzplatz", 9) == {"ok": True}
     assert club_config.load_club_config(SLUG)["course_holes"] == {"Kurzplatz": 9}
     assert settings_api.set_course_holes(SLUG, "Kurzplatz", None) == {"ok": True}
     assert "course_holes" not in club_config.load_club_config(SLUG)
-    assert settings_api.set_default_course("nope", "x") == {"error": "unknown_club"}
+    assert settings_api.set_course_holes("nope", "x", 9) == {"error": "unknown_club"}
 
     assert clubs_api.add("0000002", "Golfclub Zwei")["ok"] is True
     assert {c["id"] for c in data.club_entries()} == {CLUB_ID, "0000002"}
@@ -575,11 +574,49 @@ def test_courses_are_off_on_or_where_search_starts_and_off_ones_are_left_out(wor
     assert state() == {COURSE: "on", "9 Loch": "default"} and tools_api.search_slots(SLUG, None)["start_course"] == "9 Loch"
     assert {s["course"] for s in tools_api.search_slots(SLUG, None)["slots"]} == {COURSE, "9 Loch"}  # the other is still there to pick
     assert tools_api.heatmap(SLUG, None, None)["course"] == "9 Loch"  # the Heatmap opens on the same tab
+    assert data.overview(SLUG, None)["course"] == "9 Loch"  # and so does the overview, when no course is asked for
+    assert next(c for c in data.club_entries() if c["slug"] == SLUG)["default_course"] == "9 Loch"
     assert settings_api.set_course_state(SLUG, "9 Loch", "on") == {"ok": True}
     assert "search_courses" not in club_config.load_club_config(SLUG)
     assert settings_api.set_course_state(SLUG, COURSE, "sometimes") == {"error": "bad_request"}
     assert settings_api.set_course_state("nope", COURSE, "off") == {"error": "unknown_club"}
     assert settings_api.club_courses("nope", None) == {"error": "unknown_club"}
+
+
+def test_a_course_whose_name_hides_its_holes_asks_for_them_in_preferences(world):
+    other = _schedule(date.today().isoformat())
+    other.course = "Kurzplatz"
+    storage.save_schedule(other, path=world, authenticated=True)
+    courses = {c["name"]: c for c in settings_api.club_courses(SLUG, None)["courses"]}
+    assert "holes" not in courses[COURSE]  # "18 Loch" says it
+    assert courses["Kurzplatz"]["holes"] is None  # worked out, until you say
+    settings_api.set_course_holes(SLUG, "Kurzplatz", 9)
+    assert {c["name"]: c for c in settings_api.club_courses(SLUG, None)["courses"]}["Kurzplatz"]["holes"] == 9
+
+
+def test_the_overview_opens_a_club_on_your_standard_course_else_the_old_default_else_one_you_play():
+    courses = ["18 Loch", "6 Loch", "9 Loch"]
+    assert club_config.opening_course({"search_courses": ["9 Loch", "6 Loch"]}, courses) == "6 Loch"  # natural order
+    assert club_config.opening_course({"default_course": "9 Loch"}, courses) == "9 Loch"
+    assert club_config.opening_course({"default_course": "Gone", "excluded_courses": ["18 Loch"]}, courses) == "6 Loch"
+    assert club_config.opening_course({"search_courses": ["Gone"]}, courses) == "18 Loch"
+    assert club_config.opening_course({}, []) is None
+
+
+def test_the_weather_site_is_saved_in_the_shared_setting(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
+    assert data.bootstrap()["weather_site"] is None  # opens nothing until chosen
+    assert settings_api.set_weather_site("windy") == {"ok": True}
+    assert user_config.load_value("WEATHER_LINK", user_config.CONFIG_FILE) == "windy" and data.bootstrap()["weather_site"] == "windy"
+    assert settings_api.set_weather_site("elsewhere") == {"error": "unknown_site"}
+    assert settings_api.set_weather_site("") == {"ok": True} and data.saved_weather_site() is None
+
+
+def test_the_overview_carries_the_clubs_coordinates_for_the_weather_link(world, monkeypatch):
+    monkeypatch.setattr(pipeline, "_resolved_config", lambda *a, **k: {"location": {"lat": 47.6612345, "lon": 9.62}})
+    assert data.overview(SLUG, COURSE)["location"] == {"lat": 47.6612, "lon": 9.62}
+    monkeypatch.setattr(pipeline, "_resolved_config", lambda *a, **k: {})
+    assert data.overview(SLUG, COURSE)["location"] is None
 
 
 def test_each_day_of_the_overview_counts_the_times_that_pass_your_preferences(world, monkeypatch):
@@ -701,7 +738,9 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     assert _call(running, "GET", f"/api/heatmap?slug={SLUG}")[0] == 200
     assert _call(running, "GET", f"/api/heatmap?slug={SLUG}&course=Not+A+Course")[1]["course"] == COURSE  # another club's course: its own default
     assert _call(running, "GET", "/api/directory?q=zzzz")[1]["results"] == []
-    assert _call(running, "POST", "/api/club/default-course", {"slug": SLUG, "course": COURSE})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/weather-site", {"name": "meteoblue"})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/weather-site", {"name": "nope"})[0] == 400
+    assert _call(running, "POST", "/api/club/default-course", {"slug": SLUG, "course": COURSE})[0] == 404  # gone: Preferences decides
     assert _call(running, "POST", "/api/club/add", {"club_id": "0000003", "name": "Drei"})[1]["ok"] is True
     assert _call(running, "POST", "/api/club/remove", {"club_id": "0000003"})[1]["ok"] is True
     assert _call(running, "POST", "/api/club/remove", {"club_id": "0000003"})[0] == 404

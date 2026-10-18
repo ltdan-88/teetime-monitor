@@ -311,10 +311,10 @@ def _run_install(tag: str, on_installed, auto: bool = False) -> None:
         if failure is not None:  # the new version does not start: put the one that ran back
             back = _pip_install(f"v{previous}")
             failure += f" (v{previous} restored)" if back is None else f" (restoring v{previous} failed too: {back})"
+    if auto:  # first, so whoever sees the outcome below also finds the note about it
+        _write_marker({"from": previous, "to": tag.lstrip("v"), "ok": failure is None, "at": time.time()})
     with _lock:
         _install.update(state="failed" if failure else "restarting", error=failure)
-    if auto:
-        _write_marker({"from": previous, "to": tag.lstrip("v"), "ok": failure is None, "at": time.time()})
     if not failure:
         time.sleep(2)  # let the page see "restarting" first
         on_installed()

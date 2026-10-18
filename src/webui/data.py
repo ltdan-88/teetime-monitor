@@ -67,6 +67,26 @@ def theme_names() -> list[str]:
     return [name for name in json.loads(THEMES_FILE.read_text(encoding="utf-8")) if not name.startswith("_")]
 
 
+# The sites a tap on a day's weather icon can open, at the club's own coordinates (Settings > Display, WEATHER_LINK=).
+# Open-Meteo is where the app's numbers come from; the others are made for people (and differ a little from it).
+WEATHER_SITES = ("openmeteo", "meteoblue", "windy", "yr")
+
+
+def saved_weather_site() -> str | None:
+    """The weather site a day's icon opens; None (the default) when it opens nothing."""
+    saved = user_config.load_value("WEATHER_LINK", user_config.CONFIG_FILE)
+    return saved if saved in WEATHER_SITES else None
+
+
+def _location(config: dict) -> dict | None:
+    """The club's coordinates as {"lat", "lon"} (what the weather is fetched for), or None."""
+    location = config.get("location")
+    try:
+        return {"lat": round(float(location["lat"]), 4), "lon": round(float(location["lon"]), 4)}
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
 def saved_theme() -> str | None:
     """The theme in force the way the terminal app resolves it: the environment variable, else the saved
     THEME= (shared with the terminal and Mac apps); None when neither names a known theme (the page then
@@ -102,7 +122,7 @@ def club_entries() -> list[dict]:
                 "slug": slug,
                 "id": club_id,
                 "name": config.get("name") or slug,
-                "default_course": config.get("default_course"),
+                "default_course": club_config.opening_course(config, courses_for(club_id)),  # where it opens
                 "last_success_at": health.get("last_success_at"),
             }
         )
@@ -149,6 +169,7 @@ def bootstrap() -> dict:
         "units": config.get("units", units.DEFAULT_UNITS),
         "show_handicaps": bool(config.get("show_handicaps", True)),
         "theme": saved_theme(),
+        "weather_site": saved_weather_site(),
         "clubs": club_entries(),
         "last": last,
     }
@@ -396,8 +417,7 @@ def overview(
     config = pipeline._resolved_config(slug, club["id"], club["name"])
     courses = courses_for(club["id"])
     if course not in courses:
-        default = config.get("default_course")
-        course = default if default in courses else (courses[0] if courses else None)
+        course = club_config.opening_course(config, courses)
     interval = int(config.get("scrape_interval_minutes", scrape_once.DEFAULT_SCRAPE_INTERVAL_MINUTES))
     health = storage.scrape_health(db)
     warning = scrape_health.health_warning(health, interval, datetime.now(UTC))
@@ -408,6 +428,7 @@ def overview(
         "units": config.get("units", units.DEFAULT_UNITS),
         "show_handicaps": bool(config.get("show_handicaps", True)),
         "preview": slug is None,
+        "location": _location(config),
         "banners": banners_for(db),
         "freshness": {
             "last_success_at": health.get("last_success_at"),

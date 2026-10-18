@@ -682,16 +682,36 @@ def test_clear_filters_shows_everything_and_is_in_reach(ui):
     _close_sheet(ui)
 
 
-def test_the_default_course_sits_on_the_club_row(ui):
+def test_a_club_row_is_just_the_club_and_a_weather_site_can_be_chosen(ui):
     _open_sheet(ui, ",", "Settings")
-    ui.wait("document.querySelector('.club-head .select select')")
+    ui.wait("document.querySelector('.club-head')")
+    assert ui.count(".club-head select, .club-row .field-row") == 0  # the course it opens on and its holes are in Preferences
     heads = ui.js(
         """(() => { const r = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
-        const head = [...document.querySelectorAll('.club-head')].find((h) => h.querySelector('.select'));
-        return [r(head.querySelector('strong')), r(head.querySelector('.select')), r(head.querySelector('.icon-btn.danger'))]; })()"""
+        const head = document.querySelector('.club-head');
+        return [r(head.querySelector('strong')), r(head.querySelector('.icon-btn.danger'))]; })()"""
     )
-    assert max(heads) - min(heads) < 4, heads  # name, course and Remove on one line
+    assert max(heads) - min(heads) < 4, heads  # name and Remove on one line
+    assert ui.js("[...document.querySelectorAll('#v-weather option')].map((o) => o.value)") == ["", "openmeteo", "meteoblue", "windy", "yr"]
+    ui.set("#v-weather", "meteoblue")
     _close_sheet(ui)
+    ui.js("window.scrollTo(0, 0)")
+    while ui.count(".card.open"):
+        ui.click(".card.open button.dh")
+        ui.wait("document.querySelectorAll('.card.open').length === 0")
+    assert ui.count(".dh .wx-link") == 0  # a closed day's icon still just opens the day
+    ui.click("button.dh", index=1)
+    ui.wait("document.querySelector('.card.open .dh .wx-link')")
+    assert ui.js("document.querySelector('.card.open .dh .wx-link').title") == "Weather at meteoblue"
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('.dayhead a.wx-link')")
+    assert ui.js("document.querySelector('.dayhead a.wx-link').href") == "https://www.meteoblue.com/en/weather/week/49.79N9.95E"  # the club's own point
+    _close_sheet(ui)
+    ui.click(".card.open button.dh")
+    _open_sheet(ui, ",", "Settings")
+    ui.set("#v-weather", "")  # back to nothing
+    _close_sheet(ui)
+    ui.wait("!document.querySelector('.wx-link')")
 
 
 def test_an_opened_day_keeps_its_header_pinned_and_scrolls_to_its_pick(ui):
@@ -1994,6 +2014,33 @@ def test_preferences_read_in_order_with_each_time_range_on_one_row_and_limits_un
     ui.click("#f-field-preferences-avoid_rain")  # back, unsaved
     ui.wait("!document.querySelector('#f-field-preferences-avoid_rain_mm')")
     _close_sheet(ui)
+
+
+def test_a_course_whose_name_hides_its_holes_asks_for_them_under_it_in_preferences(ui):
+    ui.js(
+        """(() => { const real = window.fetch.bind(window); window.__holes = [];
+        window.fetch = async (url, options) => {
+          if (String(url).includes('/api/club/holes')) { window.__holes.push(JSON.parse(options.body));
+            return new Response('{"ok": true}', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+          if (String(url).includes('/api/club/course-state')) return new Response('{"ok": true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+          const response = await real(url, options);
+          if (!String(url).includes('/api/club/courses')) return response;
+          const data = await response.json();
+          return new Response(JSON.stringify({ ...data, courses: [...data.courses, { name: 'Kurzplatz', state: 'on', holes: null }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }; })()"""
+    )
+    try:
+        _open_sheet(ui, "e", "Preferences")
+        ui.wait("document.querySelector('#c-holes-1')")
+        assert ui.count("[id^=c-holes-]") == 1  # only the course whose name does not say
+        assert ui.js("document.querySelector('#c-holes-1').closest('.field-row').previousElementSibling.querySelector('label').textContent") == "Kurzplatz"
+        ui.set("#c-holes-1", "9")
+        ui.wait("window.__holes.length === 1 && window.__holes[0].holes === 9 && window.__holes[0].course === 'Kurzplatz'")
+        ui.set("#c-play-1", "off")  # a course you do not play: its length does not matter
+        ui.wait("!document.querySelector('#c-holes-1')")
+        _close_sheet(ui)
+    finally:
+        ui.js("window.__beforeReload = true; location.reload()")
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
 def test_the_courses_you_can_play_are_a_card_in_preferences_that_saves_at_once(ui):

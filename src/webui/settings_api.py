@@ -140,20 +140,9 @@ def _save(kind: str, submitted: dict[str, Any]) -> dict:
 
 
 def clubs_overview() -> list[dict]:
-    """The saved clubs with what Settings > Clubs edits: default course and, for courses whose
-    name does not say how many holes they have, the hole count."""
-    screen = _screen()
-    result = []
-    for club in data.club_entries():
-        slug, rows = screen.course_holes_rows(club["id"])
-        result.append(
-            {
-                **{k: club[k] for k in ("slug", "id", "name", "default_course")},
-                "courses": data.courses_for(club["id"]),
-                "course_holes": [{"course": course, "holes": holes} for course, holes in rows],
-            }
-        )
-    return result
+    """The saved clubs, for Settings > Clubs (add and remove). What each course is to you, and how many holes one has
+    whose name does not say, is in Preferences > Courses (`club_courses()`)."""
+    return [{k: club[k] for k in ("slug", "id", "name")} for club in data.club_entries()]
 
 
 def account() -> dict:
@@ -173,6 +162,14 @@ def settings_payload(club_id: str | None) -> dict:
     }
 
 
+def set_weather_site(name: str) -> dict:
+    """Save which site a day's weather icon opens ("" for none)."""
+    if name and name not in data.WEATHER_SITES:
+        return {"error": "unknown_site"}
+    user_config.save_value("WEATHER_LINK", name, user_config.CONFIG_FILE)
+    return {"ok": True}
+
+
 def set_theme(name: str) -> dict:
     """Save the colour theme (the THEME= setting the terminal and Mac apps read too)."""
     if name not in data.theme_names():
@@ -181,19 +178,12 @@ def set_theme(name: str) -> dict:
     return {"ok": True}
 
 
-def set_default_course(slug: str, course: str) -> dict:
-    config = pipeline._load_club_config_safely(slug)
-    if not config.get("club_id"):
-        return {"error": "unknown_club"}
-    config["default_course"] = course
-    club_config.save_club_config(slug, config)
-    return {"ok": True}
-
-
 def club_courses(slug: str | None, club_id: str | None) -> dict:
     """The courses of a club and what each is to you (Preferences > Courses): `off` (you cannot play it, Search leaves it
-    out), `on`, or `default` (Search starts with it chosen). Courses left out stay in the list even when the club's tee
-    sheets no longer show them, so they can be switched back on."""
+    out), `on`, or `default` (Search starts with it chosen, and the overview opens a club on it). Courses left out stay
+    in the list even when the club's tee sheets no longer show them, so they can be switched back on. A course whose
+    name does not say how many holes it has also carries `holes` (9, 18, or None for "work it out"): the round's
+    length for the daylight and weather checks."""
     club = data.resolve_club(slug, club_id)
     if club is None or not club["slug"]:
         return {"error": "unknown_club"}
@@ -201,10 +191,16 @@ def club_courses(slug: str | None, club_id: str | None) -> dict:
     left_out, chosen = club_config.excluded_courses(config), club_config.search_courses(config)
     names = data.courses_for(club["id"])
     names += sorted(left_out - set(names))
-    return {
-        "slug": club["slug"],
-        "courses": [{"name": name, "state": "off" if name in left_out else "default" if name in chosen else "on"} for name in names],
-    }
+    _, unnamed = _screen().course_holes_rows(club["id"])
+    holes = dict(unnamed)
+
+    def entry(name: str) -> dict:
+        row = {"name": name, "state": "off" if name in left_out else "default" if name in chosen else "on"}
+        if name in holes:
+            row["holes"] = holes[name]
+        return row
+
+    return {"slug": club["slug"], "courses": [entry(name) for name in names]}
 
 
 def set_course_state(slug: str, course: str, state: str) -> dict:

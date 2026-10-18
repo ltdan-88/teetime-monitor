@@ -5,7 +5,6 @@ gap check of `search`, `pipeline._cached_crowd_heatmap()` with the club's holida
 and the `known_players` table. Nothing here ranks, aggregates or classifies on its own.
 """
 
-import re
 from datetime import date, datetime, timedelta
 
 from .. import (
@@ -37,9 +36,7 @@ def _club(slug: str | None, club_id: str | None):
     return club, data.db_path_for(club["id"]), config
 
 
-def _natural(name: str) -> list:
-    """A course name's sort key with its numbers as numbers: 6 holes, 9 holes, 18 holes (not 18, 6, 9)."""
-    return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
+_natural = club_config.natural_key
 
 
 def _playable_courses(club: dict, config: dict) -> list[str]:

@@ -3,7 +3,7 @@
 import {
   html, render, useState, useEffect, useRef, useCallback, api, post, query, loadStrings, t, language, updatedText, dayLabel, applyScale, loadThemes, applyTheme, systemTheme,
   Icon, Sheet, Select, Status,
-  tempTone, rainTone, windTone,
+  tempTone, rainTone, windTone, weatherLink,
 } from '/lib.js';
 import { DayCard, Banners, focusTime } from '/overview.js';
 import { PreferencesSheet, SettingsSheet } from '/forms.js';
@@ -345,7 +345,7 @@ function App() {
         await withRetry(() => loadThemes());
         applyTheme(result.theme || systemTheme());
         setBoot(result);
-        setDisplay({ units: result.units, showHandicaps: result.show_handicaps });
+        setDisplay({ units: result.units, showHandicaps: result.show_handicaps, weatherSite: result.weather_site });
         const last = result.last && result.clubs.find((club) => club.slug === result.last.slug);
         const first = last || result.clubs[0];
         if (first) {
@@ -543,6 +543,8 @@ function App() {
   const club = overview && overview.club;
   const units = display ? display.units : boot.units;
   const showHandicaps = display ? display.showHandicaps : boot.show_handicaps;
+  const weatherSite = display ? display.weatherSite : boot.weather_site;
+  const weatherUrl = overview ? weatherLink(weatherSite, overview.location) : null; // where a day's weather icon leads
   const clubOptions = [...boot.clubs.map((entry) => ({ value: entry.slug, label: entry.name })), { value: ADD_CLUB, label: '＋ ' + t('addclub.title') + '…' }];
   const courseOptions = ((overview && overview.courses) || []).map((name) => ({ value: name, label: name }));
   const freshness = overview && overview.freshness;
@@ -600,7 +602,7 @@ function App() {
           title=${refresh.running ? t('empty.updating') : refresh.error ? refreshErrorText(refresh.error) : t('empty.no_data.title')}
           text=${refresh.running || refresh.error ? '' : t('empty.no_data.text')} />`}
         ${overview && overview.days.map((day) => html`
-          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
+          <${DayCard} key=${day.date} day=${day} open=${openDate === day.date} units=${units} weatherUrl=${weatherUrl} weatherSite=${weatherSite} showHandicaps=${showHandicaps} onPick=${pickSlot} onTournament=${(date) => openTournaments(date)} onAlternative=${(day, alt) => jumpTo(day.date, alt.time, alt.course)}
             best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${searchOn}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
@@ -625,11 +627,11 @@ function App() {
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
-        display=${{ boot, units, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
+        display=${{ boot, units, weatherSite, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
-      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} startDay=${searchDay} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} showHandicaps=${showHandicaps}
+      ${sheet === 'search' && clubForSheets && overview && html`<${SearchSheet} club=${clubForSheets} startDay=${searchDay} weatherUrl=${weatherUrl} weatherSite=${weatherSite} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} showHandicaps=${showHandicaps}
         onPreferences=${() => { setPrefsBack('search'); setSheet('preferences'); }}
         refreshKey=${searchTick} onClose=${() => setSheet(null)} onMark=${markFromSearch} tabs=${searchTabs('search')} />`}
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
