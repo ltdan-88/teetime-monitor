@@ -501,17 +501,12 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .player-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hint.count { margin: 0.25rem 0 0; }
 
-/* ---- View menu ---- */
-.view-wrap { position: relative; display: inline-flex; }
-.footer .view-panel { top: auto; bottom: calc(100% + 0.5rem); max-height: calc(100dvh - var(--toolbar-h, 6rem) - 6rem); overflow: auto; }  /* never under the pinned toolbar */
-.tool.on { background: var(--surface); color: var(--text); }
-.view-panel {
-  position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 30; width: 25rem; max-width: calc(100vw - 2rem);
-  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 0.875rem; padding: 0.5rem 1.125rem 0.75rem;
-  box-shadow: 0 1rem 2.5rem rgba(0,0,0,.4);
-}
-.view-panel .field-row { grid-template-columns: minmax(6rem, 1fr) minmax(9rem, 14rem); }
-.view-panel .select select { height: 2.125rem; }
+/* ---- the text size at the bottom, and the way to the past days under the days ---- */
+.footer .scale-ctl { margin-left: auto; gap: 0.25rem; }
+.footer .scale-ctl .btn.small { height: 1.75rem; padding: 0 0.5rem; }
+.footer .scale-ctl .stepper-value { min-width: 2.75rem; font-size: 0.8125rem; color: var(--dim); }
+.past-link { display: flex; justify-content: center; padding: 0.25rem 0 0.5rem; }
+.past-link .link-btn { font-size: 0.875rem; color: var(--dim); }
 .stepper { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-start; }
 .stepper-value { min-width: 3.4rem; text-align: center; }
 
@@ -561,7 +556,7 @@ button, select, input { touch-action: manipulation; }
 @media (max-width: 600px) {
   .player-list li, .player-list li.player-head { grid-template-columns: 2.375rem minmax(0, 1fr) auto; }
   .player-list .player-meta, .player-list .player-hcp, .player-head span:nth-child(3), .player-head span:nth-child(4), .player-head span:nth-child(5) { display: none; }
-  .field-row, .view-panel .field-row { grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; padding: 0.375rem 0; }
+  .field-row { grid-template-columns: minmax(0, 1fr); row-gap: 0.25rem; padding: 0.375rem 0; }
   .field-row > label { text-align: left; }
   .field-row > :last-child { justify-self: stretch; }
   .field-row .select select { width: 100%; max-width: none; }
@@ -587,7 +582,6 @@ button, select, input { touch-action: manipulation; }
 .update-banner a, .update-banner a:visited { color: var(--accent-text, var(--accent)); }
 .update-banner code { font-family: var(--mono); }
 .update-banner .btn { flex: none; }
-.footer .view-wrap { margin-left: auto; }  /* View and the Legend together on the right */
 .check-update { font-size: 0.8125rem; color: var(--mid); }
 .check-update.failed { color: var(--orange); }
 
@@ -598,11 +592,7 @@ button, select, input { touch-action: manipulation; }
   .footer { flex-wrap: nowrap; gap: 0.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
   .footer .status { flex: 1 1 auto; font-size: 0.8125rem; }
   .view-about { display: flex; }
-  /* the View panel opens under the toolbar across the screen (centred on its far-right button it ran off the edge); after
-     the base .view-panel rule, which would otherwise win */
-  .footer .view-wrap { position: static; }  /* the View panel rises from the footer across the screen */
-  .footer .view-panel { left: 0.75rem; right: 0.75rem; width: auto; max-width: none; }
-  .footer .tool-label, .footer .legend-text { display: none; }  /* View and Legend as icons: the status keeps the room */
+  .footer .legend-text { display: none; }  /* the Legend as an icon: the status and the text size keep the room */
 }
 
 /* ---- app name ---- */
@@ -875,15 +865,8 @@ button, select, input { touch-action: manipulation; }
 @container (max-width: 20rem) { .dh .temp .lo { display: none; } }
 @container (max-width: 18rem) { .dh .temp { visibility: hidden; } }  /* no room for even the high: none rather than a cut-off digit (the open day shows it per time) */
 
-/* ---- the View panel: three switches, each label beside its switch (on a phone too) */
-.view-panel.slim { width: 21rem; }
-.view-more { margin: 0.375rem 0 0.125rem; padding-top: 0.5rem; border-top: 1px solid var(--line); color: var(--dim); font-size: 0.8125rem; line-height: 1.4; }
 .about-group .view-about { display: flex; border-top: 0; margin-top: 0; padding-top: 0.25rem; }
 .about-logout { padding-top: 0.5rem; }
-@media (max-width: 640px) {
-  .view-panel.slim .field-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 0; }
-  .view-panel.slim .field-row > label { white-space: normal; }
-}
 
 /* the day header, calmer: the no-pick badge is a word, and on a phone the occupancy bars are slim */
 .pill.word { font-family: var(--font); font-size: 0.875rem; color: var(--mid); }
