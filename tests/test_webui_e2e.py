@@ -1387,6 +1387,18 @@ def test_the_past_days_link_under_the_days_shows_them_and_goes_back(ui):
     ui.key("Escape")
 
 
+def test_the_past_days_open_at_the_newest_with_the_way_back_under_them(ui):  # their calendar order: test_webui_screens
+    ui.js("window.scrollTo(0, 0)")
+    ui.wait("document.querySelector('.past-link .link-btn')")
+    ui.click(".past-link .link-btn")
+    ui.wait("document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 10")
+    ui.wait("window.scrollY > 0 && document.querySelector('.past-link').getBoundingClientRect().bottom <= document.querySelector('footer, .footer').getBoundingClientRect().top + 1")  # opened at the newest, clear of the footer
+    assert ui.js("[...document.querySelectorAll('.card')].pop().getBoundingClientRect().bottom > 0")
+    assert ui.text(".past-link .link-btn") == "Back to upcoming days"
+    ui.click(".past-link .link-btn")
+    ui.wait("!document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 0 && document.querySelectorAll('.card').length < 10")
+
+
 def test_search_puts_the_filters_beside_the_results_on_a_large_landscape_screen_and_above_them_otherwise(ui):
     try:
         for width, height, beside in ((1400, 800, True), (820, 1100, False)):
