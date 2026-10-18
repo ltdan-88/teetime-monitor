@@ -87,11 +87,19 @@ export function DisplaySection({ boot, units, onDisplay, onLanguage }) {
   </section>`;
 }
 
-/** Settings' About group: the version, the update check and (on a served Pi) logging out. */
-export function AboutSection({ boot, onUpdate }) {
+/** Settings' About group: the version, the update check, and on a served Pi the switch for updates at night
+ *  (it saves at once) and logging out. */
+export function AboutSection({ boot, onUpdate, update, onAuto }) {
+  const [auto, setAuto] = useState(!!(update && update.auto));
+  const flip = (on) => {
+    setAuto(on);
+    post('/api/update/auto', { on }).then(() => onAuto && onAuto(on)).catch(() => setAuto(!on));
+  };
   return html`<section class="group about-group">
     <h3>${t('settings.group.about')}</h3>
     <div class="view-about"><span class="version">v${boot.version}</span><${CheckButton} onResult=${onUpdate} /></div>
+    ${update && update.auto_available && html`<div class="field-row"><label for="v-auto">${t('update.auto')}</label>
+      <${Switch} id="v-auto" checked=${auto} onChange=${flip} /></div>`}
     ${boot.serve && html`<div class="about-logout">
       <button class="btn small" onClick=${() => post('/api/auth/logout').then(() => location.assign('/login'))}>${t('view.logout')}</button></div>`}
   </section>`;

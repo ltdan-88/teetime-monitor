@@ -320,7 +320,7 @@ function SettingsBody({ data, clubId, serve, display, reload, onClose, onSaved, 
         ...(serve ? [{ weight: 8, node: html`<${ServerPasswordSection} />` }] : []),
         ...(display ? [{ weight: 6, node: html`<${DisplaySection} ...${display} />` }] : []),
         ...groupItems(visible, values, setValue),
-        ...(display ? [{ weight: 3, node: html`<${AboutSection} boot=${display.boot} onUpdate=${display.onUpdate} />` }] : []),
+        ...(display ? [{ weight: 3, node: html`<${AboutSection} boot=${display.boot} onUpdate=${display.onUpdate} update=${display.update} onAuto=${display.onAuto} />` }] : []),
       ]} />
     </div>
     <div class="actions">

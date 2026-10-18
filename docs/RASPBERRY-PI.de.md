@@ -45,11 +45,17 @@ dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-moni
 ## Aktualisierungen
 
 Alle paar Stunden (und wenn eine Seite nachfragt, obwohl der letzte Blick über eine Stunde her ist) schaut der Server in GitHubs öffentliche Release-Liste (eine einfache Anfrage, nichts über dich wird
-gesendet). Gibt es eine neuere Version, zeigt jede Seite unten **Version X ist verfügbar** mit einem Link zu den
+gesendet). Gibt es eine neuere Version, zeigt jede Seite über den Tagen **Version X ist verfügbar** mit einem Link zu den
 Release-Notes. Auf dem Pi installiert **Jetzt aktualisieren** (in derselben Zeile) diese Version in die eigene
 Umgebung des Servers und startet den Dienst neu; die Seite verbindet sich von selbst wieder. Installiert wird nur
-die Version, die der Server selbst gefunden hat, von der GitHub-Seite dieses Projekts. Schlägt eine Aktualisierung
-fehl, läuft die alte Version weiter und die Seite nennt den Grund. Die Abfrage schaltest du aus mit
+die Version, die der Server selbst gefunden hat, von der GitHub-Seite dieses Projekts. Vor dem Neustart wird die
+neue Version einmal für sich gestartet; kommt sie nicht hoch, wird die vorige wieder installiert. Schlägt eine
+Aktualisierung fehl, läuft die alte Version weiter und die Seite nennt den Grund.
+
+**Updates nachts installieren** (Einstellungen > Über, standardmäßig aus) macht dasselbe von selbst zwischen 3 und
+5 Uhr, wenn zehn Minuten lang nichts auf der Seite getan wurde und kein Club abgerufen wird. Am nächsten Morgen
+sagt die Seite, welche Version installiert wurde, oder dass es nicht geklappt hat und die alte weiterläuft; eine
+fehlgeschlagene Version wird nicht von selbst erneut versucht (der Knopf kann es weiterhin). Die Abfrage schaltest du aus mit
 `Environment=TEETIME_MONITOR_NO_UPDATE_CHECK=1` im Dienst (`sudo systemctl edit teetime-monitor`). Ein mit 0.78.0
 installierter Server bekommt den Knopf nach einem weiteren Lauf des Installationsbefehls.
 
@@ -71,7 +77,7 @@ installierter Server bekommt den Knopf nach einem weiteren Lauf des Installation
 | Protokoll | `journalctl -u teetime-monitor -n 50` (mit `-f` live) |
 | Neustart / Stopp | `sudo systemctl restart teetime-monitor` / `sudo systemctl stop teetime-monitor` |
 | Passwort ändern | in der Seite: **Einstellungen > Server-Passwort** (aktuelles Passwort, neues zweimal; dieser Browser bleibt angemeldet, jedes andere Gerät muss sich neu anmelden). Oder auf dem Pi: `~/.local/share/teetime-monitor-server/venv/bin/teetime-monitor-web --set-password` (auch bei vergessenem Passwort) |
-| Aktualisieren | Die Seite zeigt unten „Version X ist verfügbar · Jetzt aktualisieren“; ein Klick installiert sie und startet den Server neu (ein bis zwei Minuten). Oder den Installationsbefehl noch einmal ausführen |
+| Aktualisieren | Die Seite zeigt über den Tagen „Version X ist verfügbar · Jetzt aktualisieren“; ein Klick installiert sie und startet den Server neu (ein bis zwei Minuten). Oder Einstellungen > Über > Updates nachts installieren einschalten, oder den Installationsbefehl noch einmal ausführen |
 | Entfernen | `sudo systemctl disable --now teetime-monitor; sudo rm /etc/systemd/system/teetime-monitor.service; rm -rf ~/.local/share/teetime-monitor-server` (Einstellungen und Daten bleiben in `~/.config` und `~/.local/share`) |
 
 **Sichern:** `~/.config/teetime-monitor` (Einstellungen, Logins) und `~/.local/share/teetime-monitor` (Verlauf);
