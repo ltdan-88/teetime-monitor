@@ -2268,3 +2268,25 @@ def test_a_small_phone_at_a_large_text_size_never_scrolls_sideways_and_a_usual_o
         ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+
+def test_after_booking_from_search_the_search_window_still_closes(ui):
+    """Found on a real phone in 1.0.0rc2: a booking made from Search reloads its times, and while they were read
+    again the window broke (`defaults()` of no data), so neither the cross nor Escape closed it."""
+    ui.js("window.__errors = []; window.addEventListener('unhandledrejection', (e) => window.__errors.push(String(e.reason)))")
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('.results .res .mark')")
+    day, time = ui.js("document.querySelector('.results .res .mark').closest('.res').dataset.slot.split(' ')")
+    ui.js("document.querySelector('.results .res .mark').click()")
+    ui.wait("document.querySelectorAll('.sheet').length === 2")
+    ui.click(".sheet.small .btn.pri")
+    ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelector('.results .res')", 15)
+    _close_sheet(ui)  # the cross works
+    assert ui.js("window.__errors") == []
+    ui.js(  # cancel it again (a job: wait for it), and start the next test on a fresh page
+        f"""fetch('/api/booking/cancel', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{slug: 'golfclub-beispiel', course: '18 Loch Tee 1', date: {json.dumps(day)}, time: {json.dumps(time)}}})}})
+          .then((r) => r.json()).then(async ({{job}}) => {{ for (let i = 0; i < 50; i += 1) {{ const s = await (await fetch('/api/booking/job?id=' + job)).json(); if (s.state !== 'running') break; await new Promise((d) => setTimeout(d, 200)); }} }})
+          .then(() => {{ window.__beforeReload = true; location.reload(); }})"""
+    )
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")

@@ -160,7 +160,7 @@ export function SearchSheet({ club, startDay, weatherUrl, weatherSite, course: t
   const hasMine = !!(f && data && (hasWindow(mine.weekday_window) || hasWindow(mine.weekend_window) || mine.weather.length || mine.gap_before > 0 || mine.gap_after > 0));
   const clear = () => set({ days: [], tod: [], friends: false, mine: false, dry: false, gap: false, spots: 1 });
   const reset = () => commit({ ...defaults(data), open: f.open }); // back to your Preferences in one tap
-  const atMine = !!(f && sameChips(f, defaults(data)));
+  const atMine = !!(f && data && sameChips(f, defaults(data))); // not while the times are read again (after a booking)
   const clearButton = f && anyOn(f) && html`<button type="button" class="icon-btn danger sf-clear" onClick=${clear} aria-label=${t('search.clear')} title=${t('search.clear')}><${Icon} name="trash" size=${18} /></button>`;
   const resetButton = f && !atMine && html`<button type="button" class="icon-btn sf-reset" onClick=${reset} aria-label=${t('search.reset')} title=${t('search.reset')}><${Icon} name="reset" size=${18} /></button>`;
   const actions = html`<span class="sf-actions">${clearButton}${resetButton}</span>`; // after the last of the filters, wherever that is
