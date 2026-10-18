@@ -509,8 +509,8 @@ dl.legend dd { margin: 0; color: var(--mid); }
   background: var(--surface); border: 1px solid var(--line-strong); border-radius: 62.4375rem; box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,.35); }
 .scale-pop .icon-btn { width: 2.25rem; height: 2.25rem; font-size: 1.125rem; }
 .scale-pop .stepper-value { min-width: 3rem; font-size: 0.875rem; color: var(--text); }
-.past-link { display: flex; justify-content: center; padding: 0.25rem 0 0.5rem; }
-.past-link .link-btn { font-size: 0.875rem; color: var(--dim); }
+.past-link { display: flex; justify-content: center; margin-top: -0.25rem; }
+.past-link .link-btn { font-size: 0.875rem; color: var(--dim); min-height: 0; padding-block: 0.125rem; }  /* a quiet line: a phone's larger touch area comes from its ::after, not its height */
 .stepper { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-start; }
 .stepper-value { min-width: 3.4rem; text-align: center; }
 
