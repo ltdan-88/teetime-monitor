@@ -607,6 +607,7 @@ def test_the_weather_site_is_saved_in_the_shared_setting(world, tmp_path, monkey
     monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
     assert data.bootstrap()["weather_site"] is None  # opens nothing until chosen
     assert settings_api.set_weather_site("windy") == {"ok": True}
+    assert settings_api.set_weather_site("openmeteo") == {"error": "unknown_site"}  # not offered any more
     assert user_config.load_value("WEATHER_LINK", user_config.CONFIG_FILE) == "windy" and data.bootstrap()["weather_site"] == "windy"
     assert settings_api.set_weather_site("elsewhere") == {"error": "unknown_site"}
     assert settings_api.set_weather_site("") == {"ok": True} and data.saved_weather_site() is None

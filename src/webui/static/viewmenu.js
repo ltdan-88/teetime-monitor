@@ -4,7 +4,7 @@
 
 import { CheckButton } from '/update.js';
 import {
-  html, t, useState, Select, Switch, post, SCALES, DEFAULT_SCALE, getScale, setScale,
+  html, t, useState, useRef, useLayoutEffect, Select, Switch, post, SCALES, DEFAULT_SCALE, getScale, setScale,
   themeNames, themeLabel, applyTheme, systemTheme, WEATHER_SITE_NAMES,
 } from '/lib.js';
 
@@ -22,19 +22,37 @@ async function saveSetting(field, value, onDisplay, onLanguage, shown, previous)
   }
 }
 
-/** The text size, a step at a time (this device only): at the bottom of the page, where it is changed often. */
+/** The text size (this device only), changed often: a quiet "Aa" at the bottom of the page that opens a small bubble
+ *  with − and +. A tap elsewhere or Escape closes it. */
 export function ScaleControl() {
   const [scale, setScaleState] = useState(getScale());
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const outside = (event) => wrap.current && !wrap.current.contains(event.target) && setOpen(false);
+    const escape = (event) => event.key === 'Escape' && (event.stopPropagation(), setOpen(false));
+    document.addEventListener('pointerdown', outside);
+    window.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      window.removeEventListener('keydown', escape, true);
+    };
+  }, [open]);
   const step = (direction) => {
     const index = SCALES.indexOf(scale);
     const next = SCALES[Math.min(SCALES.length - 1, Math.max(0, index + direction))];
     setScaleState(next);
     setScale(next);
   };
-  return html`<span class="stepper scale-ctl" role="group" aria-label=${t('settings.scale')}>
-    <button class="btn small" onClick=${() => step(-1)} disabled=${scale === SCALES[0]} aria-label=${t('view.smaller')} title=${t('view.smaller')}>A−</button>
-    <span class="num stepper-value" title=${scale === DEFAULT_SCALE ? t('settings.scale.default') : ''}>${scale} %</span>
-    <button class="btn small" onClick=${() => step(1)} disabled=${scale === SCALES[SCALES.length - 1]} aria-label=${t('view.larger')} title=${t('view.larger')}>A+</button>
+  const label = t('view.text_size', { n: scale });
+  return html`<span class="scale-wrap" ref=${wrap}>
+    <button class=${'tool small scale-btn' + (open ? ' on' : '')} onClick=${() => setOpen(!open)} aria-expanded=${open} aria-label=${label} title=${label}>Aa</button>
+    ${open && html`<span class="stepper scale-pop" role="group" aria-label=${t('settings.scale')}>
+      <button class="icon-btn" onClick=${() => step(-1)} disabled=${scale === SCALES[0]} aria-label=${t('view.smaller')} title=${t('view.smaller')}>−</button>
+      <span class="num stepper-value" title=${scale === DEFAULT_SCALE ? t('settings.scale.default') : ''}>${scale} %</span>
+      <button class="icon-btn" onClick=${() => step(1)} disabled=${scale === SCALES[SCALES.length - 1]} aria-label=${t('view.larger')} title=${t('view.larger')}>+</button>
+    </span>`}
   </span>`;
 }
 
@@ -58,7 +76,7 @@ export function DisplaySection({ boot, units, weatherSite, showHandicaps, tips, 
         onChange=${(value) => saveSetting('field-units', value, onDisplay, onLanguage, { units: value }, { units })} /></div>
     <div class="field-row"><label for="v-weather">${t('settings.weather_site')}</label>
       <${Select} id="v-weather" value=${weatherSite || ''}
-        options=${[{ value: '', label: t('settings.weather_site.none') }, ...Object.entries(WEATHER_SITE_NAMES).map(([value, label]) => ({ value, label: value === 'openmeteo' ? t('settings.weather_site.source', { name: label }) : label }))]}
+        options=${[{ value: '', label: t('settings.weather_site.none') }, ...Object.entries(WEATHER_SITE_NAMES).map(([value, label]) => ({ value, label }))]}
         onChange=${(value) => { const previous = weatherSite; onDisplay({ weatherSite: value || null }); post('/api/weather-site', { name: value }).catch(() => onDisplay({ weatherSite: previous })); }} /></div>
     <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
       <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, onDisplay, null, { showHandicaps: value }, { showHandicaps })} /></div>
