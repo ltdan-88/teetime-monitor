@@ -581,7 +581,7 @@ def _close_display(ui):
 
 def test_no_view_menu_display_is_in_settings_and_the_text_size_at_the_bottom(ui):
     assert ui.count("[data-view-button], .view-panel") == 0  # no View menu any more
-    assert ui.count(".footer .scale-ctl button") == 2  # the text size, changed often, a tap away
+    assert ui.count(".footer .scale-btn") == 1 and ui.count(".scale-pop") == 0  # the text size, changed often: a quiet "Aa"
     _open_display(ui)  # Settings: a Display group that applies at once, and About with the version and the update check
     for control in ("#v-language", "#v-theme", "#v-units", "#v-weather", "#v-hcp", "#v-tips"):
         assert ui.count(".display-group " + control) == 1, control
@@ -608,12 +608,20 @@ def test_a_theme_is_chosen_in_settings_and_survives_a_reload(ui):
 
 def test_the_text_size_is_stepped_at_the_bottom_and_remembered(ui):
     assert ui.js("getComputedStyle(document.documentElement).fontSize") == "12.8px"
-    ui.click(".footer .scale-ctl button", "A+")
+    ui.click(".footer .scale-btn")  # "Aa" opens a small bubble with - and +
+    ui.wait("document.querySelector('.scale-pop')")
+    ui.click(".scale-pop button", "+")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '14.4px'")
-    assert "90" in ui.text(".footer .stepper-value")
+    assert "90" in ui.text(".scale-pop .stepper-value") and "90" in ui.js("document.querySelector('.scale-btn').title")
     ui.js("localStorage.getItem('tm_scale') === '90' || (() => { throw new Error('not saved'); })()")
-    ui.click(".footer .scale-ctl button", "A−")
+    ui.click(".scale-pop button", "−")
     ui.wait("getComputedStyle(document.documentElement).fontSize === '12.8px'")
+    ui.key("Escape")  # Escape closes it
+    ui.wait("!document.querySelector('.scale-pop')")
+    ui.click(".footer .scale-btn")
+    ui.wait("document.querySelector('.scale-pop')")
+    ui.js("document.querySelector('.card .day').dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}))")  # and so does a tap elsewhere
+    ui.wait("!document.querySelector('.scale-pop')")
 
 
 def test_units_switch_in_settings_and_handicaps_in_the_view_menu(ui):
@@ -675,7 +683,7 @@ def test_a_club_row_is_just_the_club_and_a_weather_site_can_be_chosen(ui):
         return [r(head.querySelector('strong')), r(head.querySelector('.icon-btn.danger'))]; })()"""
     )
     assert max(heads) - min(heads) < 4, heads  # name and Remove on one line
-    assert ui.js("[...document.querySelectorAll('#v-weather option')].map((o) => o.value)") == ["", "openmeteo", "meteoblue", "windy", "yr"]
+    assert ui.js("[...document.querySelectorAll('#v-weather option')].map((o) => o.value)") == ["", "meteoblue", "windy", "ventusky", "yr"]
     ui.set("#v-weather", "meteoblue")
     _close_sheet(ui)
     ui.js("window.scrollTo(0, 0)")
@@ -1111,8 +1119,11 @@ def test_a_phone_shows_players_on_demand_and_keeps_its_menus_on_screen(ui):
         ui.js("document.querySelector('.card.open .slot .who-chip').click()")
         ui.wait("!document.querySelector('.card.open .who-list')")
         # the text size sits inside the screen, in the footer
-        box = ui.js("(() => { const r = document.querySelector('.footer .scale-ctl').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth]; })()")
-        assert box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2] + 1, box
+        ui.click(".footer .scale-btn")
+        ui.wait("document.querySelector('.scale-pop')")
+        box = ui.js("(() => { const r = document.querySelector('.scale-pop').getBoundingClientRect(), f = document.querySelector('.footer').getBoundingClientRect(); return [r.left, r.right, innerWidth, document.documentElement.scrollWidth, r.bottom, f.top]; })()")
+        assert box[0] >= 0 and box[1] <= box[2] + 1 and box[3] <= box[2] + 1 and box[4] <= box[5] + 1, box  # inside the screen, above the footer
+        ui.key("Escape")
         # the footer: one slim row, the version and the check are not in it
         assert ui.js("document.querySelector('.footer').getBoundingClientRect().height") < 60
         assert ui.count(".footer .version") == 0
@@ -1594,7 +1605,7 @@ def test_six_tools_fit_a_phone_at_every_text_size_the_size_sits_in_the_footer_an
         ui.call("Emulation.setEmulatedMedia", features=[])
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
     assert ui.js("[...document.querySelectorAll('.toolbar-tools > .tool .tool-label')].map((e) => e.textContent)") == ["Search", "Reservations", "Tournaments", "Players", "Preferences", "Settings"]
-    assert ui.js("[...document.querySelector('.footer').children].slice(-2).map((e) => e.className)") == ["stepper scale-ctl", "tool small"]  # the size, then the Legend
+    assert ui.js("[...document.querySelector('.footer').children].slice(-2).map((e) => e.className)") == ["scale-wrap", "tool small"]  # the size, then the Legend
     _open_sheet(ui, "s", "Search")  # Search and the Heatmap: one window, two tabs
     assert ui.js("[...document.querySelectorAll('.sheet-tab')].map((e) => e.textContent.trim() + (e.getAttribute('aria-selected') === 'true' ? '*' : ''))") == ["Open times*", "Heatmap"]
     ui.click(".sheet-tab", text="Heatmap")

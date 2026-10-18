@@ -91,7 +91,7 @@ function Legend({ onClose }) {
       <dt>${toolIcon('clock')}</dt><dd>${t('legend.tool.preferences')}</dd>
       <dt>${toolIcon('sliders')}</dt><dd>${t('legend.tool.settings')}</dd>
       <dt>${toolIcon('refresh')}</dt><dd>${t('legend.tool.refresh')}</dd>
-      <dt><span class="chipdemo">A− A+</span></dt><dd>${t('legend.tool.scale')}</dd>
+      <dt><span class="chipdemo">Aa</span></dt><dd>${t('legend.tool.scale')}</dd>
     </dl>
     </details>
     <details class="legend-group" name="legend" open><summary>${t('legend.group.times')}</summary>

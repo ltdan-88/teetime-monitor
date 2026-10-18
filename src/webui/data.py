@@ -68,8 +68,8 @@ def theme_names() -> list[str]:
 
 
 # The sites a tap on a day's weather icon can open, at the club's own coordinates (Settings > Display, WEATHER_LINK=).
-# Open-Meteo is where the app's numbers come from; the others are made for people (and differ a little from it).
-WEATHER_SITES = ("openmeteo", "meteoblue", "windy", "yr")
+# A site no longer offered (Open-Meteo, until 2026-10-18) reads as none.
+WEATHER_SITES = ("meteoblue", "windy", "ventusky", "yr")
 
 
 def saved_weather_site() -> str | None:
