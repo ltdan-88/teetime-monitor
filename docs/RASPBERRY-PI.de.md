@@ -39,10 +39,14 @@ dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-moni
   Layout passt sich an Handys und Tablets an.
 - Das Passwort setzt `teetime-monitor-web --set-password`, später änderst du es unter **Einstellungen > Server-Passwort**. Es wird nur als gesalzener Hash in
   `~/.config/teetime-monitor/web_auth.json` gespeichert (nur für dich lesbar). Eine Anmeldung gilt im Browser 30
-  Tage (**Ansicht > Abmelden** beendet sie); ein neues Passwort meldet alle Browser ab. Fünf falsche Versuche
+  Tage (**Einstellungen > Über > Abmelden** beendet sie); ein neues Passwort meldet alle Browser ab. Fünf falsche Versuche
   sperren das Gerät 30 Sekunden, jedes weitere Mal doppelt so lange.
 
 ## Aktualisierungen
+
+> **Noch auf 0.99.x?** Diese Versionen kennen die 1.0-Kandidaten (`1.0.0rc1`, …) nicht, ihr **Jetzt aktualisieren**
+> bietet sie also nicht an. Führe den Installationsbefehl oben einmal noch aus: Er installiert die neueste Version über
+> die alte und behält Einstellungen und Daten. Danach funktionieren der Knopf (und das nächtliche Update) wieder.
 
 Alle paar Stunden (und wenn eine Seite nachfragt, obwohl der letzte Blick über eine Stunde her ist) schaut der Server in GitHubs öffentliche Release-Liste (eine einfache Anfrage, nichts über dich wird
 gesendet). Gibt es eine neuere Version, zeigt jede Seite über den Tagen **Version X ist verfügbar** mit einem Link zu den

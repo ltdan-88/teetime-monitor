@@ -708,6 +708,7 @@ def test_a_club_row_is_just_the_club_and_a_weather_site_can_be_chosen(ui):
     _close_sheet(ui)
     ui.click(".card.open button.dh")
     _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('#v-weather')")  # Settings fills in once its data is read
     ui.set("#v-weather", "")  # back to nothing
     _close_sheet(ui)
     ui.wait("!document.querySelector('.wx-link')")
@@ -2243,3 +2244,27 @@ def test_a_pi_server_offers_updates_at_night_and_tells_the_morning_after(ui):
     _close_sheet(ui)
     ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_a_small_phone_at_a_large_text_size_never_scrolls_sideways_and_a_usual_one_keeps_every_column(ui):
+    """320 px at 125 % (the narrowest case): an opened day gives up wind, rain, then its weather icon, and a tight day
+    header stacks its badges, rather than pushing the page wider. A usual phone at the usual size keeps all three."""
+    ui.call("Emulation.setEmulatedMedia", features=[{"name": "pointer", "value": "coarse"}, {"name": "hover", "value": "none"}])
+    try:
+        for scale, width, columns in ((125, 320, 1), (100, 320, 1), (90, 390, 3)):
+            ui.js(f"localStorage.setItem('tm_scale', '{scale}'); window.__beforeReload = true; location.reload()")
+            ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+            ui.call("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=2, mobile=True)
+            ui.js("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))")
+            assert ui.js("document.documentElement.scrollWidth") <= width, (scale, width)
+            ui.js("(() => { const card = document.querySelectorAll('.card')[1]; if (!card.classList.contains('open')) card.querySelector('button.dh').click(); })()")
+            ui.wait("document.querySelector('.card.open .slot')")
+            assert ui.js("document.documentElement.scrollWidth") <= width, (scale, width, "opened")
+            shown = ui.js("[...document.querySelectorAll('.card.open .slots-head .cell')].filter((e) => getComputedStyle(e).display !== 'none').length")
+            assert shown == columns, (scale, width, shown)
+            ui.js("document.querySelector('.card.open button.dh').click()")
+    finally:
+        ui.js("localStorage.removeItem('tm_scale'); window.__beforeReload = true; location.reload()")
+        ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+        ui.call("Emulation.setEmulatedMedia", features=[])
+        ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)

@@ -15,7 +15,7 @@
 
 <p align="center">🇬🇧 <strong>English</strong> · <a href="README.de.md">🇩🇪 Deutsch</a></p>
 
-<p align="center"><img src="assets/en/web-overview.png" alt="The week at a glance: one card per bookable day with weather, the recommended time and how busy it is"></p>
+<p align="center"><img src="assets/en/web-overview.png" alt="The week at a glance: one card per bookable day with weather, how many times fit your rules and how busy it is"></p>
 
 ## What it does
 
@@ -23,8 +23,9 @@ Golf clubs all over German-speaking Europe publish their tee sheets through a bo
 **pc caddie**: who plays when, which times are still free. The sheet is public. Teetime Monitor reads it for
 you and adds what the club's page doesn't tell you:
 
-- ⛳ **A recommended time for every day** — the one with dry weather, little wind, room around your group and
-  daylight to spare. Or the reason why there is none ("too dark to finish", "rain all day").
+- ⛳ **How many times each day fit your rules** — tap the number to see them; open the day and the best one is
+  starred: dry weather, little wind, room around your group, daylight to spare. Or the reason why there is none
+  ("rain", "dark").
 - 🌦 **The forecast for each tee time**, not just for the day.
 - 🌙 **A warning when a round wouldn't finish before sunset.**
 - 👥 **Who is playing** — friends you mark get a star.
@@ -63,8 +64,9 @@ A window opens with your week. **Closing the window ends the program**, unless y
 
 1. **Find your club.** Open the club menu at the top, choose **＋ Add club…** and search by name — or paste your
    club's pc caddie booking link. No login is needed to read the tee sheet.
-2. **Look at the week.** Each card is a day. The ★ is the recommended time; a flag is a time you booked.
-3. **Click a day** to open every tee time, with the players and the weather for each one.
+2. **Look at the week.** Each card is a day. The number is how many times fit your rules (tap it to see them); a flag
+   is a time you booked.
+3. **Click a day** to open every tee time, with the players and the weather for each one. The ★ marks the best one.
 4. **Tell it your rules** once under **Preferences** — which hours suit you on weekdays and weekends, how many
    players, how much wind or rain you accept. From then on the ★ follows your rules.
 5. **Found your time?** Click it and choose *Book now* (needs your pc caddie login under Settings). The booking is made on
@@ -77,7 +79,7 @@ the player directory.
 
 <table>
 <tr>
-<td width="50%"><b>Search</b> — for the exceptions: "just this once, three of us, after 15:00". Pre-filled from your rules, so you change one thing.<br><br><img src="assets/en/web-search.png" alt="Search results with weather for every time"></td>
+<td width="50%"><b>Search</b> — every free time of the coming days, narrowed down with a tap: a day, a time of day, free spots, friends. It opens on your own rules, so you change one thing.<br><br><img src="assets/en/web-search.png" alt="Search results with weather for every time"></td>
 <td width="50%"><b>Crowd heatmap</b> — which hours fill up on which weekday, learned from your own history. It needs a few weeks of data first.<br><br><img src="assets/en/web-heatmap.png" alt="The crowd heatmap: hours against weekdays"></td>
 </tr>
 <tr>
@@ -88,9 +90,10 @@ the player directory.
 
 The ★ is not just the earliest time. Every playable time is scored on the weather over the whole round (against
 *your* limits), room around your group, a quiet hour and daylight to spare — free, on your own computer, no AI.
-Hover the badge to see why, e.g. "dry · room around you · daylight to spare". If your course is too dark to finish
+An opened day says why, e.g. "dry · room around you · daylight to spare". If your course is too dark to finish
 but a shorter one at the club still fits, it suggests that one instead. A day that isn't open for booking yet
-shows 🔒 and when it opens.
+shows 🔒 and when it opens. Tap the weather icon of an opened day to see its forecast on meteoblue, Windy, Ventusky
+or Yr (choose one under Settings → Display).
 
 ### Prefer the terminal?
 
@@ -107,13 +110,14 @@ Same week, same ★, same rules. Every screen has a one-letter key, shown in the
 | Players | **p** | **p** |
 | My reservations (see and cancel your bookings) | **b** | **b** |
 | Tournaments (the club's calendar as a month grid) | **t** | – |
+| Past days | **v** | – |
 | Preferences · Settings | **e** · **,** | **,** · **s** |
 | Add a club | **a** | **a** |
 | Legend (what every symbol means) | **?** | **?** |
 | Close a window · quit | **esc** | **esc** · **q** |
 
-The terminal app also has an **Actions** menu (**t**) and eleven colour themes; the browser has them under
-**View**, together with English/German, units and text size.
+The terminal app also has an **Actions** menu (**t**) and eleven colour themes; the browser has the themes under
+**Settings → Display**, together with English/German and units. The text size is the **Aa** at the bottom.
 
 <details>
 <summary>More terminal screenshots</summary>
@@ -129,7 +133,8 @@ The terminal app also has an **Actions** menu (**t**) and eleven colour themes; 
   [docs/ADVANCED.md](docs/ADVANCED.md).
 - **Updates:** the page tells you when a new version exists ("Version X is available") and how to get it. On
   a Mac: `brew upgrade teetime-monitor`; on Windows and Linux: download the new zip and copy your old `userdata`
-  folder into it; on a Raspberry Pi: one click on **Update now**.
+  folder into it; on a Raspberry Pi: one click on **Update now**, or let it install updates at night by itself
+  (Settings → About).
 - **Your data stays with you.** Your pc caddie login is only ever sent to pc caddie. The browser version listens
   on your own computer only (the Raspberry Pi version needs a password). Details for the careful:
   [docs/ADVANCED.md](docs/ADVANCED.md#privacy-and-safety).
@@ -139,6 +144,19 @@ The terminal app also has an **Actions** menu (**t**) and eleven colour themes; 
   - *A booking I made isn't showing* — bookings sync on each fetch; press **Refresh**.
   - *The heatmap says "no data yet"* — normal at the start; it needs a few weeks of history.
   - *No player names* — that needs the pc caddie login (Settings), and only works if your club shares names.
+
+## What stays stable in 1.x
+
+From 1.0 on, an update never breaks what you already have:
+
+- **Your data and settings** — the clubs, the tee-sheet history, your bookings, friends and preferences — are read
+  by every 1.x version as they are, and an update never asks you to set things up again.
+- **Starting it** stays the same: `teetime-monitor-web`, `teetime-monitor`, the Windows and Linux start files,
+  the Raspberry Pi service and its address.
+- **It only books when you press the button**, and only for you.
+
+What may change in a 1.x update: how things look and where they sit on the page, and new features. Something that
+would need you to act — a setting that moves for good, a feature that goes — waits for 2.0 and is announced first.
 
 ## More
 

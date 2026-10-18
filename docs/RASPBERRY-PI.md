@@ -37,10 +37,14 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
   adapts to phones and tablets.
 - The password is set with `teetime-monitor-web --set-password` and changed later in **Settings > Server password**. It is stored only as a salted hash in
   `~/.config/teetime-monitor/web_auth.json` (readable by you only). Logging in gives a browser a cookie for 30
-  days (**View > Log out** ends it); changing the password logs every browser out. Five wrong guesses lock
+  days (**Settings > About > Log out** ends it); changing the password logs every browser out. Five wrong guesses lock
   that device out for 30 seconds, doubling each time.
 
 ## Updates
+
+> **Coming from 0.99.x?** Those versions do not recognise the 1.0 release candidates (`1.0.0rc1`, …), so their
+> **Update now** does not offer them. Run the install command above once more; it installs the newest release over
+> the old one and keeps your settings and data. From then on the button (and the night update) work again.
 
 Every few hours (and when a page asks while the last look is over an hour old) the server looks at GitHub's public release list (one plain request, nothing about you is sent)
 and, when a newer version exists, every page shows **Version X is available** above the days, with a link to the

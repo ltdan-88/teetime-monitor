@@ -449,7 +449,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .dh .rain, .dh .wind, .dh .sun { display: none; }
   .dh .heat { grid-column: 1 / -1; justify-content: flex-start; }
   .dh .heat span { width: calc((100% - 1.25rem) / 6); }
-  .dh .badge-slot { justify-content: flex-end; padding-right: 0; }
+  .dh .badge-slot { justify-content: flex-end; padding-right: 0; flex-wrap: wrap; row-gap: 0.25rem; }  /* a narrow phone: the count and the booking stack */
   .dh .events { grid-column: 2 / -1; }
   /* time, seats, chip, then (on the right) weather icon, temperature, rain and wind: it all fits on one slim row */
   .slot { grid-template-columns: 3.9rem 4.9rem auto minmax(0, 1fr) 1.4rem 2.1rem 2.4rem 1.7rem; height: auto; min-height: 2.25rem; column-gap: 0.3rem; row-gap: 0.125rem; padding: 0.25rem 0; }
@@ -470,6 +470,30 @@ dl.legend dd { margin: 0; color: var(--mid); }
   .slot .blocked-note { grid-row: 1; grid-column: 2 / 5; }
   .blocked-text { font-size: 0.8125rem; padding-left: 0.3rem; }
   .slot .people:empty { display: none; }
+  .card { container: daycard / inline-size; }
+}
+/* a small phone, or a large text size: an opened day gives up a column at a time, wind first, then rain, then the
+   weather icon (the day's header has them all), and at the very narrowest smaller seat squares. In rem, so a larger
+   text size reaches them sooner. */
+@container daycard (max-width: 15rem) {  /* the header too: the date, the badges and the bars (the temperature is gone already) */
+  .dh { grid-template-columns: 1.375rem max-content 0 minmax(0, 1fr) auto; }
+  .dh > :nth-child(3) { display: none; }
+}
+@container daycard (max-width: 21.5rem) {
+  .slot, .slots-head { grid-template-columns: 3.9rem 4.9rem auto minmax(0, 1fr) 1.4rem 2.1rem 2.4rem; }
+  .slot .wind, .slots-head .cell:nth-child(3) { display: none; }
+}
+@container daycard (max-width: 20.5rem) {
+  .slot, .slots-head { grid-template-columns: 3.9rem 4.9rem auto minmax(0, 1fr) 1.4rem 2.1rem; }
+  .slot .rain, .slots-head .cell:nth-child(2) { display: none; }
+}
+@container daycard (max-width: 18rem) {
+  .slot, .slots-head { grid-template-columns: 3.4rem 3.8rem auto minmax(0, 1fr) 2.1rem; }
+  .slot .wx { display: none; }
+  .slot .temp { grid-column: 5; }
+  .slots-head .cell:first-child { grid-column: 5; }
+  .slot .seats { gap: 0.15rem; }
+  .slot .seat { width: 0.8rem; height: 0.8rem; }
 }
 
 /* ---- pinned day header, dimmed out-of-window slots, fixed sheet layouts ---- */

@@ -15,7 +15,7 @@
 
 <p align="center"><a href="README.md">🇬🇧 English</a> · 🇩🇪 <strong>Deutsch</strong></p>
 
-<p align="center"><img src="assets/de/web-overview.png" alt="Die Woche auf einen Blick: eine Karte pro buchbarem Tag mit Wetter, der empfohlenen Zeit und der Auslastung"></p>
+<p align="center"><img src="assets/de/web-overview.png" alt="Die Woche auf einen Blick: eine Karte pro buchbarem Tag mit Wetter, wie viele Zeiten zu deinen Vorgaben passen, und der Auslastung"></p>
 
 ## Was es macht
 
@@ -23,8 +23,9 @@ Golfclubs im deutschsprachigen Raum veröffentlichen ihre Startlisten über die 
 wer wann spielt, welche Zeiten noch frei sind. Die Liste ist öffentlich. Teetime Monitor liest sie für dich und
 ergänzt, was die Seite des Clubs dir nicht sagt:
 
-- ⛳ **Eine empfohlene Zeit für jeden Tag** — die mit trockenem Wetter, wenig Wind, Platz um deine Gruppe und
-  Tageslicht in Reserve. Oder der Grund, warum es keine gibt („zu dunkel für die Runde“, „Regen den ganzen Tag“).
+- ⛳ **Wie viele Zeiten an jedem Tag zu deinen Vorgaben passen** — die Zahl antippen zeigt sie; im geöffneten Tag
+  ist die beste mit ★ markiert: trocken, wenig Wind, Platz um deine Gruppe, Tageslicht in Reserve. Oder der Grund,
+  warum es keine gibt („Regen“, „dunkel“).
 - 🌦 **Die Vorhersage für jede einzelne Startzeit**, nicht nur für den Tag.
 - 🌙 **Eine Warnung, wenn die Runde vor Sonnenuntergang nicht fertig würde.**
 - 👥 **Wer spielt** — Freunde, die du markierst, bekommen einen Stern.
@@ -63,8 +64,9 @@ Es öffnet sich ein Fenster mit deiner Woche. **Schließt du das Fenster, endet 
 
 1. **Club finden.** Oben das Club-Menü öffnen, **＋ Club hinzufügen…** wählen und nach dem Namen suchen — oder den
    Buchungslink deines Clubs bei pc caddie einfügen. Zum Lesen der Startliste ist kein Login nötig.
-2. **Die Woche ansehen.** Jede Karte ist ein Tag. Der ★ ist die empfohlene Zeit, eine Fahne eine Zeit, die du gebucht hast.
-3. **Einen Tag anklicken**, um alle Startzeiten zu sehen — mit den Spielern und dem Wetter für jede.
+2. **Die Woche ansehen.** Jede Karte ist ein Tag. Die Zahl sagt, wie viele Zeiten zu deinen Vorgaben passen (antippen
+   zeigt sie), eine Fahne ist eine Zeit, die du gebucht hast.
+3. **Einen Tag anklicken**, um alle Startzeiten zu sehen — mit den Spielern und dem Wetter für jede. Der ★ markiert die beste.
 4. **Deine Vorgaben** einmal unter **Präferenzen** eintragen — welche Zeiten werktags und am Wochenende passen, wie viele
    Spieler, wie viel Wind oder Regen du hinnimmst. Ab dann richtet sich der ★ nach dir.
 5. **Zeit gefunden?** Anklicken und *Jetzt buchen* wählen (braucht deinen pc-caddie-Login unter Einstellungen). Gebucht wird
@@ -77,7 +79,7 @@ und das Spielerverzeichnis.
 
 <table>
 <tr>
-<td width="50%"><b>Suchen</b> — für die Ausnahmen: „nur dieses Mal, zu dritt, nach 15 Uhr“. Aus deinen Vorgaben vorbelegt, du änderst nur eine Sache.<br><br><img src="assets/de/web-search.png" alt="Suchergebnisse mit Wetter zu jeder Zeit"></td>
+<td width="50%"><b>Suchen</b> — jede freie Zeit der kommenden Tage, mit einem Tipp eingegrenzt: ein Tag, eine Tageszeit, freie Plätze, Freunde. Es öffnet mit deinen eigenen Vorgaben, du änderst nur eine Sache.<br><br><img src="assets/de/web-search.png" alt="Suchergebnisse mit Wetter zu jeder Zeit"></td>
 <td width="50%"><b>Auslastungs-Heatmap</b> — welche Stunden an welchem Wochentag voll werden, gelernt aus deinem eigenen Verlauf. Sie braucht erst ein paar Wochen Daten.<br><br><img src="assets/de/web-heatmap.png" alt="Die Heatmap: Stunden gegen Wochentage"></td>
 </tr>
 <tr>
@@ -88,9 +90,10 @@ und das Spielerverzeichnis.
 
 Der ★ ist nicht einfach die früheste Zeit. Jede spielbare Zeit wird bewertet nach dem Wetter über die ganze Runde (gegen
 *deine* Grenzen), Platz um deine Gruppe, einer ruhigen Stunde und Tageslicht in Reserve — kostenlos, auf deinem eigenen
-Rechner, ohne KI. Fahr über das Abzeichen, um den Grund zu sehen, z. B. „trocken · viel Platz um dich · Tageslicht in
-Reserve“. Ist dein Platz zu dunkel für die Runde, ein kürzerer im Club aber passt noch, schlägt es stattdessen den vor.
-Ein Tag, der noch nicht buchbar ist, zeigt 🔒 und wann er aufgeht.
+Rechner, ohne KI. Der geöffnete Tag nennt den Grund, z. B. „trocken · viel Platz um dich · Tageslicht in Reserve“. Ist
+dein Platz zu dunkel für die Runde, ein kürzerer im Club aber passt noch, schlägt es stattdessen den vor. Ein Tag, der
+noch nicht buchbar ist, zeigt 🔒 und wann er aufgeht. Das Wettersymbol eines geöffneten Tages antippen zeigt seine
+Vorhersage bei meteoblue, Windy, Ventusky oder Yr (Auswahl unter Einstellungen → Darstellung).
 
 ### Lieber im Terminal?
 
@@ -107,13 +110,14 @@ Dieselbe Woche, derselbe ★, dieselben Vorgaben. Jeder Bildschirm hat eine Tast
 | Spieler | **p** | **p** |
 | Meine Reservierungen (Buchungen ansehen und stornieren) | **b** | **b** |
 | Turniere (der Kalender des Clubs als Monatsansicht) | **t** | – |
+| Vergangene Tage | **v** | – |
 | Präferenzen · Einstellungen | **e** · **,** | **,** · **s** |
 | Club hinzufügen | **a** | **a** |
 | Legende (was jedes Symbol heißt) | **?** | **?** |
 | Fenster schließen · beenden | **esc** | **esc** · **q** |
 
-Das Terminal hat außerdem ein **Aktionen**-Menü (**t**) und elf Farbschemata; im Browser findest du sie unter
-**Ansicht**, zusammen mit Deutsch/Englisch, Einheiten und Textgröße.
+Das Terminal hat außerdem ein **Aktionen**-Menü (**t**) und elf Farbschemata; im Browser findest du die Schemata unter
+**Einstellungen → Darstellung**, zusammen mit Deutsch/Englisch und Einheiten. Die Textgröße ist das **Aa** unten.
 
 <details>
 <summary>Mehr Terminal-Bilder</summary>
@@ -129,7 +133,7 @@ Das Terminal hat außerdem ein **Aktionen**-Menü (**t**) und elf Farbschemata; 
   übernehmen oder richte einen kleinen geplanten Auftrag ein: [docs/ADVANCED.de.md](docs/ADVANCED.de.md).
 - **Updates:** die Seite sagt dir, wenn es eine neue Version gibt („Version X ist verfügbar“), und wie du sie bekommst.
   Mac: `brew upgrade teetime-monitor`; Windows und Linux: neues Zip laden und den alten Ordner `userdata` hineinkopieren;
-  Raspberry Pi: ein Klick auf **Jetzt aktualisieren**.
+  Raspberry Pi: ein Klick auf **Jetzt aktualisieren**, oder es installiert Updates nachts von selbst (Einstellungen → Über).
 - **Deine Daten bleiben bei dir.** Dein pc-caddie-Login geht nur an pc caddie selbst. Die Browser-Version hört nur auf
   deinem eigenen Rechner (die Raspberry-Pi-Version braucht ein Passwort). Für Genaue:
   [docs/ADVANCED.de.md](docs/ADVANCED.de.md#datenschutz-und-sicherheit).
@@ -139,6 +143,20 @@ Das Terminal hat außerdem ein **Aktionen**-Menü (**t**) und elf Farbschemata; 
   - *Eine Buchung fehlt* — Buchungen werden bei jedem Abruf abgeglichen; **Aktualisieren** drücken.
   - *Die Heatmap sagt „noch keine Daten“* — normal am Anfang; sie braucht ein paar Wochen Verlauf.
   - *Keine Spielernamen* — dafür braucht es den pc-caddie-Login (Einstellungen), und es klappt nur, wenn dein Club Namen teilt.
+
+## Was in 1.x stabil bleibt
+
+Ab 1.0 macht ein Update nichts kaputt, was du schon hast:
+
+- **Deine Daten und Einstellungen** — die Clubs, der Verlauf der Startlisten, deine Buchungen, Freunde und Präferenzen —
+  liest jede 1.x-Version so, wie sie sind; nach einem Update musst du nichts neu einrichten.
+- **Das Starten** bleibt gleich: `teetime-monitor-web`, `teetime-monitor`, die Start-Dateien für Windows und Linux,
+  der Dienst auf dem Raspberry Pi und seine Adresse.
+- **Gebucht wird nur, wenn du den Knopf drückst**, und nur für dich.
+
+Was sich in einem 1.x-Update ändern darf: wie etwas aussieht und wo es auf der Seite sitzt, und neue Funktionen. Was dich
+zum Handeln brächte — eine Einstellung, die endgültig umzieht, eine Funktion, die wegfällt —, wartet auf 2.0 und wird
+vorher angekündigt.
 
 ## Mehr
 
