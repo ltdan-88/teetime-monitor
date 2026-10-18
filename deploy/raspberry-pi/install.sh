@@ -116,4 +116,4 @@ echo "  http://$HOST.local:$PORT"
 IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 [ -z "$IP" ] || echo "  http://$IP:$PORT"
 echo
-echo "Next: log in with the password, then Settings > pc caddie login (and, if you like, the AI key)."
+echo "Next: log in with the password, then Settings > pc caddie login."

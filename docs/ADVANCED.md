@@ -140,7 +140,8 @@ compares what a logged-in and an anonymous tee sheet show (for "login works but 
 
 - Your pc caddie login only ever goes to pc caddie's own login form. Weather comes from Open-Meteo (no key,
   nothing about you), club locations from OpenStreetMap, the update check is one plain request to GitHub's
-  public release list (switch it off with `TEETIME_MONITOR_NO_UPDATE_CHECK=1`).
+  public release list (switch it off with `TEETIME_MONITOR_NO_UPDATE_CHECK=1`). The weather site you can choose
+  under Settings → Display (off unless you choose one) is opened by your browser with the club's coordinates.
 - The browser version on your own computer listens on **127.0.0.1 only**, on a random port. Every request needs
   a random token that only the printed link contains (the page keeps it in a cookie scripts cannot read),
   other host names and other websites are refused, and the page may load nothing from the internet.

@@ -140,7 +140,8 @@ und vergleicht, was eine angemeldete und eine anonyme Startliste zeigen (für �
 
 - Dein pc-caddie-Login geht nur an das Anmeldeformular von pc caddie selbst. Das Wetter kommt von Open-Meteo (ohne Schlüssel,
   nichts über dich), Club-Standorte von OpenStreetMap, die Update-Prüfung ist eine einfache Anfrage an GitHubs öffentliche
-  Release-Liste (abschalten mit `TEETIME_MONITOR_NO_UPDATE_CHECK=1`).
+  Release-Liste (abschalten mit `TEETIME_MONITOR_NO_UPDATE_CHECK=1`). Die Wetterseite, die du unter Einstellungen →
+  Darstellung wählen kannst (aus, solange du keine wählst), öffnet dein Browser mit den Koordinaten des Clubs.
 - Die Browser-Version auf deinem eigenen Rechner hört **nur auf 127.0.0.1**, an einem zufälligen Port. Jede Anfrage braucht
   ein zufälliges Token, das nur der ausgegebene Link enthält (die Seite hält es in einem Cookie, das Skripte nicht lesen
   können); andere Hostnamen und andere Websites werden abgewiesen, und die Seite darf nichts aus dem Internet laden.
