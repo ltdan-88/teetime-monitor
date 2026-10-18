@@ -85,12 +85,26 @@ function useForm(groups) {
 
 // ---------------------------------------------------------------- Preferences
 
-/** The club's courses, each one you cannot play (a 9 hole membership), can play, or want Search to start with (the 9 hole
- *  course when the 6 hole one is only for a quick round). A choice saves at once. One course: nothing to choose, no card. */
+/** The club's courses, each one you cannot play (a 9 hole membership), can play, or want Search and the overview to start
+ *  with (the 9 hole course when the 6 hole one is only for a quick round); under one you play whose name does not say how
+ *  many holes it has, that number (the round's length for daylight and weather). A choice saves at once. One course and
+ *  nothing to ask: no card. */
 function useCoursesCard({ clubId, onSaved }) {
   const { data } = useLoad(() => (clubId ? api('/api/club/courses' + query({ club_id: clubId })) : Promise.resolve(null)), [clubId]);
   const [local, setLocal] = useState({});
-  if (!data || data.error || data.courses.length < 2) return null;
+  const [holes, setHoles] = useState({});
+  if (!data || data.error || (data.courses.length < 2 && !data.courses.some((course) => 'holes' in course))) return null;
+  const chooseHoles = async (course, value) => {
+    setHoles((current) => ({ ...current, [course.name]: value }));
+    try {
+      await post('/api/club/holes', { slug: data.slug, course: course.name, holes: value === '' ? null : Number(value) });
+      onSaved();
+    } catch (failure) {
+      setHoles((current) => ({ ...current, [course.name]: course.holes == null ? '' : String(course.holes) }));
+    }
+  };
+  const holeOptions = [{ value: '', label: t('settings.course_holes.auto') }, ...[9, 18].map((n) => ({ value: String(n), label: t('settings.course_holes.option', { n }) }))];
+  const stateOf = (course) => (course.name in local ? local[course.name] : course.state);
   const choose = async (course, state) => {
     setLocal((current) => ({ ...current, [course.name]: state }));
     try {
@@ -108,8 +122,12 @@ function useCoursesCard({ clubId, onSaved }) {
       ${data.courses.map((course, index) => html`
         <div class="field-row">
           <label for=${'c-play-' + index}>${course.name}</label>
-          <${Select} id=${'c-play-' + index} value=${course.name in local ? local[course.name] : course.state} options=${options} onChange=${(state) => choose(course, state)} />
-        </div>`)}
+          <${Select} id=${'c-play-' + index} value=${stateOf(course)} options=${options} onChange=${(state) => choose(course, state)} />
+        </div>
+        ${'holes' in course && stateOf(course) !== 'off' && html`<div class="field-row sub">
+          <label for=${'c-holes-' + index}>${t('preferences.course.holes')}</label>
+          <${Select} id=${'c-holes-' + index} value=${course.name in holes ? holes[course.name] : course.holes == null ? '' : String(course.holes)} options=${holeOptions} onChange=${(value) => chooseHoles(course, value)} />
+        </div>`}`)}
     </section>`,
   };
 }
@@ -154,14 +172,6 @@ function PreferencesForm({ groups, clubId, onClose, onSaved }) {
 
 function ClubsSection({ clubs, onChanged, onAddClub }) {
   const [confirmRemove, setConfirmRemove] = useState(null);
-  async function setDefault(club, course) {
-    await post('/api/club/default-course', { slug: club.slug, course });
-    onChanged();
-  }
-  async function setHoles(club, course, value) {
-    await post('/api/club/holes', { slug: club.slug, course, holes: value === '' ? null : Number(value) });
-    onChanged();
-  }
   async function remove(club) {
     await post('/api/club/remove', { club_id: club.id });
     setConfirmRemove(null);
@@ -176,24 +186,12 @@ function ClubsSection({ clubs, onChanged, onAddClub }) {
           <div class="club-head">
             <strong>${club.name}</strong><span class="dim num">${club.id}</span>
             <span class="grow"></span>
-            ${club.courses.length > 0 && html`
-              <${Select} id=${'dc-' + club.id} aria-label=${t('club.default_course')} title=${t('club.default_course')}
-                value=${club.default_course || club.courses[0]}
-                options=${club.courses.map((course) => ({ value: course, label: course }))} onChange=${(course) => setDefault(club, course)} />`}
             ${confirmRemove === club.id
               ? html`<span class="inline-confirm">${t('club.remove_confirm', { name: club.name })}
                   <button class="btn danger" onClick=${() => remove(club)}>${t('club.remove')}</button>
                   <button class="btn" onClick=${() => setConfirmRemove(null)}>${t('cancel')}</button></span>`
               : html`<button class="icon-btn danger" onClick=${() => setConfirmRemove(club.id)} aria-label=${t('club.remove')} title=${t('club.remove')}><${Icon} name="trash" size=${18} /></button>`}
           </div>
-          ${club.course_holes.length > 0 && html`<p class="hint">${t('settings.course_holes.hint')}</p>`}
-          ${club.course_holes.map((row) => html`
-            <div class="field-row">
-              <label for=${'ch-' + club.id + row.course}>${row.course}</label>
-              <${Select} id=${'ch-' + club.id + row.course} value=${row.holes == null ? '' : String(row.holes)}
-                options=${[{ value: '', label: t('settings.course_holes.auto') }, { value: '9', label: t('settings.course_holes.option', { n: 9 }) }, { value: '18', label: t('settings.course_holes.option', { n: 18 }) }]}
-                onChange=${(value) => setHoles(club, row.course, value)} />
-            </div>`)}
         </div>`)}
       <div class="actions"><button class="btn" onClick=${onAddClub}><${Icon} name="plus" size=${16} />${t('addclub.title')}</button></div>
     </section>`;

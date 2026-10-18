@@ -530,12 +530,12 @@ class Handler(BaseHTTPRequestHandler):
             kind = "settings" if path.endswith("settings") else "preferences"
             values = body.get("values") if isinstance(body.get("values"), dict) else {}
             return reply(settings_api.save(kind, values), HTTPStatus.BAD_REQUEST)
+        if route == ("POST", "/api/weather-site"):
+            return reply(settings_api.set_weather_site(arg("name") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/theme"):
             return reply(settings_api.set_theme(arg("name") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/login"):
             return self._json(settings_api.login(arg("username") or "", body.get("password") or "", arg("club_id")))
-        if route == ("POST", "/api/club/default-course"):
-            return reply(settings_api.set_default_course(arg("slug") or "", arg("course") or ""))
         if route == ("GET", "/api/club/courses"):
             return reply(settings_api.club_courses(**ref()))
         if route == ("POST", "/api/club/course-state"):

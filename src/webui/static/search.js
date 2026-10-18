@@ -4,7 +4,7 @@
 
 import {
   html, t, useState, useEffect, useLayoutEffect, useMemo, useRef, Sheet, Status, Condition, Icon, useLoad, api, query,
-  dayLabel, weekdayShort, WeatherHeads, WeatherCells, tempTone, temperature,
+  dayLabel, weekdayShort, WeatherHeads, WeatherCells, tempTone, temperature, WEATHER_SITE_NAMES,
 } from '/lib.js';
 import { PlayerNames, WhoChip, WhoList } from '/overview.js';
 
@@ -71,8 +71,10 @@ function seatSquares(slot) {
 }
 
 /** A day's heading: its weather (icon, high and low, as in the days of the overview); its count is in the strip. */
-function DayHead({ day, units }) {
-  return html`<div class="dayhead">${dayLabel(day.date)}${day.code != null && html`<${Condition} code=${day.code} size=${18} />`}
+function DayHead({ day, units, weatherUrl, weatherSite }) {
+  const label = weatherUrl && t('weather_site.open', { name: WEATHER_SITE_NAMES[weatherSite] });
+  const icon = day.code != null && html`<${Condition} code=${day.code} size=${18} />`;
+  return html`<div class="dayhead">${dayLabel(day.date)}${icon && weatherUrl ? html`<a class="wx-link" href=${weatherUrl} target="_blank" rel="noopener noreferrer" title=${label} aria-label=${label}>${icon}</a>` : icon}
     ${day.high != null && html`<span class="dh-temp num" title=${t('tip.temp')}><span style=${tempTone(day.high)}>${temperature(day.high, units)}°</span> / <span style=${tempTone(day.low)}>${temperature(day.low, units)}°</span></span>`}
 </div>`;
 }
@@ -96,7 +98,7 @@ function ResultRow({ slot, units, showHandicaps, onMark }) {
     </div>`;
 }
 
-export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onCourse, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
+export function SearchSheet({ club, startDay, weatherUrl, weatherSite, course: tabCourse, pageCourse, onCourse, units, showHandicaps, onClose, onMark, onPreferences, refreshKey, tabs }) {
   const ref = club.slug ? { slug: club.slug } : { club_id: club.id };
   const { data: loaded, loading, error, reload } = useLoad(() => api('/api/search/slots' + query({ ...ref, page_course: pageCourse || '' })), [club.id]);
   // one course at a time, the one of the course tab: the tab you chose, else where Search starts (Preferences)
@@ -211,7 +213,7 @@ export function SearchSheet({ club, startDay, course: tabCourse, pageCourse, onC
         ${view.groups.length === 0
           ? html`<div class="none">${t('search.none')}<div class="none-actions">${clearButton}${resetButton}</div></div>`
           : html`${view.groups.map((group) => html`<section class="daygroup" key=${group.date}>
-              <${DayHead} day=${days[group.date] || { date: group.date }} units=${units} />
+              <${DayHead} day=${days[group.date] || { date: group.date }} units=${units} weatherUrl=${weatherUrl} weatherSite=${weatherSite} />
               ${group.rows.map((slot) => html`<${ResultRow} key=${slot.date + slot.course + slot.time} slot=${slot} units=${units} showHandicaps=${showHandicaps}
                 onMark=${(picked) => onMark({ ...picked, ref })} />`)}</section>`)}`}
       </div>`}

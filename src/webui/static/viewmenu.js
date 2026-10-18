@@ -5,7 +5,7 @@
 import { CheckButton } from '/update.js';
 import {
   html, t, useState, useLayoutEffect, useRef, Select, Switch, Icon, post, SCALES, DEFAULT_SCALE, getScale, setScale,
-  themeNames, themeLabel, applyTheme, systemTheme,
+  themeNames, themeLabel, applyTheme, systemTheme, WEATHER_SITE_NAMES,
 } from '/lib.js';
 
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'de', label: 'Deutsch' }];
@@ -54,8 +54,9 @@ export function ViewMenu({ showHandicaps, history, onHistory, tips, onTips, open
     </span>`;
 }
 
-/** Settings' Display group: language, theme, scale (this device) and units, each applied at once. */
-export function DisplaySection({ boot, units, onDisplay, onLanguage }) {
+/** Settings' Display group: language, theme, scale (this device), units and the weather site a day's icon opens, each
+ *  applied at once. */
+export function DisplaySection({ boot, units, weatherSite, onDisplay, onLanguage }) {
   const [scale, setScaleState] = useState(getScale());
   const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const stepScale = (direction) => {
@@ -84,6 +85,10 @@ export function DisplaySection({ boot, units, onDisplay, onLanguage }) {
     <div class="field-row"><label for="v-units">${t('settings.field.units')}</label>
       <${Select} id="v-units" value=${units} options=${[{ value: 'metric', label: t('settings.units.metric') }, { value: 'imperial', label: t('settings.units.imperial') }]}
         onChange=${(value) => saveSetting('field-units', value, onDisplay, onLanguage, { units: value }, { units })} /></div>
+    <div class="field-row"><label for="v-weather">${t('settings.weather_site')}</label>
+      <${Select} id="v-weather" value=${weatherSite || ''}
+        options=${[{ value: '', label: t('settings.weather_site.none') }, ...Object.entries(WEATHER_SITE_NAMES).map(([value, label]) => ({ value, label: value === 'openmeteo' ? t('settings.weather_site.source', { name: label }) : label }))]}
+        onChange=${(value) => { const previous = weatherSite; onDisplay({ weatherSite: value || null }); post('/api/weather-site', { name: value }).catch(() => onDisplay({ weatherSite: previous })); }} /></div>
   </section>`;
 }
 

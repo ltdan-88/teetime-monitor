@@ -207,6 +207,25 @@ def search_courses(config: dict | None) -> set[str]:
 COURSE_STATES = ("off", "on", "default")
 
 
+def natural_key(name: str) -> list:
+    """A course name's sort key with its numbers as numbers: 6 holes, 9 holes, 18 holes (not 18, 6, 9)."""
+    return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", name)]
+
+
+def opening_course(config: dict | None, courses: list[str]) -> str | None:
+    """The course a club opens on in the overview: your Standard course in Preferences (the first, in a natural
+    order), else the club file's `default_course` (Settings chose it until 2026-10-18), else the first course you
+    can play, else the first one there is."""
+    chosen = sorted((course for course in search_courses(config) if course in courses), key=natural_key)
+    if chosen:
+        return chosen[0]
+    default = (config or {}).get("default_course")
+    if default in courses:
+        return default
+    playable = [course for course in courses if course not in excluded_courses(config)]
+    return (playable or courses or [None])[0]
+
+
 def set_course_state(slug: str, course: str, state: str, clubs_dir: Path | None = None) -> None:
     """One course of a club as one you cannot play (`off`), can play (`on`), or want Search to start with (`default`),
     keeping every other key. Each list disappears with its last entry. Same comment-loss caveat as `save_club_config()`."""

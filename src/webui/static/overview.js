@@ -1,7 +1,7 @@
 // The Overview's day cards: header (weather, match count, booking/lock/no-play badge, occupancy), expandable slots.
 
 import {
-  html, t, useState, Icon, Condition, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, quietOccupancyColor, occupancyState,
+  html, t, useState, Icon, Condition, WEATHER_SITE_NAMES, WeatherHeads, WeatherCells, tempTone, rainTone, windTone, dayLabel, opensText, temperature, windSpeed, amount, round, hcpText, quietOccupancyColor, occupancyState,
 } from '/lib.js';
 
 function pickTooltip(pick) {
@@ -79,7 +79,17 @@ function MatchCount({ day, best, onSearch }) {
     onClick=${go} onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && go(event)}><${Icon} name="search" size=${13} />${day.matches}</span>`;
 }
 
-function DayHeader({ day, open, onToggle, units, best, onSearch }) {
+/** A day's weather icon; on an opened day, with a weather site chosen in Settings, a way to that site (inside the header
+ *  button, so a tap must not also close the day). */
+function WeatherIcon({ code, url, site }) {
+  if (!url) return html`<${Condition} code=${code} />`;
+  const go = (event) => { event.stopPropagation(); window.open(url, '_blank', 'noopener'); };
+  const label = t('weather_site.open', { name: WEATHER_SITE_NAMES[site] });
+  return html`<span class="wx-link" role="link" tabindex="0" title=${label} aria-label=${label} onClick=${go}
+    onKeyDown=${(event) => (event.key === 'Enter' || event.key === ' ') && go(event)}><${Condition} code=${code} /></span>`;
+}
+
+function DayHeader({ day, open, onToggle, units, best, onSearch, weatherUrl, weatherSite }) {
   const w = day.weather;
   const label = dayLabel(day.date);
   const rainTip = t('tip.rain') + (w && w.rain_all_day ? ' — ' + t('rain_all_day') : '');
@@ -88,7 +98,7 @@ function DayHeader({ day, open, onToggle, units, best, onSearch }) {
     <button class="dh" onClick=${onToggle} aria-expanded=${open} aria-label=${t(open ? 'collapse' : 'expand', { day: label })}>
       <${Icon} name="chevron" size=${18} class="chev" />
       <span class="day">${label}</span>
-      <span>${w && html`<${Condition} code=${w.code} />`}</span>
+      <span>${w && html`<${WeatherIcon} code=${w.code} url=${open ? weatherUrl : null} site=${weatherSite} />`}</span>
       <span class="temp" title=${t('tip.temp')}>
         ${w && w.temp_high != null && html`<${Icon} name="thermo" size=${16} class="dim" /><span style=${tempTone(w.temp_high)}>${temperature(w.temp_high, units)}°</span><span class="lo">/<span style=${tempTone(w.temp_low)}>${temperature(w.temp_low, units)}°</span></span>`}
       </span>
@@ -194,10 +204,10 @@ function SlotRow({ slot, day, units, showHandicaps, onPick, onTournament }) {
     </div>`;
 }
 
-export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, best, onSearch }) {
+export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onTournament, onAlternative, best, onSearch, weatherUrl, weatherSite }) {
   return html`
     <section class=${'card' + (open ? ' open' : '')}>
-      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} best=${best} onSearch=${onSearch} />
+      <${DayHeader} day=${day} open=${open} onToggle=${onToggle} units=${units} best=${best} onSearch=${onSearch} weatherUrl=${weatherUrl} weatherSite=${weatherSite} />
       ${open && html`<div class="slots">
         ${(() => {
           const note = dayNote(day);
