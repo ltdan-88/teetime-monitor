@@ -1,12 +1,14 @@
 // "My reservations": your upcoming bookings at every saved club, each with a cancel button (src/webui/data.py reservations()).
 
-import { html, t, useState, useEffect, Sheet, Status, Icon, api, dayLabel } from '/lib.js';
+import { html, t, useState, useEffect, Sheet, Status, Icon, api, dayLabel, updatedText } from '/lib.js';
 
 /** The list comes at once from what is known; pc caddie is then asked for the true state (bookings made on its
- *  own site appear, cancelled ones go) and the list is replaced. */
+ *  own site appear, cancelled ones go) and the list is replaced -- unless it was read a few minutes ago, which the
+ *  line under the list says, with a button to read it again now. */
 export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
-  const [state, setState] = useState(null); // { reservations, refresh_problems }
+  const [state, setState] = useState(null); // { reservations, refresh_problems, checked_at }
   const [checking, setChecking] = useState(true);
+  const [force, setForce] = useState(0);
   useEffect(() => {
     let live = true;
     setChecking(true);
@@ -18,7 +20,7 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
         /* the check below tries again */
       }
       try {
-        const fresh = await api('/api/reservations?refresh=1');
+        const fresh = await api('/api/reservations?refresh=1' + (force ? '&force=1' : ''));
         if (live) setState(fresh);
       } catch (failure) {
         if (live) setState((current) => ({ reservations: (current && current.reservations) || [], refresh_problems: [{ club: '', reason: 'network' }] }));
@@ -26,7 +28,7 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
       if (live) setChecking(false);
     })();
     return () => { live = false; };
-  }, [refreshKey]);
+  }, [refreshKey, force]);
 
   const list = (state && state.reservations) || [];
   const problems = ((state && state.refresh_problems) || []).map((p) => p.club).filter(Boolean).join(', ');
@@ -43,5 +45,7 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey }) {
           <button class="icon-btn danger" onClick=${() => onCancel(item)} aria-label=${t('reservations.cancel')} title=${t('reservations.cancel')}><${Icon} name="trash" size=${18} /></button>
         </li>`)}
     </ul>
+    ${!checking && state && state.checked_at && html`<p class="resv-checked dim">${updatedText(new Date(state.checked_at * 1000).toISOString())}
+      <button class="icon-btn" onClick=${() => setForce((n) => n + 1)} aria-label=${t('reservations.check_now')} title=${t('reservations.check_now')}><${Icon} name="refresh" size=${16} /></button></p>`}
   <//>`;
 }

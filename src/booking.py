@@ -15,10 +15,22 @@ must show (or no longer show) the booking.
 
 The site serves a bare PHP session only to requests that look like a browser; the session here carries a
 browser-compatible User-Agent with our own product token appended.
+
+Faster, without more requests (2026-10-18): the login is the one `scraper.logged_in()` keeps (a booking right after
+a scrape pass or a look at My Reservations does not log in again), and the pages before the first click that
+changes anything -- the tee sheet and the booking form, or My Reservations and the booking's page -- can be read
+while the person still reads the dialog (`prepare()`). Pressing the button then only sends the two or three
+requests that book or cancel and read the result. Progress is reported step by step (`start()`, `job()`).
 """
 
+import contextlib
 import re
+import secrets
+import threading
+import time as time_module
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -52,23 +64,13 @@ class BookingResult:
     sync: ReservationsSync | None = None  # the My Reservations page read to verify it: recorded without a second login
 
 
-def user_agent() -> str:
-    try:
-        from importlib.metadata import version
-
-        product = version("teetime-monitor")
-    except Exception:  # noqa: BLE001 -- a checkout that was never installed
-        product = "dev"
-    return (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
-        f"Chrome/130.0.0.0 Safari/537.36 teetime-monitor/{product}"
-    )
+user_agent = scraper.user_agent  # the browser-like user agent naming this program (moved to scraper.py)
 
 
 def open_session(club_id: str, username: str, password: str) -> httpx.Client:
     """A logged-in client that pc caddie treats like a browser session. Raises BookingError('login') when the
     login is refused, BookingError('network') when the site cannot be reached."""
-    client = httpx.Client(timeout=_TIMEOUT, follow_redirects=True, headers={"User-Agent": user_agent(), "Accept-Language": "en-US,en;q=0.9"})
+    client = scraper.new_client(_TIMEOUT)
     try:
         response = client.post(
             scraper.club_url(club_id, "start"),
@@ -170,9 +172,33 @@ def find_booking_link(sheet_html: str, time: str) -> str:
 # ---- booking -------------------------------------------------------------------------------------------
 
 
-def book_slot(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
-    """Book `time` on `date` on `course` for yourself alone and confirm it. Raises BookingError."""
-    aliases = scraper.fetch_course_aliases(club_id, client)  # on the session's own connection
+@dataclass
+class Prepared:
+    """The pages read before the first click that changes anything: the booking form (book) or the booking's own
+    page (cancel), with what the next step needs. Read while the dialog is open, used when the button is pressed."""
+
+    kind: str  # "book" | "cancel"
+    url: str
+    html: str
+    courses: list[str] = dataclass_field(default_factory=list)
+    ahead: bool = False  # read before the button was pressed (a refusal then reads it all again, once)
+
+
+class _Stale(Exception):
+    """A page read ahead was refused before anything was booked or cancelled: read it again, then go on."""
+
+
+def _check_logged_in(response: httpx.Response) -> httpx.Response:
+    if scraper.logged_out(response.text):
+        raise scraper.SessionExpired("the session ran out")
+    return response
+
+
+def prepare_book(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> Prepared:
+    """Tee sheet -> the time's booking link -> the booking form: reading only, nothing reserved yet."""
+    aliases = scraper.fetch_course_aliases(club_id, client)  # remembered for hours; on the session's own connection
+    if course not in aliases:  # a course that is new since: the list read fresh once
+        aliases = scraper.fetch_course_aliases(club_id, client, fresh=True)
     alias = aliases.get(course)
     if alias is None:
         raise BookingError("unknown_course", course)
@@ -181,25 +207,36 @@ def book_slot(client: httpx.Client, club_id: str, course: str, date: str, time: 
     if sheet.status_code >= 400:
         raise BookingError("network", f"tee sheet answered {sheet.status_code}")
     link = find_booking_link(sheet.text, time)
-
-    form_page = _get(client, urljoin(SITE, link), referer=sheet_url)
-    form = _soup(form_page.text).find("form", id="frm_book_data")
-    if form is None:
+    form_page = _check_logged_in(_get(client, urljoin(SITE, link), referer=sheet_url))
+    if _soup(form_page.text).find("form", id="frm_book_data") is None:
         raise BookingError("blocked", _message(form_page.text) or f"the booking page answered {form_page.status_code}")
-    action = urljoin(str(form_page.url), form.get("action", ""))
-    step2 = _post(client, action, _form_data(form, ("task", "prebook")), referer=str(form_page.url))
+    return Prepared("book", str(form_page.url), form_page.text, list(aliases))
 
+
+def commit_book(client: httpx.Client, club_id: str, course: str, date: str, time: str, prepared: Prepared, progress=None) -> BookingResult:
+    """"Make this reservation" -> "Confirm booking" -> My Reservations must show it."""
+    form = _soup(prepared.html).find("form", id="frm_book_data")
+    action = urljoin(prepared.url, form.get("action", ""))
+    step2 = _check_logged_in(_post(client, action, _form_data(form, ("task", "prebook")), referer=prepared.url))
     prebook = _soup(step2.text).find("form", id="frm_book_prebook")
     if prebook is None:
+        if prepared.ahead:
+            raise _Stale()
         raise BookingError("rejected", _message(step2.text) or "pc caddie did not offer the reservation")
     finish = _post(client, urljoin(str(step2.url), prebook.get("action", "")), _form_data(prebook, ("task", "finish")), referer=str(step2.url))
     if finish.status_code >= 400:
         raise BookingError("rejected", _message(finish.text) or f"pc caddie answered {finish.status_code}")
-
-    html, parsed = reservations(client, club_id, list(aliases))
+    if progress:
+        progress("confirm")
+    html, parsed = reservations(client, club_id, prepared.courses)
     if not _listed(parsed, course, date, time):
         raise BookingError("unconfirmed", _message(finish.text) or "the booking is not in My Reservations")
     return BookingResult(club_id, course, date, time, _sync_of(html, parsed))
+
+
+def book_slot(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
+    """Book `time` on `date` on `course` for yourself alone and confirm it. Raises BookingError."""
+    return commit_book(client, club_id, course, date, time, prepare_book(client, club_id, course, date, time))
 
 
 # ---- My Reservations ---------------------------------------------------------------------------------------
@@ -264,18 +301,22 @@ _CANCEL_WORDS = re.compile(r"cancel|storn|l[öo]sch|delete", re.I)
 _BACK_WORDS = re.compile(r"back|zur[üu]ck|overview|[üu]bersicht", re.I)
 
 
-def cancel_booking(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
-    """Cancel your booking of `time` on `date` on `course`. Raises BookingError('not_found') when My Reservations
-    does not show it (cancelled already, or never made)."""
-    courses = list(scraper.fetch_course_aliases(club_id, client))  # once for both reads of My Reservations
+def prepare_cancel(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> Prepared:
+    """My Reservations -> the booking's row -> its own page with the cancel button: reading only."""
+    courses = list(scraper.fetch_course_aliases(club_id, client))  # for both reads of My Reservations
     html, parsed = reservations(client, club_id, courses)
     if not _listed(parsed, course, date, time):
         raise BookingError("not_found", f"no booking at {time} on {date}")
     list_url = scraper.club_url(club_id, scraper.MY_RESERVATIONS_CATEGORY)
-    page = _get(client, urljoin(SITE, _cancel_link(html, course, date, time)), referer=list_url)
-    form = next((f for f in _soup(page.text).find_all("form") if f.find("input", attrs={"type": "checkbox"})), None)
-    if form is None:
+    page = _check_logged_in(_get(client, urljoin(SITE, _cancel_link(html, course, date, time)), referer=list_url))
+    if next((f for f in _soup(page.text).find_all("form") if f.find("input", attrs={"type": "checkbox"})), None) is None:
         raise BookingError("changed", _message(page.text) or "the cancellation page has no form")
+    return Prepared("cancel", str(page.url), page.text, courses)
+
+
+def commit_cancel(client: httpx.Client, club_id: str, course: str, date: str, time: str, prepared: Prepared, progress=None) -> BookingResult:
+    """"Cancel selected bookings" -> My Reservations must no longer show it."""
+    form = next(f for f in _soup(prepared.html).find_all("form") if f.find("input", attrs={"type": "checkbox"}))
     boxes = form.find_all("input", attrs={"type": "checkbox"})
     for box in boxes:  # your one booking, selected as the page does it; select it if the page left it open
         if len(boxes) == 1 and not box.has_attr("checked"):
@@ -288,14 +329,26 @@ def cancel_booking(client: httpx.Client, club_id: str, course: str, date: str, t
     if button is None:
         raise BookingError("changed", "the cancellation page has no cancel button")
     pressed = (button["name"], button.get("value", "")) if button.get("name") else None
-    action = urljoin(str(page.url), form.get("action", "") or str(page.url))
-    done = _post(client, action, _form_data(form, pressed), referer=str(page.url))
+    action = urljoin(prepared.url, form.get("action", "") or prepared.url)
+    done = _post(client, action, _form_data(form, pressed), referer=prepared.url)
+    if scraper.logged_out(done.text):
+        raise scraper.SessionExpired("the session ran out")  # not sent as you: nothing was cancelled
     if done.status_code >= 400:
         raise BookingError("rejected", _message(done.text) or f"pc caddie answered {done.status_code}")
-    html, parsed = reservations(client, club_id, courses)
+    if progress:
+        progress("confirm")
+    html, parsed = reservations(client, club_id, prepared.courses)
     if _listed(parsed, course, date, time):
+        if prepared.ahead:
+            raise _Stale()  # the page read ahead may have been out of date: read it again and try once more
         raise BookingError("unconfirmed", _message(done.text) or "the booking is still in My Reservations")
     return BookingResult(club_id, course, date, time, _sync_of(html, parsed))
+
+
+def cancel_booking(client: httpx.Client, club_id: str, course: str, date: str, time: str) -> BookingResult:
+    """Cancel your booking of `time` on `date` on `course`. Raises BookingError('not_found') when My Reservations
+    does not show it (cancelled already, or never made)."""
+    return commit_cancel(client, club_id, course, date, time, prepare_cancel(client, club_id, course, date, time))
 
 
 # ---- what both front ends call -----------------------------------------------------------------------
@@ -305,17 +358,18 @@ _DATE_OK = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_OK = re.compile(r"^\d{2}:\d{2}$")
 
 
-def _session_for(club: dict, date: str, time: str) -> tuple[httpx.Client, None] | tuple[None, dict]:
-    """(a logged-in session, None), or (None, the `{"error": ...}` answer) when it cannot be started."""
-    if not (_TIME_OK.match(time or "") and _DATE_OK.match(date or "")):
-        return None, {"error": "bad_time"}
+@contextlib.contextmanager
+def session_for(club: dict, fresh: bool = False):
+    """The logged-in session for `club` (the kept one while it is fresh, see `scraper.logged_in()`). Raises
+    BookingError: no_login, login (refused), network."""
     username, password = club_config.resolve_credentials(club.get("slug") or club["id"])
     if not username or not password:
-        return None, {"error": "no_login"}
+        raise BookingError("no_login")
     try:
-        return open_session(club["id"], username, password), None
-    except BookingError as error:
-        return None, {"error": error.reason, "message": error.message}
+        with scraper.logged_in(club["id"], username, password, fresh=fresh, login_with=open_session) as client:
+            yield client
+    except httpx.HTTPError as error:
+        raise BookingError("network", str(error)) from error
 
 
 def _read_back(club: dict, db_path: Path) -> None:
@@ -325,18 +379,95 @@ def _read_back(club: dict, db_path: Path) -> None:
         scrape_once._sync_my_reservations(club["id"], club["slug"], db_path, courses or None)
 
 
-def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str) -> dict:
-    """Book for yourself on pc caddie, then record it. `club` is {"id", "slug", "name"}. `{"ok": True}` or
-    `{"error": reason, "message": ...}`; nothing is recorded unless pc caddie accepted it."""
-    client, failure = _session_for(club, date, time)
-    if failure is not None:
-        return failure
+# ---- read ahead while the dialog is open ------------------------------------------------------------------------
+# {(kind, club id, course, date, time): (when, Event set once read, Prepared or None)}. Kept PREPARED_SECONDS: the
+# booking form's one-time values are fresh enough for that long, and a dialog left open longer just reads again.
+PREPARED_SECONDS = 120
+_prepared: dict[tuple, list] = {}
+_prepared_lock = threading.Lock()
+
+
+def _valid(date: str, time: str) -> bool:
+    return bool(_TIME_OK.match(time or "") and _DATE_OK.match(date or ""))
+
+
+def prepare(club: dict, kind: str, course: str, date: str, time: str) -> dict:
+    """Read the pages before the first click that changes anything, in the background, for the dialog that is open.
+    Nothing is booked or cancelled. Reading the same thing twice within PREPARED_SECONDS is not repeated."""
+    if kind not in ("book", "cancel") or not _valid(date, time):
+        return {"error": "bad_time"}
+    key = (kind, club["id"], course, date, time)
+    with _prepared_lock:
+        held = _prepared.get(key)
+        if held and time_module.monotonic() - held[0] < PREPARED_SECONDS:
+            return {"ok": True}
+        entry = [time_module.monotonic(), threading.Event(), None]
+        _prepared[key] = entry
+
+    def read() -> None:
+        try:
+            with session_for(club) as client:
+                reader = prepare_book if kind == "book" else prepare_cancel
+                entry[2] = reader(client, club["id"], course, date, time)
+                entry[2].ahead = True
+        except Exception:  # noqa: BLE001 -- pressing the button reads it again and says what is wrong
+            entry[2] = None
+        finally:
+            entry[1].set()
+
+    threading.Thread(target=read, daemon=True, name="booking-prepare").start()
+    return {"ok": True}
+
+
+def _take(kind: str, club: dict, course: str, date: str, time: str) -> Prepared | None:
+    """What was read ahead for this, waiting for a read still under way; used once."""
+    with _prepared_lock:
+        entry = _prepared.pop((kind, club["id"], course, date, time), None)
+    if entry is None:
+        return None
+    entry[1].wait(30)
+    if time_module.monotonic() - entry[0] > PREPARED_SECONDS:
+        return None
+    return entry[2]
+
+
+# ---- book and cancel, with progress -------------------------------------------------------------------------------
+
+
+def _run(kind: str, club: dict, course: str, date: str, time: str, progress) -> BookingResult:
+    """Book or cancel: with what was read ahead when there is something, else read now; a session that ran out, or a
+    page read ahead that pc caddie refused before anything changed, reads it all again once with a fresh login."""
+    prepared = _take(kind, club, course, date, time)
+    reader, committer = (prepare_book, commit_book) if kind == "book" else (prepare_cancel, commit_cancel)
+
+    def attempt(fresh: bool) -> BookingResult:
+        nonlocal prepared
+        progress("login")
+        with session_for(club, fresh=fresh) as client:
+            if prepared is None:
+                prepared = reader(client, club["id"], course, date, time)
+            progress(kind)
+            return committer(client, club["id"], course, date, time, prepared, progress)
+
     try:
-        result = book_slot(client, club["id"], course, date, time)
+        return attempt(False)
+    except (scraper.SessionExpired, _Stale):
+        prepared = None
+        return attempt(True)
+
+
+def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str, progress=None) -> dict:
+    """Book for yourself on pc caddie, then record it. `club` is {"id", "slug", "name"}. `{"ok": True}` or
+    `{"error": reason, "message": ...}`; nothing is recorded unless pc caddie accepted it. `progress(step)` hears
+    "login", "book" and "confirm" as they start."""
+    if not _valid(date, time):
+        return {"error": "bad_time"}
+    try:
+        result = _run("book", club, course, date, time, progress or (lambda step: None))
     except BookingError as error:
         return {"error": error.reason, "message": error.message}
-    finally:
-        client.close()
+    except scraper.SessionExpired:
+        return {"error": "login", "message": "pc caddie ended the session"}
     config = pipeline._resolved_config(club.get("slug"), club["id"], club.get("name"))
     storage.save_confirmed_booking(  # at once, whether or not the read-back works
         ConfirmedBooking(date=date, course=course, time=time, holes=recommend.holes_for_course(course, config), source="my_reservations", confirmed_at=datetime.now(UTC).isoformat()),
@@ -346,23 +477,65 @@ def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str) 
     return {"ok": True}
 
 
-def cancel_for_club(club: dict, db_path: Path, course: str, date: str, time: str) -> dict:
+def cancel_for_club(club: dict, db_path: Path, course: str, date: str, time: str, progress=None) -> dict:
     """Cancel your booking on pc caddie, then record "no booking that day"."""
-    client, failure = _session_for(club, date, time)
-    if failure is not None:
-        return failure
+    if not _valid(date, time):
+        return {"error": "bad_time"}
     try:
-        result = cancel_booking(client, club["id"], course, date, time)
+        result = _run("cancel", club, course, date, time, progress or (lambda step: None))
     except BookingError as error:
         return {"error": error.reason, "message": error.message}
-    finally:
-        client.close()
+    except scraper.SessionExpired:
+        return {"error": "login", "message": "pc caddie ended the session"}
     storage.save_confirmed_booking(  # the newest row wins, as the reconciliation writes it
         ConfirmedBooking(date=date, course=course, time=None, holes=None, source="my_reservations", confirmed_at=datetime.now(UTC).isoformat()),
         path=db_path,
     )
     _record_read(club, db_path, result)
     return {"ok": True}
+
+
+# {job id: {"kind", "state": running|ok|failed, "step", "error", "message", "at"}}: a booking pressed in the page runs
+# here while the page asks how far it got (`job()`); kept JOB_SECONDS after it ended.
+JOB_SECONDS = 600
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def start(kind: str, club: dict, db_path: Path, course: str, date: str, time: str, on_done=None) -> dict:
+    """Book or cancel in the background; `{"job": id}` at once, `job(id)` then says how far it is."""
+    if kind not in ("book", "cancel") or not _valid(date, time):
+        return {"error": "bad_time"}
+    job_id = secrets.token_hex(8)
+    state = {"kind": kind, "state": "running", "step": "login", "error": None, "message": None, "at": time_module.monotonic()}
+    with _jobs_lock:
+        for old in [key for key, value in _jobs.items() if time_module.monotonic() - value["at"] > JOB_SECONDS]:
+            del _jobs[old]
+        _jobs[job_id] = state
+
+    def step(name: str) -> None:
+        with _jobs_lock:
+            state["step"] = name
+
+    def work() -> None:
+        act = book_for_club if kind == "book" else cancel_for_club
+        try:
+            result = act(club, db_path, course, date, time, progress=step)
+        except Exception as error:  # noqa: BLE001 -- said on the page, never lost
+            result = {"error": "other", "message": f"{type(error).__name__}: {error}"}
+        if on_done:
+            on_done(result)
+        with _jobs_lock:
+            state.update(state="ok" if result.get("ok") else "failed", error=result.get("error"), message=result.get("message"), at=time_module.monotonic())
+
+    threading.Thread(target=work, daemon=True, name=f"booking-{kind}").start()
+    return {"job": job_id}
+
+
+def job(job_id: str) -> dict | None:
+    with _jobs_lock:
+        found = _jobs.get(job_id)
+        return {key: found[key] for key in ("kind", "state", "step", "error", "message")} if found else None
 
 
 def _record_read(club: dict, db_path: Path, result: BookingResult | None) -> None:
@@ -376,24 +549,39 @@ def _record_read(club: dict, db_path: Path, result: BookingResult | None) -> Non
         pass
 
 
-def upcoming_reservations(clubs: list[dict], refresh: bool = False) -> dict:
+# My Reservations read less than this long ago (by a scrape pass, a booking, or this window) is not read again unless
+# asked to (`force`): the window opens at once, and pc caddie is not asked for the same page every few seconds.
+RESERVATIONS_FRESH_SECONDS = 600
+
+
+def upcoming_reservations(clubs: list[dict], refresh: bool = False, force: bool = False) -> dict:
     """Your upcoming bookings at `clubs` ({"slug", "id", "name"} each), earliest first: what the databases know (the
     newest word per course and day), without cancelled bookings and without times already gone today. With
-    `refresh`, My Reservations is read from pc caddie first (bookings made on its own site appear, cancelled ones go);
-    `refresh_problems` then names the clubs where that did not work (no login saved, no connection)."""
+    `refresh`, My Reservations is read from pc caddie first (bookings made on its own site appear, cancelled ones go)
+    for each club not read in the last RESERVATIONS_FRESH_SECONDS (every one with `force`), two clubs at a time;
+    `refresh_problems` then names the clubs where that did not work (no login saved, no connection), and
+    `checked_at` is when the least recent of them was read (epoch seconds; None when never)."""
     today, now = clock.today(), clock.now_hhmm()
     found, problems = [], []
-    for club in clubs:
-        db = scrape_once._db_path(club["id"])
-        if refresh:
+    if refresh:
+        stale = [club for club in clubs if force or time_module.time() - scrape_once.RESERVATIONS_READ.get(str(scrape_once._db_path(club["id"])), 0) > RESERVATIONS_FRESH_SECONDS]
+
+        def read(club: dict) -> dict | None:
+            db = scrape_once._db_path(club["id"])
             courses = storage.upcoming_courses(today, path=db) if db.exists() else []
             status = scrape_once._sync_my_reservations(club["id"], club["slug"], db, courses or None)
-            if status != "ok":
-                problems.append({"club": club["name"], "reason": status or "no_login"})
+            return None if status == "ok" else {"club": club["name"], "reason": status or "no_login"}
+
+        with ThreadPoolExecutor(max_workers=2) as pool:  # the requests themselves still go one by one (scraper.pace())
+            problems = [problem for problem in pool.map(read, stale) if problem]
+    read_at = [scrape_once.RESERVATIONS_READ.get(str(scrape_once._db_path(club["id"]))) for club in clubs]
+    checked_at = None if not read_at or None in read_at else min(read_at)
+    for club in clubs:
+        db = scrape_once._db_path(club["id"])
         if not db.exists():
             continue
         for item in storage.load_all_confirmed_bookings(db):
             if item.time and (item.date > today or (item.date == today and item.time >= now)):
                 found.append({"slug": club["slug"], "club_id": club["id"], "club": club["name"], "course": item.course, "date": item.date, "time": item.time})
     found.sort(key=lambda r: (r["date"], r["time"], r["club"]))
-    return {"reservations": found, "refreshed": refresh, "refresh_problems": problems}
+    return {"reservations": found, "refreshed": refresh, "refresh_problems": problems, "checked_at": checked_at}

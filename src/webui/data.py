@@ -482,9 +482,9 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
     return (club, db_path_for(club["id"])) if club is not None else None
 
 
-def reservations(refresh: bool = False) -> dict:
+def reservations(refresh: bool = False, force: bool = False) -> dict:
     """Your upcoming bookings at every saved club (src/booking.py `upcoming_reservations`)."""
-    return booking.upcoming_reservations(club_entries(), refresh)
+    return booking.upcoming_reservations(club_entries(), refresh, force)
 
 
 _TOURNAMENT_CACHE: dict[str, tuple[float, list]] = {}
@@ -541,26 +541,32 @@ def tournaments(slug: str | None, club_id: str | None, refresh: bool = False) ->
     return {"tournaments": _tournament_weather(cached[1], club) if cached else [], "problem": problem}
 
 
-def book(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
-    """Book `time` on `date` on `course` for you alone, on pc caddie itself (src/booking.py)."""
+def book(slug: str | None, club_id: str | None, course: str, date: str, time: str, kind: str = "book") -> dict:
+    """Book `time` on `date` on `course` for you alone on pc caddie itself, or cancel your booking of it (`kind`
+    "cancel"), in the background: `{"job": id}` at once, `booking_job()` says how far it got (src/booking.py)."""
     found = _club_db(slug, club_id)
     if found is None:
         return {"error": "unknown_club"}
     club, db = found
-    result = booking.book_for_club(club, db, course, date, time)
-    _OVERVIEW_CACHE.clear()
-    return result
+    return booking.start(kind, club, db, course, date, time, on_done=lambda result: _OVERVIEW_CACHE.clear())
 
 
 def cancel(slug: str | None, club_id: str | None, course: str, date: str, time: str) -> dict:
-    """Cancel your booking of `time` on `date` on pc caddie itself."""
+    """Cancel your booking of `time` on `date` on pc caddie itself (see `book()`)."""
+    return book(slug, club_id, course, date, time, kind="cancel")
+
+
+def prepare_booking(slug: str | None, club_id: str | None, kind: str, course: str, date: str, time: str) -> dict:
+    """The booking dialog is open: read the pages before the button ahead (nothing is booked or cancelled)."""
     found = _club_db(slug, club_id)
     if found is None:
         return {"error": "unknown_club"}
-    club, db = found
-    result = booking.cancel_for_club(club, db, course, date, time)
-    _OVERVIEW_CACHE.clear()
-    return result
+    return booking.prepare(found[0], kind, course, date, time)
+
+
+def booking_job(job_id: str) -> dict:
+    found = booking.job(job_id)
+    return found if found is not None else {"error": "not_found"}
 
 
 def acknowledge_banners(slug: str | None, club_id: str | None, ids: list) -> dict:

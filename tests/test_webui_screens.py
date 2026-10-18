@@ -90,8 +90,8 @@ def fake_pccaddie(monkeypatch, *, fail: booking.BookingError | None = None, logi
     """pc caddie itself is replaced: every booking or cancellation that would reach it is recorded in the list."""
     calls: list = []
 
-    def attempt(kind):
-        def run(client, club_id, course, date, time):
+    def attempt(kind):  # what the button sends; reading ahead reaches nothing
+        def run(client, club_id, course, date, time, prepared, progress=None):
             calls.append((kind, club_id, course, date, time))
             if fail is not None:
                 raise fail
@@ -99,21 +99,37 @@ def fake_pccaddie(monkeypatch, *, fail: booking.BookingError | None = None, logi
         return run
 
     monkeypatch.setattr(booking, "open_session", lambda club_id, user, password: _FakeSession())
-    monkeypatch.setattr(booking, "book_slot", attempt("book"))
-    monkeypatch.setattr(booking, "cancel_booking", attempt("cancel"))
+    monkeypatch.setattr(booking, "prepare_book", lambda *args: booking.Prepared("book", "", ""))
+    monkeypatch.setattr(booking, "prepare_cancel", lambda *args: booking.Prepared("cancel", "", ""))
+    monkeypatch.setattr(booking, "commit_book", attempt("book"))
+    monkeypatch.setattr(booking, "commit_cancel", attempt("cancel"))
     monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret") if login else ("", ""))
     monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
     return calls
+
+
+def finished(started: dict) -> dict:
+    """A booking runs as a job (the page follows its steps): its outcome, as book_for_club() gives it."""
+    import time as clock
+
+    if "job" not in started:
+        return started
+    deadline = clock.time() + 5
+    while (state := booking.job(started["job"]))["state"] == "running" and clock.time() < deadline:
+        clock.sleep(0.01)
+    if state["state"] == "ok":
+        return {"ok": True}
+    return {"error": state["error"], **({"message": state["message"]} if state["message"] else {})}
 
 
 def test_booking_and_cancelling_on_pc_caddie_shows_in_the_overview(world, monkeypatch):
     calls = fake_pccaddie(monkeypatch)
     today = date.today().isoformat()
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None
-    assert data.book(SLUG, None, COURSE, today, "10:00") == {"ok": True}
+    assert finished(data.book(SLUG, None, COURSE, today, "10:00")) == {"ok": True}
     day = data.overview(SLUG, COURSE)["days"][0]
     assert day["booked_time"] == "10:00" and any(s["booked_by_you"] for s in day["slots"])
-    assert data.cancel(SLUG, None, COURSE, today, "10:00") == {"ok": True}
+    assert finished(data.cancel(SLUG, None, COURSE, today, "10:00")) == {"ok": True}
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None
     assert [c[0] for c in calls] == ["book", "cancel"] and calls[0][2:] == (COURSE, today, "10:00")
 
@@ -157,11 +173,11 @@ def test_the_read_back_after_a_booking_makes_no_further_request_to_the_site(worl
     seen = []
     monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, slug, db, courses=None: seen.append((club_id, slug, courses)) or "ok")
 
-    def forbidden(club_id, client=None):
+    def forbidden(club_id, client=None, fresh=False):
         raise AssertionError("the read-back must not ask the site for its courses")
 
     monkeypatch.setattr(booking.scraper, "fetch_course_aliases", forbidden)
-    assert data.book(SLUG, None, COURSE, date.today().isoformat(), "10:00") == {"ok": True}
+    assert finished(data.book(SLUG, None, COURSE, date.today().isoformat(), "10:00")) == {"ok": True}
     assert seen == [(CLUB_ID, SLUG, [COURSE])]
 
 
@@ -171,27 +187,27 @@ def test_the_page_that_verified_a_booking_is_recorded_without_another_login(worl
     fake_pccaddie(monkeypatch)
     today = date.today().isoformat()
     verified = ReservationsSync(bookings=[ConfirmedBooking(date=today, course=COURSE, time="10:00", source="my_reservations", confirmed_at="t")], my_handicap=18.4)
-    monkeypatch.setattr(booking, "book_slot", lambda client, club_id, course, day, time: booking.BookingResult(club_id, course, day, time, verified))
+    monkeypatch.setattr(booking, "commit_book", lambda client, club_id, course, day, time, prepared, progress=None: booking.BookingResult(club_id, course, day, time, verified))
 
     def forbidden(*args, **kwargs):
         raise AssertionError("the verified page is recorded as it is; no second login")
 
     monkeypatch.setattr(scrape_once, "_sync_my_reservations", forbidden)
-    assert data.book(SLUG, None, COURSE, today, "10:00") == {"ok": True}
+    assert finished(data.book(SLUG, None, COURSE, today, "10:00")) == {"ok": True}
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] == "10:00" and storage.load_my_handicap(path=world) == 18.4
 
 
 def test_a_booking_pc_caddie_refuses_changes_nothing_and_says_why(world, monkeypatch):
     calls = fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "no free seat"))
     today = date.today().isoformat()
-    assert data.book(SLUG, None, COURSE, today, "10:00") == {"error": "taken", "message": "no free seat"}
+    assert finished(data.book(SLUG, None, COURSE, today, "10:00")) == {"error": "taken", "message": "no free seat"}
     assert data.overview(SLUG, COURSE)["days"][0]["booked_time"] is None and len(calls) == 1
 
 
 def test_booking_needs_a_valid_time_a_known_club_and_a_pc_caddie_login(world, monkeypatch):
     calls = fake_pccaddie(monkeypatch, login=False)
     today = date.today().isoformat()
-    assert data.book(SLUG, None, COURSE, today, "10:00") == {"error": "no_login"}
+    assert finished(data.book(SLUG, None, COURSE, today, "10:00")) == {"error": "no_login"}
     fake_pccaddie(monkeypatch)
     assert data.book(SLUG, None, COURSE, today, "ten") == {"error": "bad_time"}
     assert data.book(SLUG, None, COURSE, "tomorrow", "10:00") == {"error": "bad_time"}
@@ -724,14 +740,19 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     assert _call(running, "POST", "/api/preferences", {"values": {"field-availability-min_open_spots": "2"}})[1] == {"ok": True}
     assert _call(running, "POST", "/api/preferences", {"values": {"field-preferences-avoid_rain_mm": "x"}})[0] == 400
     calls = fake_pccaddie(monkeypatch)
-    assert _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/booking/prepare", {"slug": SLUG, "kind": "book", "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
+    started = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1]
+    assert finished(started) == {"ok": True} and _call(running, "GET", f"/api/booking/job?id={started['job']}")[1]["state"] == "ok"
+    assert _call(running, "GET", "/api/booking/job?id=nope")[0] == 404
     assert _call(running, "GET", f"/api/overview?slug={SLUG}")[1]["days"][0]["booked_time"] == "10:00"
-    assert _call(running, "POST", "/api/booking/cancel", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1] == {"ok": True}
+    assert finished(_call(running, "POST", "/api/booking/cancel", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:00"})[1]) == {"ok": True}
     assert len(calls) == 2
     assert _call(running, "GET", "/api/reservations")[1]["reservations"] == []  # nothing is booked any more
     fake_pccaddie(monkeypatch, fail=booking.BookingError("taken", "gone"))
-    status, refused = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:10"})
-    assert status == 409 and refused == {"error": "taken", "message": "gone"}  # the page can tell it from a crash
+    started = _call(running, "POST", "/api/booking", {"slug": SLUG, "course": COURSE, "date": today, "time": "10:10"})[1]
+    assert finished(started) == {"error": "taken", "message": "gone"}
+    status, refused = _call(running, "GET", f"/api/booking/job?id={started['job']}")
+    assert status == 200 and refused["state"] == "failed" and refused["error"] == "taken"  # the page can tell it from a crash
     status, found = _call(running, "GET", f"/api/search/slots?slug={SLUG}")
     assert status == 200 and found["slots"] and found["mine"]["min_open_spots"] == 2
     assert _call(running, "GET", f"/api/players?slug={SLUG}")[1]["players"]

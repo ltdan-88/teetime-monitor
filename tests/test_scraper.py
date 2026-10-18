@@ -550,8 +550,12 @@ def test_scrape_my_reservations_returns_empty_list_for_confirmed_empty_state(mon
 
     assert result.bookings == []
     assert result.my_handicap is None
-    assert fake_client.closed
+    assert not fake_client.closed  # kept for the next read (scraper.logged_in()): no second login
     assert fake_client.get_calls[0] == "https://www.pccaddie.net/clubs/0000001/app.php?cat=reservations"
+    scrape_my_reservations("0000001", "user@example.com", "hunter2")
+    assert len(fake_client.post_calls) == 1 and len(fake_client.get_calls) == 2  # one login, two reads
+    scraper_module.reset_caches()
+    assert fake_client.closed
 
 
 def test_scrape_my_reservations_raises_for_unrecognized_markup(monkeypatch):
@@ -722,7 +726,7 @@ def test_scrape_my_reservations_returns_confirmed_bookings_for_a_real_row(monkey
     [booking] = scrape_my_reservations("0000001", "user@example.com", "hunter2").bookings
 
     assert (booking.date, booking.time, booking.course) == ("2026-09-07", "19:50", "6 Loch Platz")
-    assert fake_client.closed
+    assert not fake_client.closed  # the login is kept for the next read
 
 
 def test_scrape_my_reservations_also_reads_my_handicap_off_the_same_fetch(monkeypatch):
@@ -958,3 +962,73 @@ def test_capacity_is_read_from_the_table_header_not_assumed():
     schedule = parse_schedule_html(html, date="2026-09-07", course="Course")
     assert schedule.slots[0].capacity == 3  # not the usual 4
     assert schedule.slots[0].booked == 2
+
+
+# ---- a polite client: pacing, remembered course lists, reused logins (2026-10-18) -------------------------------
+
+
+def test_requests_to_pc_caddie_keep_a_gap_between_them(monkeypatch):
+    import time as clock
+
+    monkeypatch.setattr(scraper_module, "MIN_REQUEST_GAP", 0.05)
+    started = clock.monotonic()
+    for _ in range(4):
+        scraper_module.pace()
+    assert clock.monotonic() - started >= 0.15  # three gaps after the first
+
+
+def test_a_clubs_course_list_is_remembered_and_read_again_when_asked(monkeypatch):
+    reads = []
+    monkeypatch.setattr(scraper_module, "_read_course_aliases", lambda club_id, client=None: reads.append(club_id) or {"A": "a"})
+    assert scraper_module.fetch_course_aliases("1") == {"A": "a"}
+    assert scraper_module.fetch_course_aliases("1") == {"A": "a"} and reads == ["1"]  # remembered
+    scraper_module.fetch_course_aliases("1", fresh=True)
+    assert reads == ["1", "1"]
+    monkeypatch.setattr(scraper_module, "_read_course_aliases", lambda club_id, client=None: reads.append(club_id) or {})
+    scraper_module.fetch_course_aliases("2")
+    scraper_module.fetch_course_aliases("2")
+    assert reads.count("2") == 2  # an empty answer is not remembered
+
+
+def test_a_login_is_reused_while_it_is_fresh_and_dropped_after_an_error(monkeypatch):
+    logins = []
+
+    def fake_login(club_id, username, password):
+        client = _FakeClient()
+        logins.append(client)
+        return client
+
+    monkeypatch.setattr(scraper_module, "login", fake_login)
+    with scraper_module.logged_in("1", "me", "pw") as first:
+        pass
+    with scraper_module.logged_in("1", "me", "pw") as second:
+        pass
+    assert first is second and len(logins) == 1  # one login for both
+    with scraper_module.logged_in("1", "me", "other password") as third:
+        pass
+    assert third is not first and len(logins) == 2  # another password: another session
+    with pytest.raises(RuntimeError), scraper_module.logged_in("1", "me", "pw") as used:
+        raise RuntimeError("the page broke")
+    assert used.closed  # a session that saw an error is not kept
+    with scraper_module.logged_in("1", "me", "pw"):
+        pass
+    assert len(logins) == 3
+    monkeypatch.setattr(scraper_module, "SESSION_IDLE_SECONDS", 0)
+    with scraper_module.logged_in("1", "me", "pw"):
+        pass
+    assert len(logins) == 4 and logins[2].closed  # an idle one is let go and logged in anew
+
+
+def test_a_session_that_ran_out_is_read_again_once_after_a_fresh_login(monkeypatch):
+    logins = []
+    monkeypatch.setattr(scraper_module, "login", lambda club_id, username, password: logins.append(1) or _FakeClient())
+    seen = []
+
+    def read(client, reused):
+        seen.append(reused)
+        if reused:
+            raise scraper_module.SessionExpired("1")
+        return "page"
+
+    assert scraper_module.read_logged_in("1", "me", "pw", read) == "page"
+    assert seen == [True, False] and len(logins) == 2

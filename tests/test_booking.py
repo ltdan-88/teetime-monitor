@@ -114,7 +114,7 @@ class FakeSite:
 @pytest.fixture
 def site(monkeypatch):
     fetched = []
-    monkeypatch.setattr(scraper, "fetch_course_aliases", lambda club_id, client=None: fetched.append(client) or {"18 Loch Tee 1": "COUB", COURSE: "COU6"})
+    monkeypatch.setattr(scraper, "fetch_course_aliases", lambda club_id, client=None, fresh=False: fetched.append(client) or {"18 Loch Tee 1": "COUB", COURSE: "COU6"})
 
     def make(**options):
         fake = FakeSite(**options)
@@ -244,3 +244,117 @@ def test_the_page_that_verified_the_booking_comes_back_for_recording(site):
     assert [(b.course, b.date, b.time) for b in booked.sync.bookings] == [(COURSE, DAY, "08:10")]
     cancelled = booking.cancel_booking(client, CLUB, COURSE, DAY, "08:10")
     assert cancelled.sync.bookings == []
+
+
+# ---- read ahead, steps, and a page that went stale (2026-10-18) -------------------------------------------------
+
+
+@pytest.fixture
+def through(site, monkeypatch, tmp_path):
+    """book_for_club()/cancel_for_club() against the fake site: `session_for` hands out its client (a fresh one when
+    asked for, so a test can make the first one run out)."""
+    import contextlib
+
+    from src import pipeline, scrape_once
+
+    clients = {}
+
+    def make(**options):
+        fake, client = site(**options)
+        clients["reused"] = clients["fresh"] = client
+        return fake, clients
+
+    @contextlib.contextmanager
+    def session_for(club, fresh=False):
+        yield clients["fresh" if fresh else "reused"]
+
+    monkeypatch.setattr(booking, "session_for", session_for)
+    monkeypatch.setattr(pipeline, "_resolved_config", lambda *a, **k: {})
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *a, **k: "ok")
+    booking._prepared.clear()
+    return make, tmp_path / "club.db"
+
+
+CLUB_ROW = {"id": CLUB, "slug": None, "name": "Club"}
+
+
+def test_pages_read_while_the_dialog_is_open_leave_only_the_booking_itself_for_the_button(through):
+    make, db = through
+    fake, _ = make()
+    assert booking.prepare(CLUB_ROW, "book", COURSE, DAY, "08:10") == {"ok": True}
+    booking._prepared[("book", CLUB, COURSE, DAY, "08:10")][1].wait(5)
+    assert booking.prepare(CLUB_ROW, "book", COURSE, DAY, "08:10") == {"ok": True}  # asked again: not read twice
+    read_ahead = len(fake.referers)
+    assert fake.posts == [] and read_ahead >= 2  # the tee sheet and the form: reading only, nothing reserved
+    steps = []
+    assert booking.book_for_club(CLUB_ROW, db, COURSE, DAY, "08:10", steps.append) == {"ok": True}
+    assert fake.booked and len(fake.posts) == 2  # make this reservation, confirm it
+    assert len(fake.referers) - read_ahead == 3  # the two posts and My Reservations: nothing read twice
+    assert steps == ["login", "book", "confirm"]
+
+
+def test_a_form_read_ahead_that_pc_caddie_refuses_is_read_again_once(through):
+    make, db = through
+    fake, _ = make(taken_after_form=True)
+    booking.prepare(CLUB_ROW, "book", COURSE, DAY, "08:10")
+    result = booking.book_for_club(CLUB_ROW, db, COURSE, DAY, "08:10")
+    assert result["error"] == "rejected" and "just booked" in result["message"]  # the second time, its own words
+    assert len(fake.posts) == 2 and not fake.booked  # tried twice, never confirmed
+
+
+def test_a_session_that_ran_out_mid_way_logs_in_again_and_goes_on(through):
+    make, db = through
+    fake, clients = make()
+    def ran_out(request):  # the public tee sheet still shows; anything behind the login asks for it again
+        if "cat=tt_timetable_course" in str(request.url):
+            return httpx.Response(200, text=SHEET)
+        return httpx.Response(200, text='<form><input name="rq[password]"></form>')
+
+    logged_out = httpx.Client(transport=httpx.MockTransport(ran_out), follow_redirects=True)
+    fresh = clients["fresh"]
+    clients["reused"] = logged_out
+    clients["fresh"] = fresh
+    assert booking.book_for_club(CLUB_ROW, db, COURSE, DAY, "08:10") == {"ok": True} and fake.booked
+
+
+def test_the_page_follows_a_booking_step_by_step(through):
+    import time as clock
+
+    make, db = through
+    fake, _ = make()
+    started = booking.start("book", CLUB_ROW, db, COURSE, DAY, "08:10")
+    deadline = clock.time() + 5
+    while booking.job(started["job"])["state"] == "running" and clock.time() < deadline:
+        clock.sleep(0.02)
+    assert booking.job(started["job"]) == {"kind": "book", "state": "ok", "step": "confirm", "error": None, "message": None}
+    assert booking.job("nope") is None and booking.start("book", CLUB_ROW, db, COURSE, DAY, "8 Uhr") == {"error": "bad_time"}
+
+
+def test_cancelling_reads_the_bookings_page_ahead_too(through):
+    make, db = through
+    fake, _ = make()
+    fake.booked = True
+    booking.prepare(CLUB_ROW, "cancel", COURSE, DAY, "08:10")
+    booking._prepared[("cancel", CLUB, COURSE, DAY, "08:10")][1].wait(5)
+    assert fake.posts == []
+    assert booking.cancel_for_club(CLUB_ROW, db, COURSE, DAY, "08:10") == {"ok": True} and not fake.booked
+
+
+def test_my_reservations_read_a_moment_ago_is_not_read_again_unless_asked(monkeypatch, tmp_path):
+    import time as clock
+
+    from src import scrape_once
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    read = []
+    monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda club_id, *a, **k: read.append(club_id) or "ok")
+    clubs = [{"slug": "a", "id": "1", "name": "A"}, {"slug": "b", "id": "2", "name": "B"}]
+    monkeypatch.setattr(scrape_once, "RESERVATIONS_READ", {str(scrape_once._db_path("1")): clock.time() - 60})
+    result = booking.upcoming_reservations(clubs, refresh=True)
+    assert read == ["2"] and result["checked_at"] is None  # only the club not read lately; B was never read here
+    scrape_once.RESERVATIONS_READ[str(scrape_once._db_path("2"))] = clock.time() - 30
+    read.clear()
+    result = booking.upcoming_reservations(clubs, refresh=True)
+    assert read == [] and result["checked_at"] <= clock.time() - 60  # both fresh: pc caddie is not asked
+    booking.upcoming_reservations(clubs, refresh=True, force=True)
+    assert sorted(read) == ["1", "2"]  # the button that checks now

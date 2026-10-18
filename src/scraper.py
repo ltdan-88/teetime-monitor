@@ -120,13 +120,66 @@ ROADMAP.md), and 45 clubs is a sample, not the whole platform. It covers the fai
 modes that actually showed up, not a proof that none remain.
 """
 
+import contextlib
+import hashlib
 import re
+import threading
+import time
 from datetime import UTC, datetime
 
 import httpx
 from bs4 import BeautifulSoup, Tag
 
 from .models import ConfirmedBooking, PlayerSighting, ReservationsSync, Schedule, Slot, Tournament, looks_like_player_name
+
+# ---- a polite client (2026-10-18) -----------------------------------------------------------------------------
+# Every request this program sends to pc caddie waits until MIN_REQUEST_GAP has passed since the one before (at most
+# about three a second, from every thread of this process): fast enough that nobody waits on it, slow enough that a
+# burst -- a scrape pass, two clubs checked at once -- never looks like a flood. Together with the reused logins and
+# the remembered course lists below, it also means fewer requests overall than before.
+MIN_REQUEST_GAP = 0.3
+_pace_lock = threading.Lock()
+_last_request = 0.0
+
+
+def pace(_request=None) -> None:
+    """Wait for this request's turn (an httpx `request` event hook, or called right before a bare `httpx.get`)."""
+    global _last_request
+    with _pace_lock:
+        wait = _last_request + MIN_REQUEST_GAP - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request = time.monotonic()
+
+
+def user_agent() -> str:
+    """A browser's user agent that also names this program (pc caddie treats the session like a browser's)."""
+    try:
+        from importlib.metadata import version
+
+        product = version("teetime-monitor")
+    except Exception:  # noqa: BLE001 -- a checkout that was never installed
+        product = "dev"
+    return (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+        f"Chrome/130.0.0.0 Safari/537.36 teetime-monitor/{product}"
+    )
+
+
+def new_client(timeout: float = 15) -> httpx.Client:
+    """A client for pc caddie: paced, following redirects, looking like a browser."""
+    return httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        headers={"User-Agent": user_agent(), "Accept-Language": "en-US,en;q=0.9"},
+        event_hooks={"request": [pace]},
+    )
+
+
+def _public_get(url: str) -> httpx.Response:
+    """A page that needs no login, in its turn."""
+    pace()
+    return httpx.get(url, timeout=15, follow_redirects=True)
 
 # Confirmed 2026-09-05 by inspecting the real site — these are real values, not guesses.
 COURSE_ALIASES: dict[str, str] = {
@@ -487,7 +540,7 @@ def login(club_id: str, username: str, password: str) -> httpx.Client:
     neither a successful login nor the recognized rejection shape — a genuine,
     unexpected server error.
     """
-    client = httpx.Client(timeout=15, follow_redirects=True)
+    client = new_client()
     url = club_url(club_id, "start")
     try:
         response = client.post(url, data={"service": "login", "rq[login]": username, _PASSWORD_FIELD: password})
@@ -499,6 +552,76 @@ def login(club_id: str, username: str, password: str) -> httpx.Client:
         client.close()
         raise
     return client
+
+
+class SessionExpired(Exception):
+    """A page that should be behind the login came back with the login form: the reused session ran out."""
+
+
+def logged_out(page: str) -> bool:
+    """The login form (its password field) on a page: whoever asked is not logged in (any more)."""
+    return _PASSWORD_FIELD in page
+
+
+# Logins, reused (2026-10-18): {(club id, user, password digest): (the logged-in client, when last used)}. A scrape
+# pass, a booking, My Reservations and the tournament calendar each used to log in afresh, a scrape pass even twice;
+# now one login serves them all while it is used at least every SESSION_IDLE_SECONDS (well inside a web session's
+# usual life). One user of a session at a time; one that saw an error is not kept.
+SESSION_IDLE_SECONDS = 600
+_sessions: dict[tuple[str, str, str], tuple[httpx.Client, float]] = {}
+_session_locks: dict[tuple[str, str, str], threading.Lock] = {}
+_sessions_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def logged_in(club_id: str, username: str, password: str, fresh: bool = False, login_with=None):
+    """A logged-in client for `club_id`: the one already open when it was used lately, else a new login (`fresh`
+    always logs in anew; `login_with` is the login function, `login()` unless a caller brings its own). Raises
+    LoginError like `login()`."""
+    key = (club_id, username, hashlib.sha256(password.encode()).hexdigest())
+    with _sessions_lock:
+        lock = _session_locks.setdefault(key, threading.Lock())
+    with lock:
+        with _sessions_lock:
+            cached = _sessions.pop(key, None)
+        client = None
+        if cached is not None:
+            if not fresh and time.monotonic() - cached[1] < SESSION_IDLE_SECONDS:
+                client = cached[0]
+            else:
+                cached[0].close()
+        if client is None:
+            client = (login_with or login)(club_id, username, password)
+        try:
+            yield client
+        except BaseException:
+            if client is not None:
+                client.close()
+            raise
+        if client is not None:
+            with _sessions_lock:
+                _sessions[key] = (client, time.monotonic())
+
+
+def read_logged_in(club_id: str, username: str, password: str, read):
+    """`read(client, reused)` with a reused login; when the page shows the login form again (`read` raises
+    SessionExpired, which it only does for a `reused` session), once more after a fresh login -- whose pages are
+    then taken as they come, so a page that happens to carry a password field never stops the read."""
+    try:
+        with logged_in(club_id, username, password) as client:
+            return read(client, True)
+    except SessionExpired:
+        with logged_in(club_id, username, password, fresh=True) as client:
+            return read(client, False)
+
+
+def reset_caches() -> None:
+    """Forget remembered logins and course lists (tests; a changed password does not need it: it is part of the key)."""
+    with _sessions_lock:
+        for client, _ in _sessions.values():
+            client.close()
+        _sessions.clear()
+    _aliases_cache.clear()
 
 
 # Confirmed 2026-09-07 against a real demo booking, both languages (see module
@@ -730,12 +853,30 @@ def fetch_available_dates(club_id: str) -> list[str]:
     """The days this club is actually taking bookings for right now, straight from its
     own tee sheet (no login needed, same public page as everything else here). See
     `_parse_available_dates_html()` for why this can't be a configured constant."""
-    response = httpx.get(club_url(club_id, TEE_SHEET_CATEGORY), timeout=15, follow_redirects=True)
+    response = _public_get(club_url(club_id, TEE_SHEET_CATEGORY))
     response.raise_for_status()
     return _parse_available_dates_html(response.text)
 
 
-def fetch_course_aliases(club_id: str, client: httpx.Client | None = None) -> dict[str, str]:
+# {club id: (when read, its course aliases)}: a club's course lineup changes about never, and every booking, scrape
+# pass and My Reservations read needs it (2026-10-18). Kept for ALIASES_TTL; a course not in it reads it fresh.
+ALIASES_TTL = 6 * 3600
+_aliases_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+def fetch_course_aliases(club_id: str, client: httpx.Client | None = None, fresh: bool = False) -> dict[str, str]:
+    """This club's courses ({name: alias code}): remembered for a few hours (`fresh` reads them again); see
+    `_read_course_aliases()`."""
+    cached = _aliases_cache.get(club_id)
+    if cached and not fresh and time.monotonic() - cached[0] < ALIASES_TTL:
+        return dict(cached[1])
+    aliases = _read_course_aliases(club_id, client)
+    if aliases:
+        _aliases_cache[club_id] = (time.monotonic(), dict(aliases))
+    return aliases
+
+
+def _read_course_aliases(club_id: str, client: httpx.Client | None = None) -> dict[str, str]:
     """This club's own real course options, fetched fresh — not assumed from
     `COURSE_ALIASES` (Musterhausen-only) or any other club's. No login needed, same
     as `scrape_schedule()` itself: the course selector is part of the same
@@ -763,7 +904,7 @@ def fetch_course_aliases(club_id: str, client: httpx.Client | None = None) -> di
     without having to reproduce it by hand again."""
     url = club_url(club_id, TEE_SHEET_CATEGORY)
     # `client` (2026-10-14): a caller that already holds a connection (booking) reuses it, no new TLS handshake
-    response = client.get(url) if client is not None else httpx.get(url, timeout=15, follow_redirects=True)
+    response = client.get(url) if client is not None else _public_get(url)
     response.raise_for_status()
     if BeautifulSoup(response.text, "html.parser").select_one("table.pcco-tt-timetable") is None:
         raise NoTeeSheetError(
@@ -811,8 +952,10 @@ def scrape_schedule(
     if alias is None:
         raise ValueError(f"Unknown course {course!r} for club {club_id} — expected one of {list(course_aliases)}")
     url = club_url(club_id, TEE_SHEET_CATEGORY, date=date, alias=alias)
-    getter = client.get if client is not None else httpx.get
-    response = getter(url, timeout=15, follow_redirects=True)
+    if client is not None:
+        response = client.get(url, timeout=15, follow_redirects=True)
+    else:
+        response = _public_get(url)
     response.raise_for_status()
     return parse_schedule_html(
         response.text,
@@ -855,17 +998,17 @@ def scrape_my_reservations(
     — one fetch, one login, both facts, rather than a second round trip to the exact
     page just fetched for the bookings themselves.
     """
-    client = login(club_id, username, password)
-    try:
-        url = club_url(club_id, MY_RESERVATIONS_CATEGORY)
-        response = client.get(url)
+    def read(client: httpx.Client, reused: bool) -> ReservationsSync:
+        response = client.get(club_url(club_id, MY_RESERVATIONS_CATEGORY))
+        if reused and logged_out(response.text):
+            raise SessionExpired(club_id)
         response.raise_for_status()
         return ReservationsSync(
             bookings=_parse_my_reservations_html(response.text, known_courses),
             my_handicap=_parse_my_handicap_html(response.text),
         )
-    finally:
-        client.close()
+
+    return read_logged_in(club_id, username, password, read)
 
 
 def _parse_my_handicap_html(html: str) -> float | None:
@@ -949,14 +1092,14 @@ def fetch_club_directory(club_id: str, username: str, password: str) -> list[tup
     that one, matching what prompted this feature: a home club plus a few others
     visited occasionally.
     """
-    client = login(club_id, username, password)
-    try:
-        url = club_url(club_id, CLUB_DIRECTORY_CATEGORY)
-        response = client.get(url)
+    def read(client: httpx.Client, reused: bool):
+        response = client.get(club_url(club_id, CLUB_DIRECTORY_CATEGORY))
+        if reused and logged_out(response.text):
+            raise SessionExpired(club_id)
         response.raise_for_status()
         return _parse_club_directory_html(response.text)
-    finally:
-        client.close()
+
+    return read_logged_in(club_id, username, password, read)
 
 
 _ISO_DAY_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
@@ -1025,10 +1168,11 @@ def _parse_tournaments_html(html: str) -> list[Tournament]:
 def scrape_tournaments(club_id: str, username: str, password: str) -> list[Tournament]:
     """Log in and read the club's tournament calendar, which looks months ahead where the tee sheet reaches a few
     days (events also show on the tee sheet as blocked rows). Needs login like "My Reservations"."""
-    client = login(club_id, username, password)
-    try:
+    def read(client: httpx.Client, reused: bool) -> list[Tournament]:
         response = client.get(club_url(club_id, EVENTS_CALENDAR_CATEGORY))
+        if reused and logged_out(response.text):
+            raise SessionExpired(club_id)
         response.raise_for_status()
         return _parse_tournaments_html(response.text)
-    finally:
-        client.close()
+
+    return read_logged_in(club_id, username, password, read)

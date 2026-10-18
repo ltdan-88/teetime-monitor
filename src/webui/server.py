@@ -510,13 +510,18 @@ class Handler(BaseHTTPRequestHandler):
 
         # bookings and notices
         if route == ("GET", "/api/reservations"):
-            return self._json(data.reservations(refresh=arg("refresh") == "1"))
+            return self._json(data.reservations(refresh=arg("refresh") == "1", force=arg("force") == "1"))
         if route == ("GET", "/api/tournaments"):
             return reply(data.tournaments(**ref(), refresh=arg("refresh") == "1"))
         if route == ("POST", "/api/booking"):
             return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/cancel"):
             return reply(data.cancel(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
+        if route == ("POST", "/api/booking/prepare"):
+            return reply(data.prepare_booking(**ref(), kind=arg("kind") or "", course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
+        if route == ("GET", "/api/booking/job"):
+            found = data.booking_job(arg("id") or "")  # a job that failed carries its reason in "error", and is still found
+            return self._json(found, HTTPStatus.OK if "state" in found else HTTPStatus.NOT_FOUND)
         if route == ("POST", "/api/banners/ack"):
             ids = body.get("ids") if isinstance(body.get("ids"), list) else []
             return reply(data.acknowledge_banners(**ref(), ids=ids))
