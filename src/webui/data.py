@@ -362,8 +362,9 @@ MAX_HISTORY_DAYS = 60
 
 
 def _history_days(db: Path, course: str, today: str) -> list[dict]:
-    """The past days that were scraped, newest first: each as the last tee sheet saved of it (what was booked, who
-    played, the forecast then). Today joins once daylight is over. Nothing in them can be booked."""
+    """The past days that were scraped (the newest MAX_HISTORY_DAYS), oldest first like the coming days: each as the
+    last tee sheet saved of it (what was booked, who played, the forecast then). Today joins once daylight is over.
+    Nothing in them can be booked."""
     friends = storage.load_friend_names(db)
     genders = storage.load_player_genders(db)
     handicaps = storage.load_player_handicaps(db)
@@ -380,7 +381,7 @@ def _history_days(db: Path, course: str, today: str) -> list[dict]:
             slot["past"] = False  # the whole day is past: no dimming, just the record
         day["history"] = True
         days.append(day)
-    return days
+    return days[::-1]
 
 
 def _without_today_when_over(days: list[dict], today: str) -> list[dict]:

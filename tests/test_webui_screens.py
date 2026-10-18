@@ -226,8 +226,8 @@ def test_history_lists_the_past_days_newest_first_with_what_was_saved_of_them(wo
         storage.save_schedule(_schedule(d(n)), path=world)
     storage.save_confirmed_booking(ConfirmedBooking(date=d(-1), course=COURSE, time="10:10", source="my_reservations", confirmed_at="t"), path=world)
     found = data.overview(SLUG, COURSE, history=True)
-    assert found["history"] is True and [day["date"] for day in found["days"]] == [d(-1), d(-3)]
-    newest = found["days"][0]
+    assert found["history"] is True and [day["date"] for day in found["days"]] == [d(-3), d(-1)]  # in calendar order, like the coming days
+    newest = found["days"][-1]
     assert newest["history"] is True and newest["booked_time"] == "10:10" and newest["pick"] is None
     assert not any(slot["past"] for slot in newest["slots"])  # a whole past day is the record, not dimmed
     assert [p["name"] for p in next(slot for slot in newest["slots"] if slot["time"] == "10:10")["players"]] == ["Erika Musterfrau", "Jonas Mustermann"]

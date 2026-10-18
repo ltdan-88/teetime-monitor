@@ -235,6 +235,7 @@ function App() {
   current.current = { view, course, showPast };
   const lastSaved = useRef(null);
   const focusOnOpen = useRef(null); // a day the user just opened: scroll to its pick once its slots are drawn
+  const pastAtEnd = useRef(false); // the past days just opened: start at the newest, the last card
   const jumpTarget = useRef(null); // { date, time, course }: a slot to open, scroll to and flash once its course is on screen
 
   // The day header stays pinned under the toolbar while its slots scroll: tell the CSS how tall that is.
@@ -402,8 +403,14 @@ function App() {
   useEffect(() => {
     if (!view) return;
     setOpenDate(null);
+    pastAtEnd.current = showPast;
     loadOverview(view, course);
   }, [showPast]);
+  useEffect(() => {
+    if (!pastAtEnd.current || !overview || !overview.history) return;
+    pastAtEnd.current = false;
+    window.scrollTo(0, document.documentElement.scrollHeight); // the page's end clears the footer; scrollIntoView would not
+  }, [overview]);
   useEffect(() => {
     if (!view || !course) return;
     loadOverview(view, course);
@@ -631,6 +638,7 @@ function App() {
             best=${Math.max(1, ...overview.days.map((d) => d.matches || 0))} onSearch=${searchOn}
             onToggle=${() => { focusOnOpen.current = openDate === day.date ? null : day.date; setOpenDate(openDate === day.date ? null : day.date); }} />`)}
         ${overview && !showPast && overview.days.length > 0 && html`<div class="past-link"><button class="link-btn" onClick=${() => setShowPast(true)} title=${t('history.toggle') + ' (v)'}>${t('history.show')}</button></div>`}
+        ${overview && showPast && overview.days.length > 0 && html`<div class="past-link"><button class="link-btn" onClick=${() => setShowPast(false)} title=${t('history.toggle') + ' (v)'}>${t('history.back')}</button></div>`}
         ${tips && !showPast && overview && club && html`<${BottomPanel} refQuery=${refOf(view)} course=${overview.course} ready=${!picksPending} units=${units}
           dataKey=${[overview.freshness && overview.freshness.last_success_at, overview.days.map((day) => day.date + (day.booked_time || '')).join()].join('|')}
           onOpen=${(card) => jumpTo(card.date, card.time, card.course)} />`}
