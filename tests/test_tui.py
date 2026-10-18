@@ -643,8 +643,11 @@ def fake_pccaddie(monkeypatch, fail=None, login=True):
 
     calls = []
 
-    def attempt(kind):
-        def run(client, club_id, course, date, time):
+    def read_ahead(kind):  # reading only: nothing reaches pc caddie's booking yet
+        return lambda client, club_id, course, date, time: booking.Prepared(kind, "", "")
+
+    def attempt(kind):  # what the button sends
+        def run(client, club_id, course, date, time, prepared, progress=None):
             calls.append((kind, club_id, course, date, time))
             if fail is not None:
                 raise fail
@@ -656,8 +659,10 @@ def fake_pccaddie(monkeypatch, fail=None, login=True):
             pass
 
     monkeypatch.setattr(booking, "open_session", lambda club_id, user, password: Session())
-    monkeypatch.setattr(booking, "book_slot", attempt("book"))
-    monkeypatch.setattr(booking, "cancel_booking", attempt("cancel"))
+    monkeypatch.setattr(booking, "prepare_book", read_ahead("book"))
+    monkeypatch.setattr(booking, "prepare_cancel", read_ahead("cancel"))
+    monkeypatch.setattr(booking, "commit_book", attempt("book"))
+    monkeypatch.setattr(booking, "commit_cancel", attempt("cancel"))
     monkeypatch.setattr(tui.club_config, "resolve_credentials", lambda key: ("me", "secret") if login else ("", ""))
     monkeypatch.setattr(scrape_once, "_sync_my_reservations", lambda *args, **kwargs: "ok")
     return calls

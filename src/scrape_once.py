@@ -70,6 +70,7 @@ pass instead of waiting out `scrape_interval_minutes` -- provided the scrape is 
 """
 
 import argparse
+import contextlib
 import sys
 import time
 from collections.abc import Iterator
@@ -90,6 +91,7 @@ from .scraper import (
     NoTeeSheetError,
     fetch_available_dates,
     fetch_course_aliases,
+    logged_in,
     login,
     scrape_my_reservations,
     scrape_schedule,
@@ -477,9 +479,15 @@ def _sync_my_reservations(
     return "ok"
 
 
+# {database path: when My Reservations was last read into it}, in this process: a page that wants it checked again
+# (the web UI's Reservations window) need not ask pc caddie when that was a moment ago (2026-10-18).
+RESERVATIONS_READ: dict[str, float] = {}
+
+
 def _apply_reservations_sync(sync: ReservationsSync, db_path: Path) -> None:
     """Record one fetched "My Reservations" page. Also the way booking.py records what it just read to verify a
     booking or cancellation: no second login for the same page."""
+    RESERVATIONS_READ[str(db_path)] = time.time()
     for booking in sync.bookings:
         storage.save_confirmed_booking(booking, path=db_path)
     _reconcile_cancelled_reservations(sync.bookings, db_path)
@@ -940,14 +948,14 @@ def _scrape_due_for_club_locked(
     # an authenticated fetch of the ordinary tee sheet shows real player names for
     # anyone who's opted into pc caddie's own reciprocal name-sharing, where an
     # anonymous fetch (what every scrape_schedule() call used before this) only ever
-    # shows placeholder text -- see that function's own docstring. A second, separate
-    # login from _sync_my_reservations()'s own scrape_my_reservations() call above is
-    # accepted here rather than reworking that function's own established signature
-    # for a marginal saving.
+    # shows placeholder text -- see that function's own docstring. Since 2026-10-18 it is
+    # the same login _sync_my_reservations() just used (scraper.logged_in() keeps it), not
+    # a second one.
     client = None
+    session = contextlib.ExitStack()  # the login My Reservations just used, when there is one (scraper.logged_in())
     if username and password:
         try:
-            client = login(club_id, username, password)
+            client = session.enter_context(logged_in(club_id, username, password, login_with=login))
             stats.logged_in, stats.login_rejected = True, False
         except (LoginError, httpx.HTTPError) as exc:
             _log(f"[scrape_once] {slug}: couldn't log in for the schedule scrape, falling back to anonymous: {exc}")
@@ -1001,8 +1009,7 @@ def _scrape_due_for_club_locked(
                     stats.failed += 1
                     stats.add_error(storage.SCRAPE_ERROR_OTHER, exc)
     finally:
-        if client is not None:
-            client.close()
+        session.close()  # kept for the next user while it is fresh
     return changes
 
 

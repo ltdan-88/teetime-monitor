@@ -166,8 +166,26 @@ def main() -> None:
                     pass
 
             booking.open_session = lambda club_id, username, password: _Session()
-            booking.book_slot = lambda client, club_id, course, date, time: None
-            booking.cancel_booking = lambda client, club_id, course, date, time: None
+
+            def read_ahead(kind):  # a moment, like the real pages
+                def read(client, club_id, course, date, time):
+                    import time as clock_time
+
+                    clock_time.sleep(0.4)
+                    return booking.Prepared(kind, "", "")
+
+                return read
+
+            def commit(client, club_id, course, date, time, prepared, progress=None):
+                import time as clock_time
+
+                clock_time.sleep(0.4)
+                if progress:
+                    progress("confirm")
+                clock_time.sleep(0.3)
+
+            booking.prepare_book, booking.prepare_cancel = read_ahead("book"), read_ahead("cancel")
+            booking.commit_book = booking.commit_cancel = commit
             club_config.resolve_credentials = lambda key: ("demo", "demo")
 
             def tournaments(club_id, username, password):  # an invented calendar, relative to today

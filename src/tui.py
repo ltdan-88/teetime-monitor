@@ -1003,9 +1003,10 @@ class BookingScreen(Screen[bool]):
 
     Replaces the old "confirm your tee time" form, which only wrote down a booking you had made on the
     site yourself. Here pressing the green button really books (or cancels) through `booking.py`, with
-    your own login; nothing happens until then. The work runs in a thread (it takes a few seconds: a
-    login and several pages), the screen says so, and shows pc caddie's answer in words when it refuses.
-    Dismisses with True once it is done."""
+    your own login; nothing happens until then. The pages before the button are read while the screen is
+    open (`booking.prepare()`, reading only), so pressing it sends just the steps that book or cancel; they
+    run in a thread, the screen says which step is under way, and shows pc caddie's answer in words when it
+    refuses. Dismisses with True once it is done."""
 
     BINDINGS = [("escape", "cancel", "Back"), ("q", "quit", "Quit")]
     _FOOTER_BINDINGS = [("escape", "binding.cancel"), ("q", "binding.quit")]
@@ -1032,6 +1033,13 @@ class BookingScreen(Screen[bool]):
                 yield Button(i18n.t(f"{key}.keep"), id="keep")
         yield TranslatedFooter(self._FOOTER_BINDINGS)
 
+    def _club(self) -> dict:
+        return {"id": self.club_id, "slug": club_config.slug_for_club_id(self.club_id), "name": self.club_name}
+
+    def on_mount(self) -> None:
+        # reading only: the tee sheet and the booking form (or My Reservations and the booking's page)
+        booking_module.prepare(self._club(), "cancel" if self.cancelling else "book", self.course, self.date, self.time)
+
     def action_cancel(self) -> None:
         if not self._busy:
             self.dismiss(False)
@@ -1050,9 +1058,13 @@ class BookingScreen(Screen[bool]):
             self.run_worker(self._run(), exclusive=True)
 
     async def _run(self) -> None:
-        club = {"id": self.club_id, "slug": club_config.slug_for_club_id(self.club_id), "name": self.club_name}
         act = booking_module.cancel_for_club if self.cancelling else booking_module.book_for_club
-        result = await asyncio.to_thread(act, club, _db_path(self.club_id), self.course, self.date, self.time)
+        status = self.query_one("#confirm-status", Static)
+
+        def progress(step: str) -> None:  # from the worker thread
+            self.app.call_from_thread(status.update, i18n.t(f"booking.step.{step}"))
+
+        result = await asyncio.to_thread(act, self._club(), _db_path(self.club_id), self.course, self.date, self.time, progress)
         if result.get("ok"):
             self.dismiss(True)
             return

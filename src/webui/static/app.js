@@ -146,30 +146,50 @@ function Legend({ onClose }) {
   <//>`;
 }
 
-/** Book a time on pc caddie for yourself, or cancel your booking there. Nothing happens until the button is pressed. */
+const STEPS = { book: ['login', 'book', 'confirm'], cancel: ['login', 'cancel', 'confirm'] };
+
+/** Book a time on pc caddie for yourself, or cancel your booking there. Nothing happens until the button is pressed;
+ *  while the dialog is open the server reads the pages before it (reading only), so the button only sends the steps
+ *  that book or cancel. Those are shown as they go. */
 function BookingDialog({ booking, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState(null);
   const [error, setError] = useState(null);
   const cancelling = booking.mode === 'cancel';
+  const kind = cancelling ? 'cancel' : 'book';
+  const body = { ...booking.ref, course: booking.course, date: booking.date, time: booking.time };
+  useEffect(() => { post('/api/booking/prepare', { ...body, kind }).catch(() => {}); }, []);
+  const failed = (payload) => {
+    const key = 'booking.error.' + (payload.error || 'other');
+    const named = t(key, { message: payload.message || '' });
+    setError(named === key ? t('booking.error.other', { message: payload.message || '' }) : named);
+    setBusy(false);
+    setStep(null);
+  };
   async function confirm() {
     setBusy(true);
     setError(null);
+    setStep('login');
     try {
-      const body = { ...booking.ref, course: booking.course, date: booking.date, time: booking.time };
-      await post(cancelling ? '/api/booking/cancel' : '/api/booking', body);
-      onDone();
+      const { job } = await post(cancelling ? '/api/booking/cancel' : '/api/booking', body);
+      for (;;) {
+        await new Promise((done) => setTimeout(done, 350));
+        const state = await api('/api/booking/job' + query({ id: job }));
+        setStep(state.step);
+        if (state.state === 'ok') return onDone(booking);
+        if (state.state === 'failed') return failed(state);
+      }
     } catch (failure) {
-      const payload = (failure && failure.payload) || {};
-      const key = 'booking.error.' + (payload.error || 'other');
-      const named = t(key, { message: payload.message || '' });
-      setError(named === key ? t('booking.error.other', { message: payload.message || '' }) : named);
-      setBusy(false);
+      failed((failure && failure.payload) || {});
     }
   }
+  const steps = STEPS[kind];
+  const at = steps.indexOf(step);
   return html`<${Sheet} title=${t(cancelling ? 'booking.cancel_title' : 'booking.book_title', { time: booking.time })} onClose=${busy ? () => {} : onClose} size="small">
     <p><b>${booking.course}</b> · ${booking.dateText}, ${booking.time}</p>
     <p class="hint">${t(cancelling ? 'booking.cancel_explain' : 'booking.book_explain')}</p>
-    ${busy && html`<${Status} kind="busy">${t(cancelling ? 'booking.cancelling' : 'booking.booking')}<//>`}
+    ${busy && html`<ol class="steps" aria-live="polite">${steps.map((name, i) => html`<li key=${name} class=${i < at ? 'done' : i === at ? 'now' : ''}>
+      ${i < at ? html`<${Icon} name="check" size=${14} />` : html`<span class="dot"></span>`}${t('booking.step.' + name)}</li>`)}</ol>`}
     <${Status} kind="error">${error}<//>
     <div class="actions">
       <span class="grow"></span>
@@ -490,9 +510,15 @@ function App() {
     setJumpTick((n) => n + 1);
   };
   const markFromSearch = (match) => askBooking(match.date, match.time, match.course, match.ref || refOf(view), false);
-  const bookingDone = () => {
+  const bookingDone = (done) => {
     setBooking(null);
     setSearchTick((n) => n + 1);
+    // pc caddie confirmed it: the day shows it at once; the rest of the overview follows in the background
+    if (done) setOverview((current) => current && current.course === done.course ? { ...current, days: current.days.map((day) => (day.date !== done.date ? day : {
+      ...day,
+      booked_time: done.mode === 'cancel' ? null : done.time,
+      slots: day.slots.map((slot) => (slot.time !== done.time ? slot : { ...slot, booked_by_you: done.mode !== 'cancel', booked: Math.max(0, slot.booked + (done.mode === 'cancel' ? -1 : 1)) })),
+    })) } : current);
     loadOverview(view, course);
   };
   const ackBanner = async (banner) => {

@@ -216,3 +216,15 @@ def _patient_textual_pauses_on_windows(monkeypatch):
         await asyncio.sleep(0.05)
 
     monkeypatch.setattr(Pilot, "pause", patient_pause)
+
+
+@pytest.fixture(autouse=True)
+def _no_request_pacing_or_remembered_logins(monkeypatch):
+    """The polite gap between requests to pc caddie would only slow the fakes down, and a login or a course list
+    remembered by one test must not leak into the next (src/scraper.py, 2026-10-18)."""
+    from src import scraper
+
+    monkeypatch.setattr(scraper, "MIN_REQUEST_GAP", 0)
+    scraper.reset_caches()
+    yield
+    scraper.reset_caches()

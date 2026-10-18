@@ -238,12 +238,18 @@ def test_a_day_opens_and_closes_like_an_accordion(ui):
 
 
 def test_booking_and_cancelling_a_time(ui):
+    ui.js("""(() => { if (window.__calls) return; const real = window.fetch.bind(window); window.__calls = [];
+      window.fetch = (url, options) => { window.__calls.push(String(url)); return real(url, options); }; })()""")
     before = ui.count(".pill.booked")
     ui.click(".card.open .slot.clickable")
     ui.wait("document.querySelector('.sheet h2')")
     assert "on pc caddie" in ui.text(".sheet h2") and "Book now" in ui.text(".sheet .btn.pri")
+    ui.wait("window.__calls.some((url) => url.includes('/api/booking/prepare'))")  # the pages before the button are read now
     ui.shot("booking-dialog")
     ui.click(".sheet .btn.pri")
+    ui.wait("document.querySelectorAll('.sheet .steps li').length === 3")  # the steps, as they go
+    assert ui.js("[...document.querySelectorAll('.sheet .steps li')].map((li) => li.textContent.trim())") == ["Login", "Booking", "Confirmation from pc caddie"]
+    ui.wait("document.querySelector('.sheet .steps li.done')")
     ui.wait(f"document.querySelectorAll('.pill.booked').length === {before + 1}")
     ui.click(".card.open .slot.mine")
     ui.wait("document.querySelector('.sheet h2')")
@@ -268,8 +274,10 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     assert "No upcoming reservations" in ui.text(".sheet") and ui.count(".resv-list li") == 0
     _close_sheet(ui)
     ui.wait("document.querySelectorAll('.pill.booked').length === 0")  # the overview follows
-    ui.js(  # put the demo's booking back and start the next test on a fresh page
-        f"""fetch('/api/booking', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({json.dumps(kept)})}}).then(() => {{ window.__beforeReload = true; location.reload(); }})"""
+    ui.js(  # put the demo's booking back (a job: wait for it) and start the next test on a fresh page
+        f"""fetch('/api/booking', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({json.dumps(kept)})}}).then((r) => r.json())
+          .then(async ({{job}}) => {{ for (let i = 0; i < 50; i += 1) {{ const s = await (await fetch('/api/booking/job?id=' + job)).json(); if (s.state !== 'running') break; await new Promise((d) => setTimeout(d, 200)); }} }})
+          .then(() => {{ window.__beforeReload = true; location.reload(); }})"""
     )
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
 

@@ -1003,7 +1003,7 @@ def test_scrape_due_for_club_shares_one_login_across_every_run_call(tmp_path, mo
     assert seen_clients == [fake_client] * (len(_FAKE_COURSES) * len(_FAKE_DATES))
 
 
-def test_scrape_due_for_club_closes_the_shared_client_when_done(tmp_path, monkeypatch):
+def test_scrape_due_for_club_keeps_its_login_for_the_next_user_and_closes_it_when_let_go(tmp_path, monkeypatch):
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scrape_once, "fetch_course_aliases", lambda club_id: {"A": "a"})
     monkeypatch.setattr(scrape_once, "fetch_available_dates", lambda club_id: ["2026-09-07"])
@@ -1017,12 +1017,19 @@ def test_scrape_due_for_club_closes_the_shared_client_when_done(tmp_path, monkey
         def close(self):
             closed.append(True)
 
-    monkeypatch.setattr(scrape_once, "login", lambda club_id, username, password: _FakeClient())
+    logins = []
+    monkeypatch.setattr(scrape_once, "login", lambda club_id, username, password: logins.append(1) or _FakeClient())
     monkeypatch.setattr(scrape_once, "run", lambda club_id, course, date, config, slug, client=None, **_: [])
 
     scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+    assert closed == [] and logins == [1]  # kept: the next pass (or a booking) uses the same login
+    scrape_once.scrape_due_for_club("musterhausen", {"club_id": "0000001", "overview_days": 1})
+    assert logins == [1]  # no second login while it is fresh
 
-    assert closed == [True]
+    from src import scraper
+
+    scraper.reset_caches()
+    assert closed == [True]  # and it is closed once it is let go
 
 
 def test_scrape_due_for_club_falls_back_to_anonymous_when_login_fails(tmp_path, monkeypatch, capsys):
