@@ -1072,7 +1072,7 @@ def test_the_version_is_in_settings_not_in_the_footer(ui):
     assert ui.count(".footer .version, .footer .check-update") == 0
     _open_sheet(ui, ",", "Settings")
     ui.wait("document.querySelector('.about-group .version')")
-    assert re.fullmatch(r"v\d+\.\d+\.\d+|vdev", ui.text(".about-group .version").strip())
+    assert re.fullmatch(r"v\d+\.\d+\.\d+(rc\d+)?|vdev", ui.text(".about-group .version").strip())
     _close_sheet(ui)
 
 
