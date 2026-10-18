@@ -6,13 +6,16 @@ import time
 import httpx
 import pytest
 
+from src import paths, user_config
 from src.webui import auth, data, server, updates
 
 
 @pytest.fixture(autouse=True)
-def fresh(monkeypatch):
+def fresh(monkeypatch, tmp_path):
     monkeypatch.delenv("TEETIME_MONITOR_NO_UPDATE_CHECK", raising=False)
     monkeypatch.setattr(data, "version", lambda: "0.78.0")
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
+    monkeypatch.setattr(paths, "DATA_DIR", tmp_path / "data")
     updates.reset_for_tests()
     yield
     updates.reset_for_tests()
@@ -126,15 +129,57 @@ def test_the_update_installs_the_release_the_server_found_then_restarts(monkeypa
     monkeypatch.setattr(updates.time, "sleep", lambda seconds: None)
     commands, restarted = [], threading.Event()
 
-    class Done:
-        returncode, stdout, stderr = 0, "", ""
-
-    monkeypatch.setattr(updates.subprocess, "run", lambda command, **kwargs: commands.append(command) or Done())
+    monkeypatch.setattr(updates.subprocess, "run", _runs(commands, [(0, ""), (0, "ok 0.79.0\n")]))
     assert updates.apply(True, restarted.set) == {"state": "running", "error": None}
     assert restarted.wait(5)
     assert commands[0][-1] == "https://github.com/ltdan-88/teetime-monitor/archive/refs/tags/v0.79.0.tar.gz"
     assert "pip" in commands[0] and "--upgrade" in commands[0]
+    assert commands[1][1:] == ["-I", "-m", "src.webui.server", "--self-test"]  # the new version started once first
     assert updates.status(True)["install"]["state"] == "restarting"
+    assert updates.status(True)["auto_result"] is None  # a manual update leaves no morning note
+
+
+def _runs(commands, answers):
+    """A stand-in for subprocess.run that answers (returncode, stdout) in turn and records each command."""
+    answers = list(answers)
+
+    def run(command, **kwargs):
+        commands.append(command)
+        code, out = answers.pop(0)
+        return type("Result", (), {"returncode": code, "stdout": out, "stderr": "" if code == 0 else "Traceback\nImportError: broken\n"})()
+
+    return run
+
+
+def _settle():
+    deadline = time.time() + 5
+    while updates.status(True)["install"]["state"] == "running" and time.time() < deadline:
+        time.sleep(0.05)
+    return updates.status(True)["install"]
+
+
+def test_a_new_version_that_does_not_start_is_rolled_back_and_nothing_restarts(monkeypatch):
+    _release(monkeypatch, tag="v0.79.0")
+    updates.check_now()
+    monkeypatch.setattr(updates, "install_kind", lambda: "pi")
+    commands, restarted = [], []
+    monkeypatch.setattr(updates.subprocess, "run", _runs(commands, [(0, ""), (1, ""), (0, "")]))
+    updates.apply(True, lambda: restarted.append(1))
+    state = _settle()
+    assert state["state"] == "failed" and "ImportError: broken" in state["error"] and "v0.78.0 restored" in state["error"]
+    assert commands[2][-1].endswith("/tags/v0.78.0.tar.gz")  # the version that ran is installed back
+    assert restarted == []
+
+
+def test_a_self_test_that_reports_another_version_counts_as_failed(monkeypatch):
+    _release(monkeypatch, tag="v0.79.0")
+    updates.check_now()
+    monkeypatch.setattr(updates, "install_kind", lambda: "pi")
+    commands = []
+    monkeypatch.setattr(updates.subprocess, "run", _runs(commands, [(0, ""), (0, "ok 0.78.0\n"), (1, "")]))
+    updates.apply(True, lambda: None)
+    state = _settle()
+    assert state["state"] == "failed" and "restoring v0.78.0 failed too" in state["error"]  # and says so when that fails as well
 
 
 def test_a_failed_install_is_reported_and_nothing_restarts(monkeypatch):
@@ -257,3 +302,137 @@ def test_the_check_button_looks_now_and_says_whether_it_worked(served, monkeypat
     monkeypatch.setenv("TEETIME_MONITOR_NO_UPDATE_CHECK", "1")
     response, body = _call(served, "POST", "/api/update/check", cookie)
     assert body["check_ok"] is False and body["check_disabled"] is True
+
+
+# ---- automatic updates at night (a Pi server, 2026-10-18) ---------------------------------------------------
+
+
+class _Server:
+    """What auto_due() asks of the running server."""
+
+    def __init__(self, quiet=3600.0, busy=False, serve=True):
+        self.serve, self._quiet, self._busy = serve, quiet, busy
+        self.refresher = type("R", (), {"busy": lambda _self: self._busy})()
+
+    def quiet_for(self):
+        return self._quiet
+
+
+def _pi_with_release(monkeypatch, tag="v0.79.0"):
+    _release(monkeypatch, tag=tag)
+    updates.check_now()
+    monkeypatch.setattr(updates, "install_kind", lambda: "pi")
+
+
+def test_the_switch_is_off_until_turned_on_and_is_saved(monkeypatch):
+    assert updates.auto_enabled() is False
+    assert updates.set_auto(True) == {"ok": True, "auto": True}
+    assert user_config.load_value("AUTO_UPDATE", user_config.CONFIG_FILE) == "1" and updates.auto_enabled()
+    updates.set_auto(False)
+    assert updates.auto_enabled() is False
+
+
+def test_an_automatic_update_waits_for_the_night_and_a_quiet_server(monkeypatch):
+    _pi_with_release(monkeypatch)
+    assert not updates.auto_due(_Server(), "03:30")  # switched off
+    updates.set_auto(True)
+    assert updates.auto_due(_Server(), "03:30")
+    assert updates.auto_due(_Server(), "03:00") and not updates.auto_due(_Server(), "05:00")  # 03:00 to before 05:00
+    assert not updates.auto_due(_Server(), "14:00") and not updates.auto_due(_Server(), "02:59")
+    assert not updates.auto_due(_Server(quiet=60), "03:30")  # something was just done on the page
+    assert not updates.auto_due(_Server(busy=True), "03:30")  # a club is being fetched
+    assert not updates.auto_due(_Server(serve=False), "03:30")
+    monkeypatch.setattr(updates, "install_kind", lambda: "brew")
+    assert not updates.auto_due(_Server(), "03:30")  # only a Pi server installs by itself
+
+
+def test_nothing_newer_means_nothing_to_do_at_night(monkeypatch):
+    _pi_with_release(monkeypatch, tag="v0.78.0")
+    updates.set_auto(True)
+    assert not updates.auto_due(_Server(), "03:30")
+
+
+def test_an_automatic_update_installs_restarts_and_leaves_a_note_for_the_morning(monkeypatch):
+    _pi_with_release(monkeypatch)
+    monkeypatch.setattr(updates.time, "sleep", lambda seconds: None)
+    commands, restarted = [], threading.Event()
+    monkeypatch.setattr(updates.subprocess, "run", _runs(commands, [(0, ""), (0, "ok 0.79.0\n")]))
+    updates.apply(True, restarted.set, auto=True)
+    assert restarted.wait(5)
+    assert updates.status(True)["auto_result"] == {"from": "0.78.0", "to": "0.79.0", "ok": True}
+    assert updates.status(False)["auto_result"] is None  # only a served Pi tells
+    updates.auto_seen()  # dismissed: gone for every device
+    assert updates.status(True)["auto_result"] is None
+
+
+def test_a_release_that_failed_at_night_is_not_tried_again_by_itself(monkeypatch):
+    _pi_with_release(monkeypatch)
+    updates.set_auto(True)
+    commands = []
+    monkeypatch.setattr(updates.subprocess, "run", _runs(commands, [(0, ""), (1, ""), (0, "")]))
+    updates.apply(True, lambda: None, auto=True)
+    _settle()
+    assert updates.status(True)["auto_result"] == {"from": "0.78.0", "to": "0.79.0", "ok": False}
+    updates.reset_for_tests()
+    _pi_with_release(monkeypatch)
+    assert not updates.auto_due(_Server(), "03:30")  # the same release: the button still can, the night does not
+    updates.auto_seen()
+    assert not updates.auto_due(_Server(), "03:30")  # dismissing the note does not change that
+    updates.reset_for_tests()
+    _pi_with_release(monkeypatch, tag="v0.79.1")
+    assert updates.auto_due(_Server(), "03:30")  # a newer release is tried
+
+
+def test_an_old_note_is_not_shown_any_more(monkeypatch):
+    _pi_with_release(monkeypatch)
+    paths.DATA_DIR.mkdir(parents=True)
+    (paths.DATA_DIR / updates.MARKER_FILE).write_text('{"from": "0.77.0", "to": "0.78.0", "ok": true, "at": 1}')
+    assert updates.status(True)["auto_result"] is None
+
+
+def test_the_switch_route_works_only_on_a_pi_server(served, monkeypatch):
+    cookie = f"tm_auth={auth.make_session()}"
+    response, body = _call(served, "POST", "/api/update/auto", cookie)
+    assert response.status == 409 and body["error"] == "not_supported"
+    monkeypatch.setattr(updates, "install_kind", lambda: "pi")
+    _, body = _call(served, "GET", "/api/update", cookie)
+    assert body["auto_available"] is True and body["auto"] is False
+    import http.client
+    import json
+
+    connection = http.client.HTTPConnection("127.0.0.1", served.port, timeout=10)
+    connection.request("POST", "/api/update/auto", body=json.dumps({"on": True}), headers={"Content-Type": "application/json", "Cookie": cookie})
+    assert json.loads(connection.getresponse().read()) == {"ok": True, "auto": True}
+    connection.close()
+    assert updates.auto_enabled() is True
+
+
+def test_a_page_action_makes_the_server_wait_but_its_pings_do_not(served):
+    cookie = f"tm_auth={auth.make_session()}"
+    served.started -= 3600
+    assert served.quiet_for() > 3000
+    _call(served, "POST", "/api/ping", cookie)
+    assert served.quiet_for() > 3000  # an open page pings all the time: that is not doing anything
+    _call(served, "POST", "/api/update/seen", cookie)
+    assert served.quiet_for() < 5
+
+
+def test_the_self_test_starts_the_server_once_and_says_ok(capsys):
+    assert server.self_test() == 0
+    assert capsys.readouterr().out.strip() == "ok 0.78.0"
+
+
+def test_a_self_test_that_cannot_start_says_why(monkeypatch, capsys):
+    def broken(*args, **kwargs):
+        raise OSError("no port")
+
+    monkeypatch.setattr(server.WebServer, "__init__", broken)
+    assert server.self_test() == 1
+    assert "no port" in capsys.readouterr().err
+
+
+def test_main_runs_the_self_test_and_exits_with_its_result(monkeypatch):
+    monkeypatch.setattr(server, "self_test", lambda: 0)
+    with pytest.raises(SystemExit) as stop:
+        server.main(["--self-test"])
+    assert stop.value.code == 0

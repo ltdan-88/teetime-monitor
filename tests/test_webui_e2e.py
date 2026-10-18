@@ -2179,3 +2179,32 @@ def test_on_a_phone_the_player_chip_sits_right_of_the_seat_squares_in_search(ui)
         _close_sheet(ui)
     finally:
         ui.call("Emulation.setDeviceMetricsOverride", width=1280, height=900, deviceScaleFactor=1, mobile=False)
+
+
+def test_a_pi_server_offers_updates_at_night_and_tells_the_morning_after(ui):
+    """The demo is no Pi server: its update answers are rewritten here to one that is, the morning after an
+    automatic update."""
+    ui.js(
+        """(() => { const real = window.fetch.bind(window); window.__posted = [];
+        window.fetch = async (url, options) => {
+          if (/api\\/update\\/(auto|seen)/.test(String(url))) { window.__posted.push([String(url), options && options.body]);
+            return new Response(JSON.stringify({ok: true}), {status: 200, headers: {'Content-Type': 'application/json'}}); }
+          const response = await real(url, options);
+          if (!/api\\/update$/.test(String(url).split('?')[0])) return response;
+          const body = await response.json();
+          Object.assign(body, {auto_available: true, auto: false, auto_result: {from: '0.99.30', to: body.current, ok: true}});
+          return new Response(JSON.stringify(body), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    ui.js("window.dispatchEvent(new Event('focus'))")  # the page looks at the update status again
+    ui.wait("document.querySelector('.auto-note')")
+    assert "Updated overnight to" in ui.text(".auto-note")
+    ui.click(".auto-note .icon-btn")  # dismissed for every device: the server forgets it
+    ui.wait("!document.querySelector('.auto-note') && window.__posted.some(([url]) => url.includes('/api/update/seen'))")
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('.about-group #v-auto')")
+    assert "at night" in ui.text(".about-group")
+    ui.click("#v-auto")
+    ui.wait("window.__posted.some(([url, body]) => url.includes('/api/update/auto') && JSON.parse(body).on === true)")
+    _close_sheet(ui)
+    ui.js("window.__beforeReload = true; location.reload()")  # drop the rewriting again
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")

@@ -16,7 +16,7 @@ import { PlayersSheet } from '/players.js';
 import { ViewMenu } from '/viewmenu.js';
 import { BottomPanel } from '/panel.js';
 import { Welcome } from '/welcome.js';
-import { UpdateNotice, UpdateSheet } from '/update.js';
+import { UpdateNotice, UpdateSheet, AutoUpdateNote } from '/update.js';
 import { installTouchTips } from '/tips.js';
 
 const ADD_CLUB = '__add_club__';
@@ -586,6 +586,8 @@ function App() {
             <button class="btn pri" onClick=${savePreview}><${Icon} name="plus" size=${16} />${t('preview.add')}</button>
             <button class="btn" onClick=${closePreview}>${t('preview.close')}</button></div>`}
         ${noClub && html`<${Welcome} onAddClub=${() => setSheet('addclub')} onLogin=${() => setSheet('settings')} />`}
+        ${update && update.auto_result && html`<${AutoUpdateNote} result=${update.auto_result} current=${update.current} url=${update.url}
+          onDismiss=${() => { setUpdate((current) => ({ ...current, auto_result: null })); post('/api/update/seen', {}).catch(() => {}); }} />`}
         ${update && update.newer && dismissedUpdate !== update.latest && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} onDismiss=${dismissUpdate} />`}
         ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
         ${showPast && html`
@@ -623,7 +625,7 @@ function App() {
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
-        display=${{ boot, units, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked }}
+        display=${{ boot, units, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}

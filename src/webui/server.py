@@ -125,6 +125,11 @@ class Refresher:
         with self._lock:
             return dict(self._state.get(key, {"running": False, "finished_at": None, "error": None, "result": None}))
 
+    def busy(self) -> bool:
+        """Any club being fetched right now (an automatic update waits for it)."""
+        with self._lock:
+            return any(state["running"] for state in self._state.values())
+
     def start(self, key: str, work) -> dict:
         """Run `work()` in a thread unless this key is already running. A dict it returns with
         `ok: False` (a club preview's rejection) is reported as the error."""
@@ -178,6 +183,7 @@ class WebServer(ThreadingHTTPServer):
         self.started = time.monotonic()
         self.boot_id = secrets.token_hex(6)  # tells an open page that this is not the process it was loaded from (an update restarted it)
         self.last_ping: float | None = None
+        self.last_action: float | None = None  # the last thing done on the page (a booking, a save): not a ping
 
     @property
     def url(self) -> str:
@@ -193,6 +199,10 @@ class WebServer(ThreadingHTTPServer):
         """Seconds since the page was last heard from, once it has been; else None-like."""
         reference = self.last_ping if self.last_ping is not None else self.started
         return time.monotonic() - reference
+
+    def quiet_for(self) -> float:
+        """Seconds since anything was done on the page (an open page's pings do not count)."""
+        return time.monotonic() - (self.last_action if self.last_action is not None else self.started)
 
     def restart(self) -> None:
         """Stop serving and let `main()` exit with the restart code: systemd starts the program again, now
@@ -429,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
         body = self._read_json() if method == "POST" else {}
+        if method == "POST" and path != "/api/ping":
+            self.server.last_action = time.monotonic()  # something done on the page: an automatic update waits
 
         def arg(name: str) -> str | None:
             if name in body and isinstance(body[name], str):
@@ -486,6 +498,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({**updates.status(serving=self.server.serve), "check_ok": looked})
         if route == ("POST", "/api/update/apply"):
             return reply(updates.apply(self.server.serve, self.server.restart), HTTPStatus.CONFLICT)
+        if route == ("POST", "/api/update/auto"):
+            if not updates.status(serving=self.server.serve)["auto_available"]:
+                return self._json({"error": "not_supported"}, HTTPStatus.CONFLICT)
+            return self._json(updates.set_auto(body.get("on") is True))
+        if route == ("POST", "/api/update/seen"):
+            return self._json(updates.auto_seen())
         if route == ("POST", "/api/ping"):
             self.server.last_ping = time.monotonic()
             return self._json({"ok": True, "boot": self.server.boot_id})
@@ -645,6 +663,39 @@ def _ask_password(from_stdin: bool) -> str | None:
     return first
 
 
+def self_test() -> int:
+    """Does this version start? Every module imports, and a server on a spare local port answers with the page
+    and its script. Prints "ok <version>" and returns 0, else what failed and 1. Touches no data: an update
+    runs it on the new version before restarting into it (`updates._self_test()`)."""
+    import importlib
+    import pkgutil
+    import urllib.request
+
+    from .. import __path__ as package_path
+
+    try:
+        for module in pkgutil.walk_packages(package_path, "src."):
+            importlib.import_module(module.name)
+        server = WebServer(port=0, host="127.0.0.1", keep_running=True)
+        threading.Thread(target=server.serve_forever, daemon=True, name="self-test").start()
+        try:
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+            with opener.open(server.url, timeout=20) as page:  # the token link, then the page itself
+                html = page.read().decode("utf-8")
+            if "app.js" not in html:
+                raise RuntimeError("the page has no script")
+            with opener.open(f"http://127.0.0.1:{server.port}/app.js", timeout=20) as script:
+                script.read()
+        finally:
+            server.shutdown()
+            server.server_close()
+    except Exception as error:  # noqa: BLE001 -- the point is to report whatever it is
+        print(f"self-test failed: {type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+    print(f"ok {data.version()}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="teetime-monitor-web", description="Teetime Monitor in a browser window.")
     parser.add_argument("--port", type=int, default=None, help=f"port to listen on (default: a free one; {DEFAULT_SERVE_PORT} with --serve)")
@@ -655,10 +706,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--set-password", action="store_true", help="set (or change) the password for --serve, then exit")
     parser.add_argument("--password-stdin", action="store_true", help="with --set-password: read the password from one line of standard input")
     parser.add_argument("--version", action="store_true", help="print the version and exit")
+    parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)  # an update checks the new version with it
     args = parser.parse_args(argv)
     if args.version:
         print(f"teetime-monitor {data.version()}")
         return
+    if args.self_test:
+        sys.exit(self_test())
     paths.force_utf8_stdio()
     if args.set_password:
         paths.ensure_dirs()
@@ -695,7 +749,7 @@ def main(argv: list[str] | None = None) -> None:
             open_window(server.url)
         threading.Thread(target=_watch_idle, args=(server,), daemon=True, name="idle-watch").start()
     if not updates.disabled():
-        threading.Thread(target=updates.watch, daemon=True, name="update-check").start()
+        threading.Thread(target=updates.watch, args=(server,), daemon=True, name="update-check").start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

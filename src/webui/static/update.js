@@ -17,6 +17,17 @@ export function UpdateNotice({ update, onUpdate, onDismiss }) {
   </div>`;
 }
 
+/** The morning after an automatic update (a Pi server): it worked, or it did not and the old version still runs.
+ *  Dismissed for every device at once (the server forgets it). */
+export function AutoUpdateNote({ result, current, url, onDismiss }) {
+  return html`<div class="banner update-banner auto-note" role="status">
+    <${Icon} name=${result.ok ? 'check' : 'info'} size=${18} />
+    <span class="update-text">${result.ok ? t('update.auto_done', { version: result.to }) : t('update.auto_failed', { version: result.to, current })}
+      ${result.ok && url && html`<span class="dim"> · </span><a href=${url} target="_blank" rel="noopener noreferrer">${t('update.notes')}</a>`}</span>
+    <button class="icon-btn" onClick=${onDismiss} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button>
+  </div>`;
+}
+
 /** The footer's "Check for updates": looks now (the server asks GitHub) and says what it found, for a few seconds. */
 export function CheckButton({ onResult }) {
   const [state, setState] = useState('idle'); // idle | checking | current | newer | failed | off
