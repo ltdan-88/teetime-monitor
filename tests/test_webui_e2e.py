@@ -1369,6 +1369,14 @@ def test_the_page_can_be_added_to_a_home_screen_with_the_app_icon(ui):
     assert ui.js("document.querySelector('.brand.in-bar img').naturalWidth") > 0  # the name in the toolbar carries the same icon
 
 
+def test_a_closing_page_says_goodbye_to_the_server(ui):  # silence alone may be a frozen page (see server.py)
+    ui.js("window.__sent = []; const real = window.fetch; window.fetch = (path, options) => { window.__sent.push([String(path), !!(options && options.keepalive)]); return real(path, options); }; true")
+    ui.js("window.dispatchEvent(new Event('pagehide')); true")
+    assert ui.js("window.__sent") == [["/api/bye", True]]  # keepalive: it still goes out while the page closes
+    ui.js("location.reload(); true")
+    ui.wait("document.querySelectorAll('.card').length > 0")
+
+
 def test_the_past_days_link_under_the_days_shows_them_and_goes_back(ui):
     ui.js("window.scrollTo(0, 0)")
     ui.wait("document.querySelector('.past-link .link-btn')")

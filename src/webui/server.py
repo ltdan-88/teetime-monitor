@@ -20,9 +20,12 @@ instead of the one-time link. Everything else above (Origin check, CSP) still ap
 header is not checked there, since the Pi is reached by name or address and a rebinding page cannot
 get the password cookie anyway.
 
-Lifecycle: the page pings `/api/ping` every few seconds; once it has been seen and then stays
-silent (the window was closed) the server exits, so a friend closing the browser window does
-not leave a program running. `--keep-running` turns that off. Ctrl+C always works.
+Lifecycle: the page pings `/api/ping` every few seconds and says goodbye (`/api/bye`) when it is
+closed; the server exits shortly after a goodbye no other page answers, so a friend closing the
+browser window does not leave a program running. Silence alone is no goodbye: a browser freezes a
+page left alone (Edge's sleeping tabs) and a computer can sleep, so only half a day of it ends the
+server, and time asleep does not count at all (2026-10-19: on Windows the server used to stop after two
+quiet minutes, under a window that was still open). `--keep-running` turns all of that off. Ctrl+C always works.
 """
 
 import argparse
@@ -61,7 +64,9 @@ PUBLIC_PAGES = {
     "/icons/icon-192.png": "icons/icon-192.png", "/icons/icon-512.png": "icons/icon-512.png", "/icons/icon-64.png": "icons/icon-64.png",
 }  # the icons and the manifest are not secret, and a phone fetches them without the login cookie
 PING_INTERVAL_HINT_SECONDS = 5
-IDLE_EXIT_AFTER_FIRST_PING_SECONDS = 120  # background tabs throttle timers to about one a minute
+IDLE_EXIT_AFTER_FIRST_PING_SECONDS = 12 * 3600  # silent without a goodbye: a frozen page (or one closed while frozen)
+CLOSED_EXIT_SECONDS = 90  # after a goodbye: room for a reload, and for another page in a background tab (one ping a minute)
+SUSPEND_GAP_SECONDS = 60  # the idle watch overslept by this much: the computer was asleep
 IDLE_EXIT_WITHOUT_ANY_PING_SECONDS = 600  # the window never opened, or was closed at once
 
 CSP = (
@@ -183,6 +188,7 @@ class WebServer(ThreadingHTTPServer):
         self.started = time.monotonic()
         self.boot_id = secrets.token_hex(6)  # tells an open page that this is not the process it was loaded from (an update restarted it)
         self.last_ping: float | None = None
+        self.last_bye: float | None = None  # a page said it was closed
         self.last_action: float | None = None  # the last thing done on the page (a booking, a save): not a ping
 
     @property
@@ -213,8 +219,19 @@ class WebServer(ThreadingHTTPServer):
     def should_exit(self) -> bool:
         if self.keep_running or self.serve:
             return False
-        limit = IDLE_EXIT_WITHOUT_ANY_PING_SECONDS if self.last_ping is None else IDLE_EXIT_AFTER_FIRST_PING_SECONDS
-        return self.idle_for() > limit
+        if self.last_ping is None:
+            return self.idle_for() > IDLE_EXIT_WITHOUT_ANY_PING_SECONDS
+        if self.last_bye is not None and self.last_bye >= self.last_ping:  # closed, and no other page has spoken since
+            return time.monotonic() - self.last_bye > CLOSED_EXIT_SECONDS
+        return self.idle_for() > IDLE_EXIT_AFTER_FIRST_PING_SECONDS
+
+    def slept(self, seconds: float) -> None:
+        """The computer was asleep for about `seconds`: that time is nobody's silence."""
+        self.started += seconds
+        if self.last_ping is not None:
+            self.last_ping += seconds
+        if self.last_bye is not None:
+            self.last_bye += seconds
 
 
 GZIP_MIN_BYTES = 600
@@ -439,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api(self, method: str, path: str, query: dict[str, list[str]]) -> None:
         body = self._read_json() if method == "POST" else {}
-        if method == "POST" and path != "/api/ping":
+        if method == "POST" and path not in ("/api/ping", "/api/bye"):
             self.server.last_action = time.monotonic()  # something done on the page: an automatic update waits
 
         def arg(name: str) -> str | None:
@@ -507,6 +524,9 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("POST", "/api/ping"):
             self.server.last_ping = time.monotonic()
             return self._json({"ok": True, "boot": self.server.boot_id})
+        if route == ("POST", "/api/bye"):
+            self.server.last_bye = time.monotonic()
+            return self._json({"ok": True})
 
         # bookings and notices
         if route == ("GET", "/api/reservations"):
@@ -608,7 +628,11 @@ def open_window(url: str) -> None:
 
 def _watch_idle(server: WebServer) -> None:
     while True:
+        before = time.monotonic()
         time.sleep(PING_INTERVAL_HINT_SECONDS)
+        overslept = time.monotonic() - before - PING_INTERVAL_HINT_SECONDS
+        if overslept > SUSPEND_GAP_SECONDS:
+            server.slept(overslept)
         if server.should_exit():
             print("The window was closed; Teetime Monitor is stopping.")
             server.shutdown()
