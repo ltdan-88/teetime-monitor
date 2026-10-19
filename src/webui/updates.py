@@ -3,7 +3,7 @@
 - **The notice (every install).** Every few hours the server asks GitHub for the newest release (one plain
   GET of the public releases page, nothing about you is sent) and remembers the answer; the page shows
   "Version X is available" with a link to the release notes, and, where it can tell how the program was
-  installed, the command that updates it (`brew upgrade teetime-monitor`, `scoop update ...`).
+  installed, the command that updates it (`brew upgrade teetime-monitor`, `uv tool upgrade teetime-monitor`).
   `TEETIME_MONITOR_NO_UPDATE_CHECK=1` switches the check off.
 - **The update button (a Pi server only).** When the program runs as `--serve` under systemd out of the
   installer's own Python environment, a logged-in page can install the newest release into that
@@ -212,19 +212,20 @@ def auto_due(server, now_hhmm: str | None = None) -> bool:
 
 
 def install_kind() -> str:
-    """'pi' (the installer's environment, running under systemd), 'brew', 'scoop' or 'other'."""
+    """'pi' (the installer's environment, running under systemd), 'brew', 'uv' (`uv tool install`, e.g. the
+    Scoop route on Windows: Scoop brings uv, uv brings the app) or 'other'."""
     prefix = Path(sys.prefix)
     text = str(prefix).lower().replace("\\", "/")
     if prefix.parent.name == SERVER_DIR_NAME and "INVOCATION_ID" in os.environ:
         return "pi"
     if "/cellar/" in text or "/homebrew/" in text:
         return "brew"
-    if "/scoop/" in text:
-        return "scoop"
+    if "/uv/tools/" in text:  # ~/.local/share/uv/tools/<name>, or %APPDATA%\\uv\\tools\\<name> on Windows
+        return "uv"
     return "other"
 
 
-COMMANDS = {"brew": "brew upgrade teetime-monitor", "scoop": "scoop update teetime-monitor"}
+COMMANDS = {"brew": "brew upgrade teetime-monitor", "uv": "uv tool upgrade teetime-monitor"}
 
 
 def status(serving: bool = False) -> dict:
