@@ -357,6 +357,23 @@ def test_the_server_stops_itself_once_the_window_has_gone_quiet(running, monkeyp
     assert running.should_exit() is True
 
 
+def test_a_closed_window_says_goodbye_and_a_frozen_or_sleeping_one_keeps_the_server(running):
+    now = time.monotonic()
+    running.last_ping = now - 30 * 60  # a page frozen by the browser half an hour ago (Edge's sleeping tabs)
+    assert running.should_exit() is False
+    assert _request(running, "POST", "/api/bye")[0].status == 200  # the window is closed
+    assert running.should_exit() is False  # not yet: a reload, or a page in a background tab, may answer
+    running.last_bye = now - server.CLOSED_EXIT_SECONDS - 1
+    assert running.should_exit() is True
+    _request(running, "POST", "/api/ping")  # another page (or the reloaded one) speaks after the goodbye
+    assert running.should_exit() is False
+    assert running.last_action is None or running.last_action < running.last_bye  # a goodbye is not something done on the page
+    running.last_bye = None
+    running.last_ping = time.monotonic() - server.IDLE_EXIT_AFTER_FIRST_PING_SECONDS + 60
+    running.slept(3 * 3600)  # the computer slept three hours: none of it counts
+    assert running.should_exit() is False and time.monotonic() - running.last_ping < server.IDLE_EXIT_AFTER_FIRST_PING_SECONDS
+
+
 def test_it_only_ever_binds_to_the_loopback_address(running):
     assert running.server_address[0] == "127.0.0.1"
     assert clock.today()  # (keeps the clock import honest: the suite freezes it for every test)

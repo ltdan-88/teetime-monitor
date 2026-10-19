@@ -439,13 +439,16 @@ function App() {
     const wake = () => { if (document.visibilityState === 'visible') ping(); };  // a tab that slept through the update
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('online', wake);
+    // Closed (or reloaded): say so, since a page that only goes quiet may just be frozen by the browser.
+    const bye = () => fetch('/api/bye', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    window.addEventListener('pagehide', bye);
     ping();
     const reload = setInterval(() => {
       const { view: v, course: c } = current.current;
       if (v) loadOverview(v, c);
     }, 30000);
     const clock = setInterval(() => tick((n) => n + 1), 30000);
-    return () => { [pinger, reload, clock].forEach(clearInterval); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake); };
+    return () => { [pinger, reload, clock].forEach(clearInterval); document.removeEventListener('visibilitychange', wake); window.removeEventListener('online', wake); window.removeEventListener('pagehide', bye); };
   }, []);
 
   // While a refresh runs, poll it; when it ends, read the overview again.
