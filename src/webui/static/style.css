@@ -510,6 +510,7 @@ dl.legend dd { margin: 0; color: var(--mid); }
 .sheet-body.fixed > * { flex: none; }
 .sheet-body.fixed > .scroll, .sheet-body.fixed > .player-scroll { flex: 1 1 auto; min-height: 0; }
 .scroll { overflow: auto; }
+.results.scroll, .tn-scroll { margin-right: -0.625rem; padding-right: 0.625rem; }  /* a phone's scroll bar lies over the content: it goes in the sheet's margin, the rows keep their width */
 .player-scroll { display: flex; gap: 0.25rem; min-height: 0; }
 .player-scroll .player-list { flex: 1; min-width: 0; margin-top: 0.25rem; position: relative; padding-right: 0.875rem; scrollbar-gutter: stable; }
 .player-list li.letter {
