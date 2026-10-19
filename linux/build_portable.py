@@ -40,6 +40,14 @@ PYTHON_SERIES = "3.12"
 
 TOP = "TeetimeMonitor"  # the folder inside the tarball
 
+# Parts of the runtime the app never loads, as globs under python/lib (see build()).
+PRUNE = (
+    "libpython*.so*", "libtcl*.so", "libtk*.so", "tcl*", "tk*", "itcl*", "thread*",
+    f"python{PYTHON_SERIES}/idlelib", f"python{PYTHON_SERIES}/tkinter", f"python{PYTHON_SERIES}/turtledemo",
+    f"python{PYTHON_SERIES}/turtle.py", f"python{PYTHON_SERIES}/ensurepip", f"python{PYTHON_SERIES}/lib2to3",
+    f"python{PYTHON_SERIES}/lib-dynload/_tkinter.*",
+)  # fmt: skip
+
 # -I: no PYTHON* variables, no user site, and no current directory on sys.path (a stray ./src in the
 # directory the app is started from must never be imported). -B: do not write bytecode into the folder.
 LAUNCHER = """#!/bin/sh
@@ -170,6 +178,14 @@ def build() -> Path:
             entry.unlink()
     for pip_dir in [site / "pip", *site.glob("pip-*.dist-info")]:
         shutil.rmtree(pip_dir, ignore_errors=True)
+    # Never loaded (2026-10-19, 45 -> ~25 MB): bin/python3.12 has libpython linked in statically (no
+    # extension module needs the shared copy), and Tcl/Tk only serves tkinter and IDLE.
+    for unused in PRUNE:
+        for path in (python_dir / "lib").glob(unused):
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
     print("==> dependencies (manylinux x86_64 wheels)")
     reqs = requirements()
