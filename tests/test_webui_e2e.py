@@ -434,10 +434,11 @@ def test_search_filters_with_chips_and_a_strip_of_days_that_counts_matches(ui):
     assert 0 < _search_rows(ui) <= start
     ui.js("document.querySelector('.strip .sday[aria-pressed=true]').click()")  # and back
     ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
-    ui.js("[...document.querySelectorAll('.strip .sday')].filter((e) => e.classList.contains('we')).forEach((e) => e.click())")  # the weekend: its days in the strip
-    ui.wait("document.querySelectorAll('.dayhead').length === 0 || [...document.querySelectorAll('.dayhead')].every((e) => /Sat|Sun/.test(e.textContent))")
-    ui.js("[...document.querySelectorAll('.strip .sday[aria-pressed=true]')].forEach((e) => e.click())")
-    ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
+    if ui.count(".strip .sday.we"):  # the weekend: its days in the strip (from Monday the five days are Monday to Friday)
+        ui.js("[...document.querySelectorAll('.strip .sday')].filter((e) => e.classList.contains('we')).forEach((e) => e.click())")
+        ui.wait("document.querySelectorAll('.dayhead').length === 0 || [...document.querySelectorAll('.dayhead')].every((e) => /Sat|Sun/.test(e.textContent))")
+        ui.js("[...document.querySelectorAll('.strip .sday[aria-pressed=true]')].forEach((e) => e.click())")
+        ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length === {start}")
     _chip(ui, "My times")  # turning your rules off shows more
     ui.wait(f"document.querySelectorAll('.results .res:not(.res-head)').length > {start}")
     _close_sheet(ui)
@@ -1397,6 +1398,26 @@ def test_the_past_days_open_at_the_newest_with_the_way_back_under_them(ui):  # t
     assert ui.text(".past-link .link-btn") == "Back to upcoming days"
     ui.click(".past-link .link-btn")
     ui.wait("!document.querySelector('.preview-bar') && document.querySelectorAll('.card').length > 0 && document.querySelectorAll('.card').length < 10")
+
+
+def test_a_phones_scroll_bar_lies_beside_the_rows_of_search_and_tournaments_not_over_them(ui):
+    edges = """(() => { const box = document.querySelector('%s').getBoundingClientRect(), row = document.querySelector('%s').getBoundingClientRect();
+      return [box.right - row.right, document.documentElement.scrollWidth <= innerWidth]; })()"""
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=844, deviceScaleFactor=2, mobile=True)
+        _open_sheet(ui, "s", "")
+        ui.wait("document.querySelectorAll('.results .res:not(.res-head)').length > 3")
+        gap, fits = ui.js(edges % (".results.scroll", ".res:not(.res-head)"))
+        assert gap >= 8 and fits, (gap, fits)  # an overlay scroll bar (iOS: about 6 px from the edge) misses the flag buttons
+        assert abs(ui.js("document.querySelector('.res:not(.res-head)').getBoundingClientRect().right - document.querySelector('.strip').getBoundingClientRect().right")) < 1  # rows still end with the days above
+        ui.key("Escape")
+        _open_sheet(ui, "t", "Tournaments")
+        ui.wait("document.querySelector('.tn-scroll') && document.querySelector('.tn-scroll').firstElementChild")
+        gap, fits = ui.js(edges % (".tn-scroll", ".tn-scroll > *"))
+        assert gap >= 8 and fits, (gap, fits)
+        ui.key("Escape")
+    finally:
+        ui.call("Emulation.clearDeviceMetricsOverride")
 
 
 def test_search_puts_the_filters_beside_the_results_on_a_large_landscape_screen_and_above_them_otherwise(ui):
