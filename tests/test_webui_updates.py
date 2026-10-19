@@ -95,7 +95,9 @@ def test_the_install_kind_is_told_from_where_the_program_lives(monkeypatch, tmp_
     monkeypatch.delenv("INVOCATION_ID", raising=False)
     for prefix, kind in (
         ("/opt/homebrew/Cellar/teetime-monitor/0.78.0/libexec", "brew"),
-        ("C:\\Users\\me\\scoop\\apps\\teetime-monitor\\current", "scoop"),
+        ("C:\\Users\\me\\AppData\\Roaming\\uv\\tools\\teetime-monitor", "uv"),  # Scoop's uv on Windows
+        ("/home/me/.local/share/uv/tools/teetime-monitor", "uv"),
+        ("C:\\Users\\me\\scoop\\apps\\python\\current", "other"),  # Scoop itself never installs the app
         ("/home/me/somewhere", "other"),
     ):
         monkeypatch.setattr("sys.prefix", prefix)
