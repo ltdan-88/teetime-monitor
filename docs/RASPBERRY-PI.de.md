@@ -44,10 +44,6 @@ dem Pi in `~/.config/teetime-monitor`, die Daten in `~/.local/share/teetime-moni
 
 ## Aktualisierungen
 
-> **Noch auf 0.99.x?** Diese Versionen kennen die 1.0-Kandidaten (`1.0.0rc1`, …) nicht, ihr **Jetzt aktualisieren**
-> bietet sie also nicht an. Führe den Installationsbefehl oben einmal noch aus: Er installiert die neueste Version über
-> die alte und behält Einstellungen und Daten. Danach funktionieren der Knopf (und das nächtliche Update) wieder.
-
 Alle paar Stunden (und wenn eine Seite nachfragt, obwohl der letzte Blick über eine Stunde her ist) schaut der Server in GitHubs öffentliche Release-Liste (eine einfache Anfrage, nichts über dich wird
 gesendet). Gibt es eine neuere Version, zeigt jede Seite über den Tagen **Version X ist verfügbar** mit einem Link zu den
 Release-Notes. Auf dem Pi installiert **Jetzt aktualisieren** (in derselben Zeile) diese Version in die eigene
