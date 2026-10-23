@@ -42,10 +42,6 @@ and the data in `~/.local/share/teetime-monitor` on the Pi.
 
 ## Updates
 
-> **Coming from 0.99.x?** Those versions do not recognise the 1.0 release candidates (`1.0.0rc1`, …), so their
-> **Update now** does not offer them. Run the install command above once more; it installs the newest release over
-> the old one and keeps your settings and data. From then on the button (and the night update) work again.
-
 Every few hours (and when a page asks while the last look is over an hour old) the server looks at GitHub's public release list (one plain request, nothing about you is sent)
 and, when a newer version exists, every page shows **Version X is available** above the days, with a link to the
 release notes. On the Pi, **Update now** (on the same line) installs that release into the server's own

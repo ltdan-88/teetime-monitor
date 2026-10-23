@@ -1949,7 +1949,11 @@ def test_a_tournament_in_the_loaded_days_shows_its_forecast(ui):
     ui.wait("document.querySelectorAll('.tn-item').length > 0")
     ui.wait("document.querySelector('.tn-item .chip.wx')")
     assert "°" in ui.text(".tn-item .chip.wx") and "%" in ui.text(".tn-item .chip.wx")
-    assert ui.js("[...document.querySelectorAll('.tn-item')].some((li) => !li.querySelector('.chip.wx'))")  # the far ones have none
+    far = "[...document.querySelectorAll('.tn-item')].some((li) => !li.querySelector('.chip.wx'))"
+    if not ui.js(far):  # late in a month the far ones are all in the next (the demo's calendar is relative to today)
+        ui.click(".tn-step", index=1)
+        ui.wait("document.querySelectorAll('.tn-item').length > 0")
+    assert ui.js(far)  # the far ones have none
     _close_sheet(ui)
 
 

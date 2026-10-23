@@ -21,13 +21,16 @@
    and attach them to the Release. If one fails the Release and the tap are already out; fix the cause and
    re-run the failed job (they use `gh release upload --clobber`, so re-running is safe).
 
-## Release candidates and the 1.0 freeze
+## Release candidates
 
-Since 2026-10-18 the 1.0 freeze is on: `1.0.0rcN` releases carry **fixes only** — no new features, nothing moved
-or rearranged — until 1.0.0. A candidate is tagged like any release, the tag spelled exactly as the version
-(`version = "1.0.0rc1"` → `git tag v1.0.0rc1`; `v1.0.0-rc1` would not match the check in step 4). Homebrew and the
-Pi's update check both order `1.0.0rc1 < 1.0.0rc2 < 1.0.0`, so a candidate installs over 0.99.x and 1.0.0 over
-every candidate. 1.0.0 follows once a candidate has run on the real devices for one to two weeks without a bug.
+A release candidate (`X.Y.ZrcN`) carries **fixes only** — no new features, nothing moved or rearranged — until
+`X.Y.Z`. It is tagged like any release, the tag spelled exactly as the version (`version = "1.0.0rc1"` →
+`git tag v1.0.0rc1`; `v1.0.0-rc1` would not match the check in step 4). Homebrew and the Pi's update check both order
+`1.0.0rc1 < 1.0.0rc2 < 1.0.0`, so the release installs over every candidate. Versions before 1.0.0rc1 do not see
+candidates at all (their check takes plain `vX.Y.Z` tags only), but they are offered the release itself.
+
+1.0 went this way: the freeze started with 1.0.0rc1 on 2026-10-18, eight candidates fixed what the real devices
+found (a phone, a Pi updating itself at night, a company Windows PC), and 1.0.0 followed on 2026-10-23.
 
 `TAP_GITHUB_TOKEN`: a fine-grained personal access token with *Contents: read and
 write* on `ltdan-88/homebrew-teetime-monitor`, stored under Settings → Secrets and
