@@ -262,7 +262,7 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.js("window.scrollTo(0, 0)")
     kept = ui.js("fetch('/api/reservations').then((r) => r.json()).then((j) => j.reservations[0])")  # the demo's booking, to put back at the end
     _open_sheet(ui, "b", "My reservations")
-    ui.wait("document.querySelectorAll('.resv-list li').length > 0 && !document.querySelector('.sheet .status-line')")  # the demo has one booking
+    ui.wait("document.querySelectorAll('.resv-list:not(.past) li').length > 0 && !document.querySelector('.sheet .status-line')")  # the demo has one booking
     shown = ui.text(".resv-list li")
     assert "11:00" in shown and "Golfclub Beispiel" in shown, shown
     ui.shot("reservations")
@@ -271,7 +271,7 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     assert "Cancel your" in ui.text(".sheet.small h2")
     ui.click(".sheet.small .btn.danger")
     ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelector('.sheet .empty h3')")  # the list is checked again, then says it is empty
-    assert "No upcoming reservations" in ui.text(".sheet") and ui.count(".resv-list li") == 0
+    assert "No upcoming reservations" in ui.text(".sheet") and ui.count(".resv-list:not(.past) li") == 0
     _close_sheet(ui)
     ui.wait("document.querySelectorAll('.pill.booked').length === 0")  # the overview follows
     ui.js(  # put the demo's booking back (a job: wait for it) and start the next test on a fresh page
@@ -2469,3 +2469,18 @@ def test_a_guest_with_or_without_a_home_club_can_be_booked_with_you(ui):
           .then(() => {{ window.__beforeReload = true; location.reload(); }})"""
     )
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_a_round_already_played_keeps_its_scorecard_under_past_rounds(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelector('.resv-past') && document.querySelector('.resv-list.past li')", 10)
+    assert ui.text(".resv-past") == "PAST ROUNDS" or ui.text(".resv-past").lower() == "past rounds"
+    row = ui.text(".resv-list.past li")
+    assert "14:20" in row and "18 Loch Tee 1" in row  # the demo's round three days ago
+    assert ui.count(".resv-list.past li .danger") == 0 and ui.count(".resv-list.past li a") == 0  # nothing to cancel or put in a calendar
+    ui.js("document.querySelector('.resv-list.past li .icon-btn').click()")
+    ui.wait("document.querySelectorAll('.sc-table tbody tr').length === 18", 10)
+    ui.key("Escape")
+    ui.wait("document.querySelectorAll('.sheet').length === 1")
+    _close_sheet(ui)

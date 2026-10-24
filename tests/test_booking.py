@@ -5,7 +5,7 @@ confirm page, My Reservations and the cancellation page."""
 import httpx
 import pytest
 
-from src import booking, scraper
+from src import booking, scraper, storage
 
 CLUB = "0497758"
 COURSE = "6 Loch Platz"
@@ -431,3 +431,22 @@ def test_my_reservations_read_a_moment_ago_is_not_read_again_unless_asked(monkey
     assert read == [] and result["checked_at"] <= clock.time() - 60  # both fresh: pc caddie is not asked
     booking.upcoming_reservations(clubs, refresh=True, force=True)
     assert sorted(read) == ["1", "2"]  # the button that checks now
+
+
+def test_a_round_whose_tee_time_has_passed_moves_to_past_rounds_newest_first(monkeypatch, tmp_path):
+    from src import clock, scrape_once
+    from src.models import ConfirmedBooking
+
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(clock, "today", lambda: "2026-10-24")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "15:00")
+    db = scrape_once._db_path("1")
+    for day, time in (("2026-10-01", "09:00"), ("2026-10-18", "16:00"), ("2026-10-24", "14:10"), ("2026-10-24", "16:30"), ("2026-10-26", "10:00")):
+        storage.save_confirmed_booking(ConfirmedBooking(date=day, course=f"18 Loch {time}", time=time, source="my_reservations", confirmed_at="t"), path=db)
+    storage.save_confirmed_booking(ConfirmedBooking(date="2026-10-10", course="9 Loch", time="11:00", source="my_reservations", confirmed_at="t1"), path=db)
+    storage.save_confirmed_booking(ConfirmedBooking(date="2026-10-10", course="9 Loch", time=None, source="my_reservations", confirmed_at="t2"), path=db)  # cancelled
+    clubs = [{"slug": "a", "id": "1", "name": "A"}]
+    played = booking.past_rounds(clubs)
+    assert [(r["date"], r["time"]) for r in played] == [("2026-10-24", "14:10"), ("2026-10-18", "16:00"), ("2026-10-01", "09:00")]  # today's, once teed off
+    assert [(r["date"], r["time"]) for r in booking.upcoming_reservations(clubs)["reservations"]] == [("2026-10-24", "16:30"), ("2026-10-26", "10:00")]
+    assert len(booking.past_rounds(clubs, limit=2)) == 2

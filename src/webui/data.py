@@ -544,8 +544,9 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
 
 def reservations(refresh: bool = False, force: bool = False) -> dict:
     """Your upcoming bookings at every saved club (src/booking.py `upcoming_reservations`)."""
-    found = booking.upcoming_reservations(club_entries(), refresh, force)
-    return {**found, "reservations": _with_round_times(found["reservations"])}
+    clubs = club_entries()
+    found = booking.upcoming_reservations(clubs, refresh, force)
+    return {**found, "reservations": _with_round_times(found["reservations"]), "past": booking.past_rounds(clubs)}
 
 
 _TOURNAMENT_CACHE: dict[str, tuple[float, list]] = {}

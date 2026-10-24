@@ -105,6 +105,9 @@ def seed(directory: Path, second_club: bool = False) -> None:
     storage.save_confirmed_booking(
         ConfirmedBooking(date=today.isoformat(), course=course, time="11:00", holes=18, source="manual"), path=db
     )
+    storage.save_confirmed_booking(  # a round played three days ago: its scorecard is under "Past rounds"
+        ConfirmedBooking(date=(today - timedelta(days=3)).isoformat(), course=course, time="14:20", holes=18, source="my_reservations"), path=db
+    )
     storage.save_my_handicap(24.3, path=db)  # your own Handicap Index, as the reservation sync reads it
     finished = (now - timedelta(minutes=12)).isoformat()
     storage.record_scrape_run(

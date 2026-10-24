@@ -665,6 +665,8 @@ button, select, input { touch-action: manipulation; }
 .resv-list li:first-child { border-top: 0; }
 .resv-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resv-actions { display: flex; align-items: center; gap: 0.25rem; }
+.resv-past { margin: 1.25rem 0 0; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+.resv-list.past { color: var(--dim); }
 .sc-target { margin: 0.5rem 0; }
 .sc-target.small { font-size: 0.875rem; color: var(--accent-text, var(--accent)); margin: 0 0 0.25rem; }
 .sc-wrap { overflow-x: auto; }

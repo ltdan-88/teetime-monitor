@@ -94,7 +94,8 @@ An opened day says why, e.g. "dry · room around you · daylight to spare". If y
 but a shorter one at the club still fits, it suggests that one instead. A day that isn't open for booking yet
 shows 🔒 and when it opens. Tap the weather icon of an opened day to see its forecast on meteoblue, Windy, Ventusky
 or Yr, and put a booking into Outlook, Google Calendar or Apple's calendar with one tap in **My reservations** (choose
-both under Settings → Display). There each booking also has **your scorecard**: from the club's course data and your
+both under Settings → Display). There each booking, and each of your last ten rounds under *Past rounds*, also has
+**your scorecard**: from the club's course data and your
 Handicap Index, the shots you get on every hole, the score that is par for you, where to pick up, and how many
 Stableford points beat your handicap.
 
