@@ -550,7 +550,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/api/booking/partners"):
             return reply(data.booking_partners(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
         if route == ("GET", "/api/scorecard"):
-            return reply(data.scorecard_for(**ref(), course=arg("course") or ""))
+            return reply(data.scorecard_for(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
+        if route == ("POST", "/api/scorecard/score"):
+            return reply(data.save_round_score(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or "",
+                                               tee=arg("tee") or "", strokes=body.get("strokes")), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/scorecard/tee"):
             return reply(data.set_scorecard_tee(arg("slug"), arg("course") or "", arg("key") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("GET", "/api/booking/job"):

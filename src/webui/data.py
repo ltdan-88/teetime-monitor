@@ -634,7 +634,7 @@ def booking_partners(slug: str | None, club_id: str | None, course: str, date: s
     return booking.partners(found[0], course, date, time)
 
 
-def scorecard_for(slug: str | None, club_id: str | None, course: str) -> dict:
+def scorecard_for(slug: str | None, club_id: str | None, course: str, date: str = "", time: str = "") -> dict:
     """Your scorecard for `course` (src/scorecard.py): the tee you chose for it (or a first guess), the tees you can
     choose from, and per hole your shots, aim and pick-up score. {"error": ...} when something is missing."""
     found = _club_db(slug, club_id)
@@ -660,11 +660,27 @@ def scorecard_for(slug: str | None, club_id: str | None, course: str) -> dict:
     tee = next((tee for tee in choices if tee.key == chosen), None) or scorecard.guess_tee(tees, holes, gender)
     if tee is None:
         return {"error": "no_tee"}
+    saved = storage.load_round_score(course, date, time, path=db) if date and time else None
+    strokes = saved["strokes"] if saved and saved["tee"] == tee.key and len(saved["strokes"]) == tee.holes else [None] * tee.holes
     return {
         "card": scorecard.card(hi, tee),
         "choices": [{"key": choice.key, "round": choice.round, "color": choice.color} for choice in choices],
         "chosen": tee.key,
+        "strokes": strokes,
     }
+
+
+def save_round_score(slug: str | None, club_id: str | None, course: str, date: str, time: str, tee: str, strokes) -> dict:
+    """Keep your strokes for a round (typed into its scorecard): one number 1 to 20 or nothing per hole."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    if not booking._valid(date, time) or tee.count("|") != 2 or not isinstance(strokes, list) or len(strokes) not in (9, 18):
+        return {"error": "bad_request"}
+    if not all(value is None or (isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 20) for value in strokes):
+        return {"error": "bad_request"}
+    storage.save_round_score(course, date, time, tee, strokes, path=found[1])
+    return {"ok": True}
 
 
 def set_scorecard_tee(slug: str | None, course: str, key: str) -> dict:

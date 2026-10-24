@@ -1623,3 +1623,11 @@ def test_a_newer_schema_version_is_left_alone(tmp_path):
         conn.execute("PRAGMA user_version = 99")
     storage.init_db(db)
     assert storage.schema_version(db) == 99
+
+
+def test_a_rounds_strokes_are_kept_and_replaced(tmp_path):
+    db = tmp_path / "club.db"
+    assert storage.load_round_score("18 Loch Tee 1", "2026-10-21", "14:20", path=db) is None
+    storage.save_round_score("18 Loch Tee 1", "2026-10-21", "14:20", "Runde A+B|gelb|M", [5, None, 4], path=db)
+    storage.save_round_score("18 Loch Tee 1", "2026-10-21", "14:20", "Runde A+B|gelb|M", [5, 6, 4], path=db)
+    assert storage.load_round_score("18 Loch Tee 1", "2026-10-21", "14:20", path=db) == {"tee": "Runde A+B|gelb|M", "strokes": [5, 6, 4]}

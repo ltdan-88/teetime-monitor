@@ -2401,8 +2401,8 @@ def test_your_scorecard_for_a_booking_shows_each_hole_and_the_booking_dialog_its
     assert ui.js(f"({job})('/api/booking', {json.dumps(ours)})") == "ok"  # a booking of its own, cancelled at the end
     _open_sheet(ui, "b", "My reservations")
     mine = f"[...document.querySelectorAll('.resv-list li')].find((li) => li.textContent.includes({json.dumps(slot['time'])}) && li.textContent.includes('18 Loch Tee 1'))"
-    ui.wait(f"{mine} && {mine}.querySelector('.resv-actions .icon-btn')")
-    ui.js(f"{mine}.querySelector('.resv-actions .icon-btn').click()")
+    ui.wait(f"{mine} && {mine}.querySelector('.sc-open')")
+    ui.js(f"{mine}.querySelector('.sc-open').click()")
     ui.wait("document.querySelectorAll('.sc-table tbody tr').length === 18", 10)  # 18 Loch Tee 1: A+B
     assert ui.js("document.querySelector('#sc-tee').value") == "Runde A+B|gelb|M"
     assert "Better than your handicap" in ui.text(".sc-target") and "points" in ui.text(".sc-target")
@@ -2479,8 +2479,41 @@ def test_a_round_already_played_keeps_its_scorecard_under_past_rounds(ui):
     row = ui.text(".resv-list.past li")
     assert "14:20" in row and "18 Loch Tee 1" in row  # the demo's round three days ago
     assert ui.count(".resv-list.past li .danger") == 0 and ui.count(".resv-list.past li a") == 0  # nothing to cancel or put in a calendar
-    ui.js("document.querySelector('.resv-list.past li .icon-btn').click()")
+    ui.js("document.querySelector('.resv-list.past li .sc-open').click()")
     ui.wait("document.querySelectorAll('.sc-table tbody tr').length === 18", 10)
+    ui.key("Escape")
+    ui.wait("document.querySelectorAll('.sheet').length === 1")
+    _close_sheet(ui)
+
+
+
+def test_strokes_typed_into_a_rounds_scorecard_count_points_and_are_kept(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelector('.resv-list.past li .sc-open')", 10)
+    ui.js("document.querySelector('.resv-list.past li .sc-open').click()")
+    ui.wait("document.querySelectorAll('.sc-in').length === 18", 10)
+
+    def enter(i, value):
+        ui.js(f"(() => {{ const e = document.querySelectorAll('.sc-in')[{i}]; e.value = {json.dumps(value)}; e.dispatchEvent(new Event('input', {{bubbles: true}})); }})()")
+
+    aims = ui.js("[...document.querySelectorAll('.sc-table tbody .sc-aim')].map((e) => Number(e.textContent))")
+    enter(0, str(aims[0]))  # par for you: 2 points
+    enter(1, str(aims[1] - 1))  # one better: 3
+    enter(2, str(aims[2] + 3))  # beyond the pick-up score: 0
+    points = ui.js("[...document.querySelectorAll('.sc-table tbody .sc-pts')].slice(0, 4).map((e) => e.textContent)")
+    assert points == ["2", "3", "0", ""], points
+    assert ui.js("document.querySelector('.sc-table tfoot').textContent").endswith("5")
+    assert not ui.js("document.querySelector('.sc-verdict')")  # not every hole yet
+    for i in range(3, 18):
+        enter(i, str(aims[i]))
+    assert "points" in ui.text(".sc-verdict")
+    # closed at once: what was typed is still saved
+    ui.key("Escape")
+    ui.wait("document.querySelectorAll('.sheet').length === 1")
+    ui.js("document.querySelector('.resv-list.past li .sc-open').click()")
+    ui.wait("document.querySelectorAll('.sc-in').length === 18 && document.querySelectorAll('.sc-in')[1].value !== ''", 10)
+    assert ui.js("[...document.querySelectorAll('.sc-in')].slice(0, 3).map((e) => e.value)") == [str(aims[0]), str(aims[1] - 1), str(aims[2] + 3)]
     ui.key("Escape")
     ui.wait("document.querySelectorAll('.sheet').length === 1")
     _close_sheet(ui)

@@ -129,6 +129,17 @@ CREATE TABLE IF NOT EXISTS confirmed_bookings (
     confirmed_at TEXT NOT NULL -- ISO 8601 timestamp
 );
 
+-- Your strokes per hole for a round you played (1.6.0, typed into its scorecard): kept here only, never sent anywhere.
+CREATE TABLE IF NOT EXISTS round_scores (
+    course TEXT NOT NULL,
+    date TEXT NOT NULL,        -- YYYY-MM-DD
+    time TEXT NOT NULL,        -- HH:MM, the tee time
+    tee TEXT NOT NULL,         -- the scorecard's tee ("Runde A+B|gelb|M")
+    strokes TEXT NOT NULL,     -- JSON list, one per hole: an int, or null for a hole not filled in
+    saved_at TEXT NOT NULL,
+    PRIMARY KEY (course, date, time)
+);
+
 CREATE TABLE IF NOT EXISTS booking_changes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     course TEXT NOT NULL,
@@ -788,6 +799,26 @@ def load_location(path: Path = DEFAULT_DB_PATH) -> dict | None:
     with _connect(path) as conn:
         row = conn.execute("SELECT value FROM club_meta WHERE key = 'location'").fetchone()
     return json.loads(row[0]) if row else None
+
+
+def save_round_score(course: str, date: str, time: str, tee: str, strokes: list[int | None], path: Path = DEFAULT_DB_PATH) -> None:
+    """Your strokes for one round (replacing what was saved for it before)."""
+    init_db(path)
+    with _connect(path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO round_scores (course, date, time, tee, strokes, saved_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (course, date, time, tee, json.dumps(strokes), datetime.now(UTC).isoformat()),
+        )
+
+
+def load_round_score(course: str, date: str, time: str, path: Path = DEFAULT_DB_PATH) -> dict | None:
+    """{"tee", "strokes"} saved for one round, or None."""
+    if not path.exists():
+        return None
+    init_db(path)
+    with _connect(path) as conn:
+        row = conn.execute("SELECT tee, strokes FROM round_scores WHERE course = ? AND date = ? AND time = ?", (course, date, time)).fetchone()
+    return {"tee": row[0], "strokes": json.loads(row[1])} if row else None
 
 
 def save_my_handicap(handicap: float, path: Path = DEFAULT_DB_PATH) -> None:

@@ -668,6 +668,13 @@ def test_the_scorecard_needs_your_handicap_and_login_then_remembers_the_tee_you_
     assert data.scorecard_for(SLUG, None, COURSE)["chosen"] == "Runde A+B|rot|M"
     assert club_config.load_club_config(SLUG)["scorecard_tees"] == {COURSE: "Runde A+B|rot|M"}
     assert data.set_scorecard_tee(SLUG, COURSE, "nonsense") == {"error": "bad_request"}
+    strokes = [5] * 17 + [None]
+    assert data.save_round_score(SLUG, None, COURSE, "2026-10-21", "14:20", "Runde A+B|rot|M", strokes) == {"ok": True}
+    assert data.scorecard_for(SLUG, None, COURSE, "2026-10-21", "14:20")["strokes"] == strokes  # kept with the round
+    assert data.scorecard_for(SLUG, None, COURSE, "2026-10-22", "14:20")["strokes"] == [None] * 18  # another round: empty
+    for bad in ([5] * 17, [0] + [5] * 17, ["5"] + [5] * 17, [True] + [5] * 17, [21] + [5] * 17):
+        assert data.save_round_score(SLUG, None, COURSE, "2026-10-21", "14:20", "Runde A+B|rot|M", bad) == {"error": "bad_request"}
+    assert data.save_round_score(SLUG, None, COURSE, "21.10.", "14:20", "Runde A+B|rot|M", strokes) == {"error": "bad_request"}
 
     def unreachable(club_id, u, p):
         raise scorecard.scraper.LoginError("refused")

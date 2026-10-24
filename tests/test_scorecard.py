@@ -84,3 +84,8 @@ def test_a_page_without_course_data_is_not_kept(tmp_path, monkeypatch, page):
     monkeypatch.setattr(scorecard.paths, "DATA_DIR", tmp_path)
     monkeypatch.setattr(scraper, "read_logged_in", lambda *a: page)
     assert scorecard.load_tees("0000001", "me", "secret") == ([], None) and not (tmp_path / "ratings-0000001.json").exists()
+
+
+def test_points_are_two_for_par_for_you_and_never_below_nothing():
+    hole = {"aim": 6}
+    assert [scorecard.points(n, hole) for n in (4, 5, 6, 7, 8, 9, None)] == [4, 3, 2, 1, 0, 0, None]

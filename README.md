@@ -97,7 +97,8 @@ or Yr, and put a booking into Outlook, Google Calendar or Apple's calendar with 
 both under Settings → Display). There each booking, and each of your last ten rounds under *Past rounds*, also has
 **your scorecard**: from the club's course data and your
 Handicap Index, the shots you get on every hole, the score that is par for you, where to pick up, and how many
-Stableford points beat your handicap.
+Stableford points beat your handicap. Type your strokes in during or after the round and it counts your points (kept in
+the app only).
 
 ### Prefer the terminal?
 
