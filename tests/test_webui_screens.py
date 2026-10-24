@@ -4,7 +4,7 @@ Search, players and heatmap -- the JSON behind every screen, and the routes in f
 import http.client
 import json
 import threading
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -16,6 +16,7 @@ from src import (
     global_preferences,
     i18n,
     pipeline,
+    recommend,
     scrape_once,
     storage,
     theme,
@@ -629,6 +630,32 @@ def test_the_weather_site_is_saved_in_the_shared_setting(world, tmp_path, monkey
     assert settings_api.set_weather_site("") == {"ok": True} and data.saved_weather_site() is None
 
 
+def test_the_calendar_choice_is_saved_and_each_booking_carries_its_round_in_utc(world, tmp_path, monkeypatch):
+    monkeypatch.setattr(user_config, "CONFIG_FILE", tmp_path / "config")
+    assert data.bootstrap()["calendar"] is None  # no button until chosen
+    assert settings_api.set_calendar("outlook") == {"ok": True} and data.bootstrap()["calendar"] == "outlook"
+    assert settings_api.set_calendar("lotus") == {"error": "unknown_calendar"}
+    assert settings_api.set_calendar("") == {"ok": True} and data.saved_calendar() is None
+    items = [
+        {"slug": SLUG, "club_id": "0000001", "club": "Golfclub Beispiel", "course": COURSE, "date": "2026-10-24", "time": "16:00"},  # summer time
+        {"slug": SLUG, "club_id": "0000001", "club": "Golfclub Beispiel", "course": COURSE, "date": "2026-11-07", "time": "16:00"},  # winter time
+    ]
+    timed = data._with_round_times(items)
+    minutes = recommend._round_duration_minutes(COURSE, pipeline._resolved_config(SLUG, "0000001", "Golfclub Beispiel"))
+    assert [item["start"] for item in timed] == ["2026-10-24T14:00:00Z", "2026-11-07T15:00:00Z"]  # the club's clock (Europe/Berlin)
+    end = datetime(2026, 11, 7, 15, 0, tzinfo=UTC) + timedelta(minutes=minutes)
+    assert timed[1]["end"] == end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_a_calendar_file_holds_one_event_and_nothing_can_add_lines_to_it():
+    event = data.calendar_file("Golf · 18 Loch, Tee 1", "Club; e.V.\nATTENDEE:x", "2026-10-24T14:00:00Z", "2026-10-24T18:30:00Z").decode()
+    lines = event.split("\r\n")
+    assert lines[0] == "BEGIN:VCALENDAR" and "DTSTART:20261024T140000Z" in lines and "DTEND:20261024T183000Z" in lines
+    assert "SUMMARY:Golf · 18 Loch\\, Tee 1" in lines and "LOCATION:Club\\; e.V. ATTENDEE:x" in lines
+    assert not any(line.startswith("ATTENDEE") for line in lines)
+    assert data.calendar_file("Golf", "Club", "2026-10-24 14:00", "2026-10-24T18:30:00Z") is None
+
+
 def test_the_overview_carries_the_clubs_coordinates_for_the_weather_link(world, monkeypatch):
     monkeypatch.setattr(pipeline, "_resolved_config", lambda *a, **k: {"location": {"lat": 47.6612345, "lon": 9.62}})
     assert data.overview(SLUG, COURSE)["location"] == {"lat": 47.6612, "lon": 9.62}
@@ -762,6 +789,8 @@ def test_every_screens_route_answers(running, monkeypatch, tmp_path):
     assert _call(running, "GET", "/api/directory?q=zzzz")[1]["results"] == []
     assert _call(running, "POST", "/api/weather-site", {"name": "meteoblue"})[1] == {"ok": True}
     assert _call(running, "POST", "/api/weather-site", {"name": "nope"})[0] == 400
+    assert _call(running, "POST", "/api/calendar", {"name": "google"})[1] == {"ok": True}
+    assert _call(running, "POST", "/api/calendar", {"name": "nope"})[0] == 400
     assert _call(running, "POST", "/api/club/default-course", {"slug": SLUG, "course": COURSE})[0] == 404  # gone: Preferences decides
     assert _call(running, "POST", "/api/club/add", {"club_id": "0000003", "name": "Drei"})[1]["ok"] is True
     assert _call(running, "POST", "/api/club/remove", {"club_id": "0000003"})[1]["ok"] is True

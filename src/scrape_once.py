@@ -845,9 +845,19 @@ def _record_run(club_id: str, source: str, started_at: str, stats: _RunStats) ->
     return storage.scrape_run_succeeded(stats.saved, stats.attempted, error_kind)
 
 
+def _keep_newest(backups: Path, prefix: str) -> None:
+    """The newest BACKUPS_KEPT_PER_CLUB of `prefix`'s daily backups stay, gzipped (1.1.0) or plain (1.0) alike."""
+    existing = sorted(
+        [*backups.glob(f"{prefix}-????-??-??.db"), *backups.glob(f"{prefix}-????-??-??.db.gz")],
+        key=lambda path: path.name.split(".", 1)[0],
+    )
+    for stale in existing[:-BACKUPS_KEPT_PER_CLUB]:
+        stale.unlink(missing_ok=True)
+
+
 def _daily_backup(club_id: str, today: str | None = None) -> Path | None:
     """One SQLite online backup of this club's database per day, at
-    DATA_DIR/backups/<club_id>-YYYY-MM-DD.db, keeping the newest
+    DATA_DIR/backups/<club_id>-YYYY-MM-DD.db.gz (gzipped since 1.1.0), keeping the newest
     BACKUPS_KEPT_PER_CLUB (2026-10-05). The databases are the only record of tee sheets
     pc caddie hides once they're past -- a corrupted file would lose history that can't
     be re-scraped. Taken after a successful agent pass only (the TUI/GUI never do it,
@@ -859,19 +869,16 @@ def _daily_backup(club_id: str, today: str | None = None) -> Path | None:
             return None
         backups = DATA_DIR / "backups"
         day = today or date_cls.today().isoformat()
-        target = backups / f"{club_id}-{day}.db"
-        if target.exists():
+        target = backups / f"{club_id}-{day}.db.gz"
+        if target.exists() or target.with_suffix("").exists():  # today's, also as an uncompressed one from 1.0
             return None
-        storage.backup_db(source, target)
-        existing = sorted(backups.glob(f"{club_id}-????-??-??.db"))
-        for stale in existing[:-BACKUPS_KEPT_PER_CLUB]:
-            stale.unlink(missing_ok=True)
+        storage.compressed_backup(source, target)
+        _keep_newest(backups, club_id)
         directory = storage.players_db_path(source)  # the shared player directory (friends) once a day too
-        directory_target = backups / f"players-{day}.db"
-        if directory.exists() and not directory_target.exists():
-            storage.backup_db(directory, directory_target)
-            for stale in sorted(backups.glob("players-????-??-??.db"))[:-BACKUPS_KEPT_PER_CLUB]:
-                stale.unlink(missing_ok=True)
+        directory_target = backups / f"players-{day}.db.gz"
+        if directory.exists() and not directory_target.exists() and not directory_target.with_suffix("").exists():
+            storage.compressed_backup(directory, directory_target)
+            _keep_newest(backups, "players")
         return target
     except Exception as exc:  # noqa: BLE001
         _log(f"[scrape_once] {club_id}: daily backup failed: {exc}")

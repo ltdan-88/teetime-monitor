@@ -557,6 +557,14 @@ class Handler(BaseHTTPRequestHandler):
             return reply(settings_api.save(kind, values), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/weather-site"):
             return reply(settings_api.set_weather_site(arg("name") or ""), HTTPStatus.BAD_REQUEST)
+        if route == ("POST", "/api/calendar"):
+            return reply(settings_api.set_calendar(arg("name") or ""), HTTPStatus.BAD_REQUEST)
+        if route == ("GET", "/api/calendar.ics"):
+            event = data.calendar_file(arg("title"), arg("location"), arg("start"), arg("end"))
+            if event is None:
+                return self._json({"error": "bad_request"}, HTTPStatus.BAD_REQUEST)
+            return self._send(HTTPStatus.OK, event, "text/calendar; charset=utf-8",
+                              {"Content-Disposition": 'attachment; filename="tee-time.ics"', "Cache-Control": "no-store"})
         if route == ("POST", "/api/theme"):
             return reply(settings_api.set_theme(arg("name") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("POST", "/api/login"):

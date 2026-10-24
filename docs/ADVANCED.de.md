@@ -18,7 +18,7 @@ Zwei feste Ordner, damit es aus jedem Verzeichnis funktioniert:
 ~/.local/share/teetime-monitor/       was gesammelt wurde
     <club_id>.db                      der Verlauf der Startlisten, deine Buchungen (SQLite)
     club-directory.json               die gespeicherte Clubliste
-    backups/                          eine Kopie pro Tag, die neuesten sieben bleiben
+    backups/                          eine gepackte Kopie pro Tag, die neuesten sieben bleiben (zurück: gunzip)
 ```
 
 Unter Windows sind es `%APPDATA%\teetime-monitor` und `%LOCALAPPDATA%\teetime-monitor`. Die portablen Downloads für
@@ -141,7 +141,9 @@ und vergleicht, was eine angemeldete und eine anonyme Startliste zeigen (für �
 - Dein pc-caddie-Login geht nur an das Anmeldeformular von pc caddie selbst. Das Wetter kommt von Open-Meteo (ohne Schlüssel,
   nichts über dich), Club-Standorte von OpenStreetMap, die Update-Prüfung ist eine einfache Anfrage an GitHubs öffentliche
   Release-Liste (abschalten mit `TEETIME_MONITOR_NO_UPDATE_CHECK=1`). Die Wetterseite, die du unter Einstellungen →
-  Darstellung wählen kannst (aus, solange du keine wählst), öffnet dein Browser mit den Koordinaten des Clubs.
+  Darstellung wählen kannst (aus, solange du keine wählst), öffnet dein Browser mit den Koordinaten des Clubs. Der
+  Kalender dort (ebenfalls aus, bis du einen wählst) bekommt Platz, Club und Zeiten einer Buchung erst, wenn du ihren
+  Knopf antippst und den Termin speicherst; eine Kalenderdatei verlässt dein Gerät nicht.
 - Die Browser-Version auf deinem eigenen Rechner hört **nur auf 127.0.0.1**, an einem zufälligen Port. Jede Anfrage braucht
   ein zufälliges Token, das nur der ausgegebene Link enthält (die Seite hält es in einem Cookie, das Skripte nicht lesen
   können); andere Hostnamen und andere Websites werden abgewiesen, und die Seite darf nichts aus dem Internet laden.

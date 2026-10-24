@@ -282,6 +282,32 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
 
 
+def test_a_booking_goes_into_the_calendar_chosen_in_settings(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, ",", "Settings")
+    ui.wait("document.querySelector('#v-calendar')")
+    assert ui.js("[...document.querySelectorAll('#v-calendar option')].map((o) => o.value)") == ["", "outlook", "outlook_com", "google", "ics"]
+    ui.js("const s = document.querySelector('#v-calendar'); s.value = 'outlook'; s.dispatchEvent(new Event('change', {bubbles: true})); true")
+    ui.wait("fetch('/api/bootstrap').then((r) => r.json()).then((b) => b.calendar === 'outlook')")
+    _close_sheet(ui)
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelector('.resv-list li a.icon-btn')")
+    href = ui.js("document.querySelector('.resv-list li a.icon-btn').href")
+    assert href.startswith("https://outlook.office.com/calendar/0/deeplink/compose?") and "startdt=" in href and "enddt=" in href, href
+    assert "subject=Golf" in href and "Beispiel" in href
+    assert ui.js("(() => { const a = document.querySelector('.resv-list li a.icon-btn').getBoundingClientRect(), b = document.querySelector('.resv-list li .danger').getBoundingClientRect(); return a.right <= b.left; })()")  # side by side
+    _close_sheet(ui)
+    ui.js("fetch('/api/calendar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: 'ics'})}).then(() => location.reload())")
+    ui.wait("document.querySelectorAll('.card').length > 0")
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelector('.resv-list li a.icon-btn')")
+    event = ui.js("fetch(document.querySelector('.resv-list li a.icon-btn').href).then((r) => r.text())")
+    assert event.startswith("BEGIN:VCALENDAR") and "SUMMARY:Golf · 18 Loch Tee 1" in event, event
+    _close_sheet(ui)
+    ui.js("fetch('/api/calendar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: ''})}).then(() => location.reload())")
+    ui.wait("document.querySelectorAll('.card').length > 0")
+
+
 def _tournament_month(ui, name):
     """Page the Tournaments window to the month that lists `name` (the demo's dates follow today)."""
     for _ in range(3):

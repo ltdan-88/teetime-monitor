@@ -93,7 +93,8 @@ Der ★ ist nicht einfach die früheste Zeit. Jede spielbare Zeit wird bewertet 
 Rechner, ohne KI. Der geöffnete Tag nennt den Grund, z. B. „trocken · viel Platz um dich · Tageslicht in Reserve“. Ist
 dein Platz zu dunkel für die Runde, ein kürzerer im Club aber passt noch, schlägt es stattdessen den vor. Ein Tag, der
 noch nicht buchbar ist, zeigt 🔒 und wann er aufgeht. Das Wettersymbol eines geöffneten Tages antippen zeigt seine
-Vorhersage bei meteoblue, Windy, Ventusky oder Yr (Auswahl unter Einstellungen → Darstellung).
+Vorhersage bei meteoblue, Windy, Ventusky oder Yr, und eine Buchung kommt mit einem Tipp in **Meine Reservierungen** in
+Outlook, den Google Kalender oder Apples Kalender (beides unter Einstellungen → Darstellung).
 
 ### Lieber im Terminal?
 

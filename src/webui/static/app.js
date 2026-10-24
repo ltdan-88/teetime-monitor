@@ -365,7 +365,7 @@ function App() {
         await withRetry(() => loadThemes());
         applyTheme(result.theme || systemTheme());
         setBoot(result);
-        setDisplay({ units: result.units, showHandicaps: result.show_handicaps, weatherSite: result.weather_site });
+        setDisplay({ units: result.units, showHandicaps: result.show_handicaps, weatherSite: result.weather_site, calendar: result.calendar });
         const last = result.last && result.clubs.find((club) => club.slug === result.last.slug);
         const first = last || result.clubs[0];
         if (first) {
@@ -579,6 +579,7 @@ function App() {
   const units = display ? display.units : boot.units;
   const showHandicaps = display ? display.showHandicaps : boot.show_handicaps;
   const weatherSite = display ? display.weatherSite : boot.weather_site;
+  const calendar = display ? display.calendar : boot.calendar;
   const weatherUrl = overview ? weatherLink(weatherSite, overview.location) : null; // where a day's weather icon leads
   const clubOptions = [...boot.clubs.map((entry) => ({ value: entry.slug, label: entry.name })), { value: ADD_CLUB, label: '＋ ' + t('addclub.title') + '…' }];
   const courseOptions = ((overview && overview.courses) || []).map((name) => ({ value: name, label: name }));
@@ -663,7 +664,7 @@ function App() {
       ${sheet === 'update' && update && html`<${UpdateSheet} update=${update} onClose=${() => setSheet(null)} />`}
       ${sheet === 'preferences' && html`<${PreferencesSheet} clubId=${club && club.id} onClose=${() => { setSheet(prefsBack); setPrefsBack(null); }} onSaved=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'settings' && html`<${SettingsSheet} clubId=${club && club.id} serve=${!!boot.serve} onClose=${() => setSheet(null)}
-        display=${{ boot, units, weatherSite, showHandicaps, tips, onTips: chooseTips, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
+        display=${{ boot, units, weatherSite, calendar, showHandicaps, tips, onTips: chooseTips, onDisplay: (change) => setDisplay((current) => ({ ...current, ...change })), onLanguage: () => location.reload(), onUpdate: checked, update, onAuto: (on) => setUpdate((current) => ({ ...current, auto: on })) }}
         onSaved=${() => { loadBoot(); if (view) loadOverview(view, course); }}
         onAddClub=${() => setSheet('addclub')} onClubsChanged=${clubsChanged} />`}
       ${sheet === 'addclub' && html`<${AddClubSheet} onClose=${() => setSheet(null)} onAdded=${clubsChanged} onOpen=${openPreview} />`}
@@ -673,7 +674,7 @@ function App() {
       ${sheet === 'heatmap' && clubForSheets && overview && html`<${HeatmapSheet} club=${clubForSheets} course=${tabCourse} pageCourse=${overview.course} onCourse=${setTabCourse} units=${units} onClose=${() => setSheet(null)} tabs=${searchTabs('heatmap')} />`}
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} units=${units} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
-      ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} onClose=${() => setSheet(null)}
+      ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} calendar=${calendar} onClose=${() => setSheet(null)}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
     </div>`;

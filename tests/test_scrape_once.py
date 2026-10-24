@@ -1,3 +1,4 @@
+import gzip
 import sqlite3
 import threading
 import time
@@ -1715,16 +1716,18 @@ def test_a_failure_to_record_never_fails_the_pass(tmp_path, monkeypatch, capsys)
 
 
 def _backups(tmp_path):
-    return sorted(path.name for path in (tmp_path / "backups").glob("*.db"))
+    return sorted(path.name for path in (tmp_path / "backups").iterdir() if path.name.endswith((".db", ".db.gz")))
 
 
 def test_a_successful_agent_pass_backs_up_the_database_once_a_day(tmp_path, monkeypatch):
     _one_course_pass(monkeypatch, tmp_path)
     today = date_cls.today().isoformat()
     scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
-    assert _backups(tmp_path) == [f"0000001-{today}.db"]
-    backup = tmp_path / "backups" / f"0000001-{today}.db"
-    with sqlite3.connect(backup) as conn:
+    assert _backups(tmp_path) == [f"0000001-{today}.db.gz"]
+    backup = tmp_path / "backups" / f"0000001-{today}.db.gz"
+    restored = tmp_path / "restored.db"
+    restored.write_bytes(gzip.decompress(backup.read_bytes()))
+    with sqlite3.connect(restored) as conn:
         assert conn.execute("SELECT COUNT(*) FROM scrape_runs").fetchone() == (1,)
     stamp = backup.stat().st_mtime_ns
     scrape_once.scrape_due_for_club("home", {"club_id": "0000001"})
@@ -1754,17 +1757,33 @@ def test_backups_keep_only_the_newest_seven_per_club(tmp_path, monkeypatch):
     scrape_once.storage.init_db(tmp_path / "0000001.db")
     backups = tmp_path / "backups"
     backups.mkdir()
-    for day in range(1, 10):
-        (backups / f"0000001-2026-09-{day:02d}.db").write_bytes(b"old")
+    for day in range(1, 8):
+        (backups / f"0000001-2026-09-{day:02d}.db").write_bytes(b"old")  # 1.0's, uncompressed
+    for day in (8, 9):
+        (backups / f"0000001-2026-09-{day:02d}.db.gz").write_bytes(b"newer")
     (backups / "0352002-2026-09-01.db").write_bytes(b"another club")
 
     written = scrape_once._daily_backup("0000001", today="2026-10-05")
 
-    assert written == backups / "0000001-2026-10-05.db"
+    assert written == backups / "0000001-2026-10-05.db.gz"
     assert _backups(tmp_path) == [
         "0000001-2026-09-04.db", "0000001-2026-09-05.db", "0000001-2026-09-06.db", "0000001-2026-09-07.db",
-        "0000001-2026-09-08.db", "0000001-2026-09-09.db", "0000001-2026-10-05.db", "0352002-2026-09-01.db",
+        "0000001-2026-09-08.db.gz", "0000001-2026-09-09.db.gz", "0000001-2026-10-05.db.gz", "0352002-2026-09-01.db",
     ]
+    assert scrape_once._daily_backup("0000001", today="2026-10-05") is None  # one a day
+
+
+def test_a_backup_is_a_gzipped_database_that_restores_with_everything_in_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
+    db = tmp_path / "0000001.db"
+    scrape_once.storage.save_schedule(Schedule(date="2026-10-05", course="18 Loch Tee 1", slots=[Slot(time="09:00", booked=1, capacity=4)]), path=db)
+    written = scrape_once._daily_backup("0000001", today="2026-10-05")
+    restored = tmp_path / "restored.db"
+    restored.write_bytes(gzip.decompress(written.read_bytes()))
+    with sqlite3.connect(restored) as conn:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT time, booked FROM slots").fetchall() == [("09:00", 1)]
+    assert not [p.name for p in written.parent.iterdir() if "partial" in p.name]
 
 
 def test_a_backup_error_is_logged_and_never_fails_the_pass(tmp_path, monkeypatch, capsys):
@@ -1773,7 +1792,7 @@ def test_a_backup_error_is_logged_and_never_fails_the_pass(tmp_path, monkeypatch
     def disk_full(source, destination):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr(scrape_once.storage, "backup_db", disk_full)
+    monkeypatch.setattr(scrape_once.storage, "compressed_backup", disk_full)
     assert scrape_once.scrape_due_for_club("home", {"club_id": "0000001"}) == []
     assert "daily backup failed: No space left on device" in capsys.readouterr().out
     assert len(_runs(tmp_path)) == 1
