@@ -33,8 +33,9 @@ ergänzt, was die Seite des Clubs dir nicht sagt:
 - 📈 **Eine Auslastungs-Heatmap**, die über die Wochen lernt, welche Stunden wirklich voll werden.
 
 **Es bucht nur, wenn du den Knopf drückst.** Klicke auf eine freie Zeit und wähle *Jetzt buchen*: Die App bucht sie bei
-pc caddie für dich (mit deinem eigenen Login, nur für dich), und pc caddie schickt die übliche Bestätigungs-E-Mail. Deine
-eigene Buchung kannst du genauso stornieren. Nichts wird automatisch oder nach Zeitplan gebucht.
+pc caddie mit deinem eigenen Login, mit den Freunden aus deiner pc-caddie-Freundesliste, die du antippst, und
+pc caddie schickt die übliche Bestätigungs-E-Mail. Deine eigene Buchung kannst du genauso stornieren. Nichts wird
+automatisch oder nach Zeitplan gebucht.
 
 ## Zwei Wege, dasselbe Ergebnis
 
@@ -153,7 +154,7 @@ Ab 1.0 macht ein Update nichts kaputt, was du schon hast:
   liest jede 1.x-Version so, wie sie sind; nach einem Update musst du nichts neu einrichten.
 - **Das Starten** bleibt gleich: `teetime-monitor-web`, `teetime-monitor`, die Start-Dateien für Windows und Linux,
   der Dienst auf dem Raspberry Pi und seine Adresse.
-- **Gebucht wird nur, wenn du den Knopf drückst**, und nur für dich.
+- **Gebucht wird nur, wenn du den Knopf drückst**, und nur mit deinem eigenen Login.
 
 Was sich in einem 1.x-Update ändern darf: wie etwas aussieht und wo es auf der Seite sitzt, und neue Funktionen. Was dich
 zum Handeln brächte — eine Einstellung, die endgültig umzieht, eine Funktion, die wegfällt —, wartet auf 2.0 und wird

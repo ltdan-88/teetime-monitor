@@ -534,11 +534,15 @@ class Handler(BaseHTTPRequestHandler):
         if route == ("GET", "/api/tournaments"):
             return reply(data.tournaments(**ref(), refresh=arg("refresh") == "1"))
         if route == ("POST", "/api/booking"):
-            return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
+            chosen = body.get("partners") if isinstance(body.get("partners"), list) else []
+            chosen = [str(partner) for partner in chosen if isinstance(partner, (str, int))]
+            return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or "", partners=chosen), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/cancel"):
             return reply(data.cancel(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/prepare"):
             return reply(data.prepare_booking(**ref(), kind=arg("kind") or "", course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
+        if route == ("GET", "/api/booking/partners"):
+            return reply(data.booking_partners(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
         if route == ("GET", "/api/booking/job"):
             found = data.booking_job(arg("id") or "")  # a job that failed carries its reason in "error", and is still found
             return self._json(found, HTTPStatus.OK if "state" in found else HTTPStatus.NOT_FOUND)

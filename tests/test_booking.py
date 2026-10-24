@@ -31,7 +31,7 @@ FORM = """
 <input type="checkbox" name="rq[players][1][option][a]" value="CART">
 <input type="radio" name="rq[players][1][type]" value="self" checked>
 <input type="radio" name="rq[players][2][type]" value="friend">
-<select name="rq[players][2][friend][bd_id]"><option value="">-</option><option value="7">Max</option></select>
+<select name="rq[players][2][friend][bd_id]"><option value="">- choose a friend -</option><option value="7">Mustermann, Max</option><option value="9">Musterfrau, Erika</option></select>
 <input type="radio" name="rq[players][2][type]" value="ignore" checked>
 <input type="text" name="rq[players][2][search][name]" value="">
 <button class="btn" type="submit" name="cat" value="tt_timetable_course">Go back</button>
@@ -122,6 +122,30 @@ def site(monkeypatch):
         return fake, httpx.Client(transport=httpx.MockTransport(fake.handler), follow_redirects=True)
 
     return make
+
+
+def test_the_partners_offered_are_your_pc_caddie_friends_first_name_first():
+    assert booking.partner_choices(FORM) == [{"id": "7", "name": "Max Mustermann"}, {"id": "9", "name": "Erika Musterfrau"}]
+    assert booking.partner_choices("<p>no form</p>") == []
+
+
+def test_partners_go_into_places_two_and_three_as_friends(site):
+    fake, client = site()
+    prepared = booking.prepare_book(client, CLUB, COURSE, DAY, "08:10")
+    booking.commit_book(client, CLUB, COURSE, DAY, "08:10", prepared, partners=["9", "7"])
+    first = fake.posts[0]
+    assert first["rq[players][2][type]"] == ["friend"] and first["rq[players][2][friend][bd_id]"] == ["9"]
+    assert first["rq[players][3][type]"] == ["friend"] and first["rq[players][3][friend][bd_id]"] == ["7"]
+    assert first["rq[players][1][type]"] == ["self"] and fake.booked
+
+
+@pytest.mark.parametrize("partners", [["8"], ["7", "7"], ["7", "9", "7", "9"]])
+def test_a_partner_the_form_does_not_offer_is_refused_before_anything_is_sent(site, partners):
+    fake, client = site()
+    prepared = booking.prepare_book(client, CLUB, COURSE, DAY, "08:10")
+    with pytest.raises(booking.BookingError) as refused:
+        booking.commit_book(client, CLUB, COURSE, DAY, "08:10", prepared, partners=partners)
+    assert refused.value.reason == "bad_partners" and fake.posts == [] and not fake.booked
 
 
 def test_booking_walks_the_two_steps_and_reads_the_result_from_my_reservations(site):

@@ -167,16 +167,23 @@ def main() -> None:
 
             booking.open_session = lambda club_id, username, password: _Session()
 
+            # The booking form's friends list (who can be booked with you), invented like every name here.
+            form = (
+                '<form id="frm_book_data"><select name="rq[players][2][friend][bd_id]"><option value="">-</option>'
+                '<option value="101">Mustermann, Max</option><option value="102">Musterfrau, Erika</option>'
+                '<option value="103">Beispiel, Anna</option></select></form>'
+            )
+
             def read_ahead(kind):  # a moment, like the real pages
                 def read(client, club_id, course, date, time):
                     import time as clock_time
 
                     clock_time.sleep(0.4)
-                    return booking.Prepared(kind, "", "")
+                    return booking.Prepared(kind, "", form if kind == "book" else "")
 
                 return read
 
-            def commit(client, club_id, course, date, time, prepared, progress=None):
+            def commit(client, club_id, course, date, time, prepared, progress=None, partners=()):
                 import time as clock_time
 
                 clock_time.sleep(0.4)
