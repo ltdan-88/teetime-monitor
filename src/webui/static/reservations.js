@@ -31,6 +31,8 @@ export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, 
   }, [refreshKey, force]);
 
   const list = (state && state.reservations) || [];
+  const past = (state && state.past) || [];
+  const scorecardButton = (item) => html`<button class="icon-btn" onClick=${() => onScorecard(item)} aria-label=${t('scorecard.title')} title=${t('scorecard.title')}><${Icon} name="grid" size=${18} /></button>`;
   const problems = ((state && state.refresh_problems) || []).map((p) => p.club).filter(Boolean).join(', ');
   const failed = !!(state && state.refresh_problems && state.refresh_problems.length);
   return html`<${Sheet} title=${t('reservations.title')} onClose=${onClose} size="medium">
@@ -42,12 +44,21 @@ export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, 
         <li key=${item.club_id + item.course + item.date + item.time}>
           <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
           <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
-          <span class="resv-actions"><button class="icon-btn" onClick=${() => onScorecard(item)} aria-label=${t('scorecard.title')} title=${t('scorecard.title')}><${Icon} name="grid" size=${18} /></button>
+          <span class="resv-actions">${scorecardButton(item)}
           ${calendarLink(calendar, item) && html`<a class="icon-btn" href=${calendarLink(calendar, item)} target="_blank" rel="noopener noreferrer"
             aria-label=${t('reservations.calendar')} title=${t('reservations.calendar')}><${Icon} name="calendarplus" size=${18} /></a>`}
           <button class="icon-btn danger" onClick=${() => onCancel(item)} aria-label=${t('reservations.cancel')} title=${t('reservations.cancel')}><${Icon} name="trash" size=${18} /></button></span>
         </li>`)}
     </ul>
+    ${past.length > 0 && html`<h3 class="resv-past">${t('reservations.past')}</h3>
+    <ul class="resv-list past">
+      ${past.map((item) => html`
+        <li key=${'p' + item.club_id + item.course + item.date + item.time}>
+          <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
+          <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
+          <span class="resv-actions">${scorecardButton(item)}</span>
+        </li>`)}
+    </ul>`}
     ${!checking && state && state.checked_at && html`<p class="resv-checked dim">${updatedText(new Date(state.checked_at * 1000).toISOString())}
       <button class="icon-btn" onClick=${() => setForce((n) => n + 1)} aria-label=${t('reservations.check_now')} title=${t('reservations.check_now')}><${Icon} name="refresh" size=${16} /></button></p>`}
   <//>`;

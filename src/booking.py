@@ -651,6 +651,25 @@ def _record_read(club: dict, db_path: Path, result: BookingResult | None) -> Non
 RESERVATIONS_FRESH_SECONDS = 600
 
 
+PAST_ROUNDS = 10
+
+
+def past_rounds(clubs: list[dict], limit: int = PAST_ROUNDS) -> list[dict]:
+    """Your latest bookings whose tee time has passed (1.5.0: a round just played keeps its scorecard), newest first:
+    what the databases recorded, nothing read from pc caddie (My Reservations there lists only what is ahead)."""
+    today, now = clock.today(), clock.now_hhmm()
+    rounds = []
+    for club in clubs:
+        db = scrape_once._db_path(club["id"])
+        if not db.exists():
+            continue
+        for item in storage.load_all_confirmed_bookings(db):
+            if item.time and (item.date < today or (item.date == today and item.time < now)):
+                rounds.append({"slug": club["slug"], "club_id": club["id"], "club": club["name"], "course": item.course, "date": item.date, "time": item.time})
+    rounds.sort(key=lambda r: (r["date"], r["time"]), reverse=True)
+    return rounds[:limit]
+
+
 def upcoming_reservations(clubs: list[dict], refresh: bool = False, force: bool = False) -> dict:
     """Your upcoming bookings at `clubs` ({"slug", "id", "name"} each), earliest first: what the databases know (the
     newest word per course and day), without cancelled bookings and without times already gone today. With
