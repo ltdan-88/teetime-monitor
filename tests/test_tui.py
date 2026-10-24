@@ -647,7 +647,7 @@ def fake_pccaddie(monkeypatch, fail=None, login=True):
         return lambda client, club_id, course, date, time: booking.Prepared(kind, "", "")
 
     def attempt(kind):  # what the button sends
-        def run(client, club_id, course, date, time, prepared, progress=None):
+        def run(client, club_id, course, date, time, prepared, progress=None, partners=()):
             calls.append((kind, club_id, course, date, time))
             if fail is not None:
                 raise fail

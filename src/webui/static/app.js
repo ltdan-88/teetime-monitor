@@ -8,7 +8,7 @@ import {
 import { DayCard, Banners, focusTime } from '/overview.js';
 import { PreferencesSheet, SettingsSheet } from '/forms.js';
 import { AddClubSheet } from '/addclub.js';
-import { SearchSheet, forgetSearch } from '/search.js';
+import { SearchSheet, forgetSearch, Chip } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
 import { TournamentsSheet } from '/tournaments.js';
@@ -158,7 +158,19 @@ function BookingDialog({ booking, onClose, onDone }) {
   const cancelling = booking.mode === 'cancel';
   const kind = cancelling ? 'cancel' : 'book';
   const body = { ...booking.ref, course: booking.course, date: booking.date, time: booking.time };
-  useEffect(() => { post('/api/booking/prepare', { ...body, kind }).catch(() => {}); }, []);
+  // Partners: your friends list on pc caddie, from the booking form being read ahead; as many as the time has room for.
+  const [partners, setPartners] = useState([]);
+  const [chosen, setChosen] = useState([]);
+  const room = Math.min(3, (booking.free == null ? 4 : booking.free) - 1);
+  useEffect(() => {
+    let live = true;
+    post('/api/booking/prepare', { ...body, kind })
+      .then(() => (!cancelling && room > 0 ? api('/api/booking/partners' + query(body)) : null))
+      .then((found) => { if (live && found) setPartners(found.partners || []); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const toggle = (id) => setChosen((now) => (now.includes(id) ? now.filter((x) => x !== id) : [...now, id]));
   const failed = (payload) => {
     const key = 'booking.error.' + (payload.error || 'other');
     const named = t(key, { message: payload.message || '' });
@@ -171,7 +183,7 @@ function BookingDialog({ booking, onClose, onDone }) {
     setError(null);
     setStep('login');
     try {
-      const { job } = await post(cancelling ? '/api/booking/cancel' : '/api/booking', body);
+      const { job } = await post(cancelling ? '/api/booking/cancel' : '/api/booking', cancelling ? body : { ...body, partners: chosen });
       for (;;) {
         await new Promise((done) => setTimeout(done, 350));
         const state = await api('/api/booking/job' + query({ id: job }));
@@ -187,6 +199,10 @@ function BookingDialog({ booking, onClose, onDone }) {
   const at = steps.indexOf(step);
   return html`<${Sheet} title=${t(cancelling ? 'booking.cancel_title' : 'booking.book_title', { time: booking.time })} onClose=${busy ? () => {} : onClose} size="small">
     <p><b>${booking.course}</b> · ${booking.dateText}, ${booking.time}</p>
+    ${!cancelling && partners.length > 0 && html`<div class="partners" role="group" aria-label=${t('booking.partners')}>
+      <span class="lab">${t('booking.partners')}</span>
+      ${partners.map((p) => html`<${Chip} key=${p.id} on=${chosen.includes(p.id)} disabled=${busy || (!chosen.includes(p.id) && chosen.length >= room)}
+        onClick=${() => toggle(p.id)}>${p.name}<//>`)}</div>`}
     <p class="hint">${t(cancelling ? 'booking.cancel_explain' : 'booking.book_explain')}</p>
     ${busy && html`<ol class="steps" aria-live="polite">${steps.map((name, i) => html`<li key=${name} class=${i < at ? 'done' : i === at ? 'now' : ''}>
       ${i < at ? html`<${Icon} name="check" size=${14} />` : html`<span class="dot"></span>`}${t('booking.step.' + name)}</li>`)}</ol>`}
@@ -502,9 +518,9 @@ function App() {
     setCourse(null);
     setView({ kind: 'saved', slug: value });
   };
-  const askBooking = (date, time, courseName, ref, cancel) =>
-    setBooking({ mode: cancel ? 'cancel' : 'book', date, time, course: courseName, ref, dateText: dayLabel(date) });
-  const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you);
+  const askBooking = (date, time, courseName, ref, cancel, free = null) =>
+    setBooking({ mode: cancel ? 'cancel' : 'book', date, time, course: courseName, ref, dateText: dayLabel(date), free });
+  const pickSlot = (day, slot) => askBooking(day.date, slot.time, overview.course, refOf(view), slot.booked_by_you, slot.capacity - slot.booked);
   /** Open a day and bring one of its slots into view, switching to its course first when needed. */
   const openTournaments = (date) => { setTournamentDate(date); setSheet('tournaments'); };
   /** `slug`: another saved club to switch to first (a player's tee time there, from the shared directory). */
@@ -519,7 +535,7 @@ function App() {
     setOpenDate(date);
     setJumpTick((n) => n + 1);
   };
-  const markFromSearch = (match) => askBooking(match.date, match.time, match.course, match.ref || refOf(view), false);
+  const markFromSearch = (match) => askBooking(match.date, match.time, match.course, match.ref || refOf(view), false, match.open);
   const bookingDone = (done) => {
     setBooking(null);
     setSearchTick((n) => n + 1);

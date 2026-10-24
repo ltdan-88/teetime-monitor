@@ -213,11 +213,39 @@ def prepare_book(client: httpx.Client, club_id: str, course: str, date: str, tim
     return Prepared("book", str(form_page.url), form_page.text, list(aliases))
 
 
-def commit_book(client: httpx.Client, club_id: str, course: str, date: str, time: str, prepared: Prepared, progress=None) -> BookingResult:
-    """"Make this reservation" -> "Confirm booking" -> My Reservations must show it."""
+def partner_choices(html: str) -> list[dict]:
+    """Who the booking form offers as a partner (1.1.0): your friends list on pc caddie, the same for each of the other
+    three places, "Surname, First name" each. As [{"id", "name": "First name Surname"}], in pc caddie's order."""
+    form = _soup(html).find("form", id="frm_book_data")
+    pick = form.find("select", attrs={"name": "rq[players][2][friend][bd_id]"}) if form else None
+    choices = []
+    for option in pick.find_all("option") if pick else []:
+        value, label = option.get("value", "").strip(), option.get_text(" ", strip=True)
+        if value:
+            surname, _, first = label.partition(",")
+            choices.append({"id": value, "name": f"{first.strip()} {surname.strip()}".strip()})
+    return choices
+
+
+def _with_partners(data: dict[str, list[str]], html: str, partners: list[str]) -> dict[str, list[str]]:
+    """The form's own data with `partners` (friend ids from partner_choices()) in places 2, 3 and 4, as a person picking
+    them in pc caddie's form would; any id the form does not offer is refused."""
+    offered = {choice["id"] for choice in partner_choices(html)}
+    if len(partners) > 3 or len(set(partners)) != len(partners) or not set(partners) <= offered:
+        raise BookingError("bad_partners", "a partner the booking form does not offer")
+    for place, partner in enumerate(partners, start=2):
+        data[f"rq[players][{place}][type]"] = ["friend"]
+        data[f"rq[players][{place}][friend][bd_id]"] = [partner]
+    return data
+
+
+def commit_book(client: httpx.Client, club_id: str, course: str, date: str, time: str, prepared: Prepared, progress=None, partners=()) -> BookingResult:
+    """"Make this reservation" -> "Confirm booking" -> My Reservations must show it. `partners`: friend ids that play
+    with you (partner_choices()); none books you alone."""
     form = _soup(prepared.html).find("form", id="frm_book_data")
     action = urljoin(prepared.url, form.get("action", ""))
-    step2 = _check_logged_in(_post(client, action, _form_data(form, ("task", "prebook")), referer=prepared.url))
+    data = _with_partners(_form_data(form, ("task", "prebook")), prepared.html, list(partners))
+    step2 = _check_logged_in(_post(client, action, data, referer=prepared.url))
     prebook = _soup(step2.text).find("form", id="frm_book_prebook")
     if prebook is None:
         if prepared.ahead:
@@ -419,6 +447,16 @@ def prepare(club: dict, kind: str, course: str, date: str, time: str) -> dict:
     return {"ok": True}
 
 
+def partners(club: dict, course: str, date: str, time: str) -> dict:
+    """The partners the booking form being read ahead offers (partner_choices()), waiting a little for it; the read
+    stays for the button. {"partners": [...]}, an empty list when there is no such read or it did not work."""
+    with _prepared_lock:
+        entry = _prepared.get(("book", club["id"], course, date, time))
+    if entry is None or not entry[1].wait(20) or entry[2] is None:
+        return {"partners": []}
+    return {"partners": partner_choices(entry[2].html)}
+
+
 def _take(kind: str, club: dict, course: str, date: str, time: str) -> Prepared | None:
     """What was read ahead for this, waiting for a read still under way; used once."""
     with _prepared_lock:
@@ -434,7 +472,7 @@ def _take(kind: str, club: dict, course: str, date: str, time: str) -> Prepared 
 # ---- book and cancel, with progress -------------------------------------------------------------------------------
 
 
-def _run(kind: str, club: dict, course: str, date: str, time: str, progress) -> BookingResult:
+def _run(kind: str, club: dict, course: str, date: str, time: str, progress, partners=()) -> BookingResult:
     """Book or cancel: with what was read ahead when there is something, else read now; a session that ran out, or a
     page read ahead that pc caddie refused before anything changed, reads it all again once with a fresh login."""
     prepared = _take(kind, club, course, date, time)
@@ -447,6 +485,8 @@ def _run(kind: str, club: dict, course: str, date: str, time: str, progress) -> 
             if prepared is None:
                 prepared = reader(client, club["id"], course, date, time)
             progress(kind)
+            if kind == "book":
+                return committer(client, club["id"], course, date, time, prepared, progress, partners=partners)
             return committer(client, club["id"], course, date, time, prepared, progress)
 
     try:
@@ -456,14 +496,14 @@ def _run(kind: str, club: dict, course: str, date: str, time: str, progress) -> 
         return attempt(True)
 
 
-def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str, progress=None) -> dict:
-    """Book for yourself on pc caddie, then record it. `club` is {"id", "slug", "name"}. `{"ok": True}` or
+def book_for_club(club: dict, db_path: Path, course: str, date: str, time: str, progress=None, partners=()) -> dict:
+    """Book for yourself (and `partners`, friend ids from your pc caddie friends list) on pc caddie, then record it. `club` is {"id", "slug", "name"}. `{"ok": True}` or
     `{"error": reason, "message": ...}`; nothing is recorded unless pc caddie accepted it. `progress(step)` hears
     "login", "book" and "confirm" as they start."""
     if not _valid(date, time):
         return {"error": "bad_time"}
     try:
-        result = _run("book", club, course, date, time, progress or (lambda step: None))
+        result = _run("book", club, course, date, time, progress or (lambda step: None), partners)
     except BookingError as error:
         return {"error": error.reason, "message": error.message}
     except scraper.SessionExpired:
@@ -502,7 +542,7 @@ _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
 
-def start(kind: str, club: dict, db_path: Path, course: str, date: str, time: str, on_done=None) -> dict:
+def start(kind: str, club: dict, db_path: Path, course: str, date: str, time: str, on_done=None, partners=()) -> dict:
     """Book or cancel in the background; `{"job": id}` at once, `job(id)` then says how far it is."""
     if kind not in ("book", "cancel") or not _valid(date, time):
         return {"error": "bad_time"}
@@ -518,9 +558,11 @@ def start(kind: str, club: dict, db_path: Path, course: str, date: str, time: st
             state["step"] = name
 
     def work() -> None:
-        act = book_for_club if kind == "book" else cancel_for_club
         try:
-            result = act(club, db_path, course, date, time, progress=step)
+            if kind == "book":
+                result = book_for_club(club, db_path, course, date, time, progress=step, partners=partners)
+            else:
+                result = cancel_for_club(club, db_path, course, date, time, progress=step)
         except Exception as error:  # noqa: BLE001 -- said on the page, never lost
             result = {"error": "other", "message": f"{type(error).__name__}: {error}"}
         if on_done:

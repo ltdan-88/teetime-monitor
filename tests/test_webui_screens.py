@@ -92,7 +92,7 @@ def fake_pccaddie(monkeypatch, *, fail: booking.BookingError | None = None, logi
     calls: list = []
 
     def attempt(kind):  # what the button sends; reading ahead reaches nothing
-        def run(client, club_id, course, date, time, prepared, progress=None):
+        def run(client, club_id, course, date, time, prepared, progress=None, partners=()):
             calls.append((kind, club_id, course, date, time))
             if fail is not None:
                 raise fail
@@ -188,7 +188,7 @@ def test_the_page_that_verified_a_booking_is_recorded_without_another_login(worl
     fake_pccaddie(monkeypatch)
     today = date.today().isoformat()
     verified = ReservationsSync(bookings=[ConfirmedBooking(date=today, course=COURSE, time="10:00", source="my_reservations", confirmed_at="t")], my_handicap=18.4)
-    monkeypatch.setattr(booking, "commit_book", lambda client, club_id, course, day, time, prepared, progress=None: booking.BookingResult(club_id, course, day, time, verified))
+    monkeypatch.setattr(booking, "commit_book", lambda client, club_id, course, day, time, prepared, progress=None, partners=(): booking.BookingResult(club_id, course, day, time, verified))
 
     def forbidden(*args, **kwargs):
         raise AssertionError("the verified page is recorded as it is; no second login")

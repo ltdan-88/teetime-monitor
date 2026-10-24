@@ -33,8 +33,8 @@ you and adds what the club's page doesn't tell you:
 - 📈 **A crowd heatmap** that learns over the weeks which hours really fill up.
 
 **It books only when you press the button.** Click a free time and choose *Book now*: the app books it on pc caddie
-for you (your own login, you alone), and pc caddie sends its usual confirmation e-mail. Your own booking can be
-cancelled the same way. Nothing is booked automatically or on a schedule.
+with your own login, with any friends from your pc caddie friends list you tap, and pc caddie sends its usual
+confirmation e-mail. Your own booking can be cancelled the same way. Nothing is booked automatically or on a schedule.
 
 ## Two ways to use it — same data, same advice
 
@@ -154,7 +154,7 @@ From 1.0 on, an update never breaks what you already have:
   by every 1.x version as they are, and an update never asks you to set things up again.
 - **Starting it** stays the same: `teetime-monitor-web`, `teetime-monitor`, the Windows and Linux start files,
   the Raspberry Pi service and its address.
-- **It only books when you press the button**, and only for you.
+- **It only books when you press the button**, and only under your own login.
 
 What may change in a 1.x update: how things look and where they sit on the page, and new features. Something that
 would need you to act — a setting that moves for good, a feature that goes — waits for 2.0 and is announced first.

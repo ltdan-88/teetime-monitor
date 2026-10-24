@@ -30,7 +30,7 @@ DYNAMIC = {
     "players.chip.": ["female", "male"],
     "players.chip.tee_": ["any", "today"],
     "players.member_status.": ["member", "guest"],
-    "booking.error.": ["no_login", "login", "taken", "not_bookable", "not_found", "not_cancelable", "unconfirmed", "network", "unknown_club", "bad_time", "other"],
+    "booking.error.": ["no_login", "login", "taken", "not_bookable", "not_found", "not_cancelable", "unconfirmed", "network", "unknown_club", "bad_time", "bad_partners", "other"],
     "search.flag.": ["rain", "wind", "temp"],
     "settings.calendar.": ["outlook", "outlook_com", "google", "ics"],
     "search.flag_tip.": ["rain", "wind", "temp"],
