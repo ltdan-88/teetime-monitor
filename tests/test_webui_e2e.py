@@ -2390,3 +2390,38 @@ def test_friends_from_pc_caddie_can_be_booked_with_you_as_far_as_the_time_has_ro
           .then(() => {{ window.__beforeReload = true; location.reload(); }})"""
     )
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_your_scorecard_for_a_booking_shows_each_hole_and_the_booking_dialog_its_target(ui):
+    ui.js("window.scrollTo(0, 0)")
+    job = """(path, body) => fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then((r) => r.json())
+      .then(async ({job}) => { for (let i = 0; i < 50; i += 1) { const s = await (await fetch('/api/booking/job?id=' + job)).json(); if (s.state !== 'running') return s.state; await new Promise((d) => setTimeout(d, 200)); } })"""
+    slot = ui.js("fetch('/api/search/slots?slug=golfclub-beispiel').then((r) => r.json()).then((j) => j.slots.find((s) => s.open === 4 && s.course === '18 Loch Tee 1' && !s.booked_by_you))")
+    ours = {"slug": "golfclub-beispiel", "course": slot["course"], "date": slot["date"], "time": slot["time"]}
+    assert ui.js(f"({job})('/api/booking', {json.dumps(ours)})") == "ok"  # a booking of its own, cancelled at the end
+    _open_sheet(ui, "b", "My reservations")
+    mine = f"[...document.querySelectorAll('.resv-list li')].find((li) => li.textContent.includes({json.dumps(slot['time'])}) && li.textContent.includes('18 Loch Tee 1'))"
+    ui.wait(f"{mine} && {mine}.querySelector('.resv-actions .icon-btn')")
+    ui.js(f"{mine}.querySelector('.resv-actions .icon-btn').click()")
+    ui.wait("document.querySelectorAll('.sc-table tbody tr').length === 18", 10)  # 18 Loch Tee 1: A+B
+    assert ui.js("document.querySelector('#sc-tee').value") == "Runde A+B|gelb|M"
+    assert "Better than your handicap" in ui.text(".sc-target") and "points" in ui.text(".sc-target")
+    first_aim = ui.js("document.querySelector('.sc-table tbody tr .sc-aim').textContent")
+    ui.js("const s = document.querySelector('#sc-tee'); s.value = 'Runde A+B|rot|M'; s.dispatchEvent(new Event('change', {bubbles: true})); true")
+    ui.wait("document.querySelector('#sc-tee').value === 'Runde A+B|rot|M'")
+    ui.wait(f"document.querySelector('.sc-table tbody tr .sc-aim').textContent !== {json.dumps(first_aim)}", 5)  # another tee, other shots
+    ui.key("Escape")
+    ui.wait("document.querySelectorAll('.sheet').length === 1")
+    _close_sheet(ui)
+    ui.js("fetch('/api/scorecard/tee', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({slug: 'golfclub-beispiel', course: '18 Loch Tee 1', key: 'Runde A+B|gelb|M'})}); true")
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('.results .res .mark')")
+    ui.js("document.querySelector('.results .res .mark').click()")
+    ui.wait("document.querySelector('.sheet.small .sc-target')", 10)
+    assert "Better than your handicap" in ui.text(".sheet.small .sc-target")
+    ui.click(".sheet.small .btn")  # not now
+    ui.wait("document.querySelectorAll('.sheet').length === 1")
+    _close_sheet(ui)
+    assert ui.js(f"({job})('/api/booking/cancel', {json.dumps(ours)})") == "ok"
+    ui.js("location.reload()")
+    ui.wait("document.querySelectorAll('.card').length > 0")

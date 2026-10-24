@@ -647,6 +647,35 @@ def test_the_calendar_choice_is_saved_and_each_booking_carries_its_round_in_utc(
     assert timed[1]["end"] == end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def test_the_scorecard_needs_your_handicap_and_login_then_remembers_the_tee_you_choose(world, monkeypatch):
+    from src import scorecard
+
+    tees = [
+        scorecard.Tee("Runde A+B", "gelb", "M", 18, 72, 72.9, 132, [4] * 18, list(range(1, 19))),
+        scorecard.Tee("Runde A+B", "rot", "M", 18, 72, 70.1, 124, [4] * 18, list(range(1, 19))),
+        scorecard.Tee("Runde A", "gelb", "M", 9, 36, 36.2, 128, [4] * 9, list(range(1, 10))),
+    ]
+    monkeypatch.setattr(scorecard, "load_tees", lambda club_id, u, p: (tees, "M"))
+    assert data.scorecard_for(SLUG, None, COURSE) == {"error": "no_handicap"}
+    storage.save_my_handicap(20.0, path=data.db_path_for("0000001"))
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("", ""))
+    assert data.scorecard_for(SLUG, None, COURSE) == {"error": "no_login"}
+    monkeypatch.setattr(club_config, "resolve_credentials", lambda key: ("me", "secret"))
+    found = data.scorecard_for(SLUG, None, COURSE)
+    assert found["chosen"] == "Runde A+B|gelb|M" and [c["key"] for c in found["choices"]] == ["Runde A+B|gelb|M", "Runde A+B|rot|M"]  # 18 holes only
+    assert len(found["card"]["holes"]) == 18 and found["card"]["course_handicap"] == 24
+    assert data.set_scorecard_tee(SLUG, COURSE, "Runde A+B|rot|M") == {"ok": True}
+    assert data.scorecard_for(SLUG, None, COURSE)["chosen"] == "Runde A+B|rot|M"
+    assert club_config.load_club_config(SLUG)["scorecard_tees"] == {COURSE: "Runde A+B|rot|M"}
+    assert data.set_scorecard_tee(SLUG, COURSE, "nonsense") == {"error": "bad_request"}
+
+    def unreachable(club_id, u, p):
+        raise scorecard.scraper.LoginError("refused")
+
+    monkeypatch.setattr(scorecard, "load_tees", unreachable)
+    assert data.scorecard_for(SLUG, None, COURSE) == {"error": "login"}
+
+
 def test_a_calendar_file_holds_one_event_and_nothing_can_add_lines_to_it():
     event = data.calendar_file("Golf · 18 Loch, Tee 1", "Club; e.V.\nATTENDEE:x", "2026-10-24T14:00:00Z", "2026-10-24T18:30:00Z").decode()
     lines = event.split("\r\n")

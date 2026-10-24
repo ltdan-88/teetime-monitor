@@ -11,6 +11,7 @@ import { AddClubSheet } from '/addclub.js';
 import { SearchSheet, forgetSearch, Chip } from '/search.js';
 import { HeatmapSheet } from '/heatmap.js';
 import { ReservationsSheet } from '/reservations.js';
+import { ScorecardSheet, targetText } from '/scorecard.js';
 import { TournamentsSheet } from '/tournaments.js';
 import { PlayersSheet } from '/players.js';
 import { ScaleControl } from '/viewmenu.js';
@@ -161,6 +162,7 @@ function BookingDialog({ booking, onClose, onDone }) {
   // Partners: your friends list on pc caddie, from the booking form being read ahead; as many as the time has room for.
   const [partners, setPartners] = useState([]);
   const [chosen, setChosen] = useState([]);
+  const [target, setTarget] = useState(null); // "Better than your handicap: 37+ points", once the scorecard is known
   const room = Math.min(3, (booking.free == null ? 4 : booking.free) - 1);
   useEffect(() => {
     let live = true;
@@ -168,6 +170,7 @@ function BookingDialog({ booking, onClose, onDone }) {
       .then(() => (!cancelling && room > 0 ? api('/api/booking/partners' + query(body)) : null))
       .then((found) => { if (live && found) setPartners(found.partners || []); })
       .catch(() => {});
+    if (!cancelling) api('/api/scorecard' + query({ ...booking.ref, course: booking.course })).then((found) => { if (live && found.card) setTarget(targetText(found.card)); }).catch(() => {});
     return () => { live = false; };
   }, []);
   const toggle = (id) => setChosen((now) => (now.includes(id) ? now.filter((x) => x !== id) : [...now, id]));
@@ -203,6 +206,7 @@ function BookingDialog({ booking, onClose, onDone }) {
       <span class="lab">${t('booking.partners')}</span>
       ${partners.map((p) => html`<${Chip} key=${p.id} on=${chosen.includes(p.id)} disabled=${busy || (!chosen.includes(p.id) && chosen.length >= room)}
         onClick=${() => toggle(p.id)}>${p.name}<//>`)}</div>`}
+    ${target && html`<p class="sc-target small">${target}</p>`}
     <p class="hint">${t(cancelling ? 'booking.cancel_explain' : 'booking.book_explain')}</p>
     ${busy && html`<ol class="steps" aria-live="polite">${steps.map((name, i) => html`<li key=${name} class=${i < at ? 'done' : i === at ? 'now' : ''}>
       ${i < at ? html`<${Icon} name="check" size=${14} />` : html`<span class="dot"></span>`}${t('booking.step.' + name)}</li>`)}</ol>`}
@@ -228,6 +232,7 @@ function App() {
   const [tabCourse, setTabCourse] = useState(null); // the course tab of Search and the Heatmap (one course at a time) // the sheet Preferences was opened from (Search): it comes back when they close
   const [sheet, setSheet] = useState(() => (location.hash.startsWith('#sheet=') ? location.hash.slice(7) : null)); // 'legend' | 'search' | 'heatmap' | 'players' | 'preferences' | 'settings' | 'addclub'
   const [booking, setBooking] = useState(null);
+  const [scorecardFor, setScorecardFor] = useState(null); // a booking whose scorecard is open (from My reservations)
   const [display, setDisplay] = useState(null); // { units, showHandicaps }: applied at once, saved in the background
   const [picksPending, setPicksPending] = useState(false);
   const [jumpTick, setJumpTick] = useState(0);
@@ -691,7 +696,9 @@ function App() {
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} units=${units} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} calendar=${calendar} onClose=${() => setSheet(null)}
+        onScorecard=${setScorecardFor}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
+      ${scorecardFor && html`<${ScorecardSheet} booking=${scorecardFor} onClose=${() => setScorecardFor(null)} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}
     </div>`;
 }

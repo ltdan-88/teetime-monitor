@@ -38,6 +38,7 @@ from .. import (
     picks_cli,
     pipeline,
     recommend,
+    scorecard,
     scrape_health,
     scrape_once,
     scraper,
@@ -630,6 +631,50 @@ def booking_partners(slug: str | None, club_id: str | None, course: str, date: s
     if found is None:
         return {"error": "unknown_club"}
     return booking.partners(found[0], course, date, time)
+
+
+def scorecard_for(slug: str | None, club_id: str | None, course: str) -> dict:
+    """Your scorecard for `course` (src/scorecard.py): the tee you chose for it (or a first guess), the tees you can
+    choose from, and per hole your shots, aim and pick-up score. {"error": ...} when something is missing."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    club, db = found
+    hi = storage.load_my_handicap(path=db)
+    if hi is None:
+        return {"error": "no_handicap"}
+    username, password = club_config.resolve_credentials(club["slug"]) if club["slug"] else ("", "")
+    if not username or not password:
+        return {"error": "no_login"}
+    try:
+        tees, gender = scorecard.load_tees(club["id"], username, password)
+    except scraper.LoginError:
+        return {"error": "login"}
+    except (httpx.HTTPError, OSError):
+        return {"error": "network"}
+    config = pipeline._resolved_config(club["slug"], club["id"], club["name"])
+    holes = recommend.holes_for_course(course, config)
+    choices = [tee for tee in tees if (holes is None or tee.holes == holes) and (gender is None or tee.gender == gender)]
+    chosen = (config.get("scorecard_tees") or {}).get(course) if isinstance(config.get("scorecard_tees"), dict) else None
+    tee = next((tee for tee in choices if tee.key == chosen), None) or scorecard.guess_tee(tees, holes, gender)
+    if tee is None:
+        return {"error": "no_tee"}
+    return {
+        "card": scorecard.card(hi, tee),
+        "choices": [{"key": choice.key, "round": choice.round, "color": choice.color} for choice in choices],
+        "chosen": tee.key,
+    }
+
+
+def set_scorecard_tee(slug: str | None, course: str, key: str) -> dict:
+    """Remember which tee `course` is played from (the club file's `scorecard_tees`)."""
+    if not slug or not course or key.count("|") != 2:
+        return {"error": "bad_request"}
+    config = club_config.load_club_config(slug)
+    tees = config.get("scorecard_tees") if isinstance(config.get("scorecard_tees"), dict) else {}
+    config["scorecard_tees"] = {**tees, course: key}
+    club_config.save_club_config(slug, config)
+    return {"ok": True}
 
 
 def booking_job(job_id: str) -> dict:

@@ -311,17 +311,26 @@ export function Condition({ code, size = 24 }) {
 
 // ---------------------------------------------------------------- small controls
 
+// Escape closes the window on top only (a dialog over My reservations, the scorecard over it), not every open one:
+// the windows stack in the order they opened, and one listener asks the newest.
+const escapes = [];
+function onEscape(event) {
+  if (event.key !== 'Escape' || !escapes.length) return;
+  event.stopPropagation();
+  escapes[escapes.length - 1].current();
+}
+
 export function useEscape(handler) {
+  const latest = useRef(handler);
+  latest.current = handler;
   useLayoutEffect(() => {
-    const onKey = (event) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        handler();
-      }
+    escapes.push(latest);
+    if (escapes.length === 1) window.addEventListener('keydown', onEscape);
+    return () => {
+      escapes.splice(escapes.lastIndexOf(latest), 1);
+      if (!escapes.length) window.removeEventListener('keydown', onEscape);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handler]);
+  }, []);
 }
 
 /** A modal sheet over the page: Escape or a click on the dim area closes it. */
