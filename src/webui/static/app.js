@@ -152,6 +152,37 @@ const STEPS = { book: ['login', 'book', 'confirm'], cancel: ['login', 'cancel', 
 /** Book a time on pc caddie for yourself, or cancel your booking there. Nothing happens until the button is pressed;
  *  while the dialog is open the server reads the pages before it (reading only), so the button only sends the steps
  *  that book or cancel. Those are shown as they go. */
+/** A guest for the booking: what pc caddie's own form asks for. The home club is optional and comes from pc caddie's
+ *  own list (its number goes with it); typing at least three letters asks for it, once a moment after typing stops. */
+function GuestForm({ refBody, onAdd, onCancel }) {
+  const [guest, setGuest] = useState({ salutation: '', first: '', last: '', club_number: '', club_name: '' });
+  const [typed, setTyped] = useState('');
+  const [clubs, setClubs] = useState([]);
+  const set = (field) => (event) => setGuest((now) => ({ ...now, [field]: event.target.value }));
+  useEffect(() => {
+    if (typed.trim().length < 3 || typed === guest.club_name) { setClubs([]); return undefined; }
+    const timer = setTimeout(() => api('/api/booking/clubs' + query({ ...refBody, q: typed })).then((found) => setClubs(found.clubs || [])).catch(() => setClubs([])), 400);
+    return () => clearTimeout(timer);
+  }, [typed]);
+  const ready = guest.salutation && guest.first.trim() && guest.last.trim() && (!typed.trim() || guest.club_number);
+  return html`<div class="guest-form">
+    <div class="guest-row">
+      <${Select} id="g-salutation" value=${guest.salutation} aria-label=${t('booking.guest.salutation')}
+        options=${[{ value: '', label: t('booking.guest.salutation') }, ...['female', 'male', 'diverse'].map((value) => ({ value, label: t('booking.guest.' + value) }))]}
+        onChange=${(value) => setGuest((now) => ({ ...now, salutation: value }))} />
+      <input class="fld" id="g-first" value=${guest.first} onInput=${set('first')} placeholder=${t('booking.guest.first')} aria-label=${t('booking.guest.first')} maxlength="40" />
+      <input class="fld" id="g-last" value=${guest.last} onInput=${set('last')} placeholder=${t('booking.guest.last')} aria-label=${t('booking.guest.last')} maxlength="40" />
+    </div>
+    <input class="fld" id="g-club" value=${typed} placeholder=${t('booking.guest.club')} aria-label=${t('booking.guest.club')} maxlength="40"
+      onInput=${(event) => { setTyped(event.target.value); setGuest((now) => ({ ...now, club_number: '', club_name: '' })); }} />
+    ${clubs.length > 0 && html`<ul class="guest-clubs">${clubs.map((club) => html`<li key=${club.number}><button type="button" class="link-btn"
+      onClick=${() => { setGuest((now) => ({ ...now, club_number: club.number, club_name: club.name })); setTyped(club.name); setClubs([]); }}>${club.label}</button></li>`)}</ul>`}
+    <div class="actions"><span class="grow"></span>
+      <button class="btn" type="button" onClick=${onCancel}>${t('cancel')}</button>
+      <button class="btn pri" type="button" disabled=${!ready} onClick=${() => onAdd({ ...guest, first: guest.first.trim(), last: guest.last.trim() })}>${t('booking.guest.add')}</button></div>
+  </div>`;
+}
+
 function BookingDialog({ booking, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(null);
@@ -162,6 +193,8 @@ function BookingDialog({ booking, onClose, onDone }) {
   // Partners: your friends list on pc caddie, from the booking form being read ahead; as many as the time has room for.
   const [partners, setPartners] = useState([]);
   const [chosen, setChosen] = useState([]);
+  const [guests, setGuests] = useState([]); // guests added in this dialog (sent to pc caddie, not kept)
+  const [addingGuest, setAddingGuest] = useState(false);
   const [target, setTarget] = useState(null); // "Better than your handicap: 37+ points", once the scorecard is known
   const room = Math.min(3, (booking.free == null ? 4 : booking.free) - 1);
   useEffect(() => {
@@ -174,6 +207,7 @@ function BookingDialog({ booking, onClose, onDone }) {
     return () => { live = false; };
   }, []);
   const toggle = (id) => setChosen((now) => (now.includes(id) ? now.filter((x) => x !== id) : [...now, id]));
+  const full = chosen.length + guests.length >= room;
   const failed = (payload) => {
     const key = 'booking.error.' + (payload.error || 'other');
     const named = t(key, { message: payload.message || '' });
@@ -186,7 +220,7 @@ function BookingDialog({ booking, onClose, onDone }) {
     setError(null);
     setStep('login');
     try {
-      const { job } = await post(cancelling ? '/api/booking/cancel' : '/api/booking', cancelling ? body : { ...body, partners: chosen });
+      const { job } = await post(cancelling ? '/api/booking/cancel' : '/api/booking', cancelling ? body : { ...body, partners: [...chosen, ...guests.map((guest) => ({ guest }))] });
       for (;;) {
         await new Promise((done) => setTimeout(done, 350));
         const state = await api('/api/booking/job' + query({ id: job }));
@@ -202,10 +236,14 @@ function BookingDialog({ booking, onClose, onDone }) {
   const at = steps.indexOf(step);
   return html`<${Sheet} title=${t(cancelling ? 'booking.cancel_title' : 'booking.book_title', { time: booking.time })} onClose=${busy ? () => {} : onClose} size="small">
     <p><b>${booking.course}</b> · ${booking.dateText}, ${booking.time}</p>
-    ${!cancelling && partners.length > 0 && html`<div class="partners" role="group" aria-label=${t('booking.partners')}>
+    ${!cancelling && room > 0 && html`<div class="partners" role="group" aria-label=${t('booking.partners')}>
       <span class="lab">${t('booking.partners')}</span>
-      ${partners.map((p) => html`<${Chip} key=${p.id} on=${chosen.includes(p.id)} disabled=${busy || (!chosen.includes(p.id) && chosen.length >= room)}
-        onClick=${() => toggle(p.id)}>${p.name}<//>`)}</div>`}
+      ${partners.map((p) => html`<${Chip} key=${p.id} on=${chosen.includes(p.id)} disabled=${busy || (!chosen.includes(p.id) && full)}
+        onClick=${() => toggle(p.id)}>${p.name}<//>`)}
+      ${guests.map((g, i) => html`<${Chip} key=${'g' + i} on=${true} disabled=${busy} aria-label=${t('booking.guest.remove', { name: g.first + ' ' + g.last })}
+        onClick=${() => setGuests((now) => now.filter((_, j) => j !== i))}>${g.first} ${g.last} ×<//>`)}
+      ${!addingGuest && html`<${Chip} on=${false} disabled=${busy || full} onClick=${() => setAddingGuest(true)}>+ ${t('booking.guest')}<//>`}</div>`}
+    ${addingGuest && html`<${GuestForm} refBody=${booking.ref} onAdd=${(guest) => { setGuests((now) => [...now, guest]); setAddingGuest(false); }} onCancel=${() => setAddingGuest(false)} />`}
     ${target && html`<p class="sc-target small">${target}</p>`}
     <p class="hint">${t(cancelling ? 'booking.cancel_explain' : 'booking.book_explain')}</p>
     ${busy && html`<ol class="steps" aria-live="polite">${steps.map((name, i) => html`<li key=${name} class=${i < at ? 'done' : i === at ? 'now' : ''}>

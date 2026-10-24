@@ -85,6 +85,9 @@ class FakeSite:
         self.referers.append(request.headers.get("referer"))
         url = str(request.url)
         if request.method == "GET":
+            if "clubselect.php" in url:
+                self.club_searches = getattr(self, "club_searches", 0) + 1
+                return httpx.Response(200, text="0499999|9999|Vereinigung clubfreier Golfspieler im DGV e.V. (VcG)|049|Deutschland\n0497758|7758|Golfclub Beispiel e.V.|049|Deutschland\nnonsense line")
             if "cat=tt_timetable_course" in url:
                 return httpx.Response(200, text=SHEET)
             if "cat=tt_book" in url:
@@ -146,6 +149,52 @@ def test_a_partner_the_form_does_not_offer_is_refused_before_anything_is_sent(si
     with pytest.raises(booking.BookingError) as refused:
         booking.commit_book(client, CLUB, COURSE, DAY, "08:10", prepared, partners=partners)
     assert refused.value.reason == "bad_partners" and fake.posts == [] and not fake.booked
+
+
+GUEST = {"salutation": "female", "first": "Anna", "last": "Gast", "club_number": "0499999", "club_name": "9999 - Vereinigung clubfreier Golfspieler im DGV e.V. (VcG)"}
+
+
+def test_a_guest_goes_in_as_the_form_takes_one_with_or_without_a_home_club(site):
+    fake, client = site()
+    prepared = booking.prepare_book(client, CLUB, COURSE, DAY, "08:10")
+    without = {"salutation": "male", "first": "Ben", "last": "Ohneclub"}
+    booking.commit_book(client, CLUB, COURSE, DAY, "08:10", prepared, partners=["7", GUEST, without])
+    sent = fake.posts[0]
+    assert sent["rq[players][2][type]"] == ["friend"] and sent["rq[players][2][friend][bd_id]"] == ["7"]
+    assert sent["rq[players][3][type]"] == ["combo"] and sent["rq[players][3][combo][salutation]"] == ["female"]
+    assert sent["rq[players][3][combo][forename]"] == ["Anna"] and sent["rq[players][3][combo][surname]"] == ["Gast"]
+    assert sent["rq[players][3][combo][clubnumber]"] == ["0499999"] and sent["rq[players][3][combo][clubname]"] == [GUEST["club_name"]]
+    assert sent["rq[players][4][type]"] == ["combo"] and sent["rq[players][4][combo][clubnumber]"] == [""] and sent["rq[players][4][combo][clubname]"] == [""]
+    assert fake.booked
+
+
+@pytest.mark.parametrize("bad", [
+    {"salutation": "male", "first": "Ben", "last": ""},
+    {"salutation": "sir", "first": "Ben", "last": "Gast"},
+    {"salutation": "male", "first": "Ben\nX", "last": "Gast"},
+    {"salutation": "male", "first": "<b>", "last": "Gast"},
+    {"salutation": "male", "first": "Ben", "last": "Gast", "club_number": "12", "club_name": "Somewhere"},
+])
+def test_a_guest_the_form_would_not_take_is_refused_before_anything_is_sent(site, bad):
+    fake, client = site()
+    prepared = booking.prepare_book(client, CLUB, COURSE, DAY, "08:10")
+    with pytest.raises(booking.BookingError) as refused:
+        booking.commit_book(client, CLUB, COURSE, DAY, "08:10", prepared, partners=[bad])
+    assert refused.value.reason == "bad_partners" and fake.posts == []
+
+
+def test_a_home_club_is_found_in_pc_caddies_own_list_and_kept_for_an_hour(site, monkeypatch):
+    import contextlib
+
+    fake, client = site()
+    monkeypatch.setattr(booking, "_CLUB_SEARCHES", {})
+    monkeypatch.setattr(booking, "session_for", contextlib.contextmanager(lambda club, fresh=False: (yield client)))
+    found = booking.search_home_clubs(CLUB_ROW, "  clubfrei ")
+    assert found["clubs"][0] == {"number": "0499999", "name": "9999 - Vereinigung clubfreier Golfspieler im DGV e.V. (VcG)",
+                                 "label": "Vereinigung clubfreier Golfspieler im DGV e.V. (VcG) (Deutschland)"}
+    assert len(found["clubs"]) == 2  # the line that is no club is left out
+    assert booking.search_home_clubs(CLUB_ROW, "CLUBFREI")["clubs"] == found["clubs"] and fake.club_searches == 1
+    assert booking.search_home_clubs(CLUB_ROW, "cl") == {"clubs": []} and fake.club_searches == 1
 
 
 def test_booking_walks_the_two_steps_and_reads_the_result_from_my_reservations(site):
