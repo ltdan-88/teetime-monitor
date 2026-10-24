@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -227,16 +227,71 @@ def partner_choices(html: str) -> list[dict]:
     return choices
 
 
-def _with_partners(data: dict[str, list[str]], html: str, partners: list[str]) -> dict[str, list[str]]:
-    """The form's own data with `partners` (friend ids from partner_choices()) in places 2, 3 and 4, as a person picking
-    them in pc caddie's form would; any id the form does not offer is refused."""
+SALUTATIONS = ("female", "male", "diverse")
+_GUEST_NAME = re.compile(r"^[^\x00-\x1f<>]{1,40}$")
+_CLUB_NUMBER = re.compile(r"^\d{7}$")
+
+
+def guest(raw: dict) -> dict:
+    """A guest as the booking form takes one (1.4.0): salutation, first name, surname and, if they have one, the home
+    club as pc caddie's own club list gives it (`number` its 7 digits, `name` "9999 - Club name"). BookingError
+    "bad_partners" for anything the form would not take."""
+    first, last = str(raw.get("first", "")).strip(), str(raw.get("last", "")).strip()
+    salutation, number = str(raw.get("salutation", "")), str(raw.get("club_number", "")).strip()
+    club = str(raw.get("club_name", "")).strip() if number else ""
+    if not (_GUEST_NAME.match(first) and _GUEST_NAME.match(last)) or salutation not in SALUTATIONS:
+        raise BookingError("bad_partners", "a guest needs a salutation, first name and surname")
+    if number and (not _CLUB_NUMBER.match(number) or not _GUEST_NAME.match(club[:40] or "?")):
+        raise BookingError("bad_partners", "a home club from pc caddie's list")
+    return {"salutation": salutation, "first": first, "last": last, "club_number": number, "club_name": club[:100]}
+
+
+def _with_partners(data: dict[str, list[str]], html: str, partners: list) -> dict[str, list[str]]:
+    """The form's own data with `partners` in places 2, 3 and 4, as a person filling in pc caddie's form would: a friend
+    id from partner_choices() (any id the form does not offer is refused), or a guest (a dict, see guest())."""
     offered = {choice["id"] for choice in partner_choices(html)}
-    if len(partners) > 3 or len(set(partners)) != len(partners) or not set(partners) <= offered:
+    friends = [partner for partner in partners if isinstance(partner, str)]
+    if len(partners) > 3 or len(set(friends)) != len(friends) or not set(friends) <= offered:
         raise BookingError("bad_partners", "a partner the booking form does not offer")
     for place, partner in enumerate(partners, start=2):
-        data[f"rq[players][{place}][type]"] = ["friend"]
-        data[f"rq[players][{place}][friend][bd_id]"] = [partner]
+        if isinstance(partner, str):
+            data[f"rq[players][{place}][type]"] = ["friend"]
+            data[f"rq[players][{place}][friend][bd_id]"] = [partner]
+            continue
+        visitor = guest(partner)
+        data[f"rq[players][{place}][type]"] = ["combo"]
+        for field, value in (("salutation", visitor["salutation"]), ("title", ""), ("forename", visitor["first"]),
+                             ("surname", visitor["last"]), ("clubname", visitor["club_name"]), ("clubnumber", visitor["club_number"])):
+            data[f"rq[players][{place}][combo][{field}]"] = [value]
     return data
+
+
+# What pc caddie's own home-club field suggests (its `/pcco/clubselect.php`, one line a club: "0499999|9999|Name|049|
+# Country"), kept for an hour per search: a guest's home club as its form would send it.
+_CLUB_SEARCHES: dict[str, tuple[float, list[dict]]] = {}
+
+
+def search_home_clubs(club: dict, text: str) -> dict:
+    """Clubs whose name or number contains `text` (at least 3 characters), as {"clubs": [{"number", "name", "label"}]}."""
+    text = " ".join(text.split())[:40]
+    if len(text) < 3:
+        return {"clubs": []}
+    held = _CLUB_SEARCHES.get(text.lower())
+    if held and time_module.monotonic() - held[0] < 3600:
+        return {"clubs": held[1]}
+    url = f"{SITE}/pcco/clubselect.php?" + urlencode({"club": club["id"], "q": text, "limit": 10})
+    try:
+        with session_for(club) as client:
+            lines = _get(client, url).text.splitlines()
+    except (BookingError, scraper.SessionExpired, scraper.LoginError):
+        return {"clubs": [], "error": "network"}
+    clubs = []
+    for line in lines:
+        parts = line.split("|")
+        if len(parts) >= 5 and _CLUB_NUMBER.match(parts[0]):
+            clubs.append({"number": parts[0], "name": f"{parts[1]} - {parts[2]}", "label": f"{parts[2]} ({parts[4]})"})
+    _CLUB_SEARCHES[text.lower()] = (time_module.monotonic(), clubs)
+    return {"clubs": clubs}
 
 
 def commit_book(client: httpx.Client, club_id: str, course: str, date: str, time: str, prepared: Prepared, progress=None, partners=()) -> BookingResult:

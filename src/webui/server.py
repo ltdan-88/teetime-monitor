@@ -535,12 +535,18 @@ class Handler(BaseHTTPRequestHandler):
             return reply(data.tournaments(**ref(), refresh=arg("refresh") == "1"))
         if route == ("POST", "/api/booking"):
             chosen = body.get("partners") if isinstance(body.get("partners"), list) else []
-            chosen = [str(partner) for partner in chosen if isinstance(partner, (str, int))]
+            chosen = [  # a friend's id, or a guest (checked field by field in booking.guest())
+                str(partner) if isinstance(partner, (str, int)) else {key: str(value) for key, value in partner["guest"].items()}
+                for partner in chosen[:3]
+                if isinstance(partner, (str, int)) or (isinstance(partner, dict) and isinstance(partner.get("guest"), dict))
+            ]
             return reply(data.book(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or "", partners=chosen), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/cancel"):
             return reply(data.cancel(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("POST", "/api/booking/prepare"):
             return reply(data.prepare_booking(**ref(), kind=arg("kind") or "", course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
+        if route == ("GET", "/api/booking/clubs"):
+            return reply(data.booking_home_clubs(**ref(), text=arg("q") or ""))
         if route == ("GET", "/api/booking/partners"):
             return reply(data.booking_partners(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
         if route == ("GET", "/api/scorecard"):

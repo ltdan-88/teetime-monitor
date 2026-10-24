@@ -677,6 +677,14 @@ def set_scorecard_tee(slug: str | None, course: str, key: str) -> dict:
     return {"ok": True}
 
 
+def booking_home_clubs(slug: str | None, club_id: str | None, text: str) -> dict:
+    """A guest's home club, as pc caddie's own list suggests it while typing (src/booking.py search_home_clubs)."""
+    found = _club_db(slug, club_id)
+    if found is None:
+        return {"error": "unknown_club"}
+    return booking.search_home_clubs(found[0], text)
+
+
 def booking_job(job_id: str) -> dict:
     found = booking.job(job_id)
     return found if found is not None else {"error": "not_found"}

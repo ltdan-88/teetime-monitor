@@ -33,6 +33,7 @@ DYNAMIC = {
     "booking.error.": ["no_login", "login", "taken", "not_bookable", "not_found", "not_cancelable", "unconfirmed", "network", "unknown_club", "bad_time", "bad_partners", "other"],
     "search.flag.": ["rain", "wind", "temp"],
     "settings.calendar.": ["outlook", "outlook_com", "google", "ics"],
+    "booking.guest.": ["female", "male", "diverse"],
     "scorecard.tee.": ["yellow", "red", "white", "blue", "green", "black"],
     "scorecard.error.": ["no_handicap", "no_login", "login", "network", "no_tee"],
     "search.flag_tip.": ["rain", "wind", "temp"],

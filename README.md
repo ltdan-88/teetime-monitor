@@ -33,8 +33,8 @@ you and adds what the club's page doesn't tell you:
 - 📈 **A crowd heatmap** that learns over the weeks which hours really fill up.
 
 **It books only when you press the button.** Click a free time and choose *Book now*: the app books it on pc caddie
-with your own login, with any friends from your pc caddie friends list you tap, and pc caddie sends its usual
-confirmation e-mail. Your own booking can be cancelled the same way. Nothing is booked automatically or on a schedule.
+with your own login, with any friends from your pc caddie friends list you tap or guests you add, and pc caddie sends
+its usual confirmation e-mail. Your own booking can be cancelled the same way. Nothing is booked automatically or on a schedule.
 
 ## Two ways to use it — same data, same advice
 

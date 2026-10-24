@@ -33,8 +33,8 @@ ergänzt, was die Seite des Clubs dir nicht sagt:
 - 📈 **Eine Auslastungs-Heatmap**, die über die Wochen lernt, welche Stunden wirklich voll werden.
 
 **Es bucht nur, wenn du den Knopf drückst.** Klicke auf eine freie Zeit und wähle *Jetzt buchen*: Die App bucht sie bei
-pc caddie mit deinem eigenen Login, mit den Freunden aus deiner pc-caddie-Freundesliste, die du antippst, und
-pc caddie schickt die übliche Bestätigungs-E-Mail. Deine eigene Buchung kannst du genauso stornieren. Nichts wird
+pc caddie mit deinem eigenen Login, mit den Freunden aus deiner pc-caddie-Freundesliste, die du antippst, oder Gästen,
+die du hinzufügst, und pc caddie schickt die übliche Bestätigungs-E-Mail. Deine eigene Buchung kannst du genauso stornieren. Nichts wird
 automatisch oder nach Zeitplan gebucht.
 
 ## Zwei Wege, dasselbe Ergebnis

@@ -211,6 +211,14 @@ def main() -> None:
 
             scorecard.load_tees = tees
 
+            invented_clubs = [  # what pc caddie's own home-club list answers, invented
+                {"number": "0490001", "name": "0001 - Golfclub Beispiel-Nord e.V.", "label": "Golfclub Beispiel-Nord e.V. (Deutschland)"},
+                {"number": "0490002", "name": "0002 - Golfpark Musterstadt", "label": "Golfpark Musterstadt (Deutschland)"},
+            ]
+            booking.search_home_clubs = lambda club, text: {
+                "clubs": [c for c in invented_clubs if len(text.strip()) >= 3 and text.strip().lower() in c["name"].lower()]
+            }
+
             def tournaments(club_id, username, password):  # an invented calendar, relative to today
                 from datetime import date, timedelta
 

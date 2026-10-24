@@ -2364,20 +2364,20 @@ def test_after_booking_from_search_the_search_window_still_closes(ui):
 
 
 def test_friends_from_pc_caddie_can_be_booked_with_you_as_far_as_the_time_has_room(ui):
-    ui.js("window.__sent = []; const real = window.fetch; window.fetch = (path, options) => { if (String(path) === '/api/booking') window.__sent.push(JSON.parse(options.body)); return real(path, options); }; true")
+    ui.js("(() => { window.__sent = []; const real = window.fetch; window.fetch = (path, options) => { if (String(path) === '/api/booking') window.__sent.push(JSON.parse(options.body)); return real(path, options); }; })()")
     _open_sheet(ui, "s", "Search")
     ui.wait("document.querySelector('.results .res .mark')")
     open_seats = "(r) => r.querySelectorAll('.res-open .seat.taken, .res-open .seat.friend, .res-open .seat.mine').length"
     # a time with exactly two seats left: room for one partner
     found = ui.js(f"(() => {{ const r = [...document.querySelectorAll('.results .res:not(.res-head)')].find((r) => r.querySelector('.mark') && ({open_seats})(r) === 2); if (!r) return null; r.querySelector('.mark').click(); return r.dataset.slot; }})()")
     if found:
-        ui.wait("document.querySelectorAll('.partners .chip').length === 3", 10)  # the demo's friends list on pc caddie
+        ui.wait("document.querySelectorAll('.partners .chip').length === 4", 10)  # the demo's friends list on pc caddie, and "+ Guest"
         ui.js("document.querySelectorAll('.partners .chip')[0].click()")
-        assert ui.js("[...document.querySelectorAll('.partners .chip')].map((c) => c.disabled)") == [False, True, True]  # room for one
+        assert ui.js("[...document.querySelectorAll('.partners .chip')].map((c) => c.disabled)") == [False, True, True, True]  # room for one
         ui.click(".sheet.small .btn")  # not now
         ui.wait("document.querySelectorAll('.sheet').length === 1")
     day, time = ui.js("(() => { const r = [...document.querySelectorAll('.results .res:not(.res-head)')].find((r) => r.querySelector('.mark') && r.querySelectorAll('.res-open .seat.taken, .res-open .seat.friend, .res-open .seat.mine').length === 0); r.querySelector('.mark').click(); return r.dataset.slot.split(' '); })()")
-    ui.wait("document.querySelectorAll('.partners .chip').length === 3", 10)
+    ui.wait("document.querySelectorAll('.partners .chip').length === 4", 10)
     assert ui.text(".partners").lower().startswith("with") and "Erika Musterfrau" in ui.text(".partners")
     ui.js("document.querySelectorAll('.partners .chip')[1].click(); document.querySelectorAll('.partners .chip')[2].click()")
     ui.click(".sheet.small .btn.pri")
@@ -2425,3 +2425,47 @@ def test_your_scorecard_for_a_booking_shows_each_hole_and_the_booking_dialog_its
     assert ui.js(f"({job})('/api/booking/cancel', {json.dumps(ours)})") == "ok"
     ui.js("location.reload()")
     ui.wait("document.querySelectorAll('.card').length > 0")
+
+
+def test_a_guest_with_or_without_a_home_club_can_be_booked_with_you(ui):
+    ui.js("(() => { window.__sent = []; const real = window.fetch; window.fetch = (path, options) => { if (String(path) === '/api/booking') window.__sent.push(JSON.parse(options.body)); return real(path, options); }; })()")
+    _open_sheet(ui, "s", "Search")
+    ui.wait("document.querySelector('.results .res .mark')")
+    day, time = ui.js("(() => { const r = [...document.querySelectorAll('.results .res:not(.res-head)')].find((r) => r.querySelector('.mark') && r.querySelectorAll('.res-open .seat.taken, .res-open .seat.friend, .res-open .seat.mine').length === 0); r.querySelector('.mark').click(); return r.dataset.slot.split(' '); })()")
+    ui.wait("document.querySelectorAll('.partners .chip').length === 4", 10)  # three friends and "+ Guest"
+
+    def type_in(selector, text):
+        ui.js(f"(() => {{ const e = document.querySelector({json.dumps(selector)}); e.value = {json.dumps(text)}; e.dispatchEvent(new Event('input', {{bubbles: true}})); }})()")
+
+    def add_guest(salutation, first, last, club=None):
+        ui.js("[...document.querySelectorAll('.partners .chip')].pop().click()")
+        ui.wait("document.querySelector('.guest-form')")
+        assert ui.js("document.querySelector('.guest-form .btn.pri').disabled")  # nothing to add yet
+        ui.js(f"(() => {{ const s = document.querySelector('#g-salutation'); s.value = {json.dumps(salutation)}; s.dispatchEvent(new Event('change', {{bubbles: true}})); }})()")
+        type_in("#g-first", first)
+        type_in("#g-last", last)
+        if club:
+            type_in("#g-club", club)
+            ui.wait("document.querySelector('.guest-clubs .link-btn')", 5)  # pc caddie's own list (invented in the demo)
+            ui.js("document.querySelector('.guest-clubs .link-btn').click()")
+        ui.wait("!document.querySelector('.guest-form .btn.pri').disabled")
+        ui.js("document.querySelector('.guest-form .btn.pri').click()")
+        ui.wait("!document.querySelector('.guest-form')")
+
+    add_guest("female", "Anna", "Gast", club="Musterstadt")
+    add_guest("male", "Ben", "Ohneclub")
+    assert "Anna Gast" in ui.text(".partners") and "Ben Ohneclub" in ui.text(".partners")
+    ui.click(".sheet.small .btn.pri")
+    ui.wait("document.querySelectorAll('.sheet').length === 1 && document.querySelector('.results .res')", 15)
+    sent = ui.js("window.__sent")[0]["partners"]
+    assert sent == [
+        {"guest": {"salutation": "female", "first": "Anna", "last": "Gast", "club_number": "0490002", "club_name": "0002 - Golfpark Musterstadt"}},
+        {"guest": {"salutation": "male", "first": "Ben", "last": "Ohneclub", "club_number": "", "club_name": ""}},
+    ], sent
+    _close_sheet(ui)
+    ui.js(  # cancel it again (a job: wait for it), and start the next test on a fresh page
+        f"""fetch('/api/booking/cancel', {{method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{slug: 'golfclub-beispiel', course: '18 Loch Tee 1', date: {json.dumps(day)}, time: {json.dumps(time)}}})}})
+          .then((r) => r.json()).then(async ({{job}}) => {{ for (let i = 0; i < 50; i += 1) {{ const s = await (await fetch('/api/booking/job?id=' + job)).json(); if (s.state !== 'running') break; await new Promise((d) => setTimeout(d, 200)); }} }})
+          .then(() => {{ window.__beforeReload = true; location.reload(); }})"""
+    )
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
