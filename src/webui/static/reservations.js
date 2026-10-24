@@ -5,7 +5,7 @@ import { html, t, useState, useEffect, Sheet, Status, Icon, api, dayLabel, updat
 /** The list comes at once from what is known; pc caddie is then asked for the true state (bookings made on its
  *  own site appear, cancelled ones go) and the list is replaced -- unless it was read a few minutes ago, which the
  *  line under the list says, with a button to read it again now. */
-export function ReservationsSheet({ onClose, onCancel, refreshKey, calendar }) {
+export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, calendar }) {
   const [state, setState] = useState(null); // { reservations, refresh_problems, checked_at }
   const [checking, setChecking] = useState(true);
   const [force, setForce] = useState(0);
@@ -42,7 +42,8 @@ export function ReservationsSheet({ onClose, onCancel, refreshKey, calendar }) {
         <li key=${item.club_id + item.course + item.date + item.time}>
           <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
           <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
-          <span class="resv-actions">${calendarLink(calendar, item) && html`<a class="icon-btn" href=${calendarLink(calendar, item)} target="_blank" rel="noopener noreferrer"
+          <span class="resv-actions"><button class="icon-btn" onClick=${() => onScorecard(item)} aria-label=${t('scorecard.title')} title=${t('scorecard.title')}><${Icon} name="grid" size=${18} /></button>
+          ${calendarLink(calendar, item) && html`<a class="icon-btn" href=${calendarLink(calendar, item)} target="_blank" rel="noopener noreferrer"
             aria-label=${t('reservations.calendar')} title=${t('reservations.calendar')}><${Icon} name="calendarplus" size=${18} /></a>`}
           <button class="icon-btn danger" onClick=${() => onCancel(item)} aria-label=${t('reservations.cancel')} title=${t('reservations.cancel')}><${Icon} name="trash" size=${18} /></button></span>
         </li>`)}

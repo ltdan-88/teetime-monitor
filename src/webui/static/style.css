@@ -665,6 +665,14 @@ button, select, input { touch-action: manipulation; }
 .resv-list li:first-child { border-top: 0; }
 .resv-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .resv-actions { display: flex; align-items: center; gap: 0.25rem; }
+.sc-target { margin: 0.5rem 0; }
+.sc-target.small { font-size: 0.875rem; color: var(--accent-text, var(--accent)); margin: 0 0 0.25rem; }
+.sc-wrap { overflow-x: auto; }
+.sc-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.sc-table th { font-family: var(--sans, inherit); font-weight: 500; color: var(--dim); font-size: 0.75rem; text-align: right; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--line); }
+.sc-table td { text-align: right; padding: 0.3125rem 0.5rem; border-bottom: 1px solid var(--line); }
+.sc-table th:first-child, .sc-table td:first-child { text-align: left; }
+.sc-table .sc-aim { font-weight: 700; color: var(--text); }
 @media (max-width: 640px) {
   .resv-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .resv-list .resv-where { grid-column: 1; grid-row: 2; }

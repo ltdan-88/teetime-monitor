@@ -543,6 +543,10 @@ class Handler(BaseHTTPRequestHandler):
             return reply(data.prepare_booking(**ref(), kind=arg("kind") or "", course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""), HTTPStatus.CONFLICT)
         if route == ("GET", "/api/booking/partners"):
             return reply(data.booking_partners(**ref(), course=arg("course") or "", date=arg("date") or "", time=arg("time") or ""))
+        if route == ("GET", "/api/scorecard"):
+            return reply(data.scorecard_for(**ref(), course=arg("course") or ""))
+        if route == ("POST", "/api/scorecard/tee"):
+            return reply(data.set_scorecard_tee(arg("slug"), arg("course") or "", arg("key") or ""), HTTPStatus.BAD_REQUEST)
         if route == ("GET", "/api/booking/job"):
             found = data.booking_job(arg("id") or "")  # a job that failed carries its reason in "error", and is still found
             return self._json(found, HTTPStatus.OK if "state" in found else HTTPStatus.NOT_FOUND)

@@ -95,7 +95,9 @@ Rechner, ohne KI. Der geöffnete Tag nennt den Grund, z. B. „trocken · viel P
 dein Platz zu dunkel für die Runde, ein kürzerer im Club aber passt noch, schlägt es stattdessen den vor. Ein Tag, der
 noch nicht buchbar ist, zeigt 🔒 und wann er aufgeht. Das Wettersymbol eines geöffneten Tages antippen zeigt seine
 Vorhersage bei meteoblue, Windy, Ventusky oder Yr, und eine Buchung kommt mit einem Tipp in **Meine Reservierungen** in
-Outlook, den Google Kalender oder Apples Kalender (beides unter Einstellungen → Darstellung).
+Outlook, den Google Kalender oder Apples Kalender (beides unter Einstellungen → Darstellung). Dort hat jede Buchung
+auch **deine Scorekarte**: aus den Platzdaten des Clubs und deinem Handicap-Index deine Vorgabeschläge an jedem Loch,
+dein Par, wo du aufnehmen kannst, und wie viele Stableford-Punkte besser sind als dein Handicap.
 
 ### Lieber im Terminal?
 

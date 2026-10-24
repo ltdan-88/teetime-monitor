@@ -105,6 +105,7 @@ def seed(directory: Path, second_club: bool = False) -> None:
     storage.save_confirmed_booking(
         ConfirmedBooking(date=today.isoformat(), course=course, time="11:00", holes=18, source="manual"), path=db
     )
+    storage.save_my_handicap(24.3, path=db)  # your own Handicap Index, as the reservation sync reads it
     finished = (now - timedelta(minutes=12)).isoformat()
     storage.record_scrape_run(
         started_at=finished, finished_at=finished, source="agent", attempted=5, saved=5, failed=0, authenticated=True, path=db
@@ -194,6 +195,21 @@ def main() -> None:
             booking.prepare_book, booking.prepare_cancel = read_ahead("book"), read_ahead("cancel")
             booking.commit_book = booking.commit_cancel = commit
             club_config.resolve_credentials = lambda key: ("demo", "demo")
+
+            from src import scorecard  # an invented club's tees: two loops of nine, played alone or together
+
+            def tees(club_id, username, password, now=None):
+                front, back = [4, 4, 3, 5, 4, 4, 3, 5, 4], [4, 5, 3, 4, 4, 5, 4, 3, 4]
+                nine = [5, 3, 8, 4, 1, 6, 9, 7, 2]
+                both = [9, 5, 15, 7, 1, 11, 17, 13, 3, 10, 2, 16, 6, 4, 12, 14, 18, 8]
+                return [
+                    scorecard.Tee("Runde A", "gelb", "M", 9, 36, 36.2, 128, front, nine),
+                    scorecard.Tee("Runde A", "rot", "M", 9, 36, 34.6, 120, front, nine),
+                    scorecard.Tee("Runde A+B", "gelb", "M", 18, 72, 72.4, 131, front + back, both),
+                    scorecard.Tee("Runde A+B", "rot", "M", 18, 72, 69.5, 123, front + back, both),
+                ], "M"
+
+            scorecard.load_tees = tees
 
             def tournaments(club_id, username, password):  # an invented calendar, relative to today
                 from datetime import date, timedelta
