@@ -192,6 +192,7 @@ const ICONS = {
   close: html`<path d="M6 6l12 12M18 6L6 18" />`,
   arrowup: html`<path d="M12 19V5M5 12l7-7 7 7" />`,
   check: html`<path d="M5 12.5l4.5 4.5L19 7.5" />`,
+  calendarplus: html`<rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M12 12.6v5.2M9.4 15.2h5.2" />`,
   calendarcheck: html`<rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 10h17M8 3v4M16 3v4M9 15.2l2.1 2.1 3.9-4.1" />`,
   external: html`<path d="M14 4h6v6M20 4l-8.5 8.5M18 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5.5" />`,
   teesheet: html`<rect x="4" y="4" width="16" height="16" rx="2.5" /><path d="M4 9.5h16M4 14.5h16M9 4v16" />`,
@@ -278,6 +279,27 @@ export const WEATHER_SITE_NAMES = { meteoblue: 'meteoblue', windy: 'Windy', vent
 /** The page a day's weather icon opens: the chosen site at the club's coordinates; null without either. */
 export function weatherLink(site, location) {
   return site && WEATHER_SITES[site] && location ? WEATHER_SITES[site](location.lat, location.lon) : null;
+}
+
+// Where a booking's calendar button sends it (Settings > Display; src/webui/data.py CALENDARS). The event: the course,
+// at the club, from the tee time for as long as a round takes (`start`/`end` in UTC, from the server).
+export const CALENDARS = ['outlook', 'outlook_com', 'google', 'ics'];
+
+export function calendarLink(kind, booking) {
+  if (!kind || !booking || !booking.start || !booking.end) return null;
+  const title = `Golf · ${booking.course}`;
+  const where = booking.club || '';
+  const outlook = (host) => `https://${host}/calendar/0/deeplink/compose?` + new URLSearchParams({
+    path: '/calendar/action/compose', rru: 'addevent', subject: title, startdt: booking.start, enddt: booking.end, location: where,
+  });
+  const compact = (stamp) => stamp.replace(/[-:]/g, '');
+  if (kind === 'outlook') return outlook('outlook.office.com');
+  if (kind === 'outlook_com') return outlook('outlook.live.com');
+  if (kind === 'google') return 'https://calendar.google.com/calendar/render?' + new URLSearchParams({
+    action: 'TEMPLATE', text: title, dates: `${compact(booking.start)}/${compact(booking.end)}`, location: where,
+  });
+  if (kind === 'ics') return '/api/calendar.ics?' + new URLSearchParams({ title, location: where, start: booking.start, end: booking.end });
+  return null;
 }
 
 export function Condition({ code, size = 24 }) {

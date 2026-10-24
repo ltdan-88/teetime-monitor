@@ -5,7 +5,7 @@
 import { CheckButton } from '/update.js';
 import {
   html, t, useState, useRef, useLayoutEffect, Select, Switch, post, SCALES, DEFAULT_SCALE, getScale, setScale,
-  themeNames, themeLabel, applyTheme, systemTheme, WEATHER_SITE_NAMES,
+  themeNames, themeLabel, applyTheme, systemTheme, WEATHER_SITE_NAMES, CALENDARS,
 } from '/lib.js';
 
 const LANGUAGES = [{ value: 'en', label: 'English' }, { value: 'de', label: 'Deutsch' }];
@@ -58,7 +58,7 @@ export function ScaleControl() {
 
 /** Settings' Display group: language, theme, units, the weather site a day's icon opens, players' handicaps and the
  *  tip cards, each applied at once. (The text size is at the bottom of the page.) */
-export function DisplaySection({ boot, units, weatherSite, showHandicaps, tips, onTips, onDisplay, onLanguage }) {
+export function DisplaySection({ boot, units, weatherSite, calendar, showHandicaps, tips, onTips, onDisplay, onLanguage }) {
   const [theme, setThemeState] = useState(boot.theme || systemTheme());
   const chooseTheme = (name) => {
     setThemeState(name);
@@ -78,6 +78,10 @@ export function DisplaySection({ boot, units, weatherSite, showHandicaps, tips, 
       <${Select} id="v-weather" value=${weatherSite || ''}
         options=${[{ value: '', label: t('settings.weather_site.none') }, ...Object.entries(WEATHER_SITE_NAMES).map(([value, label]) => ({ value, label }))]}
         onChange=${(value) => { const previous = weatherSite; onDisplay({ weatherSite: value || null }); post('/api/weather-site', { name: value }).catch(() => onDisplay({ weatherSite: previous })); }} /></div>
+    <div class="field-row"><label for="v-calendar">${t('settings.calendar')}</label>
+      <${Select} id="v-calendar" value=${calendar || ''}
+        options=${[{ value: '', label: t('settings.calendar.none') }, ...CALENDARS.map((value) => ({ value, label: t('settings.calendar.' + value) }))]}
+        onChange=${(value) => { const previous = calendar; onDisplay({ calendar: value || null }); post('/api/calendar', { name: value }).catch(() => onDisplay({ calendar: previous })); }} /></div>
     <div class="field-row"><label for="v-hcp">${t('settings.field.show_handicaps')}</label>
       <${Switch} id="v-hcp" checked=${showHandicaps} onChange=${(value) => saveSetting('field-show_handicaps', value, onDisplay, null, { showHandicaps: value }, { showHandicaps })} /></div>
     <div class="field-row"><label for="v-tips">${t('panel.toggle')}</label>

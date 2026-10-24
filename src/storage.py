@@ -63,8 +63,10 @@ by-timestamp lookup can be added if that turns out not to be precise enough once
 scrape_once.py is wired up.
 """
 
+import gzip
 import json
 import re
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -94,7 +96,8 @@ CREATE TABLE IF NOT EXISTS scrapes (
     sunrise TEXT,              -- HH:MM, local time -- NULL if never fetched
     sunset TEXT,               -- HH:MM, local time -- NULL if never fetched
     events TEXT,               -- JSON-encoded list[str] -- NULL/'[]' means none
-    authenticated INTEGER      -- 1 logged-in fetch (real names), 0 anonymous, NULL unknown (older rows)
+    authenticated INTEGER,     -- 1 logged-in fetch (real names), 0 anonymous, NULL unknown (older rows)
+    slots_in INTEGER           -- NULL: its slots are its own; else the later scrape of the day holding the same slots
 );
 
 CREATE TABLE IF NOT EXISTS slots (
@@ -206,7 +209,12 @@ BUSY_TIMEOUT_MS = 5000
 # the GUI (which reads the file directly) can tell, and tolerates a *newer* value than
 # it knows without failing: an older app must keep reading a database a newer one
 # already touched. init_db() never lowers it.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Version 2 (1.1.0, 2026-10-24): a scrape whose slots are the same as the one before keeps no copy of them.
+# Every reader of `slots` only ever reads the newest scrape of a course and day, so the slots move up to the
+# newest scrape and the older one points at it (`slots_in`); its weather, sun times and events stay its own.
+# About half of all scrapes repeated their slots unchanged. 1.0 reads a version 2 database as it is.
 
 
 def _open(path: Path, *, wal: bool) -> sqlite3.Connection:
@@ -292,6 +300,8 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(scrapes)")}
         if "authenticated" not in existing_columns:
             conn.execute("ALTER TABLE scrapes ADD COLUMN authenticated INTEGER")
+        if "slots_in" not in existing_columns:
+            conn.execute("ALTER TABLE scrapes ADD COLUMN slots_in INTEGER")
         for column in ("sunrise", "sunset", "events"):
             if column not in existing_columns:
                 conn.execute(f"ALTER TABLE scrapes ADD COLUMN {column} TEXT")
@@ -307,9 +317,71 @@ def init_db(path: Path = DEFAULT_DB_PATH) -> None:
         for column, column_type in (("gender", "TEXT"), ("member_status", "TEXT"), ("handicap", "REAL")):
             if column not in existing_player_columns:
                 conn.execute(f"ALTER TABLE known_players ADD COLUMN {column} {column_type}")
-        # 2026-10-05: stamp the schema version, but never lower a newer app's.
-        if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+        # 2026-10-05: the schema version is stamped (by the compaction below), never lowered for a newer app.
+        outdated = conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION
+    if outdated:
+        _compact_repeated_slots(path)
+
+
+_SLOT_COLUMNS = "time, booked, capacity, players, block_reason"
+
+
+def _same_slots_as_before(conn: sqlite3.Connection, scrape_id: int, rows: list[tuple]) -> int | None:
+    """The scrape before `scrape_id` (same course and day) if its slots are exactly `rows`, else None."""
+    previous = conn.execute(
+        "SELECT p.id FROM scrapes p JOIN scrapes s ON s.course = p.course AND s.date = p.date "
+        "WHERE s.id = ? AND p.id < s.id ORDER BY p.id DESC LIMIT 1",
+        (scrape_id,),
+    ).fetchone()
+    if previous is None or not rows:
+        return None
+    stored = conn.execute(f"SELECT {_SLOT_COLUMNS} FROM slots WHERE scrape_id = ?", (previous[0],)).fetchall()
+    return previous[0] if sorted(stored) == sorted(rows) else None
+
+
+def _move_slots(conn: sqlite3.Connection, old: int, new: int) -> None:
+    """`old`'s slots now belong to `new`, and every scrape that pointed at `old` points at `new`."""
+    conn.execute("UPDATE slots SET scrape_id = ? WHERE scrape_id = ?", (new, old))
+    conn.execute("UPDATE scrapes SET slots_in = ? WHERE id = ? OR slots_in = ?", (new, old, old))
+
+
+def _compact_repeated_slots(path: Path) -> None:
+    """Once per database (schema version 1 -> 2): what save_schedule() now does for each new scrape, done for
+    the history already saved, then the file shrunk. Holds the write lock while it runs, so two programs
+    opening the same database at once cannot both do it; the second one finds it done."""
+    conn = _open(path, wal=True)
+    removed = 0
+    try:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+                conn.execute("ROLLBACK")
+                return
+            days: dict[tuple[str, str], list[int]] = {}
+            for scrape_id, course, date in conn.execute("SELECT id, course, date FROM scrapes ORDER BY id"):
+                days.setdefault((course, date), []).append(scrape_id)
+            slots: dict[int, list[tuple]] = {}
+            for row in conn.execute(f"SELECT scrape_id, {_SLOT_COLUMNS} FROM slots"):
+                slots.setdefault(row[0], []).append(row[1:])
+            for ids in days.values():
+                for older, newer in zip(ids, ids[1:], strict=False):
+                    if slots.get(older) and sorted(slots[older]) == sorted(slots.get(newer, [])):
+                        conn.execute("DELETE FROM slots WHERE scrape_id = ?", (newer,))
+                        _move_slots(conn, older, newer)
+                        removed += len(slots[older])
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        if removed:
+            try:
+                conn.execute("VACUUM")  # give the space back; another program busy with the file just means later
+            except sqlite3.OperationalError:
+                pass
+    finally:
+        conn.close()
 
 
 def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH, authenticated: bool | None = None) -> int:
@@ -331,21 +403,15 @@ def save_schedule(schedule: Schedule, path: Path = DEFAULT_DB_PATH, authenticate
             ),
         )
         scrape_id = cursor.lastrowid
-        conn.executemany(
-            "INSERT INTO slots (scrape_id, time, booked, capacity, players, block_reason) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    scrape_id,
-                    slot.time,
-                    slot.booked,
-                    slot.capacity,
-                    json.dumps(slot.players),
-                    slot.block_reason,
-                )
-                for slot in schedule.slots
-            ],
-        )
+        rows = [(slot.time, slot.booked, slot.capacity, json.dumps(slot.players), slot.block_reason) for slot in schedule.slots]
+        unchanged = _same_slots_as_before(conn, scrape_id, rows)
+        if unchanged is not None:  # the same slots as last time: they move up instead of being stored twice
+            _move_slots(conn, unchanged, scrape_id)
+        else:
+            conn.executemany(
+                "INSERT INTO slots (scrape_id, time, booked, capacity, players, block_reason) VALUES (?, ?, ?, ?, ?, ?)",
+                [(scrape_id, *row) for row in rows],
+            )
         conn.executemany(
             "INSERT INTO weather_points "
             "(scrape_id, time, precipitation_probability, precipitation_mm, "
@@ -1158,3 +1224,26 @@ def backup_db(source: Path, destination: Path) -> None:
     finally:
         src.close()
     partial.replace(destination)
+
+
+def compressed_backup(source: Path, destination: Path) -> None:
+    """`source` as a gzipped, compacted copy at `destination` (`….db.gz`, 1.1.0): `VACUUM INTO` writes one
+    consistent snapshot without the free pages (safe while another process writes, like backup_db()), then gzip
+    shrinks it to about a quarter. Restore with `gunzip`. Temporary names until done, as in backup_db()."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    plain = destination.with_name(destination.name + ".partial.db")
+    partial = destination.with_name(destination.name + ".partial")
+    for leftover in (plain, partial):
+        leftover.unlink(missing_ok=True)
+    try:
+        src = _open(source, wal=False)
+        try:
+            src.execute("VACUUM INTO ?", (str(plain),))
+        finally:
+            src.close()
+        with open(plain, "rb") as raw, gzip.open(partial, "wb", compresslevel=6) as packed:
+            shutil.copyfileobj(raw, packed, 1 << 20)
+        partial.replace(destination)
+    finally:
+        plain.unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)

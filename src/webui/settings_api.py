@@ -170,6 +170,14 @@ def set_weather_site(name: str) -> dict:
     return {"ok": True}
 
 
+def set_calendar(name: str) -> dict:
+    """Save where a booking's calendar button sends it ("" for no button)."""
+    if name and name not in data.CALENDARS:
+        return {"error": "unknown_calendar"}
+    user_config.save_value("CALENDAR", name, user_config.CONFIG_FILE)
+    return {"ok": True}
+
+
 def set_theme(name: str) -> dict:
     """Save the colour theme (the THEME= setting the terminal and Mac apps read too)."""
     if name not in data.theme_names():

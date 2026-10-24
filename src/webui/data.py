@@ -14,9 +14,11 @@ buckets for the heat strip, and the expanded slot list running from the slot nea
 sunrise to the slot nearest sunset.
 """
 
+import hashlib
 import importlib.metadata
 import json
 import os
+import re
 import threading
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
@@ -27,6 +29,7 @@ import httpx
 
 from .. import (
     booking,
+    booking_window,
     calendar_context,
     clock,
     club_config,
@@ -34,6 +37,7 @@ from .. import (
     i18n,
     picks_cli,
     pipeline,
+    recommend,
     scrape_health,
     scrape_once,
     scraper,
@@ -76,6 +80,59 @@ def saved_weather_site() -> str | None:
     """The weather site a day's icon opens; None (the default) when it opens nothing."""
     saved = user_config.load_value("WEATHER_LINK", user_config.CONFIG_FILE)
     return saved if saved in WEATHER_SITES else None
+
+
+# Where a booking's calendar button sends it (Settings > Display, CALENDAR=; 1.1.0): Outlook for work or school
+# (Microsoft 365) or Outlook.com, Google Calendar, or a calendar file any calendar app opens. None: no button.
+CALENDARS = ("outlook", "outlook_com", "google", "ics")
+
+
+def saved_calendar() -> str | None:
+    saved = user_config.load_value("CALENDAR", user_config.CONFIG_FILE)
+    return saved if saved in CALENDARS else None
+
+
+def _with_round_times(items: list[dict]) -> list[dict]:
+    """Each booking with its round's `start` and `end` in UTC ("2026-10-24T14:00:00Z"): the tee time in the club's
+    own timezone, and the round as long as the club's settings say (what the calendar button puts in)."""
+    configs: dict[str, dict] = {}
+    result = []
+    for item in items:
+        config = configs.get(item["club_id"])
+        if config is None:
+            config = configs[item["club_id"]] = pipeline._resolved_config(item.get("slug"), item["club_id"], item.get("club"))
+        try:
+            start = datetime.fromisoformat(f"{item['date']}T{item['time']}").replace(tzinfo=booking_window.club_timezone(config))
+        except (TypeError, ValueError):
+            result.append(item)
+            continue
+        end = start + timedelta(minutes=recommend._round_duration_minutes(item["course"], config))
+        utc = lambda moment: moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        result.append({**item, "start": utc(start), "end": utc(end)})
+    return result
+
+
+_UTC_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def calendar_file(title: str | None, location: str | None, start: str | None, end: str | None) -> bytes | None:
+    """One event as an iCalendar file (RFC 5545) for the "calendar file" choice; None if the times are not UTC
+    stamps as `_with_round_times()` writes them. Text is cut short and escaped, so nothing can add its own lines."""
+    if not (start and end and _UTC_STAMP.match(start) and _UTC_STAMP.match(end)):
+        return None
+
+    def text(value: str | None) -> str:
+        value = " ".join((value or "").split())[:200]
+        return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+
+    stamp = lambda value: value.replace("-", "").replace(":", "")  # noqa: E731
+    uid = hashlib.sha256(f"{title}|{location}|{start}".encode()).hexdigest()[:24]
+    lines = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//teetime-monitor//EN", "BEGIN:VEVENT",
+        f"UID:{uid}@teetime-monitor", f"DTSTAMP:{stamp(start)}", f"DTSTART:{stamp(start)}", f"DTEND:{stamp(end)}",
+        f"SUMMARY:{text(title)}", f"LOCATION:{text(location)}", "END:VEVENT", "END:VCALENDAR",
+    ]  # fmt: skip
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8")
 
 
 def _location(config: dict) -> dict | None:
@@ -170,6 +227,7 @@ def bootstrap() -> dict:
         "show_handicaps": bool(config.get("show_handicaps", True)),
         "theme": saved_theme(),
         "weather_site": saved_weather_site(),
+        "calendar": saved_calendar(),
         "clubs": club_entries(),
         "last": last,
     }
@@ -485,7 +543,8 @@ def _club_db(slug: str | None, club_id: str | None) -> tuple[dict, Path] | None:
 
 def reservations(refresh: bool = False, force: bool = False) -> dict:
     """Your upcoming bookings at every saved club (src/booking.py `upcoming_reservations`)."""
-    return booking.upcoming_reservations(club_entries(), refresh, force)
+    found = booking.upcoming_reservations(club_entries(), refresh, force)
+    return {**found, "reservations": _with_round_times(found["reservations"])}
 
 
 _TOURNAMENT_CACHE: dict[str, tuple[float, list]] = {}

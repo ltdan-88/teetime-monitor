@@ -93,7 +93,8 @@ The ★ is not just the earliest time. Every playable time is scored on the weat
 An opened day says why, e.g. "dry · room around you · daylight to spare". If your course is too dark to finish
 but a shorter one at the club still fits, it suggests that one instead. A day that isn't open for booking yet
 shows 🔒 and when it opens. Tap the weather icon of an opened day to see its forecast on meteoblue, Windy, Ventusky
-or Yr (choose one under Settings → Display).
+or Yr, and put a booking into Outlook, Google Calendar or Apple's calendar with one tap in **My reservations** (choose
+both under Settings → Display).
 
 ### Prefer the terminal?
 

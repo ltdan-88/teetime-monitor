@@ -1,9 +1,10 @@
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src import storage
+from src import analytics, storage
 from src.models import ConfirmedBooking, PlayerSighting, Schedule, Slot, SunTimes, WeatherPoint
 from src.storage import (
     acknowledge_booking_changes,
@@ -1560,3 +1561,65 @@ def test_separate_folders_keep_separate_directories(tmp_path):
     one, two = tmp_path / "one" / "0491001.db", tmp_path / "two" / "0491001.db"
     storage.record_seen_players([_sighting("Max Mustermann")], "2026-10-01T10:00:00+00:00", path=one)
     assert storage.load_known_players(two) == [] and storage.load_known_players(one)[0].name == "Max Mustermann"
+
+
+# --- unchanged slots are stored once (schema version 2, 1.1.0) -------------------------------------------
+
+
+def _sheet(players, rain=10.0):
+    return Schedule(
+        date="2026-11-07",
+        course="18 Loch Tee 1",
+        slots=[Slot(time="09:00", booked=len(players), capacity=4, players=players), Slot(time="09:10", booked=0, capacity=4)],
+        weather=[WeatherPoint(time="09:00", precipitation_probability=rain, precipitation_mm=0.0, wind_speed_kph=5.0, temperature_c=12.0, weather_code=3)],
+    )
+
+
+def _rows(path, sql, *args):
+    with sqlite3.connect(path) as conn:
+        return conn.execute(sql, args).fetchall()
+
+
+def test_a_scrape_with_the_same_slots_as_the_last_one_keeps_no_second_copy(tmp_path):
+    db = tmp_path / "club.db"
+    first = storage.save_schedule(_sheet(["Erika Musterfrau"], rain=10.0), path=db)
+    second = storage.save_schedule(_sheet(["Erika Musterfrau"], rain=40.0), path=db)  # only the forecast moved
+    third = storage.save_schedule(_sheet(["Erika Musterfrau"], rain=60.0), path=db)
+    assert _rows(db, "SELECT scrape_id, COUNT(*) FROM slots GROUP BY scrape_id") == [(third, 2)]
+    assert _rows(db, "SELECT id, slots_in FROM scrapes ORDER BY id") == [(first, third), (second, third), (third, None)]
+    latest = storage.load_latest_schedule("18 Loch Tee 1", "2026-11-07", path=db)
+    assert [(s.time, s.players) for s in latest.slots] == [("09:00", ["Erika Musterfrau"]), ("09:10", [])]
+    assert latest.weather[0].precipitation_probability == 60.0
+    assert _rows(db, "SELECT scrape_id, precipitation_probability FROM weather_points ORDER BY scrape_id") == [
+        (first, 10.0), (second, 40.0), (third, 60.0)]  # every forecast is still kept
+
+    changed = storage.save_schedule(_sheet(["Erika Musterfrau", "Jonas Mustermann"]), path=db)  # someone joined
+    assert _rows(db, "SELECT scrape_id, COUNT(*) FROM slots GROUP BY scrape_id ORDER BY scrape_id") == [(third, 2), (changed, 2)]
+    assert storage.load_latest_schedule("18 Loch Tee 1", "2026-11-07", path=db).slots[0].players == ["Erika Musterfrau", "Jonas Mustermann"]
+
+
+def test_a_version_1_history_is_compacted_once_and_reads_the_same(tmp_path):
+    db = tmp_path / "club.db"
+    storage.init_db(db)
+    with sqlite3.connect(db) as conn:  # how 1.0 saved it: every scrape with its own copy
+        for n, players in enumerate((["A"], ["A"], ["A", "B"], ["A", "B"], ["A", "B"])):
+            scrape = conn.execute("INSERT INTO scrapes (course, date, scraped_at, events) VALUES ('18 Loch Tee 1', '2026-10-01', ?, '[]')", (f"t{n}",)).lastrowid
+            conn.execute("INSERT INTO slots (scrape_id, time, booked, capacity, players) VALUES (?, '09:00', ?, 4, ?)", (scrape, len(players), json.dumps(players)))
+        conn.execute("PRAGMA user_version = 1")
+    before = analytics._completed_days("18 Loch Tee 1", db, today="2026-10-02")
+    storage.init_db(db)
+    assert storage.schema_version(db) == storage.SCHEMA_VERSION
+    assert _rows(db, "SELECT scrape_id FROM slots ORDER BY scrape_id") == [(2,), (5,)]
+    assert _rows(db, "SELECT id, slots_in FROM scrapes ORDER BY id") == [(1, 2), (2, None), (3, 5), (4, 5), (5, None)]
+    assert analytics._completed_days("18 Loch Tee 1", db, today="2026-10-02") == before
+    storage.init_db(db)  # once only: nothing moves again
+    assert _rows(db, "SELECT COUNT(*) FROM slots") == [(2,)]
+
+
+def test_a_newer_schema_version_is_left_alone(tmp_path):
+    db = tmp_path / "club.db"
+    storage.init_db(db)
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA user_version = 99")
+    storage.init_db(db)
+    assert storage.schema_version(db) == 99
