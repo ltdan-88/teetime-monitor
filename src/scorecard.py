@@ -125,6 +125,12 @@ def shots_per_hole(handicap: int, tee: Tee) -> list[int]:
     return [sign * (base + (1 if index > tee.holes - extra else 0)) for index in tee.stroke_index]
 
 
+def points(strokes: int | None, hole: dict) -> int | None:
+    """Stableford points for `strokes` on `hole` (from card()): 2 for par for you, one more or less per stroke, never
+    below 0; None for a hole not filled in."""
+    return None if strokes is None else max(0, 2 + hole["aim"] - strokes)
+
+
 def card(hi: float, tee: Tee) -> dict:
     """Everything the page shows for a round from `tee` with Handicap Index `hi`."""
     handicap = course_handicap(hi, tee)

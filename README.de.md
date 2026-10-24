@@ -97,7 +97,8 @@ noch nicht buchbar ist, zeigt 🔒 und wann er aufgeht. Das Wettersymbol eines g
 Vorhersage bei meteoblue, Windy, Ventusky oder Yr, und eine Buchung kommt mit einem Tipp in **Meine Reservierungen** in
 Outlook, den Google Kalender oder Apples Kalender (beides unter Einstellungen → Darstellung). Dort hat jede Buchung,
 und jede deiner letzten zehn Runden unter *Gespielte Runden*, auch **deine Scorekarte**: aus den Platzdaten des Clubs und deinem Handicap-Index deine Vorgabeschläge an jedem Loch,
-dein Par, wo du aufnehmen kannst, und wie viele Stableford-Punkte besser sind als dein Handicap.
+dein Par, wo du aufnehmen kannst, und wie viele Stableford-Punkte besser sind als dein Handicap. Trägst du während oder nach der Runde deine Schläge ein, zählt sie deine
+Punkte (nur in der App gespeichert).
 
 ### Lieber im Terminal?
 

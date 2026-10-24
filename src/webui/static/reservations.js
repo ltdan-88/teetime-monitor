@@ -32,7 +32,7 @@ export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, 
 
   const list = (state && state.reservations) || [];
   const past = (state && state.past) || [];
-  const scorecardButton = (item) => html`<button class="icon-btn" onClick=${() => onScorecard(item)} aria-label=${t('scorecard.title')} title=${t('scorecard.title')}><${Icon} name="grid" size=${18} /></button>`;
+  const scorecardButton = (item) => html`<button class="btn small sc-open" onClick=${() => onScorecard(item)} title=${t('scorecard.title')}><${Icon} name="grid" size=${16} />${t('scorecard.button')}</button>`;
   const problems = ((state && state.refresh_problems) || []).map((p) => p.club).filter(Boolean).join(', ');
   const failed = !!(state && state.refresh_problems && state.refresh_problems.length);
   return html`<${Sheet} title=${t('reservations.title')} onClose=${onClose} size="medium">
