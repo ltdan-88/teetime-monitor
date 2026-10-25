@@ -2517,3 +2517,24 @@ def test_strokes_typed_into_a_rounds_scorecard_count_points_and_are_kept(ui):
     ui.key("Escape")
     ui.wait("document.querySelectorAll('.sheet').length === 1")
     _close_sheet(ui)
+
+
+def test_a_letter_in_the_player_index_brings_its_players_to_the_top_of_the_list(ui):
+    """Found on an iPhone: the jump used the sticky letter heading's offsetTop, which Safari gives where the heading is
+    stuck, so the list moved a line. It is measured on the first player under the letter now."""
+    try:
+        ui.call("Emulation.setDeviceMetricsOverride", width=390, height=844, deviceScaleFactor=2, mobile=True)
+        _open_sheet(ui, "p", "Player")
+        ui.wait("document.querySelectorAll('.alpha button').length > 2")
+        ui.js("document.querySelector('.player-list').style.maxHeight = '9rem'; true")  # the demo has few players: make it scroll
+        # the letter's first player (a sticky heading shows where it is stuck, which is the bug, so not that)
+        where = """(() => { const l = document.querySelector('.player-list'), t = document.getElementById('letter-%s'), h = l.querySelector('.player-head');
+          return [l.scrollTop, t.nextElementSibling.getBoundingClientRect().top - l.getBoundingClientRect().top, h.getBoundingClientRect().height + t.getBoundingClientRect().height, l.scrollHeight - l.clientHeight]; })()"""
+        letters = ui.js("[...document.querySelectorAll('.alpha button')].map((b) => b.textContent)")
+        for letter in (letters[1], letters[0]):
+            ui.js(f"[...document.querySelectorAll('.alpha button')].find((b) => b.textContent === {json.dumps(letter)}).click()")
+            ui.wait(f"(() => {{ const [s, top, head, most] = {where % letter}; return Math.abs(top - head) <= 2 || (s >= most - 1 && top >= head); }})()", 5)
+        ui.wait("document.querySelector('.player-list').scrollTop === 0", 5)  # the first letter is the top of the list
+    finally:
+        ui.call("Emulation.clearDeviceMetricsOverride")
+        ui.key("Escape")
