@@ -98,10 +98,17 @@ export function PlayersSheet({ club, showHandicaps, onJump, onClose, onChanged }
   const grouped = sort === 'name' ? byLetter(rows) : sort === 'club' ? byClub(rows) : null;
   const letters = sort === 'name' && grouped ? grouped.map((group) => group.letter).filter((letter, i, all) => all.indexOf(letter) === i) : [];
   const jump = (letter) => {
-    // scrollTo on the list itself: scrollIntoView would also move every scrollable parent
+    // scrollTo on the list itself: scrollIntoView would also move every scrollable parent. Measured on the first player
+    // under the letter, not on the letter: a sticky heading reports where it is stuck, not where it sits (Safari's
+    // offsetTop), so on an iPhone the list only moved a line (2026-10-25). The letter lands just under the column heads.
     const list = document.querySelector('.player-list');
-    const target = document.getElementById('letter-' + letter);
-    if (list && target) list.scrollTo({ top: target.offsetTop, behavior: 'smooth' });
+    const heading = document.getElementById('letter-' + letter);
+    const first = heading && heading.nextElementSibling;
+    if (!list || !first) return;
+    const head = list.querySelector('.player-head');
+    const above = heading.getBoundingClientRect().height + (head && head.offsetParent ? head.getBoundingClientRect().height : 0);
+    const top = list.scrollTop + first.getBoundingClientRect().top - list.getBoundingClientRect().top - above;
+    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   };
   const row = (player) => html`
         <li onDblClick=${() => focus(player)}>
