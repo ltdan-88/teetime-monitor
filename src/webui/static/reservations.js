@@ -1,11 +1,12 @@
-// "My reservations": your upcoming bookings at every saved club, each with a cancel button (src/webui/data.py reservations()).
+// "My reservations": your upcoming bookings at every saved club, each with a cancel button (src/webui/data.py reservations());
+// a booking's day and time take you to it in the Overview.
 
 import { html, t, useState, useEffect, Sheet, Status, Icon, api, dayLabel, updatedText, calendarLink } from '/lib.js';
 
 /** The list comes at once from what is known; pc caddie is then asked for the true state (bookings made on its
  *  own site appear, cancelled ones go) and the list is replaced -- unless it was read a few minutes ago, which the
  *  line under the list says, with a button to read it again now. */
-export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, calendar }) {
+export function ReservationsSheet({ onClose, onCancel, onScorecard, onJump, refreshKey, calendar }) {
   const [state, setState] = useState(null); // { reservations, refresh_problems, checked_at }
   const [checking, setChecking] = useState(true);
   const [force, setForce] = useState(0);
@@ -42,8 +43,9 @@ export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, 
     <ul class="resv-list">
       ${list.map((item) => html`
         <li key=${item.club_id + item.course + item.date + item.time}>
-          <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
-          <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
+          <button class="resv-main" onClick=${() => onJump(item)} title=${t('reservations.jump')}>
+            <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
+            <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span></button>
           <span class="resv-actions">${scorecardButton(item)}
           ${calendarLink(calendar, item) && html`<a class="icon-btn" href=${calendarLink(calendar, item)} target="_blank" rel="noopener noreferrer"
             aria-label=${t('reservations.calendar')} title=${t('reservations.calendar')}><${Icon} name="calendarplus" size=${18} /></a>`}
@@ -54,8 +56,9 @@ export function ReservationsSheet({ onClose, onCancel, onScorecard, refreshKey, 
     <ul class="resv-list past">
       ${past.map((item) => html`
         <li key=${'p' + item.club_id + item.course + item.date + item.time}>
-          <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
-          <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span>
+          <span class="resv-main">
+            <span class="resv-when"><b>${dayLabel(item.date)}</b> <span class="num">${item.time}</span></span>
+            <span class="resv-where">${item.club}<span class="dim"> · ${item.course}</span></span></span>
           <span class="resv-actions">${scorecardButton(item)}</span>
         </li>`)}
     </ul>`}

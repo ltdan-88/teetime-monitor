@@ -113,7 +113,7 @@ Dieselbe Woche, derselbe ★, dieselben Vorgaben. Jeder Bildschirm hat eine Tast
 | Suchen | **s** | **/** |
 | Heatmap | **h** | **h** |
 | Spieler | **p** | **p** |
-| Meine Reservierungen (Buchungen ansehen und stornieren) | **b** | **b** |
+| Meine Reservierungen (Buchungen ansehen, in der Übersicht öffnen und stornieren) | **b** | **b** |
 | Turniere (der Kalender des Clubs als Monatsansicht) | **t** | – |
 | Vergangene Tage | **v** | – |
 | Präferenzen · Einstellungen | **e** · **,** | **,** · **s** |
