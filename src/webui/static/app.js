@@ -734,7 +734,7 @@ function App() {
       ${sheet === 'players' && clubForSheets && html`<${PlayersSheet} club=${clubForSheets} showHandicaps=${showHandicaps} onJump=${(hit) => { setSheet(null); jumpTo(hit.date, hit.time, hit.course, hit.here === false ? hit.slug : null); }} onClose=${() => setSheet(null)} onChanged=${() => view && loadOverview(view, course)} />`}
       ${sheet === 'tournaments' && club && club.slug && html`<${TournamentsSheet} club=${club} units=${units} focusDate=${tournamentDate} knownDays=${overview ? overview.days.map((day) => day.date) : []} onShowDay=${(date) => { setSheet(null); jumpTo(date); }} onClose=${() => setSheet(null)} />`}
       ${sheet === 'reservations' && html`<${ReservationsSheet} refreshKey=${searchTick} calendar=${calendar} onClose=${() => setSheet(null)}
-        onScorecard=${setScorecardFor}
+        onScorecard=${setScorecardFor} onJump=${(item) => { setSheet(null); jumpTo(item.date, item.time, item.course, item.slug); }}
         onCancel=${(item) => setBooking({ mode: 'cancel', date: item.date, time: item.time, course: item.course, ref: { slug: item.slug, club_id: item.slug ? null : item.club_id }, dateText: dayLabel(item.date) })} />`}
       ${scorecardFor && html`<${ScorecardSheet} booking=${scorecardFor} onClose=${() => setScorecardFor(null)} />`}
       ${booking && html`<${BookingDialog} booking=${booking} onClose=${() => setBooking(null)} onDone=${bookingDone} />`}

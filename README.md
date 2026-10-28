@@ -113,7 +113,7 @@ Same week, same ★, same rules. Every screen has a one-letter key, shown in the
 | Search | **s** | **/** |
 | Heatmap | **h** | **h** |
 | Players | **p** | **p** |
-| My reservations (see and cancel your bookings) | **b** | **b** |
+| My reservations (see, open in the Overview and cancel your bookings) | **b** | **b** |
 | Tournaments (the club's calendar as a month grid) | **t** | – |
 | Past days | **v** | – |
 | Preferences · Settings | **e** · **,** | **,** · **s** |

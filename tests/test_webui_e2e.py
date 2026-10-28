@@ -282,6 +282,18 @@ def test_the_reservations_window_lists_your_bookings_and_cancels_one(ui):
     ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.pill.booked').length === 1")
 
 
+def test_a_reservation_takes_you_to_its_tee_time(ui):
+    ui.js("window.scrollTo(0, 0)")
+    _open_sheet(ui, "b", "My reservations")
+    ui.wait("document.querySelector('.resv-list:not(.past) button.resv-main') && !document.querySelector('.sheet .status-line')")
+    time = ui.js("document.querySelector('.resv-list:not(.past) .resv-when .num').textContent")
+    ui.click(".resv-list:not(.past) button.resv-main")
+    ui.wait("!document.querySelector('.scrim')")
+    ui.wait(f"document.querySelector('.card.open [data-slot$=\" {time}\"].flash.mine')")  # your slot is open, in view and flashing
+    assert ui.js("document.querySelectorAll('.card.open').length") == 1
+    ui.wait("!document.querySelector('.slot.flash')")  # the next test looks for a flash of its own
+
+
 def test_a_booking_goes_into_the_calendar_chosen_in_settings(ui):
     ui.js("window.scrollTo(0, 0)")
     _open_sheet(ui, ",", "Settings")
