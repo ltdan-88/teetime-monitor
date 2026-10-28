@@ -45,10 +45,25 @@ export function focusTime(day) {
   return slot ? slot.time : null;
 }
 
-/** Outside your own availability window: still there to read, just dimmed. */
+const earlier = (time, minutes) => {
+  const [hours, mins] = time.split(':').map(Number);
+  const at = Math.max(0, hours * 60 + mins - minutes);
+  return String(Math.floor(at / 60)).padStart(2, '0') + ':' + String(at % 60).padStart(2, '0');
+};
+
+/** Outside your own availability window: still there to read, just dimmed. A day you booked outside it has your
+ *  booking as its window instead: from an hour before your tee time to the last start that still finishes in daylight. */
 function outsideWindow(day, slot) {
   const win = day.pick && day.pick.window;
-  return !!win && ((win.after && slot.time < win.after) || (win.before && slot.time > win.before));
+  if (!win) return false;
+  const outside = (time) => (win.after && time < win.after) || (win.before && time > win.before);
+  const booked = day.booked_time;
+  if (booked && outside(booked)) {
+    const playable = day.slots.filter((entry) => !entry.too_late);
+    const last = playable.length ? playable[playable.length - 1].time : booked;
+    if (slot.time >= earlier(booked, 60) && slot.time <= (last > booked ? last : booked)) return false;
+  }
+  return !!outside(slot.time);
 }
 
 /** What the badge says, as a sentence on the page itself (the badge's tooltip is not available on a touch screen). */
