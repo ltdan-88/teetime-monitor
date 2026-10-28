@@ -294,6 +294,30 @@ def test_a_reservation_takes_you_to_its_tee_time(ui):
     ui.wait("!document.querySelector('.slot.flash')")  # the next test looks for a flash of its own
 
 
+def test_a_booking_outside_your_window_lights_up_the_times_around_it(ui):
+    ui.js("window.scrollTo(0, 0)")
+    while ui.count(".card.open"):
+        ui.click(".card.open button.dh")
+        ui.wait("document.querySelectorAll('.card.open').length === 0")
+    ui.click("button.dh", index=0)  # the demo's booked day; its 11:00 is outside your window
+    ui.wait("document.querySelector('.card.open .slot.mine') && document.querySelector('.card.open .slot.dimmed')")  # your window has arrived
+    rows = ui.js(
+        """[...document.querySelectorAll('.card.open .slot')].map((r) => ({time: r.dataset.slot.split(' ')[1], dimmed: r.classList.contains('dimmed')}))"""
+    )
+    booked = ui.js("document.querySelector('.card.open .slot.mine').dataset.slot.split(' ')[1]")
+    hour = int(booked[:2])
+    start = f"{hour - 1:02d}:{booked[3:]}"
+    day = ui.js("fetch('/api/bootstrap').then((r) => r.json()).then((b) => fetch('/api/overview?slug=' + b.clubs[0].slug)).then((r) => r.json()).then((o) => o.days[0])")
+    window = day["pick"]["window"]
+    outside = lambda time: (window.get("after") and time < window["after"]) or (window.get("before") and time > window["before"])  # noqa: E731
+    assert outside(booked), window
+    late = [slot["time"] for slot in day["slots"] if slot.get("too_late")]
+    lit = [row["time"] for row in rows if start <= row["time"] and row["time"] not in late]
+    assert lit and all(not row["dimmed"] for row in rows if row["time"] in lit), rows
+    assert all(row["dimmed"] == bool(outside(row["time"])) for row in rows if row["time"] not in lit), rows  # the rest as your window has it
+    ui.click(".card.open button.dh")
+
+
 def test_a_booking_goes_into_the_calendar_chosen_in_settings(ui):
     ui.js("window.scrollTo(0, 0)")
     _open_sheet(ui, ",", "Settings")
