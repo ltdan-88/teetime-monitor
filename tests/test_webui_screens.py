@@ -319,9 +319,9 @@ def test_the_bottom_panel_without_anything_to_say_has_no_cards(world):
 
 
 def test_a_booking_change_is_a_localized_banner_until_acknowledged(world):
-    storage.save_booking_change(
-        COURSE, date.today().isoformat(), "10:00", "party_grew", "A player joined", {"count": 1, "time": "10:00"}, path=world
-    )
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    storage.save_confirmed_booking(ConfirmedBooking(date=tomorrow, course=COURSE, time="10:00", source="booked"), path=world)
+    storage.save_booking_change(COURSE, tomorrow, "10:00", "party_grew", "A player joined", {"count": 1, "time": "10:00"}, path=world)
     banners = data.overview(SLUG, COURSE)["banners"]
     assert len(banners) == 1 and "10:00" in banners[0]["text"]
     assert data.acknowledge_banners(SLUG, None, [banners[0]["id"]]) == {"ok": True}

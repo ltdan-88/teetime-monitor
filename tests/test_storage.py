@@ -20,6 +20,7 @@ from src.storage import (
     load_latest_schedule,
     load_location,
     load_my_handicap,
+    load_pending_booking_changes,
     load_unacknowledged_booking_changes,
     record_seen_players,
     save_booking_change,
@@ -550,6 +551,23 @@ def test_acknowledge_booking_changes_hides_them(tmp_path):
     acknowledge_booking_changes([c["id"] for c in changes], path=db)
 
     assert load_unacknowledged_booking_changes(path=db) == []
+
+
+def test_only_changes_to_a_booking_still_ahead_and_still_held_are_pending(tmp_path):
+    db = tmp_path / "teetime.db"
+    for date, time in (("2026-09-05", "14:00"), ("2026-09-06", "09:00"), ("2026-09-06", "16:00"), ("2026-09-07", "10:00"), ("2026-09-08", "11:00")):
+        save_confirmed_booking(ConfirmedBooking(date=date, course="18 Loch Tee 1", time=time, source="booked"), path=db)
+    save_confirmed_booking(ConfirmedBooking(date="2026-09-07", course="18 Loch Tee 1", time=None, source="my_reservations"), path=db)  # cancelled
+    save_confirmed_booking(ConfirmedBooking(date="2026-09-08", course="18 Loch Tee 1", time="12:00", source="booked"), path=db)  # moved
+    for date, time in (("2026-09-05", "14:00"), ("2026-09-06", "09:00"), ("2026-09-06", "16:00"), ("2026-09-07", "10:00"), ("2026-09-08", "11:00"), ("2026-09-08", "12:00")):
+        save_booking_change(course="18 Loch Tee 1", date=date, time=time, kind="party_grew", message=f"{date} {time}", path=db)
+    save_booking_change(course="", date="2026-09-01", time=None, kind="reservations_sync_failed", message="sync", path=db)
+
+    pending = load_pending_booking_changes("2026-09-06", "12:30", path=db)
+
+    # yesterday's round and this morning's are played, the 7th was cancelled and the 8th moved to 12:00
+    assert [change["message"] for change in pending] == ["2026-09-06 16:00", "2026-09-08 12:00", "sync"]
+    assert len(load_unacknowledged_booking_changes(path=db)) == 7  # nothing is marked as seen by it
 
 
 def test_acknowledge_booking_changes_handles_empty_list(tmp_path):

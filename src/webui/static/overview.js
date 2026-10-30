@@ -233,12 +233,14 @@ export function DayCard({ day, open, onToggle, units, showHandicaps, onPick, onT
     </section>`;
 }
 
-export function Banners({ banners, onAcknowledge }) {
+/** A change to one of your bookings, with its day (and its course when that is not the one on screen): the banners
+ *  stand above every day of the club, not under the one they are about. A notice about no booking has neither. */
+export function Banners({ banners, course, onAcknowledge }) {
   if (!banners || !banners.length) return null;
   return html`<div class="banners">${banners.map((banner) => html`
     <div class="banner" role="status">
       <${Icon} name="info" size=${18} />
-      <span>${banner.text}</span>
+      <span>${banner.time && html`<b>${dayLabel(banner.date)}${banner.course && banner.course !== course ? ' · ' + banner.course : ''}:</b> `}${banner.text}</span>
       <button class="icon-btn" onClick=${() => onAcknowledge(banner)} aria-label=${t('dismiss')} title=${t('dismiss')}><${Icon} name="close" size=${16} /></button>
     </div>`)}</div>`;
 }

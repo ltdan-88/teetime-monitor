@@ -686,7 +686,7 @@ function App() {
         ${update && update.auto_result && html`<${AutoUpdateNote} result=${update.auto_result} current=${update.current} url=${update.url}
           onDismiss=${() => { setUpdate((current) => ({ ...current, auto_result: null })); post('/api/update/seen', {}).catch(() => {}); }} />`}
         ${update && update.newer && dismissedUpdate !== update.latest && html`<${UpdateNotice} update=${update} onUpdate=${() => setSheet('update')} onDismiss=${dismissUpdate} />`}
-        ${overview && html`<${Banners} banners=${overview.banners} onAcknowledge=${ackBanner} />`}
+        ${overview && html`<${Banners} banners=${overview.banners} course=${overview.course} onAcknowledge=${ackBanner} />`}
         ${showPast && html`
           <div class="preview-bar" role="status"><${Icon} name="info" size=${18} /><span>${t('history.note')}</span><span class="grow"></span>
             <button class="btn pri" onClick=${() => setShowPast(false)}>${t('history.back')}</button></div>`}

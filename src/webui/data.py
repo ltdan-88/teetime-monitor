@@ -376,7 +376,7 @@ def _overview_window(config: dict) -> int:
 
 
 def banners_for(db: Path) -> list[dict]:
-    """Unacknowledged booking changes, rendered in the current language (as the TUI's banners)."""
+    """Unacknowledged changes to bookings you still hold, rendered in the current language (as the TUI's banners)."""
     if not db.exists():
         return []
     return [
@@ -387,7 +387,7 @@ def banners_for(db: Path) -> list[dict]:
             "time": change["time"],
             "text": i18n.render_booking_change(change["kind"], change["params"]) or change["message"],
         }
-        for change in storage.load_unacknowledged_booking_changes(db)
+        for change in storage.load_pending_booking_changes(clock.today(), clock.now_hhmm(), db)
     ]
 
 
