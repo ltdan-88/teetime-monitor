@@ -6276,6 +6276,13 @@ def test_overview_legend_does_not_reuse_the_rain_label():
 # screen. Would make this open full day view screen redundant, right?") ----
 
 
+def _hold_booking_on_the_13th(monkeypatch, db_path):
+    """A banner shows only while its booking is still ahead and still yours: the day before, booked at 14:00."""
+    monkeypatch.setattr(clock, "today", lambda: "2026-09-12")
+    monkeypatch.setattr(clock, "now_hhmm", lambda: "08:00")
+    storage.save_confirmed_booking(ConfirmedBooking(date="2026-09-13", course="18 Loch Tee 1", time="14:00", source="booked"), path=db_path)
+
+
 def test_overview_screen_shows_and_dismisses_banner_with_a_date_prefix(tmp_path, monkeypatch):
     # Unlike the since-retired day-detail screen's identical banner (which never needed to say
     # which day, since you're already looking at that one date),
@@ -6283,6 +6290,7 @@ def test_overview_screen_shows_and_dismisses_banner_with_a_date_prefix(tmp_path,
     # with its own weekday + short date.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tui, "fetch_available_dates", lambda club_id: [])
+    _hold_booking_on_the_13th(monkeypatch, scrape_once._db_path("0000001"))
     storage.save_booking_change(
         course="18 Loch Tee 1",
         date="2026-09-13",
@@ -6316,6 +6324,7 @@ def test_dismissing_banners_leaves_a_change_saved_after_they_were_shown(tmp_path
     # when the pass ends -- `x` used to re-query and acknowledge those unseen too.
     monkeypatch.setattr(scrape_once, "DATA_DIR", tmp_path)
     db_path = scrape_once._db_path("0000001")
+    _hold_booking_on_the_13th(monkeypatch, db_path)
 
     def save_change(message):
         count = int(message.split()[0])

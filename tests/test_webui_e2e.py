@@ -295,27 +295,59 @@ def test_a_reservation_takes_you_to_its_tee_time(ui):
 
 
 def test_a_booking_outside_your_window_lights_up_the_times_around_it(ui):
+    window = {"after": "14:00", "before": "17:00"}  # the demo's own differs at the weekend, when its 11:00 is inside
+    ui.js(
+        f"""(() => {{ const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => {{ const response = await real(url, options);
+          if (!/api\\/overview/.test(String(url))) return response;
+          const data = await response.json();
+          if (data.days[0].pick) data.days[0].pick.window = {json.dumps(window)};
+          window.__day = data.days[0];
+          return new Response(JSON.stringify(data), {{status: 200, headers: {{'Content-Type': 'application/json'}}}}); }}; }})()"""
+    )
+    ui.key("r")
     ui.js("window.scrollTo(0, 0)")
     while ui.count(".card.open"):
         ui.click(".card.open button.dh")
         ui.wait("document.querySelectorAll('.card.open').length === 0")
-    ui.click("button.dh", index=0)  # the demo's booked day; its 11:00 is outside your window
+    ui.wait("window.__day && window.__day.pick")
+    ui.click("button.dh", index=0)  # the demo's booked day, 11:00
     ui.wait("document.querySelector('.card.open .slot.mine') && document.querySelector('.card.open .slot.dimmed')")  # your window has arrived
     rows = ui.js(
         """[...document.querySelectorAll('.card.open .slot')].map((r) => ({time: r.dataset.slot.split(' ')[1], dimmed: r.classList.contains('dimmed')}))"""
     )
     booked = ui.js("document.querySelector('.card.open .slot.mine').dataset.slot.split(' ')[1]")
-    hour = int(booked[:2])
-    start = f"{hour - 1:02d}:{booked[3:]}"
-    day = ui.js("fetch('/api/bootstrap').then((r) => r.json()).then((b) => fetch('/api/overview?slug=' + b.clubs[0].slug)).then((r) => r.json()).then((o) => o.days[0])")
-    window = day["pick"]["window"]
-    outside = lambda time: (window.get("after") and time < window["after"]) or (window.get("before") and time > window["before"])  # noqa: E731
-    assert outside(booked), window
-    late = [slot["time"] for slot in day["slots"] if slot.get("too_late")]
+    start = f"{int(booked[:2]) - 1:02d}:{booked[3:]}"
+    outside = lambda time: time < window["after"] or time > window["before"]  # noqa: E731
+    assert outside(booked)
+    late = [slot["time"] for slot in ui.js("window.__day.slots") if slot.get("too_late")]
     lit = [row["time"] for row in rows if start <= row["time"] and row["time"] not in late]
     assert lit and all(not row["dimmed"] for row in rows if row["time"] in lit), rows
-    assert all(row["dimmed"] == bool(outside(row["time"])) for row in rows if row["time"] not in lit), rows  # the rest as your window has it
-    ui.click(".card.open button.dh")
+    assert all(row["dimmed"] == outside(row["time"]) for row in rows if row["time"] not in lit), rows  # the rest as your window has it
+    ui.js("window.__beforeReload = true; location.reload()")
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
+
+
+def test_a_banner_about_your_booking_says_its_day(ui):
+    ui.js(  # one change on the page's course and one on another: each says its day, only the other one its course
+        """(() => { const real = window.fetch.bind(window);
+        window.fetch = async (url, options) => { const response = await real(url, options);
+          if (!/api\\/overview/.test(String(url))) return response;
+          const data = await response.json();
+          const date = data.days[1].date;
+          data.banners = [{id: 901, course: data.course, date, time: '14:00', text: '1 more player joined your 14:00 tee time since you booked'},
+                          {id: 902, course: 'Elsewhere 9', date, time: '09:00', text: 'The forecast for your 09:00 tee time got worse (wind)'}];
+          window.__day = date;
+          return new Response(JSON.stringify(data), {status: 200, headers: {'Content-Type': 'application/json'}}); }; })()"""
+    )
+    ui.key("r")
+    ui.wait("document.querySelectorAll('.banner').length === 2")
+    label = ui.js("(() => { const d = new Date(window.__day + 'T12:00:00'); return d.toLocaleDateString('en', {weekday: 'short'}); })()")
+    first, second = ui.js("[...document.querySelectorAll('.banner span')].map((s) => s.textContent)")
+    assert first.startswith(label) and "joined your 14:00" in first and "Elsewhere" not in first, first
+    assert second.startswith(label) and "Elsewhere 9:" in second, second
+    ui.js("window.__beforeReload = true; location.reload()")
+    ui.wait("window.__beforeReload === undefined && document.querySelectorAll('.card').length > 0")
 
 
 def test_a_booking_goes_into_the_calendar_chosen_in_settings(ui):
@@ -342,6 +374,15 @@ def test_a_booking_goes_into_the_calendar_chosen_in_settings(ui):
     _close_sheet(ui)
     ui.js("fetch('/api/calendar', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: ''})}).then(() => location.reload())")
     ui.wait("document.querySelectorAll('.card').length > 0")
+
+
+def _tournaments_listed(ui):
+    """Wait for the Tournaments window's list. In a month's last days the demo's calendar (relative to today) has
+    nothing left in it: then the next month's."""
+    ui.wait("document.querySelectorAll('.tn-cell').length >= 28 && !document.querySelector('.sheet .status-line')")
+    if not ui.count(".tn-item"):
+        ui.click(".tn-step:last-child")
+    ui.wait("document.querySelectorAll('.tn-item').length > 0")
 
 
 def _tournament_month(ui, name):
@@ -1981,7 +2022,7 @@ def test_search_and_tournaments_have_no_club_choice_of_their_own(two_clubs_ui):
     assert ui.count("#tool-club") == 0 and ui.count(".sheet select#club") == 0  # Search looks at the club of the page
     _close_sheet(ui)
     _open_sheet(ui, "t", "Tournaments")
-    ui.wait("document.querySelectorAll('.tn-item').length > 0")
+    _tournaments_listed(ui)
     assert ui.count("#tn-club") == 0 and ui.count(".tn-filters select") == 0
     _close_sheet(ui)
 
@@ -2008,7 +2049,7 @@ def test_the_cannot_reach_screen_goes_away_by_itself_when_the_server_answers_aga
 
 def test_a_tournament_in_the_loaded_days_shows_its_forecast(ui):
     _open_sheet(ui, "t", "Tournaments")
-    ui.wait("document.querySelectorAll('.tn-item').length > 0")
+    _tournaments_listed(ui)
     ui.wait("document.querySelector('.tn-item .chip.wx')")
     assert "°" in ui.text(".tn-item .chip.wx") and "%" in ui.text(".tn-item .chip.wx")
     far = "[...document.querySelectorAll('.tn-item')].some((li) => !li.querySelector('.chip.wx'))"

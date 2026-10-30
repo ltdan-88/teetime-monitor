@@ -762,6 +762,22 @@ def load_unacknowledged_booking_changes(path: Path = DEFAULT_DB_PATH) -> list[di
     ]
 
 
+def load_pending_booking_changes(today: str, now_hhmm: str, path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """The unacknowledged changes still worth a banner: those about a booking you still hold at that time and that
+    has not teed off yet. A round that was played, cancelled or moved takes its changes with it (they once stayed
+    until dismissed, a week after the round); a notice about no booking in particular (no `time`) always shows."""
+    pending = []
+    for change in load_unacknowledged_booking_changes(path):
+        if change["time"] is not None:
+            if (change["date"], change["time"]) < (today, now_hhmm):
+                continue
+            booking = load_confirmed_booking(change["course"], change["date"], path)
+            if booking is None or booking.time != change["time"]:
+                continue
+        pending.append(change)
+    return pending
+
+
 def acknowledge_booking_changes(ids: list[int], path: Path = DEFAULT_DB_PATH) -> None:
     """Mark banners as seen — doesn't delete the row, just stops it showing again next
     time the TUI opens."""

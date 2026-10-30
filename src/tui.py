@@ -3017,7 +3017,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
         scoped to one date — DayDetailScreen just happened to be viewing one
         date already, so its own banner never needed to say which day a
         change was about; here it does (`include_date=True`)."""
-        changes = storage.load_unacknowledged_booking_changes(path=self.db_path)
+        changes = storage.load_pending_booking_changes(clock.today(), clock.now_hhmm(), path=self.db_path)
         self.query_one("#banners", Static).update(_render_banner_lines(changes, include_date=True))
         self._shown_banner_ids = [change["id"] for change in changes]
         self._has_banners = bool(changes)
@@ -3306,7 +3306,7 @@ class OverviewScreen(_ClubCourseSwitcher, Screen[None]):
             if booking.course == self.course
         }
         pending_change_dates = {
-            change["date"] for change in storage.load_unacknowledged_booking_changes(path=self.db_path)
+            change["date"] for change in storage.load_pending_booking_changes(clock.today(), clock.now_hhmm(), path=self.db_path)
         }
 
         schedules: list[Schedule] = []
