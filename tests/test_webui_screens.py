@@ -964,6 +964,12 @@ def test_the_page_addresses_its_stylesheet_and_script_by_content(running):
     assert imports and all(path.endswith(b"?v=" + js.group(1)) for path in imports), imports  # and so are the modules it imports
     status, lib = get("/search.js?v=" + js.group(1).decode())
     assert b"from '/lib.js?v=" + js.group(1) + b"'" in lib
+    # A script asked for by another version (a page loaded while an update replaced the files) imports that version:
+    # one lib.js per page, never a second one without the texts
+    status, players = get("/players.js?v=0123456789ab")
+    assert status == 200 and b"from '/lib.js?v=0123456789ab'" in players and b"?v=" + js.group(1) not in players
+    status, players = get("/players.js?v=../../etc")  # anything else is not a version: the one on disk
+    assert b"from '/lib.js?v=" + js.group(1) + b"'" in players
 
 
 def test_the_player_list_is_one_for_every_club_and_names_the_home_club(world):
