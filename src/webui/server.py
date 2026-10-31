@@ -108,10 +108,16 @@ def _versioned(page: bytes) -> bytes:
     return page
 
 
-def _versioned_imports(script: bytes) -> bytes:
+_VERSION = re.compile(r"[0-9a-f]{12}")
+
+
+def _versioned_imports(script: bytes, version: str | None = None) -> bytes:
     """A script with the modules it imports addressed by the release too (`from '/lib.js?v=<hash>'`): the page never
-    runs a mix of files from two versions, whatever a browser kept."""
-    release = _release()
+    runs a mix of files from two versions, whatever a browser kept. A script asked for by its version imports that
+    same version, not the one on disk now: while an update replaces the files, `/players.js?v=A` once came back
+    importing `/lib.js?v=B`, Safari kept it so, and the Player directory ran a second lib.js that had no texts loaded
+    (every label a raw key, 2026-10-31)."""
+    release = version.encode() if version and _VERSION.fullmatch(version) else _release()
     return _IMPORT.sub(lambda m: m.group(1) + m.group(2) + b"?v=" + release + m.group(3), script)
 
 
@@ -362,7 +368,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api(method, url.path, query)
             if method != "GET":
                 return self._text(HTTPStatus.METHOD_NOT_ALLOWED, "Not allowed.")
-            return self._static(url.path)
+            return self._static(url.path, query.get("v", [None])[0])
         except (BrokenPipeError, ConnectionResetError):
             return None
         except Exception:  # noqa: BLE001 -- a handler bug must not take the server down
@@ -395,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._api(method, url.path, query)
         if method != "GET":
             return self._text(HTTPStatus.METHOD_NOT_ALLOWED, "Not allowed.")
-        return self._static(url.path)
+        return self._static(url.path, query.get("v", [None])[0])
 
     def _redirect(self, location: str) -> None:
         self._send(HTTPStatus.FOUND, b"", "text/plain", {"Location": location, "Cache-Control": "no-store"})
@@ -436,7 +442,7 @@ class Handler(BaseHTTPRequestHandler):
         self.server.login_throttle.miss(address)
         return self._json({"error": "bad_password"}, HTTPStatus.UNAUTHORIZED)
 
-    def _static(self, path: str) -> None:
+    def _static(self, path: str, version: str | None = None) -> None:
         relative = "index.html" if path in ("", "/") else path.lstrip("/")
         target = (STATIC_DIR / relative).resolve()
         if STATIC_DIR.resolve() not in target.parents or not target.is_file():
@@ -448,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
         if relative == "index.html":
             body = _versioned(body)
         elif relative.endswith(".js"):
-            body = _versioned_imports(body)
+            body = _versioned_imports(body, version)
         tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'  # the page revalidates (no-cache): unchanged files answer 304
         if self.headers.get("If-None-Match") == tag:
             return self._send(HTTPStatus.NOT_MODIFIED, b"", content_type, {"Cache-Control": "no-cache", "ETag": tag})
