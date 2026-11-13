@@ -208,7 +208,7 @@ def test_parse_slot_row_unknown_seat_text_is_a_note_not_a_player_when_anonymous(
     )
     slot = _parse_slot_row(row)
     assert slot.players == []
-    assert slot.block_reason == "Greenfee CHF 140.-"
+    assert slot.block_reason is None  # a note on a bookable time does not block it
 
 
 def test_parse_slot_row_merged_free_seat_cell_note_is_never_a_player():
@@ -227,7 +227,28 @@ def test_parse_slot_row_merged_free_seat_cell_note_is_never_a_player():
     slot = _parse_slot_row(row)
     assert slot.booked == 2  # the two real occupants, not the note
     assert slot.players == []
-    assert slot.block_reason == "Nur fuer Mitglieder"
+    assert slot.block_reason is None  # a note on a bookable time does not block it
+
+
+def test_parse_slot_row_club_notice_on_a_free_time_does_not_block_it():
+    # Live 2026-11-13 (Niederreutin, Sat 14 Nov): a winter notice in the merged free-seat cell of every open time.
+    # Stored as block_reason it greyed out all of them in the app, while pc caddie booked each one.
+    row = _row(
+        '<tr class="pcco-tt-time-person" data-seat_bookable="2" data-status="bookable" data-time="12:10">'
+        '<td class="seats-free-2 tt-gruen pcco-tt-filter-information"><time class="pcco-tt-timestamp">12:10</time></td>'
+        '<td rel="tooltipsy"><span class="tt-show-name tt-show-female">Erika Muster</span>'
+        '<span class="tt-show-hcp">Member (26.3)</span></td>'
+        '<td rel="tooltipsy"><span class="tt-show-name tt-show-female">Eva Eagle</span>'
+        '<span class="tt-show-hcp">Member (33.9)</span></td>'
+        '<td colspan="2" rel="tooltipsy"><span class="tt-show-name">'
+        '<img alt="*I" class="tt-icon-small" src="/file/public/Teetime/Timetable/info.png"/> Tragebag-Pflicht. Carts nicht zugelassen<br/>'
+        '<img alt="*I" class="tt-icon-small" src="/file/public/Teetime/Timetable/info.png"/> Toilettenhaus an B6/C7 geschlossen!<br/>'
+        "</span></td></tr>"
+    )
+    slot = _parse_slot_row(row, authenticated=True)
+    assert slot.block_reason is None
+    assert (slot.booked, slot.capacity) == (2, 4)
+    assert slot.players == ["Erika Muster", "Eva Eagle"]
 
 
 def test_parse_slot_row_clamps_negative_seat_bookable():
@@ -887,7 +908,7 @@ def test_scrape_schedule_is_anonymous_by_default(monkeypatch):
     # No login -- real name text isn't trusted as a player, same as pc caddie itself
     # never shows one to a logged-out reader (see _parse_slot_row()'s own docstring).
     assert schedule.slots[0].players == []
-    assert schedule.slots[0].block_reason == "Max Mustermann"
+    assert schedule.slots[0].block_reason is None  # a note, not a player, and no block
 
 
 def test_scrape_schedule_with_an_authenticated_client_captures_real_names(monkeypatch):

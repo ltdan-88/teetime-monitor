@@ -1011,7 +1011,9 @@ def test_storage_calls_close_their_connections(tmp_path):
 # --- scrape_runs / scrape_health() (2026-10-05) -- see storage.py's module docstring:
 # a 20-hour silent login failure nobody noticed ------------------------------------
 
-_T0 = datetime(2026, 10, 3, 16, 45, tzinfo=UTC)
+# A day ago, not a fixed date: record_scrape_run() prunes runs older than SCRAPE_RUN_RETENTION_DAYS by the real clock,
+# so a fixed 3 Oct start was deleted on its own write from 2 Nov 2026 on.
+_T0 = (datetime.now(UTC) - timedelta(days=1)).replace(second=0, microsecond=0)
 
 
 def _run(path, minutes, *, saved=1, attempted=None, failed=0, authenticated=None, error_kind=None,

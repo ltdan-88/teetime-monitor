@@ -341,7 +341,13 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
     version of this function only skipped that cell when its text was blank, so on 27
     of the 45 clubs swept, ordinary course notes were being recorded as players' real
     names. Reading only non-colspan cells as seats fixes that structurally, rather than
-    by trying to keep a list of every note any club might write."""
+    by trying to keep a list of every note any club might write.
+
+    **A note never blocks a time pc caddie itself offers** (2026-11-13): such a note is the club's word about the day,
+    not a reason the time cannot be booked. It used to be stored as `block_reason`, which every view reads as "not
+    bookable" -- harmless while notes sat on full times, until a winter notice ("Tragebag-Pflicht. Carts nicht
+    zugelassen ...") stood on every free time of a day and the app offered none of them, although pc caddie booked
+    them all. Only `block-time` / `disable-time` rows block (`_NON_OCCUPANCY_STATUSES`)."""
     time = row.get("data-time")
     status = row.get("data-status")
     seat_bookable_attr = row.get("data-seat_bookable")
@@ -372,7 +378,6 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
 
     players: list[str] = []
     player_details: list[PlayerSighting] = []
-    note: str | None = None
     for cell in row.find_all("td"):
         span = cell.select_one(".tt-show-name")
         if span is None:
@@ -381,14 +386,11 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
         if not text:
             continue
         if cell.get("colspan") is not None:
-            # The merged free-seat cell — a course note at most, never a player.
-            note = text
-            continue
+            continue  # the merged free-seat cell: a course note at most, never a player (and never a block)
         if text in KNOWN_ANONYMIZED_LABELS:
             continue  # anonymized member booking — already counted in `booked`
         if authenticated and not looks_like_player_name(text):
-            note = text  # an event/note written into a seat cell, not a person
-            continue
+            continue  # an event/note written into a seat cell, not a person
         if authenticated:
             players.append(text)  # a friend's real name — only ever visible logged in
             member_status, handicap = _parse_hcp_span(cell)
@@ -406,11 +408,10 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
             # on the site's own account page: "Only names of friends are visible to
             # you"), so this can't be a name — it's a club writing a note into a seat
             # cell ("Greenfee CHF 140.-", "Maximale Handicap-Summe 144", "Nur für
-            # Mitglieder"). Recorded as a note, for the same reason `block_reason`
-            # exists. Across the 79-club sweep this rule turned ~50 fabricated
-            # "players" into notes and lost no real names, because there were none to
-            # lose: `scrape_schedule()` doesn't log in.
-            note = text
+            # Mitglieder"), not a player. Across the 79-club sweep this rule turned ~50
+            # fabricated "players" into notes and lost no real names, because there were
+            # none to lose: `scrape_schedule()` doesn't log in.
+            continue
 
     return Slot(
         time=time,
@@ -418,7 +419,6 @@ def _parse_slot_row(row: Tag, capacity: int = SEATS_PER_SLOT, authenticated: boo
         capacity=capacity,
         players=players,
         player_details=player_details,
-        block_reason=note,
     )
 
 
